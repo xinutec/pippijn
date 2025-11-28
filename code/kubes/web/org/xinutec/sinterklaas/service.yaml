@@ -1,0 +1,67 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: web
+  name: httpd-sinterklaas
+spec:
+  selector:
+    matchLabels:
+      run: httpd-sinterklaas
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        run: httpd-sinterklaas
+    spec:
+      containers:
+      - name: httpd-sinterklaas
+        image: nginx
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: html-volume
+          mountPath: /usr/share/nginx/html
+      volumes:
+      - name: html-volume
+        configMap:
+          name: sinterklaas-html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: web
+  name: httpd-sinterklaas
+  labels:
+    run: httpd-sinterklaas
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+  selector:
+    run: httpd-sinterklaas
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  namespace: web
+  name: sinterklaas-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - sinterklaas.xinutec.org
+    secretName: sinterklaas-tls
+  rules:
+  - host: sinterklaas.xinutec.org
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: httpd-sinterklaas
+            port:
+              number:  80

@@ -11,14 +11,18 @@ in {
 
   # Packages that should be installed to the user profile.
   home.packages = with pkgs; [
-    git       # version control
-    git-crypt # encrypted files in public git repos
-    jq        # json query tool
-    keychain  # ssh-agent
-    python3   # various scripts
-    rclone    # sync with nextcloud
-    screen    # terminal window manager
-    unison    # sync with other machines
+    git         # version control
+    git-crypt   # encrypted files in public git repos
+    jq          # json query tool
+    keychain    # ssh-agent
+    # various scripts
+    (python3.withPackages(ps: with ps; [
+      requests
+      types-requests
+    ]))
+    rclone      # sync with nextcloud
+    screen      # terminal window manager
+    unison      # sync with other machines
     rxvt-unicode
   ];
 
