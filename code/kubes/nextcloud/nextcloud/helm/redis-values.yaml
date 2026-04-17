@@ -1,5 +1,11 @@
 # kubectl get secret --namespace nextcloud redis -o jsonpath="{.data.redis-password}" | base64 --decode
 
+# Bitnami moved paid images to bitnamisecure in Aug 2025.
+# bitnamilegacy has the old free images (no updates, temporary).
+# Long-term: consider switching to the official redis image.
+image:
+  repository: bitnamilegacy/redis
+
 architecture: standalone
 
 master:
