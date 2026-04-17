@@ -18,12 +18,12 @@ spec:
         pod-label: nextcloud-db-pod
     spec:
       containers:
-      - name: mysql
-        image: mysql:8.0.28
+      - name: mariadb
+        image: mariadb:11.8
         env:
         - name: MYSQL_DATABASE
           value: nextcloud
-        - name: MYSQL_ALLOW_EMPTY_PASSWORD
+        - name: MARIADB_ALLOW_EMPTY_ROOT_PASSWORD
           value: "1"
         envFrom:
         - secretRef:
@@ -31,21 +31,20 @@ spec:
         volumeMounts:
         - name: db-storage
           mountPath: /var/lib/mysql
-          subPath: mysql-data
+          subPath: mariadb-data
         resources:
           requests:
             cpu: 500m
             memory: 1Gi
         livenessProbe:
           exec:
-            command: ["mysqladmin", "ping"]
+            command: ["mariadb-admin", "ping"]
           initialDelaySeconds: 30
           periodSeconds: 10
           timeoutSeconds: 5
         readinessProbe:
           exec:
-            # Check we can execute queries over TCP (skip-networking is off).
-            command: ["mysql", "-h", "127.0.0.1", "-e", "SELECT 1"]
+            command: ["mariadb", "-h", "127.0.0.1", "-e", "SELECT 1"]
           initialDelaySeconds: 5
           periodSeconds: 10
           timeoutSeconds: 5
