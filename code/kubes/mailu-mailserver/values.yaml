@@ -20,12 +20,11 @@ ingress:
 redis:
   image:
     repository: bitnamilegacy/redis
-# ClamAV disabled: chart 2.1.1 switched from mailu's custom clamav
-# image to the official clamav-debian image, but the liveness probe
-# still expects mailu's PID file paths (/tmp/clamd.pid). The official
-# image uses different paths, causing CrashLoopBackOff. Not worth
-# fixing for a personal mail server — rspamd handles spam, and virus
-# scanning on personal email adds minimal value.
+# ClamAV: chart 2.1.1 references tag 1.2.0-6 (doesn't exist on Docker
+# Hub) and has probes that check /tmp/clamd.pid (official image doesn't
+# create PID files). Fix: override tag to 1.5.2 + patch probes after
+# helm upgrade (see sync.sh).
 clamav:
-  enabled: false
+  image:
+    tag: "1.5.2"
 #secretKey: ""  # XXX: add here when updating
