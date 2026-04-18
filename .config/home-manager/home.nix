@@ -78,15 +78,18 @@ in {
   programs.ssh = {
     enable = true;
 
-    controlMaster = "auto";
-    controlPersist = "10m";
-
     extraConfig = ''
       IdentityFile ~/.ssh/id_ed25519
       IdentityFile ~/.ssh/id_rsa
     '';
 
     matchBlocks = {
+      "*" = {
+        extraOptions = {
+          ControlMaster = "auto";
+          ControlPersist = "10m";
+        };
+      };
       irssi = {
         user = "irssi";
         hostname = "amun";
@@ -150,7 +153,7 @@ in {
       enable = true;
     };
 
-    initExtra = ''
+    initContent = ''
       unsetopt beep                   # don't beep, ever
       setopt hist_reduce_blanks       # remove superfluous blanks
       chmod 0600 $HOME/.ssh/id_ed25519 $HOME/.ssh/id_rsa
