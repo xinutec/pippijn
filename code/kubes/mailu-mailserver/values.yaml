@@ -15,4 +15,17 @@ ingress:
   ingressClassName: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
+# Bitnami paywall workaround (Aug 2025). The mailu chart uses
+# bitnami/redis as a subchart; point it at bitnamilegacy.
+redis:
+  image:
+    repository: bitnamilegacy/redis
+# ClamAV disabled: chart 2.1.1 switched from mailu's custom clamav
+# image to the official clamav-debian image, but the liveness probe
+# still expects mailu's PID file paths (/tmp/clamd.pid). The official
+# image uses different paths, causing CrashLoopBackOff. Not worth
+# fixing for a personal mail server — rspamd handles spam, and virus
+# scanning on personal email adds minimal value.
+clamav:
+  enabled: false
 #secretKey: ""  # XXX: add here when updating
