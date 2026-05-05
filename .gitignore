@@ -24,3 +24,6 @@
 /backup
 /media
 /tmp
+/.kube
+/.local/state
+/result
