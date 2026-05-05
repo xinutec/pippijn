@@ -1,4 +1,4 @@
-# xinutec.com — redirects everything to xinutec.org
+# xinutec.com — wildcard CNAME to xinutec.org
 
 resource "cloudflare_dns_record" "com_apex" {
   zone_id = cloudflare_zone.xinutec_com.id
@@ -9,28 +9,10 @@ resource "cloudflare_dns_record" "com_apex" {
   proxied = false
 }
 
-resource "cloudflare_dns_record" "com_www" {
+resource "cloudflare_dns_record" "com_wildcard" {
   zone_id = cloudflare_zone.xinutec_com.id
   type    = "CNAME"
-  name    = "www"
-  content = "xinutec.org"
-  ttl     = 3600
-  proxied = false
-}
-
-resource "cloudflare_dns_record" "com_mail" {
-  zone_id = cloudflare_zone.xinutec_com.id
-  type    = "CNAME"
-  name    = "mail"
-  content = "xinutec.org"
-  ttl     = 3600
-  proxied = false
-}
-
-resource "cloudflare_dns_record" "com_dmarc" {
-  zone_id = cloudflare_zone.xinutec_com.id
-  type    = "CNAME"
-  name    = "_dmarc"
+  name    = "*"
   content = "xinutec.org"
   ttl     = 3600
   proxied = false

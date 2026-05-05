@@ -81,3 +81,14 @@ resource "cloudflare_dns_record" "net_irc_v4_legacy" {
   ttl     = 600
   proxied = false
 }
+
+# --- Wildcard MX (all subdomains deliver to mail.xinutec.org) ---
+
+resource "cloudflare_dns_record" "net_wildcard_mx" {
+  zone_id  = local.xinutec_net_id
+  type     = "MX"
+  name     = "*"
+  content  = "mail.xinutec.org"
+  priority = 10
+  ttl      = 3600
+}
