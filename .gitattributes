@@ -1,3 +1,6 @@
 /.nocodb filter=git-crypt diff=git-crypt
 /.pvs-license filter=git-crypt diff=git-crypt
 /.reminders filter=git-crypt diff=git-crypt
+/code/dns/*.tfstate filter=git-crypt diff=git-crypt
+/code/dns/*.tfstate.backup filter=git-crypt diff=git-crypt
+/code/dns/*.tfvars filter=git-crypt diff=git-crypt

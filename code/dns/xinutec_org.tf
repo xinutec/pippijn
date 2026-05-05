@@ -1,0 +1,121 @@
+locals {
+  xinutec_org_id = cloudflare_zone.xinutec_org.id
+
+  hosts = {
+    amun = "94.23.247.133"
+    isis = "188.165.200.180"
+    odin = "5.196.65.240"
+  }
+}
+
+# --- Host A records ---
+
+resource "cloudflare_dns_record" "org_apex" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "xinutec.org"
+  content = local.hosts.amun
+  ttl     = 3600
+  proxied = false
+}
+
+resource "cloudflare_dns_record" "org_amun" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "amun"
+  content = local.hosts.amun
+  ttl     = 3600
+  proxied = false
+}
+
+resource "cloudflare_dns_record" "org_isis" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "isis"
+  content = local.hosts.isis
+  ttl     = 3600
+  proxied = false
+}
+
+resource "cloudflare_dns_record" "org_odin" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "odin"
+  content = local.hosts.odin
+  ttl     = 3600
+  proxied = false
+}
+
+# --- CNAMEs ---
+
+resource "cloudflare_dns_record" "org_mail" {
+  zone_id = local.xinutec_org_id
+  type    = "CNAME"
+  name    = "mail"
+  content = "amun.xinutec.org"
+  ttl     = 3600
+  proxied = false
+}
+
+resource "cloudflare_dns_record" "org_dash" {
+  zone_id = local.xinutec_org_id
+  type    = "CNAME"
+  name    = "dash"
+  content = "isis.xinutec.org"
+  ttl     = 3600
+  proxied = false
+}
+
+resource "cloudflare_dns_record" "org_irc" {
+  zone_id = local.xinutec_org_id
+  type    = "CNAME"
+  name    = "irc"
+  content = "irc.xinutec.net"
+  ttl     = 3600
+  proxied = false
+}
+
+# --- MX ---
+
+resource "cloudflare_dns_record" "org_mx" {
+  zone_id  = local.xinutec_org_id
+  type     = "MX"
+  name     = "xinutec.org"
+  content  = "mail.xinutec.org"
+  priority = 10
+  ttl      = 3600
+}
+
+# --- TXT (SPF, DMARC, DKIM, site verification) ---
+
+resource "cloudflare_dns_record" "org_spf" {
+  zone_id = local.xinutec_org_id
+  type    = "TXT"
+  name    = "xinutec.org"
+  content = "v=spf1 mx a:mail.xinutec.org ip4:94.23.247.133 ~all"
+  ttl     = 600
+}
+
+resource "cloudflare_dns_record" "org_google_verify" {
+  zone_id = local.xinutec_org_id
+  type    = "TXT"
+  name    = "xinutec.org"
+  content = "google-site-verification=JrY6mtwaCKsVi-2XnAFgBJ0albfgmkpPIbeMpBsgUPU"
+  ttl     = 600
+}
+
+resource "cloudflare_dns_record" "org_dmarc" {
+  zone_id = local.xinutec_org_id
+  type    = "TXT"
+  name    = "_dmarc"
+  content = "v=DMARC1; p=reject; adkim=s; aspf=s"
+  ttl     = 600
+}
+
+resource "cloudflare_dns_record" "org_dkim" {
+  zone_id = local.xinutec_org_id
+  type    = "TXT"
+  name    = "dkim._domainkey"
+  content = "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqzkg187Oq5SnWZWD/zq+m0SsVjkeWpELaxIA4FO6zm+EVD9p8sxzV0AfbQh65DiqwmCv2vAA40I5KlhskOTlLgZkWicgyQNi9Z+tczLB+UH/8eYdFWHgpHXKVB0EBuQcAl4j69JXvOT+HnRtDoDTJZo7sayfjx+OCUymvuk0EnU7gamyMLPcnkBrVFaD5Dj/zGCJbYL0/5rfVb8XKf44W8lCcM1suMyI3PIFKcaGaKNTdaPNNuZP+bG0rFjgZQJcyhObYxf29UqDq4KUAn+pn3rPcVNa6Apo66EitIPKHXTholfh7ycb1CmniD1gImJd/9fsMyRgkW0o1FITzP0e9QIDAQAB"
+  ttl     = 600
+}
