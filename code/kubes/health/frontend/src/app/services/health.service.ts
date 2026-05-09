@@ -50,6 +50,12 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function yesterday(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 @Injectable({ providedIn: "root" })
 export class HealthService {
   readonly user = signal<UserInfo | null>(null);
@@ -81,12 +87,13 @@ export class HealthService {
   }
 
   async getSleepStages(date = today()): Promise<SleepStage[]> {
+    // Try today first (last night's sleep), fall back to yesterday
     const res = await fetch(`/api/sleep/stages?date=${date}`);
     if (!res.ok) throw new Error("Failed to fetch sleep stages");
     return res.json();
   }
 
-  async getHeartRateIntraday(date = today()): Promise<HeartRatePoint[]> {
+  async getHeartRateIntraday(date = yesterday()): Promise<HeartRatePoint[]> {
     const res = await fetch(`/api/heartrate/intraday?date=${date}`);
     if (!res.ok) throw new Error("Failed to fetch heart rate intraday");
     return res.json();

@@ -5,24 +5,12 @@ import type { ChartConfiguration } from "chart.js";
 import type { SleepStage } from "../../services/health.service";
 import { chartColors, tickColor, gridColor } from "../../chart-theme";
 
+// Y-axis: Awake at top (3), Deep at bottom (0) — matches Fitbit layout
 const STAGE_LEVELS: Record<string, number> = {
-  wake: 3,
-  rem: 2,
-  light: 1,
+  wake: 3, awake: 3,
+  rem: 2, restless: 2,
+  light: 1, asleep: 1,
   deep: 0,
-  restless: 2.5,
-  asleep: 0.5,
-  awake: 3,
-};
-
-const STAGE_COLORS: Record<string, string> = {
-  wake: chartColors.amber,
-  rem: chartColors.purple,
-  light: chartColors.blue,
-  deep: chartColors.deepBlue,
-  restless: chartColors.amber,
-  asleep: chartColors.blue,
-  awake: chartColors.amber,
 };
 
 @Component({
@@ -36,7 +24,8 @@ const STAGE_COLORS: Record<string, string> = {
         @if (stages().length === 0) {
           <p class="no-data">No sleep stage data available</p>
         } @else {
-          <canvas baseChart [data]="chartData" [options]="chartOptions" type="line"></canvas>
+          <canvas baseChart [data]="chartData" [options]="chartOptions" type="line"
+                  style="min-height: 200px;"></canvas>
         }
       </mat-card-content>
     </mat-card>
@@ -51,26 +40,27 @@ export class HypnogramComponent {
   chartData: ChartConfiguration<"line">["data"] = { labels: [], datasets: [] };
   chartOptions: ChartConfiguration<"line">["options"] = {
     responsive: true,
-    maintainAspectRatio: true,
-    plugins: { legend: { display: false } },
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { enabled: false } },
     scales: {
       x: {
-        ticks: { color: tickColor, maxTicksLimit: 8 },
+        ticks: { color: tickColor, maxTicksLimit: 8, font: { size: 11 } },
         grid: { display: false },
       },
       y: {
         reverse: true,
+        min: -0.3,
+        max: 3.3,
         ticks: {
           color: tickColor,
+          stepSize: 1,
+          font: { size: 12 },
           callback: (v) => {
-            const labels: Record<number, string> = { 0: "Deep", 1: "Light", 2: "REM", 3: "Awake" };
+            const labels: Record<number, string> = { 3: "Awake", 2: "REM", 1: "Light", 0: "Deep" };
             return labels[v as number] ?? "";
           },
-          stepSize: 1,
         },
         grid: { color: gridColor },
-        min: -0.5,
-        max: 3.5,
       },
     },
   };
@@ -80,23 +70,16 @@ export class HypnogramComponent {
       const data = this.stages();
       if (data.length === 0) return;
 
-      // Build points: each stage becomes a horizontal segment
       const points: Array<{ x: string; y: number }> = [];
-      const colors: string[] = [];
 
       for (const stage of data) {
         const time = new Date(stage.ts);
-        const timeStr = time.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
         const level = STAGE_LEVELS[stage.stage] ?? 1;
+        const fmt = (d: Date) => d.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
 
-        points.push({ x: timeStr, y: level });
-
-        // Add end of this stage
-        const endTime = new Date(time.getTime() + stage.duration_seconds * 1000);
-        const endStr = endTime.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
-        points.push({ x: endStr, y: level });
-
-        colors.push(STAGE_COLORS[stage.stage] ?? chartColors.blue);
+        points.push({ x: fmt(time), y: level });
+        const end = new Date(time.getTime() + stage.duration_seconds * 1000);
+        points.push({ x: fmt(end), y: level });
       }
 
       this.chartData = {
@@ -104,11 +87,11 @@ export class HypnogramComponent {
         datasets: [{
           data: points.map((p) => p.y),
           borderColor: chartColors.purple,
-          backgroundColor: "rgba(139, 92, 246, 0.1)",
+          backgroundColor: "rgba(139, 92, 246, 0.15)",
           fill: true,
           stepped: "before",
           pointRadius: 0,
-          borderWidth: 2,
+          borderWidth: 1.5,
         }],
       };
     });

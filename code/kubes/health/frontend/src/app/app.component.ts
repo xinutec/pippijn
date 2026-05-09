@@ -1,7 +1,7 @@
 import { Component, signal, OnInit } from "@angular/core";
 import { MatToolbarModule } from "@angular/material/toolbar";
 import { MatButtonModule } from "@angular/material/button";
-import { MatButtonToggleModule } from "@angular/material/button-toggle";
+import { MatTabsModule } from "@angular/material/tabs";
 import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";
 import {
   HealthService,
@@ -18,19 +18,13 @@ import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.compon
   selector: "app-root",
   standalone: true,
   imports: [
-    MatToolbarModule, MatButtonModule, MatButtonToggleModule, MatProgressSpinnerModule,
+    MatToolbarModule, MatButtonModule, MatTabsModule, MatProgressSpinnerModule,
     SummaryCardsComponent, HypnogramComponent, IntradayHrComponent,
     StepsChartComponent, HeartrateChartComponent, SleepChartComponent,
   ],
   template: `
     <mat-toolbar color="primary" class="toolbar">
       <span class="title">Health</span>
-      @if (authenticated() && fitbitLinked()) {
-        <mat-button-toggle-group [value]="view()" (change)="view.set($event.value)" class="view-toggle">
-          <mat-button-toggle value="today">Today</mat-button-toggle>
-          <mat-button-toggle value="trends">Trends</mat-button-toggle>
-        </mat-button-toggle-group>
-      }
       <span class="spacer"></span>
       @if (health.user(); as user) {
         <span class="user-name">{{ user.displayName }}</span>
@@ -57,41 +51,59 @@ import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.compon
           <p>Connect your Fitbit to start tracking your health data.</p>
           <a mat-raised-button color="primary" href="/fitbit/auth">Link Fitbit</a>
         </div>
-      } @else if (view() === 'today') {
-        <app-summary-cards
-          [latestActivity]="latestActivity()"
-          [latestSleep]="latestSleep()"
-        />
-        <app-hypnogram [stages]="sleepStages()" />
-        <app-intraday-hr [points]="intradayHr()" />
       } @else {
-        <app-summary-cards
-          [latestActivity]="latestActivity()"
-          [latestSleep]="latestSleep()"
-        />
-        <div class="charts-row">
-          <app-steps-chart [activity]="activity()" />
-          <app-heartrate-chart [activity]="activity()" />
-        </div>
-        <app-sleep-chart [sleep]="sleep()" />
+        <mat-tab-group
+          (selectedIndexChange)="view.set($event === 0 ? 'today' : 'trends')"
+          [backgroundColor]="'primary'"
+          class="view-tabs">
+          <mat-tab label="Today">
+            <div class="tab-content">
+              <app-summary-cards
+                [latestActivity]="latestActivity()"
+                [latestSleep]="latestSleep()"
+              />
+              <div class="section">
+                <app-hypnogram [stages]="sleepStages()" />
+              </div>
+              <div class="section">
+                <app-intraday-hr [points]="intradayHr()" />
+              </div>
+            </div>
+          </mat-tab>
+          <mat-tab label="Trends">
+            <div class="tab-content">
+              <app-summary-cards
+                [latestActivity]="latestActivity()"
+                [latestSleep]="latestSleep()"
+              />
+              <div class="charts-row">
+                <app-steps-chart [activity]="activity()" />
+                <app-heartrate-chart [activity]="activity()" />
+              </div>
+              <div class="section">
+                <app-sleep-chart [sleep]="sleep()" />
+              </div>
+            </div>
+          </mat-tab>
+        </mat-tab-group>
       }
     </main>
   `,
   styles: [`
-    .toolbar {
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    .title { font-size: 18px; font-weight: 600; margin-right: 16px; }
-    .view-toggle { margin-left: 8px; }
+    .toolbar { position: sticky; top: 0; z-index: 10; }
+    .title { font-size: 18px; font-weight: 600; }
     .spacer { flex: 1; }
     .user-name { font-size: 14px; opacity: 0.8; margin-right: 8px; }
     .logout-form { display: inline; }
     .content {
       max-width: 1280px;
       margin: 0 auto;
+    }
+    .tab-content {
       padding: 24px;
+    }
+    .section {
+      margin-bottom: 16px;
     }
     .prompt {
       text-align: center;
@@ -115,7 +127,7 @@ import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.compon
     }
     @media (max-width: 900px) {
       .charts-row { grid-template-columns: 1fr; }
-      .content { padding: 16px; }
+      .tab-content { padding: 16px; }
     }
   `],
 })
@@ -142,7 +154,6 @@ export class AppComponent implements OnInit {
     if (!this.fitbitLinked()) { this.loading.set(false); return; }
 
     try {
-      // Fetch all data in parallel
       const [activity, sleep, stages, hrIntraday] = await Promise.all([
         this.health.getActivity(30),
         this.health.getSleep(30),
