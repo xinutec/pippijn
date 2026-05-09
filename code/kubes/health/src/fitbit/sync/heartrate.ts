@@ -56,7 +56,7 @@ export async function syncHeartRateIntraday(
 		}
 
 		const date = d.toISOString().slice(0, 10);
-		const data = await client.get<HRResponse>(`/1/user/-/activities/heart/date/${date}/1d/1min.json`);
+		const data = await client.get<HRResponse>(`/1/user/-/activities/heart/date/${date}/1d/1sec.json`);
 		const dataset = data["activities-heart-intraday"]?.dataset;
 		if (!dataset?.length) continue;
 
