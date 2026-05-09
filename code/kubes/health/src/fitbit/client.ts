@@ -1,9 +1,4 @@
-import type { TokenPair } from "./types.js";
-
-interface RateLimitState {
-  remaining: number;
-  resetAt: number; // epoch ms
-}
+import type { FitbitTokenPair } from "../types.js";
 
 export class FitbitClient {
   private accessToken: string;
@@ -11,8 +6,9 @@ export class FitbitClient {
   private expiresAt: number;
   private readonly clientId: string;
   private readonly clientSecret: string;
-  private rateLimit: RateLimitState = { remaining: 150, resetAt: 0 };
-  private onTokenRefresh?: (tokens: TokenPair) => Promise<void>;
+  private readonly onTokenRefresh?: (tokens: FitbitTokenPair) => Promise<void>;
+  private rateLimitRemaining_ = 150;
+  private rateLimitResetAt = 0;
 
   constructor(config: {
     accessToken: string;
@@ -20,7 +16,7 @@ export class FitbitClient {
     expiresAt: number;
     clientId: string;
     clientSecret: string;
-    onTokenRefresh?: (tokens: TokenPair) => Promise<void>;
+    onTokenRefresh?: (tokens: FitbitTokenPair) => Promise<void>;
   }) {
     this.accessToken = config.accessToken;
     this.refreshToken = config.refreshToken;
@@ -30,16 +26,41 @@ export class FitbitClient {
     this.onTokenRefresh = config.onTokenRefresh;
   }
 
-  private async ensureToken(): Promise<void> {
-    if (Date.now() < this.expiresAt - 5 * 60 * 1000) return;
-    await this.refresh();
+  get rateLimitRemaining(): number {
+    return this.rateLimitRemaining_;
   }
 
-  private async refresh(): Promise<void> {
-    const basicAuth = Buffer.from(
-      `${this.clientId}:${this.clientSecret}`
-    ).toString("base64");
+  async get<T>(path: string, retries = 0): Promise<T> {
+    await this.ensureToken();
+    await this.waitForRateLimit();
 
+    const url = path.startsWith("http") ? path : `https://api.fitbit.com${path}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+    });
+
+    this.updateRateLimit(res.headers);
+
+    if (res.status === 429) {
+      if (retries >= 3) throw new Error(`Fitbit API ${path}: rate limited after ${retries} retries`);
+      const waitSec = parseInt(res.headers.get("retry-after") ?? "3600", 10);
+      console.log(`Rate limited, waiting ${waitSec}s (retry ${retries + 1}/3)`);
+      await sleep(waitSec * 1000);
+      return this.get<T>(path, retries + 1);
+    }
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Fitbit API ${path}: ${res.status} ${body}`);
+    }
+
+    return res.json() as Promise<T>;
+  }
+
+  private async ensureToken(): Promise<void> {
+    if (Date.now() < this.expiresAt - 5 * 60 * 1000) return;
+
+    const basicAuth = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString("base64");
     const res = await fetch("https://api.fitbit.com/oauth2/token", {
       method: "POST",
       headers: {
@@ -53,69 +74,32 @@ export class FitbitClient {
     });
 
     if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`Token refresh failed: ${res.status} ${body}`);
+      throw new Error(`Token refresh failed: ${res.status} ${await res.text()}`);
     }
 
-    const tokens: TokenPair = await res.json();
+    const tokens = (await res.json()) as FitbitTokenPair;
     this.accessToken = tokens.access_token;
     this.refreshToken = tokens.refresh_token;
     this.expiresAt = Date.now() + tokens.expires_in * 1000;
 
-    if (this.onTokenRefresh) {
-      await this.onTokenRefresh(tokens);
-    }
+    await this.onTokenRefresh?.(tokens);
+  }
+
+  private async waitForRateLimit(): Promise<void> {
+    if (this.rateLimitRemaining_ > 5 || Date.now() >= this.rateLimitResetAt) return;
+    const waitMs = this.rateLimitResetAt - Date.now();
+    console.log(`Rate limit low (${this.rateLimitRemaining_}), waiting ${Math.ceil(waitMs / 1000)}s`);
+    await sleep(waitMs);
   }
 
   private updateRateLimit(headers: Headers): void {
     const remaining = headers.get("fitbit-rate-limit-remaining");
     const reset = headers.get("fitbit-rate-limit-reset");
-    if (remaining !== null) {
-      this.rateLimit.remaining = parseInt(remaining, 10);
-    }
-    if (reset !== null) {
-      this.rateLimit.resetAt = Date.now() + parseInt(reset, 10) * 1000;
-    }
+    if (remaining !== null) this.rateLimitRemaining_ = parseInt(remaining, 10);
+    if (reset !== null) this.rateLimitResetAt = Date.now() + parseInt(reset, 10) * 1000;
   }
+}
 
-  get rateLimitRemaining(): number {
-    return this.rateLimit.remaining;
-  }
-
-  async get<T>(path: string): Promise<T> {
-    await this.ensureToken();
-
-    if (this.rateLimit.remaining <= 5 && Date.now() < this.rateLimit.resetAt) {
-      const waitMs = this.rateLimit.resetAt - Date.now();
-      console.log(
-        `Rate limit near (${this.rateLimit.remaining} remaining), waiting ${Math.ceil(waitMs / 1000)}s`
-      );
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-    }
-
-    const url = path.startsWith("http")
-      ? path
-      : `https://api.fitbit.com${path}`;
-
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${this.accessToken}` },
-    });
-
-    this.updateRateLimit(res.headers);
-
-    if (res.status === 429) {
-      const retryAfter = res.headers.get("retry-after");
-      const waitSec = retryAfter ? parseInt(retryAfter, 10) : 3600;
-      console.log(`Rate limited, waiting ${waitSec}s`);
-      await new Promise((resolve) => setTimeout(resolve, waitSec * 1000));
-      return this.get<T>(path);
-    }
-
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`Fitbit API ${path}: ${res.status} ${body}`);
-    }
-
-    return res.json();
-  }
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

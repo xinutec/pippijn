@@ -1,6 +1,9 @@
 import type * as mariadb from "mariadb";
 
-const TABLES = [
+// Each migration runs exactly once, tracked by version number.
+// To evolve the schema, add a new entry at the end — never modify existing ones.
+const MIGRATIONS: readonly string[] = [
+  // v1: initial schema
   `CREATE TABLE IF NOT EXISTS tokens (
     user_id VARCHAR(64) PRIMARY KEY,
     access_token TEXT NOT NULL,
@@ -9,7 +12,6 @@ const TABLES = [
     scopes TEXT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   )`,
-
   `CREATE TABLE IF NOT EXISTS sync_state (
     user_id VARCHAR(64) NOT NULL,
     key_name VARCHAR(64) NOT NULL,
@@ -17,7 +19,6 @@ const TABLES = [
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, key_name)
   )`,
-
   `CREATE TABLE IF NOT EXISTS daily_activity (
     user_id VARCHAR(64) NOT NULL,
     date DATE NOT NULL,
@@ -36,14 +37,12 @@ const TABLES = [
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, date)
   )`,
-
   `CREATE TABLE IF NOT EXISTS heart_rate_intraday (
     user_id VARCHAR(64) NOT NULL,
     ts DATETIME NOT NULL,
     bpm SMALLINT NOT NULL,
     PRIMARY KEY (user_id, ts)
   )`,
-
   `CREATE TABLE IF NOT EXISTS heart_rate_zones (
     user_id VARCHAR(64) NOT NULL,
     date DATE NOT NULL,
@@ -54,7 +53,6 @@ const TABLES = [
     max_bpm INT,
     PRIMARY KEY (user_id, date, zone_name)
   )`,
-
   `CREATE TABLE IF NOT EXISTS sleep (
     user_id VARCHAR(64) NOT NULL,
     log_id BIGINT NOT NULL,
@@ -73,7 +71,6 @@ const TABLES = [
     PRIMARY KEY (user_id, log_id),
     INDEX idx_sleep_user_date (user_id, date)
   )`,
-
   `CREATE TABLE IF NOT EXISTS sleep_stages (
     user_id VARCHAR(64) NOT NULL,
     sleep_log_id BIGINT NOT NULL,
@@ -82,7 +79,6 @@ const TABLES = [
     duration_seconds INT NOT NULL,
     PRIMARY KEY (user_id, sleep_log_id, ts)
   )`,
-
   `CREATE TABLE IF NOT EXISTS body (
     user_id VARCHAR(64) NOT NULL,
     date DATE NOT NULL,
@@ -91,7 +87,6 @@ const TABLES = [
     body_fat_pct DECIMAL(4,1),
     PRIMARY KEY (user_id, date)
   )`,
-
   `CREATE TABLE IF NOT EXISTS spo2_daily (
     user_id VARCHAR(64) NOT NULL,
     date DATE NOT NULL,
@@ -100,14 +95,12 @@ const TABLES = [
     max_value DECIMAL(4,1),
     PRIMARY KEY (user_id, date)
   )`,
-
   `CREATE TABLE IF NOT EXISTS spo2_intraday (
     user_id VARCHAR(64) NOT NULL,
     ts DATETIME NOT NULL,
     value DECIMAL(4,1) NOT NULL,
     PRIMARY KEY (user_id, ts)
   )`,
-
   `CREATE TABLE IF NOT EXISTS hrv_daily (
     user_id VARCHAR(64) NOT NULL,
     date DATE NOT NULL,
@@ -115,7 +108,6 @@ const TABLES = [
     deep_rmssd DECIMAL(8,2),
     PRIMARY KEY (user_id, date)
   )`,
-
   `CREATE TABLE IF NOT EXISTS breathing_rate (
     user_id VARCHAR(64) NOT NULL,
     date DATE NOT NULL,
@@ -125,21 +117,18 @@ const TABLES = [
     rem_sleep_rate DECIMAL(4,1),
     PRIMARY KEY (user_id, date)
   )`,
-
   `CREATE TABLE IF NOT EXISTS skin_temperature (
     user_id VARCHAR(64) NOT NULL,
     date DATE NOT NULL,
     relative_deviation DECIMAL(4,2),
     PRIMARY KEY (user_id, date)
   )`,
-
   `CREATE TABLE IF NOT EXISTS cardio_fitness (
     user_id VARCHAR(64) NOT NULL,
     date DATE NOT NULL,
     vo2_max DECIMAL(4,1),
     PRIMARY KEY (user_id, date)
   )`,
-
   `CREATE TABLE IF NOT EXISTS devices (
     user_id VARCHAR(64) NOT NULL,
     device_id VARCHAR(64) NOT NULL,
@@ -150,11 +139,37 @@ const TABLES = [
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, device_id)
   )`,
+
+  // Future migrations go here. Examples:
+  // `ALTER TABLE daily_activity ADD COLUMN heart_rate_zones JSON`,
+  // `CREATE TABLE IF NOT EXISTS locations (...)`,
 ];
 
 export async function migrate(conn: mariadb.Connection): Promise<void> {
-  for (const ddl of TABLES) {
-    await conn.query(ddl);
+  // Create tracking table (idempotent)
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INT PRIMARY KEY,
+      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Find which migrations have already run
+  const applied = await conn.query("SELECT version FROM schema_migrations ORDER BY version");
+  const appliedSet = new Set<number>(applied.map((r: { version: number }) => r.version));
+
+  let ran = 0;
+  for (let i = 0; i < MIGRATIONS.length; i++) {
+    if (appliedSet.has(i)) continue;
+
+    await conn.query(MIGRATIONS[i]);
+    await conn.query("INSERT INTO schema_migrations (version) VALUES (?)", [i]);
+    ran++;
   }
-  console.log(`Schema migration complete (${TABLES.length} tables)`);
+
+  if (ran > 0) {
+    console.log(`Ran ${ran} migration(s) (${appliedSet.size} already applied, ${MIGRATIONS.length} total)`);
+  } else {
+    console.log(`Schema up to date (${MIGRATIONS.length} migrations)`);
+  }
 }

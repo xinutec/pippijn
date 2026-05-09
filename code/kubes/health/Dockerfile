@@ -7,7 +7,7 @@ RUN npx tsc
 
 FROM node:22-alpine
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 COPY --from=build /app/dist dist/
-COPY --from=build /app/node_modules node_modules/
-COPY package.json ./
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/server.js"]
