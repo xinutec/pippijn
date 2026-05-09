@@ -1,0 +1,28 @@
+<mat-card>
+  <mat-card-header><mat-card-title>Your Day</mat-card-title></mat-card-header>
+  <mat-card-content>
+    @if (entries().length === 0) {
+      <p class="no-data">No timeline data available</p>
+    } @else {
+      <div class="timeline">
+        @for (e of entries(); track e.startLabel) {
+          <div class="entry" [class.mode-stationary]="e.mode === 'stationary'">
+            <div class="time">
+              <span class="start">{{ e.startLabel }}</span>
+            </div>
+            <div class="rail">
+              <mat-icon class="dot">{{ e.icon }}</mat-icon>
+              <div class="line"></div>
+            </div>
+            <div class="content">
+              <div class="primary">{{ e.primary }}</div>
+              @if (e.secondary) {
+                <div class="secondary">{{ e.secondary }}</div>
+              }
+            </div>
+          </div>
+        }
+      </div>
+    }
+  </mat-card-content>
+</mat-card>

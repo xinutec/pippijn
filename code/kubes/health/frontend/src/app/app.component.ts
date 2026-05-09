@@ -12,6 +12,7 @@ import { SummaryCardsComponent } from "./components/summary-cards/summary-cards.
 import { HypnogramComponent } from "./components/hypnogram/hypnogram.component";
 import { IntradayHrComponent } from "./components/intraday-hr/intraday-hr.component";
 import { SpeedChartComponent } from "./components/speed-chart/speed-chart.component";
+import { TimelineComponent } from "./components/timeline/timeline.component";
 import { StepsChartComponent } from "./components/steps-chart/steps-chart.component";
 import { HeartrateChartComponent } from "./components/heartrate-chart/heartrate-chart.component";
 import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.component";
@@ -22,7 +23,7 @@ import { formatDateInTz, browserTimezone, todayLocal } from "./time-utils";
   standalone: true,
   imports: [
     MatToolbarModule, MatButtonModule, MatIconModule, MatTabsModule, MatProgressSpinnerModule,
-    SummaryCardsComponent, HypnogramComponent, IntradayHrComponent, SpeedChartComponent,
+    SummaryCardsComponent, HypnogramComponent, IntradayHrComponent, SpeedChartComponent, TimelineComponent,
     StepsChartComponent, HeartrateChartComponent, SleepChartComponent,
   ],
   templateUrl: './app.component.html',
