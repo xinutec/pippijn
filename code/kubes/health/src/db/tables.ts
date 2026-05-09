@@ -152,6 +152,14 @@ export interface SessionsTable {
   created_at: Generated<Date>;
 }
 
+export interface NcTokensTable {
+  user_id: string;
+  access_token: string;
+  refresh_token: string;
+  expires_at: Date;
+  updated_at: Generated<Date>;
+}
+
 // The full database interface — Kysely uses this to type-check every query
 export interface Database {
   tokens: TokensTable;
@@ -170,5 +178,6 @@ export interface Database {
   cardio_fitness: CardioFitnessTable;
   devices: DevicesTable;
   sessions: SessionsTable;
+  nc_tokens: NcTokensTable;
   schema_migrations: SchemaMigrationsTable;
 }

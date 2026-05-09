@@ -150,6 +150,15 @@ const MIGRATIONS: readonly string[] = [
     INDEX idx_sessions_expires (expires_at)
   )`,
 
+  // v17: Nextcloud OAuth tokens (for PhoneTrack API access)
+  `CREATE TABLE IF NOT EXISTS nc_tokens (
+    user_id VARCHAR(64) PRIMARY KEY,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  )`,
+
   // Future migrations go here.
 ];
 

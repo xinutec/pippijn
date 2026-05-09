@@ -35,7 +35,7 @@ app.route("/", nextcloudOAuthRoutes(config));
 app.route("/", fitbitOAuthRoutes(config));
 
 // API routes (all require auth)
-app.route("/api", apiRoutes());
+app.route("/api", apiRoutes(config));
 
 // Static files (Angular SPA)
 app.use("/*", serveStatic({ root: "./public" }));

@@ -5,8 +5,14 @@ import type { AppEnv } from "../env.js";
 import type { UserSession } from "../types.js";
 import { createState, consumeState } from "../middleware/oauth-state.js";
 import { createSession, setSessionCookie, clearSessionCookie } from "../middleware/session.js";
+import { db } from "../db/pool.js";
 
-const ncTokenSchema = z.object({ access_token: z.string().min(1) });
+const ncTokenSchema = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+  expires_in: z.number().optional().default(3600),
+});
+
 const ncUserSchema = z.object({
   ocs: z.object({
     data: z.object({
@@ -59,11 +65,11 @@ export function nextcloudOAuthRoutes(config: Config): Hono<AppEnv> {
       return c.text("Authentication failed. Please try again.", 500);
     }
 
-    const { access_token } = ncTokenSchema.parse(await tokenRes.json());
+    const tokens = ncTokenSchema.parse(await tokenRes.json());
 
     const userRes = await fetch(`${nc.baseUrl}/ocs/v2.php/cloud/user?format=json`, {
       headers: {
-        Authorization: `Bearer ${access_token}`,
+        Authorization: `Bearer ${tokens.access_token}`,
         "OCS-APIRequest": "true",
       },
     });
@@ -79,6 +85,22 @@ export function nextcloudOAuthRoutes(config: Config): Hono<AppEnv> {
       userId: userData.ocs.data.id,
       displayName: userData.ocs.data.displayname,
     };
+
+    // Store Nextcloud OAuth tokens for PhoneTrack API access
+    await db()
+      .insertInto("nc_tokens")
+      .values({
+        user_id: user.userId,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+      })
+      .onDuplicateKeyUpdate({
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+      })
+      .execute();
 
     const signedId = await createSession(config.sessionSecret, user);
     setSessionCookie(c, signedId);

@@ -54,7 +54,7 @@ export function loadConfig(): Config {
   });
 }
 
-// Lighter config for sync job (no OAuth needed)
+// Lighter config for sync job (Fitbit only, no Nextcloud needed)
 export function loadSyncConfig() {
   return z.object({
     db: schema.shape.db,
