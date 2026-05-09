@@ -35,22 +35,40 @@ export async function syncHeartRateZones(
 	return synced;
 }
 
+/**
+ * Sync intraday heart rate for a date range.
+ * The Fitbit API only allows 24h per request, so this loops day-by-day.
+ * Respects rate limits — stops if remaining calls drop below 10.
+ */
 export async function syncHeartRateIntraday(
 	client: FitbitClient,
 	conn: mariadb.Connection,
 	userId: string,
-	date: string,
+	startDate: string,
+	endDate: string,
 ): Promise<number> {
-	const data = await client.get<HRResponse>(`/1/user/-/activities/heart/date/${date}/1d/1min.json`);
-	const dataset = data["activities-heart-intraday"]?.dataset;
-	if (!dataset?.length) return 0;
+	let totalSynced = 0;
 
-	await conn.batch(
-		`INSERT INTO heart_rate_intraday (user_id, ts, bpm) VALUES (?, ?, ?)
+	for (let d = new Date(startDate); d <= new Date(endDate); d.setDate(d.getDate() + 1)) {
+		if (client.rateLimitRemaining <= 10) {
+			console.log(`[${userId}] HR intraday paused, rate limit low`);
+			break;
+		}
+
+		const date = d.toISOString().slice(0, 10);
+		const data = await client.get<HRResponse>(`/1/user/-/activities/heart/date/${date}/1d/1min.json`);
+		const dataset = data["activities-heart-intraday"]?.dataset;
+		if (!dataset?.length) continue;
+
+		await conn.batch(
+			`INSERT INTO heart_rate_intraday (user_id, ts, bpm) VALUES (?, ?, ?)
      ON DUPLICATE KEY UPDATE bpm=VALUES(bpm)`,
-		dataset.map((d) => [userId, `${date} ${d.time}`, d.value]),
-	);
+			dataset.map((d) => [userId, `${date} ${d.time}`, d.value]),
+		);
 
-	console.log(`[${userId}] Synced ${dataset.length} HR intraday points for ${date}`);
-	return dataset.length;
+		totalSynced += dataset.length;
+		console.log(`[${userId}] Synced ${dataset.length} HR intraday points for ${date}`);
+	}
+
+	return totalSynced;
 }
