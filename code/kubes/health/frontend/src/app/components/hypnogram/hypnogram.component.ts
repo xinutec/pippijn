@@ -1,32 +1,31 @@
-import { Component, input, effect } from "@angular/core";
+import { Component, input, effect, ElementRef, viewChild } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
-import { BaseChartDirective } from "ng2-charts";
-import type { ChartConfiguration } from "chart.js";
 import type { SleepStage } from "../../services/health.service";
-import { tickColor, gridColor } from "../../chart-theme";
 
-// Y-axis: Awake at top (3), Deep at bottom (0) — matches Fitbit
-const STAGE_LEVELS: Record<string, number> = {
-  wake: 3, awake: 3,
-  rem: 2, restless: 2,
-  light: 1, asleep: 1,
-  deep: 0,
+// Y positions: Awake at top, Deep at bottom
+const STAGE_Y: Record<string, number> = {
+  wake: 0, awake: 0,
+  rem: 1, restless: 1,
+  light: 2, asleep: 2,
+  deep: 3,
 };
 
 const STAGE_COLORS: Record<string, string> = {
-  wake: "#f472b6",   // pink (Fitbit awake)
+  wake: "#f472b6",   // pink
   awake: "#f472b6",
-  rem: "#67e8f9",    // cyan (Fitbit REM)
+  rem: "#67e8f9",    // cyan
   restless: "#f472b6",
-  light: "#60a5fa",  // blue (Fitbit light)
+  light: "#60a5fa",  // blue
   asleep: "#60a5fa",
-  deep: "#a78bfa",   // purple (Fitbit deep)
+  deep: "#a78bfa",   // purple
 };
+
+const STAGE_LABELS = ["Awake", "REM", "Light", "Deep"];
 
 @Component({
   selector: "app-hypnogram",
   standalone: true,
-  imports: [MatCardModule, BaseChartDirective],
+  imports: [MatCardModule],
   template: `
     <mat-card>
       <mat-card-header><mat-card-title>Sleep Stages</mat-card-title></mat-card-header>
@@ -34,93 +33,157 @@ const STAGE_COLORS: Record<string, string> = {
         @if (stages().length === 0) {
           <p class="no-data">No sleep stage data available</p>
         } @else {
-          <canvas baseChart [data]="chartData" [options]="chartOptions" type="bar"
-                  style="min-height: 220px;"></canvas>
+          <div class="hypnogram-container">
+            <div class="y-labels">
+              @for (label of stageLabels; track label) {
+                <span>{{ label }}</span>
+              }
+            </div>
+            <div class="canvas-wrap">
+              <canvas #canvas></canvas>
+              <div class="x-labels">
+                @for (label of timeLabels; track label) {
+                  <span>{{ label }}</span>
+                }
+              </div>
+            </div>
+          </div>
         }
       </mat-card-content>
     </mat-card>
   `,
   styles: [`
     .no-data { opacity: 0.5; padding: 24px 0; text-align: center; }
+    .hypnogram-container {
+      display: flex;
+      gap: 8px;
+      padding: 8px 0;
+    }
+    .y-labels {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 4px 0 24px 0;
+      font-size: 12px;
+      color: rgba(255,255,255,0.5);
+      min-width: 48px;
+      text-align: right;
+    }
+    .canvas-wrap {
+      flex: 1;
+      min-height: 180px;
+    }
+    canvas {
+      width: 100% !important;
+      height: 160px !important;
+    }
+    .x-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: rgba(255,255,255,0.5);
+      padding-top: 4px;
+    }
   `],
 })
 export class HypnogramComponent {
   readonly stages = input<SleepStage[]>([]);
-
-  chartData: ChartConfiguration<"bar">["data"] = { labels: [], datasets: [] };
-  chartOptions: ChartConfiguration<"bar">["options"] = {
-    responsive: true,
-    maintainAspectRatio: false,
-    indexAxis: "x",
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: {
-          label: (ctx) => {
-            const stageNames: Record<number, string> = { 0: "Deep", 1: "Light", 2: "REM", 3: "Awake" };
-            return stageNames[ctx.raw as number] ?? "";
-          },
-        },
-      },
-    },
-    scales: {
-      x: {
-        ticks: { color: tickColor, maxTicksLimit: 8, font: { size: 11 } },
-        grid: { display: false },
-      },
-      y: {
-        min: -0.3,
-        max: 3.5,
-        ticks: {
-          color: tickColor,
-          stepSize: 1,
-          font: { size: 12 },
-          callback: (v) => {
-            const labels: Record<number, string> = { 0: "Deep", 1: "Light", 2: "REM", 3: "Awake" };
-            return labels[v as number] ?? "";
-          },
-        },
-        grid: { color: gridColor },
-      },
-    },
-  };
+  readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>("canvas");
+  readonly stageLabels = STAGE_LABELS;
+  timeLabels: string[] = [];
 
   constructor() {
     effect(() => {
       const data = this.stages();
-      if (data.length === 0) return;
+      const canvasEl = this.canvasRef();
+      if (data.length === 0 || !canvasEl) return;
 
-      // Build one bar per stage transition, colored by stage
-      const labels: string[] = [];
-      const values: number[] = [];
-      const colors: string[] = [];
+      const canvas = canvasEl.nativeElement;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
+      // Compute time range
+      const firstTime = new Date(data[0].ts).getTime();
+      const lastStage = data[data.length - 1];
+      const lastTime = new Date(lastStage.ts).getTime() + lastStage.duration_seconds * 1000;
+      const totalMs = lastTime - firstTime;
+
+      // Set canvas size
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      const w = rect.width;
+      const h = rect.height;
+
+      // Drawing area
+      const padTop = 8;
+      const padBottom = 8;
+      const drawH = h - padTop - padBottom;
+      const laneH = drawH / 4; // 4 stages
+
+      // Clear
+      ctx.clearRect(0, 0, w, h);
+
+      // Draw grid lines
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const y = padTop + i * laneH + laneH / 2;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      // Draw each stage as a filled rectangle in its lane
       for (const stage of data) {
-        const time = new Date(stage.ts);
-        const fmt = time.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
-        const level = STAGE_LEVELS[stage.stage] ?? 1;
+        const stageStart = new Date(stage.ts).getTime();
+        const stageEnd = stageStart + stage.duration_seconds * 1000;
+
+        const x1 = ((stageStart - firstTime) / totalMs) * w;
+        const x2 = ((stageEnd - firstTime) / totalMs) * w;
+        const level = STAGE_Y[stage.stage] ?? 2;
         const color = STAGE_COLORS[stage.stage] ?? "#60a5fa";
 
-        // Add a bar for each stage segment
-        const segments = Math.max(1, Math.round(stage.duration_seconds / 120)); // one bar per ~2 min
-        for (let i = 0; i < segments; i++) {
-          const t = new Date(time.getTime() + i * 120 * 1000);
-          labels.push(t.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false }));
-          values.push(level);
-          colors.push(color);
+        const y = padTop + level * laneH + 2;
+        const barH = laneH - 4;
+
+        ctx.fillStyle = color;
+        ctx.fillRect(x1, y, Math.max(x2 - x1, 1), barH);
+      }
+
+      // Draw connecting lines between stages
+      ctx.strokeStyle = "rgba(255,255,255,0.3)";
+      ctx.lineWidth = 1;
+      for (let i = 1; i < data.length; i++) {
+        const prev = data[i - 1];
+        const curr = data[i];
+        const prevLevel = STAGE_Y[prev.stage] ?? 2;
+        const currLevel = STAGE_Y[curr.stage] ?? 2;
+        if (prevLevel !== currLevel) {
+          const prevEnd = new Date(prev.ts).getTime() + prev.duration_seconds * 1000;
+          const x = ((prevEnd - firstTime) / totalMs) * w;
+          const y1 = padTop + prevLevel * laneH + laneH / 2;
+          const y2 = padTop + currLevel * laneH + laneH / 2;
+          ctx.beginPath();
+          ctx.moveTo(x, y1);
+          ctx.lineTo(x, y2);
+          ctx.stroke();
         }
       }
 
-      this.chartData = {
-        labels,
-        datasets: [{
-          data: values,
-          backgroundColor: colors,
-          borderWidth: 0,
-          barPercentage: 1.0,
-          categoryPercentage: 1.0,
-        }],
+      // Time labels
+      const fmt = (ms: number) => {
+        const d = new Date(ms);
+        return d.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
       };
+      const labelCount = 6;
+      this.timeLabels = [];
+      for (let i = 0; i <= labelCount; i++) {
+        this.timeLabels.push(fmt(firstTime + (totalMs * i) / labelCount));
+      }
     });
   }
 }
