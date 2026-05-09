@@ -13,6 +13,25 @@
 .section {
   margin-bottom: 16px;
 }
+.day-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.day-label {
+  font-size: 16px;
+  font-weight: 500;
+  min-width: 120px;
+  text-align: center;
+  &.loading { opacity: 0.5; }
+}
+.day-loading {
+  display: flex;
+  justify-content: center;
+  padding: 40px;
+}
 .prompt {
   text-align: center;
   padding: 80px 20px;

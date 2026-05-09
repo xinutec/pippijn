@@ -1,6 +1,7 @@
 import { Component, signal, OnInit } from "@angular/core";
 import { MatToolbarModule } from "@angular/material/toolbar";
 import { MatButtonModule } from "@angular/material/button";
+import { MatIconModule } from "@angular/material/icon";
 import { MatTabsModule } from "@angular/material/tabs";
 import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";
 import {
@@ -15,11 +16,17 @@ import { StepsChartComponent } from "./components/steps-chart/steps-chart.compon
 import { HeartrateChartComponent } from "./components/heartrate-chart/heartrate-chart.component";
 import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.component";
 
+function formatDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function todayStr(): string { return formatDate(new Date()); }
+
 @Component({
   selector: "app-root",
   standalone: true,
   imports: [
-    MatToolbarModule, MatButtonModule, MatTabsModule, MatProgressSpinnerModule,
+    MatToolbarModule, MatButtonModule, MatIconModule, MatTabsModule, MatProgressSpinnerModule,
     SummaryCardsComponent, HypnogramComponent, IntradayHrComponent, SpeedChartComponent,
     StepsChartComponent, HeartrateChartComponent, SleepChartComponent,
   ],
@@ -28,6 +35,7 @@ import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.compon
 })
 export class AppComponent implements OnInit {
   readonly view = signal<"today" | "trends">("today");
+  readonly selectedDate = signal(todayStr());
   readonly activity = signal<ActivityDay[]>([]);
   readonly sleep = signal<SleepLog[]>([]);
   readonly sleepStages = signal<SleepStage[]>([]);
@@ -38,6 +46,7 @@ export class AppComponent implements OnInit {
   readonly authenticated = signal(false);
   readonly fitbitLinked = signal(false);
   readonly loading = signal(true);
+  readonly dayLoading = signal(false);
 
   constructor(readonly health: HealthService) {}
 
@@ -49,13 +58,19 @@ export class AppComponent implements OnInit {
     this.fitbitLinked.set(this.health.user()?.fitbitLinked ?? false);
     if (!this.fitbitLinked()) { this.loading.set(false); return; }
 
+    await this.loadData();
+    this.loading.set(false);
+  }
+
+  async loadData(): Promise<void> {
+    const date = this.selectedDate();
     try {
       const [activity, sleep, stages, hrIntraday, velocity] = await Promise.all([
         this.health.getActivity(30),
         this.health.getSleep(30),
-        this.health.getSleepStages(),
-        this.health.getHeartRateIntraday(),
-        this.health.getVelocity().catch(() => null),
+        this.health.getSleepStages(date),
+        this.health.getHeartRateIntraday(date),
+        this.health.getVelocity(date).catch(() => null),
       ]);
 
       this.activity.set(activity);
@@ -65,16 +80,40 @@ export class AppComponent implements OnInit {
       this.velocity.set(velocity);
 
       if (activity.length > 0) {
-        this.latestActivity.set(activity[activity.length - 1]);
+        // Find the activity for the selected date, or fall back to latest
+        const dayActivity = activity.find(a => a.date.startsWith(date));
+        this.latestActivity.set(dayActivity ?? activity[activity.length - 1]);
       }
       const mainSleeps = sleep.filter((s) => s.is_main_sleep);
-      if (mainSleeps.length > 0) {
-        this.latestSleep.set(mainSleeps[mainSleeps.length - 1]);
-      }
+      const daySleep = mainSleeps.find(s => s.date.startsWith(date));
+      this.latestSleep.set(daySleep ?? mainSleeps[mainSleeps.length - 1] ?? null);
     } catch (e) {
       console.error("Failed to load data:", e);
-    } finally {
-      this.loading.set(false);
     }
+  }
+
+  async changeDay(delta: number): Promise<void> {
+    const d = new Date(this.selectedDate());
+    d.setDate(d.getDate() + delta);
+    // Don't go into the future
+    if (d > new Date()) return;
+    this.selectedDate.set(formatDate(d));
+    this.dayLoading.set(true);
+    await this.loadData();
+    this.dayLoading.set(false);
+  }
+
+  isToday(): boolean {
+    return this.selectedDate() === todayStr();
+  }
+
+  formatDisplayDate(): string {
+    const date = this.selectedDate();
+    if (date === todayStr()) return "Today";
+    const d = new Date(date);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (date === formatDate(yesterday)) return "Yesterday";
+    return d.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" });
   }
 }

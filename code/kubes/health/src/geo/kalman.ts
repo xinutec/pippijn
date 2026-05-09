@@ -162,8 +162,17 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 		const dt = p.ts - points[i - 1].ts;
 
 		if (dt <= 0) continue; // skip duplicate timestamps
-		if (dt > 3600) {
-			// Gap > 1 hour: reset filter state
+
+		// Detect teleports: if gap > 5 min AND implied speed > 200 km/h, reset
+		const impliedDist = Math.sqrt(
+			((p.lat - points[i - 1].lat) * 111320) ** 2 +
+			((p.lon - points[i - 1].lon) * 111320 * Math.cos(p.lat * Math.PI / 180)) ** 2,
+		);
+		const impliedSpeedKmh = (impliedDist / dt) * 3.6;
+		const shouldReset = dt > 3600 || (dt > 300 && impliedSpeedKmh > 200);
+
+		if (shouldReset) {
+			// Gap or teleport: reset filter state
 			const acc = p.accuracy ?? defaultAccuracy;
 			const vLat = metersToDegreesLat(acc) ** 2;
 			const vLon = metersToDegreesLon(acc, p.lat) ** 2;

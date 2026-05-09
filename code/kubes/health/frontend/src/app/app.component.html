@@ -31,21 +31,39 @@
       (selectedIndexChange)="view.set($event === 0 ? 'today' : 'trends')"
       [backgroundColor]="'primary'"
       class="view-tabs">
-      <mat-tab label="Today">
+      <mat-tab label="Day">
         <div class="tab-content">
-          <app-summary-cards
-            [latestActivity]="latestActivity()"
-            [latestSleep]="latestSleep()"
-          />
-          <div class="section">
-            <app-hypnogram [stages]="sleepStages()" />
+          <div class="day-nav">
+            <button mat-icon-button (click)="changeDay(-1)">
+              <mat-icon>chevron_left</mat-icon>
+            </button>
+            <span class="day-label" [class.loading]="dayLoading()">
+              {{ formatDisplayDate() }}
+            </span>
+            <button mat-icon-button (click)="changeDay(1)" [disabled]="isToday()">
+              <mat-icon>chevron_right</mat-icon>
+            </button>
           </div>
-          <div class="section">
-            <app-intraday-hr [points]="intradayHr()" />
-          </div>
-          <div class="section">
-            <app-speed-chart [data]="velocity()" />
-          </div>
+
+          @if (dayLoading()) {
+            <div class="day-loading">
+              <mat-spinner diameter="32"></mat-spinner>
+            </div>
+          } @else {
+            <app-summary-cards
+              [latestActivity]="latestActivity()"
+              [latestSleep]="latestSleep()"
+            />
+            <div class="section">
+              <app-hypnogram [stages]="sleepStages()" />
+            </div>
+            <div class="section">
+              <app-intraday-hr [points]="intradayHr()" />
+            </div>
+            <div class="section">
+              <app-speed-chart [data]="velocity()" />
+            </div>
+          }
         </div>
       </mat-tab>
       <mat-tab label="Trends">
