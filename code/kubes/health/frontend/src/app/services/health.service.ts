@@ -57,6 +57,11 @@ export interface TrackSegment {
   maxSpeed: number;
   linearity: number;
   pointCount: number;
+  // OSM enrichment (optional, may not be present if Nominatim/Overpass failed)
+  place?: string;
+  wayName?: string;
+  refinedMode?: string;
+  refinedReason?: string;
 }
 
 export interface VelocityData {
