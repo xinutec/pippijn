@@ -118,6 +118,7 @@ Vitest. Tests cover:
 ## Security checklist
 
 - [x] Session cookies: HttpOnly, Secure, SameSite=Lax, HMAC-signed
+- [x] Sessions are in-memory (lost on pod restart — users re-login via Nextcloud SSO, no data lost)
 - [x] CSRF: state parameter on both OAuth flows, validated on callback
 - [x] PKCE: Fitbit OAuth uses S256 code challenge
 - [x] User isolation: all DB queries filtered by session user_id

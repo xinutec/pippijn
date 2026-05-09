@@ -39,7 +39,7 @@ import type { ActivityDay, SleepLog } from "../../services/health.service";
         <mat-card class="stat-card">
           <mat-card-content>
             <div class="label">Sleep</div>
-            <div class="value">{{ formatDuration(s.duration_ms) }}</div>
+            <div class="value">{{ formatMinutes(s.minutes_asleep) }}</div>
           </mat-card-content>
         </mat-card>
         <mat-card class="stat-card">
@@ -84,9 +84,9 @@ export class SummaryCardsComponent {
   readonly latestActivity = input<ActivityDay | null>(null);
   readonly latestSleep = input<SleepLog | null>(null);
 
-  formatDuration(ms: number): string {
-    const hours = Math.floor(ms / 3600000);
-    const mins = Math.floor((ms % 3600000) / 60000);
-    return `${hours}h ${mins}m`;
+  formatMinutes(mins: number): string {
+    const hours = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${hours}h ${m}m`;
   }
 }
