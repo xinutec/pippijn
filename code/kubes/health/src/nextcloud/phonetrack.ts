@@ -1,6 +1,13 @@
-import type { Config } from "../config.js";
 import { db } from "../db/pool.js";
 import { NextcloudClient } from "./client.js";
+
+export interface NextcloudConfig {
+	nextcloud: {
+		baseUrl: string;
+		clientId: string;
+		clientSecret: string;
+	};
+}
 
 export interface RawTrackPoint {
 	ts: number;
@@ -17,7 +24,7 @@ export interface RawTrackPoint {
  * Uses the user's stored Nextcloud OAuth tokens.
  */
 export async function fetchTrackPoints(
-	config: Config,
+	config: NextcloudConfig,
 	userId: string,
 	date: string,
 	nextDay: string,

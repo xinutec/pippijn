@@ -2,18 +2,15 @@
  * CLI tool: analyze a day's GPS data through the Kalman filter + segment classifier.
  *
  * Usage (from inside the health pod or locally with DB access):
- *   node dist/cli/analyze-day.js [date]
+ *   node dist/cli/analyze-day.js [date] [user] [timezone]
  *
- * Default date: yesterday.
+ * Default date: yesterday. Default user: pippijn. Default timezone: UTC.
  */
 
-// analyze-day needs Nextcloud config for PhoneTrack API
 import { z } from "zod";
 import { initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
-import { filterGpsTrack } from "../geo/kalman.js";
-import { classifySegments } from "../geo/segments.js";
-import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
+import { computeVelocity } from "../geo/velocity.js";
 
 const config = z
 	.object({
@@ -53,38 +50,17 @@ const date =
 		return d.toISOString().slice(0, 10);
 	})();
 
-const nextDay = (() => {
-	const d = new Date(date);
-	d.setDate(d.getDate() + 1);
-	return d.toISOString().slice(0, 10);
-})();
-
 const userId = process.argv[3] ?? "pippijn";
+const tz = process.argv[4]; // optional timezone, e.g. "Europe/Amsterdam"
 
 initPool(config.db);
 await withConnection(migrate);
 
-console.log(`Analyzing ${date} for user ${userId}\n`);
+console.log(`Analyzing ${date} for user ${userId}${tz ? ` (${tz})` : ""}\n`);
 
-const fullConfig = {
-	...config,
-	fitbit: { clientId: "", clientSecret: "", redirectUri: "" },
-	nextcloud: { ...config.nextcloud, redirectUri: "" },
-	sessionSecret: "",
-	port: 0,
-};
-const raw = await fetchTrackPoints(fullConfig as any, userId, date, nextDay);
-console.log(`Raw points: ${raw.length}`);
+const { points, segments } = await computeVelocity(config, userId, date, tz);
 
-const gps = raw
-	.filter((p) => p.accuracy === null || p.accuracy <= 50)
-	.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon, accuracy: p.accuracy }));
-console.log(`After accuracy filter: ${gps.length}`);
-
-const filtered = filterGpsTrack(gps);
-console.log(`After Kalman filter: ${filtered.length}`);
-
-const segments = classifySegments(filtered);
+console.log(`Filtered points: ${points.length}`);
 console.log(`\n=== Segments (${segments.length}) ===`);
 for (const s of segments) {
 	const start = new Date(s.startTs * 1000).toISOString().slice(11, 16);
@@ -96,9 +72,9 @@ for (const s of segments) {
 }
 
 console.log(`\n=== Points (sampled every ~2 min) ===`);
-const sampleInterval = Math.max(1, Math.floor(filtered.length / 60));
-for (let i = 0; i < filtered.length; i += sampleInterval) {
-	const p = filtered[i];
+const sampleInterval = Math.max(1, Math.floor(points.length / 60));
+for (let i = 0; i < points.length; i += sampleInterval) {
+	const p = points[i];
 	const time = new Date(p.ts * 1000).toISOString().slice(11, 16);
 	const seg = segments.find((s) => p.ts >= s.startTs && p.ts <= s.endTs);
 	console.log(

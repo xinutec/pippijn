@@ -71,6 +71,32 @@ describe("filterGpsTrack", () => {
 		expect(result).toHaveLength(2); // duplicate skipped
 	});
 
+	it("resets on teleport (gap > 5 min + implied speed > 200 km/h)", () => {
+		// Phone indoors for 10 minutes, then GPS fix 50km away (teleport, not real movement)
+		const points: GpsPoint[] = [
+			{ ts: 1000, lat: 52.0, lon: 5.0, accuracy: 5 },
+			{ ts: 1030, lat: 52.001, lon: 5.0, accuracy: 5 },
+			{ ts: 1660, lat: 52.5, lon: 5.5, accuracy: 5 }, // 10 min gap, ~60km away → ~360 km/h implied
+		];
+		const result = filterGpsTrack(points);
+		expect(result).toHaveLength(3);
+		// After teleport reset, speed should be 0 (not 360 km/h)
+		expect(result[2].speed_kmh).toBe(0);
+	});
+
+	it("does NOT reset on short gap with reasonable speed", () => {
+		// 6 min gap but only 2km away → ~20 km/h, reasonable (cycling)
+		const points: GpsPoint[] = [
+			{ ts: 1000, lat: 52.0, lon: 5.0, accuracy: 5 },
+			{ ts: 1030, lat: 52.001, lon: 5.0, accuracy: 5 },
+			{ ts: 1390, lat: 52.018, lon: 5.0, accuracy: 5 }, // 6 min gap, ~2km → ~20 km/h
+		];
+		const result = filterGpsTrack(points);
+		expect(result).toHaveLength(3);
+		// Should NOT reset — speed should be > 0
+		expect(result[2].speed_kmh).toBeGreaterThan(0);
+	});
+
 	it("resets on gaps > 1 hour", () => {
 		const points: GpsPoint[] = [
 			{ ts: 1000, lat: 52.0, lon: 5.0, accuracy: 5 },

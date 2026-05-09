@@ -3,8 +3,7 @@ import { z } from "zod";
 import type { Config } from "../config.js";
 import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
-import { filterGpsTrack } from "../geo/kalman.js";
-import { classifySegments } from "../geo/segments.js";
+import { computeVelocity } from "../geo/velocity.js";
 import { requireAuth } from "../middleware/auth.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 
@@ -25,52 +24,6 @@ function sinceDate(days: number): string {
 	const d = new Date();
 	d.setDate(d.getDate() - days);
 	return d.toISOString().slice(0, 10);
-}
-
-/**
- * Get UTC unix timestamps for the start and end of a date in a given timezone.
- * e.g. "2026-05-09" in "Europe/Amsterdam" (CEST, UTC+2) →
- *   start = 2026-05-08T22:00:00Z, end = 2026-05-09T22:00:00Z
- */
-function dateBoundsUtc(date: string, tz?: string): { startUtc: number; endUtc: number } {
-	if (!tz) {
-		// No timezone — assume date is UTC
-		return {
-			startUtc: Math.floor(new Date(date).getTime() / 1000),
-			endUtc: Math.floor(new Date(nextDay(date)).getTime() / 1000),
-		};
-	}
-
-	// Create a date at midnight in the given timezone
-	// Use Intl to find the UTC offset for this date+timezone
-	const formatter = new Intl.DateTimeFormat("en-US", {
-		timeZone: tz,
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-		hour12: false,
-	});
-
-	// Find the offset by comparing UTC midnight with the formatted local time
-	const utcMidnight = new Date(`${date}T00:00:00Z`);
-	const parts = formatter.formatToParts(utcMidnight);
-	const localHour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
-	const localDay = Number(parts.find((p) => p.type === "day")?.value ?? 0);
-	const dateDay = Number(date.split("-")[2]);
-
-	// Calculate offset in hours (approximate — handles most cases)
-	let offsetHours = localHour;
-	if (localDay > dateDay) offsetHours += 0; // same day
-	else if (localDay < dateDay) offsetHours -= 24; // day before in local
-
-	// Midnight local = midnight UTC minus offset
-	const startUtc = Math.floor(utcMidnight.getTime() / 1000) - offsetHours * 3600;
-	const endUtc = startUtc + 86400;
-
-	return { startUtc, endUtc };
 }
 
 export function apiRoutes(config: Config): Hono<AppEnv> {
@@ -249,16 +202,8 @@ export function apiRoutes(config: Config): Hono<AppEnv> {
 		const date = dateParam.parse(c.req.query("date"));
 		const tz = tzParam.parse(c.req.query("tz"));
 		try {
-			// Use timezone-aware date boundaries for PhoneTrack (UTC timestamps)
-			const bounds = dateBoundsUtc(date, tz);
-			const raw = await fetchTrackPoints(config, uid, date, nextDay(date));
-			const gpsPoints = raw
-				.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc)
-				.filter((p) => p.accuracy === null || p.accuracy <= 50)
-				.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon, accuracy: p.accuracy }));
-			const filtered = filterGpsTrack(gpsPoints);
-			const segments = classifySegments(filtered);
-			return c.json({ points: filtered, segments });
+			const result = await computeVelocity(config, uid, date, tz);
+			return c.json(result);
 		} catch (e) {
 			return c.json({ error: String(e) }, 400);
 		}

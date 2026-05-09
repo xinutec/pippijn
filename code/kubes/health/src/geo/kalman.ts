@@ -166,7 +166,7 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 		// Detect teleports: if gap > 5 min AND implied speed > 200 km/h, reset
 		const impliedDist = Math.sqrt(
 			((p.lat - points[i - 1].lat) * 111320) ** 2 +
-			((p.lon - points[i - 1].lon) * 111320 * Math.cos(p.lat * Math.PI / 180)) ** 2,
+				((p.lon - points[i - 1].lon) * 111320 * Math.cos((p.lat * Math.PI) / 180)) ** 2,
 		);
 		const impliedSpeedKmh = (impliedDist / dt) * 3.6;
 		const shouldReset = dt > 3600 || (dt > 300 && impliedSpeedKmh > 200);
