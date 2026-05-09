@@ -94,8 +94,13 @@ for (const user of users) {
 			await trySync("HR zones", () => syncHeartRateZones(client, conn, user.user_id, lastSyncDate, today));
 			await trySync("body", () => syncBody(client, conn, user.user_id, lastSyncDate, today));
 
+			// Fetch intraday HR for each day in the sync window (API allows max 24h per request)
 			if (client.rateLimitRemaining > 20) {
-				await trySync("HR intraday", () => syncHeartRateIntraday(client, conn, user.user_id, yesterday));
+				for (let d = new Date(lastSyncDate); d <= new Date(today); d.setDate(d.getDate() + 1)) {
+					if (client.rateLimitRemaining <= 10) break;
+					const dateStr = d.toISOString().slice(0, 10);
+					await trySync(`HR intraday ${dateStr}`, () => syncHeartRateIntraday(client, conn, user.user_id, dateStr));
+				}
 			}
 
 			await trySync("SpO2", () => syncSpO2Daily(client, conn, user.user_id, lastSyncDate, today));
