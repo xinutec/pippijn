@@ -40,8 +40,18 @@ app.route("/api", apiRoutes());
 // Static files (Angular SPA)
 app.use("/*", serveStatic({ root: "./public" }));
 
-// SPA fallback: serve index.html for unmatched routes
-app.get("*", serveStatic({ root: "./public", path: "/index.html" }));
+// Fallback: if no Angular build exists, show a simple landing page
+app.get("*", (c) => {
+  const session = c.get("session");
+  if (!session) {
+    return c.html('<h1>Health Dashboard</h1><p><a href="/login">Sign in with Nextcloud</a></p>');
+  }
+  return c.html(`<h1>Health Dashboard</h1>
+    <p>Logged in as ${session.displayName}</p>
+    <p><a href="/fitbit/auth">Link Fitbit account</a></p>
+    <p><a href="/api/activity">Activity API</a> · <a href="/api/sleep">Sleep API</a> · <a href="/api/devices">Devices API</a></p>
+    <form method="POST" action="/logout"><button>Logout</button></form>`);
+});
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(`Health server listening on port ${info.port}`);

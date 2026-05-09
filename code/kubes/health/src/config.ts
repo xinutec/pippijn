@@ -14,7 +14,7 @@ const schema = z.object({
   fitbit: z.object({
     clientId: z.string().min(1),
     clientSecret: z.string().min(1),
-    redirectUri: z.string().url().default("https://health.xinutec.org/fitbit/auth"),
+    redirectUri: z.string().url().default("https://health.xinutec.org/fitbit/callback"),
   }),
 
   nextcloud: z.object({
