@@ -78,32 +78,30 @@ for (const user of users) {
 
 		console.log(`[${user.user_id}] Sync window: ${lastSyncDate} → ${today}`);
 
-		// Sync modules still use raw mariadb connections for batch inserts
+		// Each data type syncs independently — one failure doesn't block the rest
 		await withConnection(async (conn) => {
-			await syncDevices(client, conn, user.user_id);
-			await syncActivity(client, conn, user.user_id, lastSyncDate, today);
-			await syncSleep(client, conn, user.user_id, lastSyncDate, today);
-			await syncHeartRateZones(client, conn, user.user_id, lastSyncDate, today);
-			await syncBody(client, conn, user.user_id, lastSyncDate, today);
-
-			if (client.rateLimitRemaining > 20) {
-				await syncHeartRateIntraday(client, conn, user.user_id, yesterday);
-			}
-
-			const optional: Array<() => Promise<number>> = [
-				() => syncSpO2Daily(client, conn, user.user_id, lastSyncDate, today),
-				() => syncHrv(client, conn, user.user_id, lastSyncDate, today),
-				() => syncBreathingRate(client, conn, user.user_id, lastSyncDate, today),
-				() => syncTemperature(client, conn, user.user_id, lastSyncDate, today),
-			];
-
-			for (const fn of optional) {
+			const trySync = async (name: string, fn: () => Promise<unknown>) => {
 				try {
 					await fn();
 				} catch (e) {
-					console.log(`[${user.user_id}] Optional sync skipped: ${e}`);
+					console.error(`[${user.user_id}] ${name} sync failed: ${e}`);
 				}
+			};
+
+			await trySync("devices", () => syncDevices(client, conn, user.user_id));
+			await trySync("activity", () => syncActivity(client, conn, user.user_id, lastSyncDate, today));
+			await trySync("sleep", () => syncSleep(client, conn, user.user_id, lastSyncDate, today));
+			await trySync("HR zones", () => syncHeartRateZones(client, conn, user.user_id, lastSyncDate, today));
+			await trySync("body", () => syncBody(client, conn, user.user_id, lastSyncDate, today));
+
+			if (client.rateLimitRemaining > 20) {
+				await trySync("HR intraday", () => syncHeartRateIntraday(client, conn, user.user_id, yesterday));
 			}
+
+			await trySync("SpO2", () => syncSpO2Daily(client, conn, user.user_id, lastSyncDate, today));
+			await trySync("HRV", () => syncHrv(client, conn, user.user_id, lastSyncDate, today));
+			await trySync("breathing", () => syncBreathingRate(client, conn, user.user_id, lastSyncDate, today));
+			await trySync("temperature", () => syncTemperature(client, conn, user.user_id, lastSyncDate, today));
 		});
 
 		// Update sync state via Kysely
