@@ -21,6 +21,32 @@ const PORT = parseInt(process.env.AUTH_PORT ?? "3000", 10);
 // In-memory session store (single pod, fine for this scale)
 const sessions = new Map<string, { userId: string; displayName: string; expiresAt: number }>();
 
+// Pending OAuth flows, keyed by state parameter (CSRF protection)
+interface PendingOAuth {
+  createdAt: number;
+  userId?: string;       // Nextcloud user initiating Fitbit auth
+  codeVerifier?: string; // PKCE verifier for Fitbit
+}
+const pendingOAuth = new Map<string, PendingOAuth>();
+
+function createOAuthState(extra?: Partial<PendingOAuth>): string {
+  const state = crypto.randomBytes(24).toString("hex");
+  pendingOAuth.set(state, { createdAt: Date.now(), ...extra });
+  // Clean up expired entries (older than 10 minutes)
+  for (const [key, val] of pendingOAuth) {
+    if (Date.now() - val.createdAt > 10 * 60 * 1000) pendingOAuth.delete(key);
+  }
+  return state;
+}
+
+function consumeOAuthState(state: string): PendingOAuth | null {
+  const pending = pendingOAuth.get(state);
+  if (!pending) return null;
+  pendingOAuth.delete(state);
+  if (Date.now() - pending.createdAt > 10 * 60 * 1000) return null;
+  return pending;
+}
+
 function createSessionId(): string {
   return crypto.randomBytes(32).toString("hex");
 }
@@ -66,7 +92,6 @@ const ALL_FITBIT_SCOPES = [
   "electrocardiogram", "location", "settings",
 ].join(" ");
 
-let fitbitCodeVerifier = "";
 
 function generateCodeVerifier(): string {
   return crypto.randomBytes(64).toString("base64url").slice(0, 128);
@@ -110,10 +135,12 @@ const server = http.createServer(async (req, res) => {
 
   // --- Nextcloud SSO: login ---
   if (url.pathname === "/login") {
+    const state = createOAuthState();
     const authUrl = new URL(`${NC_BASE}/index.php/apps/oauth2/authorize`);
     authUrl.searchParams.set("client_id", NC_CLIENT_ID);
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("redirect_uri", NC_REDIRECT_URI);
+    authUrl.searchParams.set("state", state);
     res.writeHead(302, { Location: authUrl.toString() });
     res.end();
     return;
@@ -121,6 +148,14 @@ const server = http.createServer(async (req, res) => {
 
   // --- Nextcloud SSO: callback ---
   if (url.pathname === "/auth/callback" && url.searchParams.has("code")) {
+    const state = url.searchParams.get("state") ?? "";
+    const pending = consumeOAuthState(state);
+    if (!pending) {
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Invalid or expired OAuth state. Please try logging in again.");
+      return;
+    }
+
     const code = url.searchParams.get("code")!;
 
     const tokenRes = await fetch(`${NC_BASE}/index.php/apps/oauth2/api/v1/token`, {
@@ -200,11 +235,23 @@ const server = http.createServer(async (req, res) => {
       jsonResponse(res, 401, { error: "not authenticated" });
       return;
     }
-    jsonResponse(res, 200, session);
+    // Check if user has linked Fitbit
+    const db = await connect();
+    try {
+      const tokenRow = await db.query(
+        "SELECT user_id FROM tokens WHERE user_id = ?", [session.userId]
+      );
+      jsonResponse(res, 200, {
+        ...session,
+        fitbitLinked: tokenRow.length > 0,
+      });
+    } finally {
+      await db.end();
+    }
     return;
   }
 
-  // --- API: data endpoints (all require auth) ---
+  // --- API: data endpoints (all require auth, filtered by user) ---
   if (url.pathname.startsWith("/api/")) {
     const session = getSessionFromReq(req);
     if (!session) {
@@ -212,6 +259,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    const uid = session.userId;
     const db = await connect();
     try {
       const days = parseInt(url.searchParams.get("days") ?? "30", 10);
@@ -221,56 +269,60 @@ const server = http.createServer(async (req, res) => {
 
       if (url.pathname === "/api/activity") {
         const rows = await db.query(
-          "SELECT * FROM daily_activity WHERE date >= ? ORDER BY date", [sinceStr]
+          "SELECT * FROM daily_activity WHERE user_id = ? AND date >= ? ORDER BY date", [uid, sinceStr]
         );
         jsonResponse(res, 200, rows);
       } else if (url.pathname === "/api/sleep") {
         const rows = await db.query(
-          "SELECT * FROM sleep WHERE date >= ? ORDER BY date", [sinceStr]
+          "SELECT * FROM sleep WHERE user_id = ? AND date >= ? ORDER BY date", [uid, sinceStr]
         );
         jsonResponse(res, 200, rows);
       } else if (url.pathname === "/api/heartrate/zones") {
         const rows = await db.query(
-          "SELECT * FROM heart_rate_zones WHERE date >= ? ORDER BY date, zone_name", [sinceStr]
+          "SELECT * FROM heart_rate_zones WHERE user_id = ? AND date >= ? ORDER BY date, zone_name", [uid, sinceStr]
         );
         jsonResponse(res, 200, rows);
       } else if (url.pathname === "/api/heartrate/intraday") {
         const date = url.searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
         const rows = await db.query(
-          "SELECT * FROM heart_rate_intraday WHERE ts >= ? AND ts < ? + INTERVAL 1 DAY ORDER BY ts",
-          [date, date]
+          "SELECT * FROM heart_rate_intraday WHERE user_id = ? AND ts >= ? AND ts < ? + INTERVAL 1 DAY ORDER BY ts",
+          [uid, date, date]
         );
         jsonResponse(res, 200, rows);
       } else if (url.pathname === "/api/body") {
         const rows = await db.query(
-          "SELECT * FROM body WHERE date >= ? ORDER BY date", [sinceStr]
+          "SELECT * FROM body WHERE user_id = ? AND date >= ? ORDER BY date", [uid, sinceStr]
         );
         jsonResponse(res, 200, rows);
       } else if (url.pathname === "/api/spo2") {
         const rows = await db.query(
-          "SELECT * FROM spo2_daily WHERE date >= ? ORDER BY date", [sinceStr]
+          "SELECT * FROM spo2_daily WHERE user_id = ? AND date >= ? ORDER BY date", [uid, sinceStr]
         );
         jsonResponse(res, 200, rows);
       } else if (url.pathname === "/api/hrv") {
         const rows = await db.query(
-          "SELECT * FROM hrv_daily WHERE date >= ? ORDER BY date", [sinceStr]
+          "SELECT * FROM hrv_daily WHERE user_id = ? AND date >= ? ORDER BY date", [uid, sinceStr]
         );
         jsonResponse(res, 200, rows);
       } else if (url.pathname === "/api/breathing") {
         const rows = await db.query(
-          "SELECT * FROM breathing_rate WHERE date >= ? ORDER BY date", [sinceStr]
+          "SELECT * FROM breathing_rate WHERE user_id = ? AND date >= ? ORDER BY date", [uid, sinceStr]
         );
         jsonResponse(res, 200, rows);
       } else if (url.pathname === "/api/temperature") {
         const rows = await db.query(
-          "SELECT * FROM skin_temperature WHERE date >= ? ORDER BY date", [sinceStr]
+          "SELECT * FROM skin_temperature WHERE user_id = ? AND date >= ? ORDER BY date", [uid, sinceStr]
         );
         jsonResponse(res, 200, rows);
       } else if (url.pathname === "/api/devices") {
-        const rows = await db.query("SELECT * FROM devices");
+        const rows = await db.query(
+          "SELECT * FROM devices WHERE user_id = ?", [uid]
+        );
         jsonResponse(res, 200, rows);
       } else if (url.pathname === "/api/sync-state") {
-        const rows = await db.query("SELECT * FROM sync_state");
+        const rows = await db.query(
+          "SELECT * FROM sync_state WHERE user_id = ?", [uid]
+        );
         jsonResponse(res, 200, rows);
       } else {
         jsonResponse(res, 404, { error: "unknown endpoint" });
@@ -290,8 +342,12 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    fitbitCodeVerifier = generateCodeVerifier();
-    const codeChallenge = generateCodeChallenge(fitbitCodeVerifier);
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = generateCodeChallenge(codeVerifier);
+    const state = createOAuthState({
+      userId: session.userId,
+      codeVerifier,
+    });
 
     const authUrl = new URL("https://www.fitbit.com/oauth2/authorize");
     authUrl.searchParams.set("client_id", FITBIT_CLIENT_ID);
@@ -300,6 +356,7 @@ const server = http.createServer(async (req, res) => {
     authUrl.searchParams.set("code_challenge", codeChallenge);
     authUrl.searchParams.set("code_challenge_method", "S256");
     authUrl.searchParams.set("redirect_uri", FITBIT_REDIRECT_URI);
+    authUrl.searchParams.set("state", state);
 
     res.writeHead(302, { Location: authUrl.toString() });
     res.end();
@@ -307,6 +364,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === "/fitbit/auth" && url.searchParams.has("code")) {
+    const state = url.searchParams.get("state") ?? "";
+    const pending = consumeOAuthState(state);
+    if (!pending || !pending.userId || !pending.codeVerifier) {
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Invalid or expired OAuth state. Please try again from /fitbit/auth.");
+      return;
+    }
+
     const code = url.searchParams.get("code")!;
     const basicAuth = Buffer.from(`${FITBIT_CLIENT_ID}:${FITBIT_CLIENT_SECRET}`).toString("base64");
 
@@ -320,7 +385,7 @@ const server = http.createServer(async (req, res) => {
         grant_type: "authorization_code",
         code,
         client_id: FITBIT_CLIENT_ID,
-        code_verifier: fitbitCodeVerifier,
+        code_verifier: pending.codeVerifier,
         redirect_uri: FITBIT_REDIRECT_URI,
       }),
     });
@@ -337,14 +402,14 @@ const server = http.createServer(async (req, res) => {
     try {
       await migrate(db);
       await db.query(
-        `INSERT INTO tokens (id, access_token, refresh_token, expires_at, scopes)
-         VALUES (1, ?, ?, ?, ?)
+        `INSERT INTO tokens (user_id, access_token, refresh_token, expires_at, scopes)
+         VALUES (?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            access_token = VALUES(access_token),
            refresh_token = VALUES(refresh_token),
            expires_at = VALUES(expires_at),
            scopes = VALUES(scopes)`,
-        [tokens.access_token, tokens.refresh_token,
+        [pending.userId, tokens.access_token, tokens.refresh_token,
          new Date(Date.now() + tokens.expires_in * 1000), tokens.scope]
       );
     } finally {
@@ -353,7 +418,8 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(`<h1>Fitbit authorization successful</h1>
-      <p>User ID: ${tokens.user_id}</p>
+      <p>Linked to Nextcloud user: ${pending.userId}</p>
+      <p>Fitbit user ID: ${tokens.user_id}</p>
       <p>Scopes: ${tokens.scope}</p>
       <p><a href="/">Go to dashboard</a></p>`);
     return;
