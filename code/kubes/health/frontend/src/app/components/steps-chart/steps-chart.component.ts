@@ -1,31 +1,22 @@
 import { Component, input, effect } from "@angular/core";
+import { MatCardModule } from "@angular/material/card";
 import { BaseChartDirective } from "ng2-charts";
 import type { ChartConfiguration } from "chart.js";
 import type { ActivityDay } from "../../services/health.service";
+import { chartColors, gridColor, tickColor } from "../../chart-theme";
 
 @Component({
   selector: "app-steps-chart",
   standalone: true,
-  imports: [BaseChartDirective],
+  imports: [MatCardModule, BaseChartDirective],
   template: `
-    <div class="chart-container">
-      <h3>Steps</h3>
-      <canvas baseChart [data]="chartData" [options]="chartOptions" type="bar"></canvas>
-    </div>
+    <mat-card>
+      <mat-card-header><mat-card-title>Steps</mat-card-title></mat-card-header>
+      <mat-card-content>
+        <canvas baseChart [data]="chartData" [options]="chartOptions" type="bar"></canvas>
+      </mat-card-content>
+    </mat-card>
   `,
-  styles: [`
-    .chart-container {
-      background: #1e1e2e;
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 16px;
-    }
-    h3 {
-      color: #e0e0f0;
-      margin: 0 0 16px 0;
-      font-weight: 500;
-    }
-  `],
 })
 export class StepsChartComponent {
   readonly activity = input<ActivityDay[]>([]);
@@ -33,10 +24,11 @@ export class StepsChartComponent {
   chartData: ChartConfiguration<"bar">["data"] = { labels: [], datasets: [] };
   chartOptions: ChartConfiguration<"bar">["options"] = {
     responsive: true,
+    maintainAspectRatio: true,
     plugins: { legend: { display: false } },
     scales: {
-      x: { ticks: { color: "#a0a0b0" }, grid: { display: false } },
-      y: { ticks: { color: "#a0a0b0" }, grid: { color: "#2a2a3e" } },
+      x: { ticks: { color: tickColor }, grid: { display: false } },
+      y: { ticks: { color: tickColor }, grid: { color: gridColor } },
     },
   };
 
@@ -44,15 +36,17 @@ export class StepsChartComponent {
     effect(() => {
       const data = this.activity();
       this.chartData = {
-        labels: data.map((d) => new Date(d.date).toLocaleDateString("en", { month: "short", day: "numeric" })),
-        datasets: [
-          {
-            data: data.map((d) => d.steps),
-            backgroundColor: "#6366f1",
-            borderRadius: 4,
-          },
-        ],
+        labels: data.map((d) => formatDay(d.date)),
+        datasets: [{
+          data: data.map((d) => d.steps),
+          backgroundColor: chartColors.primary,
+          borderRadius: 3,
+        }],
       };
     });
   }
+}
+
+function formatDay(date: string): string {
+  return new Date(date).toLocaleDateString("en", { month: "short", day: "numeric" });
 }

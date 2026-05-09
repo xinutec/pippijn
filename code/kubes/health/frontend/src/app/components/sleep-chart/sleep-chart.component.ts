@@ -1,31 +1,22 @@
 import { Component, input, effect } from "@angular/core";
+import { MatCardModule } from "@angular/material/card";
 import { BaseChartDirective } from "ng2-charts";
 import type { ChartConfiguration } from "chart.js";
 import type { SleepLog } from "../../services/health.service";
+import { chartColors, gridColor, tickColor, formatDay } from "../../chart-theme";
 
 @Component({
   selector: "app-sleep-chart",
   standalone: true,
-  imports: [BaseChartDirective],
+  imports: [MatCardModule, BaseChartDirective],
   template: `
-    <div class="chart-container">
-      <h3>Sleep</h3>
-      <canvas baseChart [data]="chartData" [options]="chartOptions" type="bar"></canvas>
-    </div>
+    <mat-card>
+      <mat-card-header><mat-card-title>Sleep</mat-card-title></mat-card-header>
+      <mat-card-content>
+        <canvas baseChart [data]="chartData" [options]="chartOptions" type="bar"></canvas>
+      </mat-card-content>
+    </mat-card>
   `,
-  styles: [`
-    .chart-container {
-      background: #1e1e2e;
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 16px;
-    }
-    h3 {
-      color: #e0e0f0;
-      margin: 0 0 16px 0;
-      font-weight: 500;
-    }
-  `],
 })
 export class SleepChartComponent {
   readonly sleep = input<SleepLog[]>([]);
@@ -33,64 +24,32 @@ export class SleepChartComponent {
   chartData: ChartConfiguration<"bar">["data"] = { labels: [], datasets: [] };
   chartOptions: ChartConfiguration<"bar">["options"] = {
     responsive: true,
+    maintainAspectRatio: true,
     plugins: {
-      legend: {
-        labels: { color: "#a0a0b0" },
-      },
+      legend: { labels: { color: tickColor } },
     },
     scales: {
-      x: {
-        stacked: true,
-        ticks: { color: "#a0a0b0" },
-        grid: { display: false },
-      },
+      x: { stacked: true, ticks: { color: tickColor }, grid: { display: false } },
       y: {
         stacked: true,
-        ticks: {
-          color: "#a0a0b0",
-          callback: (v) => `${v}h`,
-        },
-        grid: { color: "#2a2a3e" },
+        ticks: { color: tickColor, callback: (v) => `${v}h` },
+        grid: { color: gridColor },
       },
     },
   };
 
   constructor() {
     effect(() => {
-      const mainSleeps = this.sleep().filter((s) => s.is_main_sleep);
-      const labels = mainSleeps.map((s) =>
-        new Date(s.date).toLocaleDateString("en", { month: "short", day: "numeric" })
-      );
-
+      const main = this.sleep().filter((s) => s.is_main_sleep);
       const toHours = (mins: number | null) => (mins ?? 0) / 60;
 
       this.chartData = {
-        labels,
+        labels: main.map((s) => formatDay(s.date)),
         datasets: [
-          {
-            label: "Deep",
-            data: mainSleeps.map((s) => toHours(s.minutes_deep)),
-            backgroundColor: "#1e3a5f",
-            borderRadius: 2,
-          },
-          {
-            label: "Light",
-            data: mainSleeps.map((s) => toHours(s.minutes_light)),
-            backgroundColor: "#3b82f6",
-            borderRadius: 2,
-          },
-          {
-            label: "REM",
-            data: mainSleeps.map((s) => toHours(s.minutes_rem)),
-            backgroundColor: "#8b5cf6",
-            borderRadius: 2,
-          },
-          {
-            label: "Awake",
-            data: mainSleeps.map((s) => toHours(s.minutes_wake)),
-            backgroundColor: "#f59e0b",
-            borderRadius: 2,
-          },
+          { label: "Deep", data: main.map((s) => toHours(s.minutes_deep)), backgroundColor: chartColors.deepBlue, borderRadius: 2 },
+          { label: "Light", data: main.map((s) => toHours(s.minutes_light)), backgroundColor: chartColors.blue, borderRadius: 2 },
+          { label: "REM", data: main.map((s) => toHours(s.minutes_rem)), backgroundColor: chartColors.purple, borderRadius: 2 },
+          { label: "Awake", data: main.map((s) => toHours(s.minutes_wake)), backgroundColor: chartColors.amber, borderRadius: 2 },
         ],
       };
     });

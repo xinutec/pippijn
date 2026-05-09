@@ -48,8 +48,11 @@ export async function withConnection<T>(
 }
 
 export async function destroyPool(): Promise<void> {
-  await kyselyInstance?.destroy();
-  await pool?.end();
+  if (kyselyInstance) {
+    await kyselyInstance.destroy(); // also closes the underlying pool
+  } else {
+    await pool?.end();
+  }
   kyselyInstance = null;
   pool = null;
 }

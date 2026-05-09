@@ -41,6 +41,7 @@ export interface HeartRateZone {
 export interface UserInfo {
   userId: string;
   displayName: string;
+  fitbitLinked: boolean;
 }
 
 @Injectable({ providedIn: "root" })
