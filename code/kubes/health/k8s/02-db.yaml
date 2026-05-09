@@ -44,12 +44,12 @@ spec:
               subPath: mariadb-data
           livenessProbe:
             exec:
-              command: ["mariadb-admin", "ping", "-h", "127.0.0.1"]
+              command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\""]
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             exec:
-              command: ["mariadb", "-h", "127.0.0.1", "-e", "SELECT 1"]
+              command: ["sh", "-c", "mariadb -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\" -e 'SELECT 1'"]
             initialDelaySeconds: 10
             periodSeconds: 5
           resources:

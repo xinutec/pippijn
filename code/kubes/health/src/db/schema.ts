@@ -69,7 +69,7 @@ const TABLES = [
   `CREATE TABLE IF NOT EXISTS sleep_stages (
     sleep_log_id BIGINT NOT NULL,
     ts DATETIME NOT NULL,
-    stage ENUM('deep', 'light', 'rem', 'wake') NOT NULL,
+    stage VARCHAR(16) NOT NULL,
     duration_seconds INT NOT NULL,
     PRIMARY KEY (sleep_log_id, ts),
     FOREIGN KEY (sleep_log_id) REFERENCES sleep(log_id) ON DELETE CASCADE

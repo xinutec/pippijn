@@ -59,7 +59,7 @@ export interface SleepLog {
     };
     data: Array<{
       dateTime: string;
-      level: "deep" | "light" | "rem" | "wake";
+      level: string;
       seconds: number;
     }>;
   };
