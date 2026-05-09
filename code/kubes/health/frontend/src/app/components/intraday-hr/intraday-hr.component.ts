@@ -4,6 +4,7 @@ import { BaseChartDirective } from "ng2-charts";
 import type { ChartConfiguration } from "chart.js";
 import type { HeartRatePoint } from "../../services/health.service";
 import { chartColors, tickColor, gridColor } from "../../chart-theme";
+import { formatLocalTime } from "../../time-utils";
 
 @Component({
   selector: "app-intraday-hr",
@@ -56,10 +57,7 @@ export class IntradayHrComponent {
       const sampled = data.filter((_, i) => i % 5 === 0);
 
       this.chartData = {
-        labels: sampled.map((p) => {
-          const t = new Date(p.ts);
-          return t.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
-        }),
+        labels: sampled.map((p) => formatLocalTime(p.ts)),
         datasets: [{
           data: sampled.map((p) => p.bpm),
           borderColor: chartColors.red,

@@ -1,6 +1,7 @@
 import { Component, input, effect, ElementRef, viewChild } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { SleepStage } from "../../services/health.service";
+import { localEpoch, formatLocalTime } from "../../time-utils";
 
 // Y positions: Awake at top, Deep at bottom
 const STAGE_Y: Record<string, number> = {
@@ -102,10 +103,10 @@ export class HypnogramComponent {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      // Compute time range
-      const firstTime = new Date(data[0].ts).getTime();
+      // Compute time range (local time, not UTC)
+      const firstTime = localEpoch(data[0].ts);
       const lastStage = data[data.length - 1];
-      const lastTime = new Date(lastStage.ts).getTime() + lastStage.duration_seconds * 1000;
+      const lastTime = localEpoch(lastStage.ts) + lastStage.duration_seconds * 1000;
       const totalMs = lastTime - firstTime;
 
       // Set canvas size
@@ -139,7 +140,7 @@ export class HypnogramComponent {
 
       // Draw each stage as a filled rectangle in its lane
       for (const stage of data) {
-        const stageStart = new Date(stage.ts).getTime();
+        const stageStart = localEpoch(stage.ts);
         const stageEnd = stageStart + stage.duration_seconds * 1000;
 
         const x1 = ((stageStart - firstTime) / totalMs) * w;
@@ -163,7 +164,7 @@ export class HypnogramComponent {
         const prevLevel = STAGE_Y[prev.stage] ?? 2;
         const currLevel = STAGE_Y[curr.stage] ?? 2;
         if (prevLevel !== currLevel) {
-          const prevEnd = new Date(prev.ts).getTime() + prev.duration_seconds * 1000;
+          const prevEnd = localEpoch(prev.ts) + prev.duration_seconds * 1000;
           const x = ((prevEnd - firstTime) / totalMs) * w;
           const y1 = padTop + prevLevel * laneH + laneH / 2;
           const y2 = padTop + currLevel * laneH + laneH / 2;
@@ -174,15 +175,16 @@ export class HypnogramComponent {
         }
       }
 
-      // Time labels
-      const fmt = (ms: number) => {
-        const d = new Date(ms);
-        return d.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
-      };
+      // Time labels — use formatLocalTime for first/last, interpolate for middle
       const labelCount = 6;
       this.timeLabels = [];
+      // For interpolated labels, use the local epoch (already local time)
       for (let i = 0; i <= labelCount; i++) {
-        this.timeLabels.push(fmt(firstTime + (totalMs * i) / labelCount));
+        const ms = firstTime + (totalMs * i) / labelCount;
+        const d = new Date(ms);
+        const hh = d.getHours().toString().padStart(2, "0");
+        const mm = d.getMinutes().toString().padStart(2, "0");
+        this.timeLabels.push(`${hh}:${mm}`);
       }
     });
   }
