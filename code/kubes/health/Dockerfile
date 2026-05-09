@@ -8,7 +8,7 @@ RUN npx tsc
 FROM node:22-alpine AS frontend-build
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --legacy-peer-deps
+RUN npm ci
 COPY frontend/ .
 RUN npx ng build --configuration production
 
