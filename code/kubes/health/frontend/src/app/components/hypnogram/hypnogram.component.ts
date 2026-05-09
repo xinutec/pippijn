@@ -27,65 +27,8 @@ const STAGE_LABELS = ["Awake", "REM", "Light", "Deep"];
   selector: "app-hypnogram",
   standalone: true,
   imports: [MatCardModule],
-  template: `
-    <mat-card>
-      <mat-card-header><mat-card-title>Sleep Stages</mat-card-title></mat-card-header>
-      <mat-card-content>
-        @if (stages().length === 0) {
-          <p class="no-data">No sleep stage data available</p>
-        } @else {
-          <div class="hypnogram-container">
-            <div class="y-labels">
-              @for (label of stageLabels; track label) {
-                <span>{{ label }}</span>
-              }
-            </div>
-            <div class="canvas-wrap">
-              <canvas #canvas></canvas>
-              <div class="x-labels">
-                @for (label of timeLabels; track label) {
-                  <span>{{ label }}</span>
-                }
-              </div>
-            </div>
-          </div>
-        }
-      </mat-card-content>
-    </mat-card>
-  `,
-  styles: [`
-    .no-data { opacity: 0.5; padding: 24px 0; text-align: center; }
-    .hypnogram-container {
-      display: flex;
-      gap: 8px;
-      padding: 8px 0;
-    }
-    .y-labels {
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      padding: 4px 0 24px 0;
-      font-size: 12px;
-      color: rgba(255,255,255,0.5);
-      min-width: 48px;
-      text-align: right;
-    }
-    .canvas-wrap {
-      flex: 1;
-      min-height: 180px;
-    }
-    canvas {
-      width: 100% !important;
-      height: 160px !important;
-    }
-    .x-labels {
-      display: flex;
-      justify-content: space-between;
-      font-size: 11px;
-      color: rgba(255,255,255,0.5);
-      padding-top: 4px;
-    }
-  `],
+  templateUrl: './hypnogram.component.html',
+  styleUrl: './hypnogram.component.scss',
 })
 export class HypnogramComponent {
   readonly stages = input<SleepStage[]>([]);

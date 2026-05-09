@@ -1,0 +1,26 @@
+.cards {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.stat-card {
+  flex: 1;
+  min-width: 140px;
+}
+.label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+.value {
+  font-size: 28px;
+  font-weight: 500;
+}
+.unit {
+  font-size: 14px;
+  opacity: 0.5;
+  font-weight: 400;
+}

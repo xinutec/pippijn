@@ -9,14 +9,8 @@ import { chartColors, gridColor, tickColor, formatDay } from "../../chart-theme"
   selector: "app-sleep-chart",
   standalone: true,
   imports: [MatCardModule, BaseChartDirective],
-  template: `
-    <mat-card>
-      <mat-card-header><mat-card-title>Sleep</mat-card-title></mat-card-header>
-      <mat-card-content>
-        <canvas baseChart [data]="chartData" [options]="chartOptions" type="bar"></canvas>
-      </mat-card-content>
-    </mat-card>
-  `,
+  templateUrl: './sleep-chart.component.html',
+  styleUrl: './sleep-chart.component.scss',
 })
 export class SleepChartComponent {
   readonly sleep = input<SleepLog[]>([]);

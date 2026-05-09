@@ -9,14 +9,8 @@ import { chartColors, gridColor, tickColor } from "../../chart-theme";
   selector: "app-steps-chart",
   standalone: true,
   imports: [MatCardModule, BaseChartDirective],
-  template: `
-    <mat-card>
-      <mat-card-header><mat-card-title>Steps</mat-card-title></mat-card-header>
-      <mat-card-content>
-        <canvas baseChart [data]="chartData" [options]="chartOptions" type="bar"></canvas>
-      </mat-card-content>
-    </mat-card>
-  `,
+  templateUrl: './steps-chart.component.html',
+  styleUrl: './steps-chart.component.scss',
 })
 export class StepsChartComponent {
   readonly activity = input<ActivityDay[]>([]);

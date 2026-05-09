@@ -10,21 +10,8 @@ import { formatLocalTime } from "../../time-utils";
   selector: "app-intraday-hr",
   standalone: true,
   imports: [MatCardModule, BaseChartDirective],
-  template: `
-    <mat-card>
-      <mat-card-header><mat-card-title>Heart Rate</mat-card-title></mat-card-header>
-      <mat-card-content>
-        @if (points().length === 0) {
-          <p class="no-data">No heart rate data available</p>
-        } @else {
-          <canvas baseChart [data]="chartData" [options]="chartOptions" type="line"></canvas>
-        }
-      </mat-card-content>
-    </mat-card>
-  `,
-  styles: [`
-    .no-data { opacity: 0.5; padding: 24px 0; text-align: center; }
-  `],
+  templateUrl: './intraday-hr.component.html',
+  styleUrl: './intraday-hr.component.scss',
 })
 export class IntradayHrComponent {
   readonly points = input<HeartRatePoint[]>([]);

@@ -9,14 +9,8 @@ import { chartColors, gridColor, tickColor, formatDay } from "../../chart-theme"
   selector: "app-heartrate-chart",
   standalone: true,
   imports: [MatCardModule, BaseChartDirective],
-  template: `
-    <mat-card>
-      <mat-card-header><mat-card-title>Resting Heart Rate</mat-card-title></mat-card-header>
-      <mat-card-content>
-        <canvas baseChart [data]="chartData" [options]="chartOptions" type="line"></canvas>
-      </mat-card-content>
-    </mat-card>
-  `,
+  templateUrl: './heartrate-chart.component.html',
+  styleUrl: './heartrate-chart.component.scss',
 })
 export class HeartrateChartComponent {
   readonly activity = input<ActivityDay[]>([]);

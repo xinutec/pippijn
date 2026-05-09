@@ -25,51 +25,8 @@ const MODE_LABELS: Record<string, string> = {
 	selector: "app-speed-chart",
 	standalone: true,
 	imports: [MatCardModule],
-	template: `
-    <mat-card>
-      <mat-card-header><mat-card-title>Speed & Transport</mat-card-title></mat-card-header>
-      <mat-card-content>
-        @if (!data() || data()!.points.length === 0) {
-          <p class="no-data">No location data available</p>
-        } @else {
-          <div class="chart-container">
-            <canvas #canvas></canvas>
-            <div class="x-labels">
-              @for (label of timeLabels; track label) {
-                <span>{{ label }}</span>
-              }
-            </div>
-            <div class="legend">
-              @for (seg of uniqueModes; track seg) {
-                <span class="legend-item">
-                  <span class="swatch" [style.background]="modeColor(seg)"></span>
-                  {{ modeLabel(seg) }}
-                </span>
-              }
-            </div>
-          </div>
-        }
-      </mat-card-content>
-    </mat-card>
-  `,
-	styles: [
-		`
-    .no-data { opacity: 0.5; padding: 24px 0; text-align: center; }
-    .chart-container { padding: 8px 0; }
-    canvas { width: 100% !important; height: 180px !important; }
-    .x-labels {
-      display: flex; justify-content: space-between;
-      font-size: 11px; color: rgba(255,255,255,0.5); padding-top: 4px;
-    }
-    .legend {
-      display: flex; gap: 16px; flex-wrap: wrap;
-      font-size: 12px; color: rgba(255,255,255,0.6);
-      padding-top: 8px;
-    }
-    .legend-item { display: flex; align-items: center; gap: 4px; }
-    .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
-  `,
-	],
+	templateUrl: './speed-chart.component.html',
+	styleUrl: './speed-chart.component.scss',
 })
 export class SpeedChartComponent {
 	readonly data = input<VelocityData | null>(null);

@@ -1,0 +1,64 @@
+<mat-toolbar color="primary" class="toolbar">
+  <span class="title">Health</span>
+  <span class="spacer"></span>
+  @if (health.user(); as user) {
+    <span class="user-name">{{ user.displayName }}</span>
+    <form method="POST" action="/logout" class="logout-form">
+      <button mat-button type="submit">Logout</button>
+    </form>
+  }
+</mat-toolbar>
+
+<main class="content">
+  @if (!authenticated()) {
+    <div class="prompt">
+      <h2>Sign in to view your health data</h2>
+      <a mat-raised-button color="primary" href="/login">Sign in with Nextcloud</a>
+    </div>
+  } @else if (loading()) {
+    <div class="loading">
+      <mat-spinner diameter="48"></mat-spinner>
+      <p>Loading your health data...</p>
+    </div>
+  } @else if (!fitbitLinked()) {
+    <div class="prompt">
+      <h2>Link your Fitbit account</h2>
+      <p>Connect your Fitbit to start tracking your health data.</p>
+      <a mat-raised-button color="primary" href="/fitbit/auth">Link Fitbit</a>
+    </div>
+  } @else {
+    <mat-tab-group
+      (selectedIndexChange)="view.set($event === 0 ? 'today' : 'trends')"
+      [backgroundColor]="'primary'"
+      class="view-tabs">
+      <mat-tab label="Today">
+        <div class="tab-content">
+          <app-summary-cards
+            [latestActivity]="latestActivity()"
+            [latestSleep]="latestSleep()"
+          />
+          <div class="section">
+            <app-hypnogram [stages]="sleepStages()" />
+          </div>
+          <div class="section">
+            <app-intraday-hr [points]="intradayHr()" />
+          </div>
+          <div class="section">
+            <app-speed-chart [data]="velocity()" />
+          </div>
+        </div>
+      </mat-tab>
+      <mat-tab label="Trends">
+        <div class="tab-content">
+          <div class="charts-row">
+            <app-steps-chart [activity]="activity()" />
+            <app-heartrate-chart [activity]="activity()" />
+          </div>
+          <div class="section">
+            <app-sleep-chart [sleep]="sleep()" />
+          </div>
+        </div>
+      </mat-tab>
+    </mat-tab-group>
+  }
+</main>
