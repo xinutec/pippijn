@@ -29,3 +29,32 @@ export function localEpoch(ts: string): number {
   const [, y, mo, d, h, mi, s] = match.map(Number);
   return new Date(y, mo - 1, d, h, mi, s).getTime();
 }
+
+/**
+ * Format a Date as YYYY-MM-DD in a specific timezone.
+ * Uses Intl.DateTimeFormat so it works correctly regardless of the system timezone.
+ */
+export function formatDateInTz(d: Date, tz?: string): string {
+  const opts: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  };
+  if (tz) opts.timeZone = tz;
+
+  const parts = new Intl.DateTimeFormat("en-CA", opts).formatToParts(d);
+  const year = parts.find(p => p.type === "year")!.value;
+  const month = parts.find(p => p.type === "month")!.value;
+  const day = parts.find(p => p.type === "day")!.value;
+  return `${year}-${month}-${day}`;
+}
+
+/** Get the browser's IANA timezone name */
+export function browserTimezone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+/** Today's date in the browser's timezone */
+export function todayLocal(): string {
+  return formatDateInTz(new Date(), browserTimezone());
+}

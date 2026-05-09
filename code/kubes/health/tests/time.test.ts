@@ -73,3 +73,52 @@ describe("localEpoch", () => {
 		expect(hours).toBeCloseTo(9.717, 1); // ~9h 43m
 	});
 });
+
+// We import from the frontend time-utils via a copy of the logic here,
+// since the frontend code isn't directly importable in vitest.
+// The real implementation is in frontend/src/app/time-utils.ts.
+function formatDateInTz(d: Date, tz: string): string {
+	const parts = new Intl.DateTimeFormat("en-CA", {
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		timeZone: tz,
+	}).formatToParts(d);
+	const year = parts.find((p) => p.type === "year")!.value;
+	const month = parts.find((p) => p.type === "month")!.value;
+	const day = parts.find((p) => p.type === "day")!.value;
+	return `${year}-${month}-${day}`;
+}
+
+describe("formatDateInTz", () => {
+	it("returns correct date in CEST when UTC is previous day", () => {
+		// 00:30 CEST on May 10 = 22:30 UTC on May 9
+		const d = new Date("2026-05-09T22:30:00Z");
+		expect(formatDateInTz(d, "Europe/Amsterdam")).toBe("2026-05-10");
+	});
+
+	it("returns correct date in UTC", () => {
+		const d = new Date("2026-05-09T22:30:00Z");
+		expect(formatDateInTz(d, "UTC")).toBe("2026-05-09");
+	});
+
+	it("returns correct date in US Eastern", () => {
+		// 01:00 UTC on May 10 = 21:00 EDT on May 9
+		const d = new Date("2026-05-10T01:00:00Z");
+		expect(formatDateInTz(d, "America/New_York")).toBe("2026-05-09");
+	});
+
+	it("returns correct date in Tokyo", () => {
+		// 20:00 UTC on May 9 = 05:00 JST on May 10
+		const d = new Date("2026-05-09T20:00:00Z");
+		expect(formatDateInTz(d, "Asia/Tokyo")).toBe("2026-05-10");
+	});
+
+	it("returns correct date in BST when traveling from CEST", () => {
+		// After traveling: 23:30 BST on May 10 = 22:30 UTC on May 10
+		// In CEST this would be 00:30 May 11, but in BST it's still May 10
+		const d = new Date("2026-05-10T22:30:00Z");
+		expect(formatDateInTz(d, "Europe/London")).toBe("2026-05-10");
+		expect(formatDateInTz(d, "Europe/Amsterdam")).toBe("2026-05-11");
+	});
+});

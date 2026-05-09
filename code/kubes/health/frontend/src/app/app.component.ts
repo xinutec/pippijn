@@ -15,16 +15,7 @@ import { SpeedChartComponent } from "./components/speed-chart/speed-chart.compon
 import { StepsChartComponent } from "./components/steps-chart/steps-chart.component";
 import { HeartrateChartComponent } from "./components/heartrate-chart/heartrate-chart.component";
 import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.component";
-
-function formatDate(d: Date): string {
-  // Use local date, not UTC — "today" should match the user's timezone
-  const y = d.getFullYear();
-  const m = (d.getMonth() + 1).toString().padStart(2, "0");
-  const day = d.getDate().toString().padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function todayStr(): string { return formatDate(new Date()); }
+import { formatDateInTz, browserTimezone, todayLocal } from "./time-utils";
 
 @Component({
   selector: "app-root",
@@ -39,7 +30,7 @@ function todayStr(): string { return formatDate(new Date()); }
 })
 export class AppComponent implements OnInit {
   readonly view = signal<"today" | "trends">("today");
-  readonly selectedDate = signal(todayStr());
+  readonly selectedDate = signal(todayLocal());
   readonly activity = signal<ActivityDay[]>([]);
   readonly sleep = signal<SleepLog[]>([]);
   readonly sleepStages = signal<SleepStage[]>([]);
@@ -97,27 +88,28 @@ export class AppComponent implements OnInit {
   }
 
   async changeDay(delta: number): Promise<void> {
-    const d = new Date(this.selectedDate());
+    const d = new Date(this.selectedDate() + "T12:00:00"); // noon to avoid DST edge
     d.setDate(d.getDate() + delta);
+    const newDate = formatDateInTz(d, browserTimezone());
     // Don't go into the future
-    if (d > new Date()) return;
-    this.selectedDate.set(formatDate(d));
+    if (newDate > todayLocal()) return;
+    this.selectedDate.set(newDate);
     this.dayLoading.set(true);
     await this.loadData();
     this.dayLoading.set(false);
   }
 
   isToday(): boolean {
-    return this.selectedDate() === todayStr();
+    return this.selectedDate() === todayLocal();
   }
 
   formatDisplayDate(): string {
     const date = this.selectedDate();
-    if (date === todayStr()) return "Today";
-    const d = new Date(date);
+    if (date === todayLocal()) return "Today";
+    const d = new Date(date + "T12:00:00");
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    if (date === formatDate(yesterday)) return "Yesterday";
+    if (date === formatDateInTz(yesterday, browserTimezone())) return "Yesterday";
     return d.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" });
   }
 }
