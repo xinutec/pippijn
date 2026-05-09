@@ -119,3 +119,14 @@ resource "cloudflare_dns_record" "org_dkim" {
   content = "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqzkg187Oq5SnWZWD/zq+m0SsVjkeWpELaxIA4FO6zm+EVD9p8sxzV0AfbQh65DiqwmCv2vAA40I5KlhskOTlLgZkWicgyQNi9Z+tczLB+UH/8eYdFWHgpHXKVB0EBuQcAl4j69JXvOT+HnRtDoDTJZo7sayfjx+OCUymvuk0EnU7gamyMLPcnkBrVFaD5Dj/zGCJbYL0/5rfVb8XKf44W8lCcM1suMyI3PIFKcaGaKNTdaPNNuZP+bG0rFjgZQJcyhObYxf29UqDq4KUAn+pn3rPcVNa6Apo66EitIPKHXTholfh7ycb1CmniD1gImJd/9fsMyRgkW0o1FITzP0e9QIDAQAB"
   ttl     = 600
 }
+
+# --- Health data service (Fitbit sync) ---
+
+resource "cloudflare_dns_record" "org_health" {
+  zone_id = local.xinutec_org_id
+  type    = "CNAME"
+  name    = "health"
+  content = "isis.xinutec.org"
+  ttl     = 3600
+  proxied = false
+}
