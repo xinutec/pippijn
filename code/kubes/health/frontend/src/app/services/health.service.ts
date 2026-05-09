@@ -40,6 +40,30 @@ export interface HeartRatePoint {
   bpm: number;
 }
 
+export interface VelocityPoint {
+  ts: number;
+  lat: number;
+  lon: number;
+  speed_kmh: number;
+  bearing: number;
+}
+
+export interface TrackSegment {
+  startTs: number;
+  endTs: number;
+  mode: string;
+  confidence: number;
+  avgSpeed: number;
+  maxSpeed: number;
+  linearity: number;
+  pointCount: number;
+}
+
+export interface VelocityData {
+  points: VelocityPoint[];
+  segments: TrackSegment[];
+}
+
 export interface UserInfo {
   userId: string;
   displayName: string;
@@ -96,6 +120,12 @@ export class HealthService {
   async getHeartRateIntraday(date = yesterday()): Promise<HeartRatePoint[]> {
     const res = await fetch(`/api/heartrate/intraday?date=${date}`);
     if (!res.ok) throw new Error("Failed to fetch heart rate intraday");
+    return res.json();
+  }
+
+  async getVelocity(date = yesterday()): Promise<VelocityData> {
+    const res = await fetch(`/api/velocity?date=${date}`);
+    if (!res.ok) throw new Error("Failed to fetch velocity data");
     return res.json();
   }
 }

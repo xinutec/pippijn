@@ -1,0 +1,179 @@
+import { Component, ElementRef, effect, input, viewChild } from "@angular/core";
+import { MatCardModule } from "@angular/material/card";
+import type { VelocityData } from "../../services/health.service";
+import { formatLocalTime } from "../../time-utils";
+
+const MODE_COLORS: Record<string, string> = {
+	stationary: "rgba(120, 120, 120, 0.2)",
+	walking: "rgba(34, 197, 94, 0.25)",
+	cycling: "rgba(59, 130, 246, 0.25)",
+	driving: "rgba(249, 115, 22, 0.25)",
+	train: "rgba(168, 85, 247, 0.25)",
+	plane: "rgba(236, 72, 153, 0.25)",
+};
+
+const MODE_LABELS: Record<string, string> = {
+	stationary: "Still",
+	walking: "Walking",
+	cycling: "Cycling",
+	driving: "Driving",
+	train: "Train",
+	plane: "Plane",
+};
+
+@Component({
+	selector: "app-speed-chart",
+	standalone: true,
+	imports: [MatCardModule],
+	template: `
+    <mat-card>
+      <mat-card-header><mat-card-title>Speed & Transport</mat-card-title></mat-card-header>
+      <mat-card-content>
+        @if (!data() || data()!.points.length === 0) {
+          <p class="no-data">No location data available</p>
+        } @else {
+          <div class="chart-container">
+            <canvas #canvas></canvas>
+            <div class="x-labels">
+              @for (label of timeLabels; track label) {
+                <span>{{ label }}</span>
+              }
+            </div>
+            <div class="legend">
+              @for (seg of uniqueModes; track seg) {
+                <span class="legend-item">
+                  <span class="swatch" [style.background]="modeColor(seg)"></span>
+                  {{ modeLabel(seg) }}
+                </span>
+              }
+            </div>
+          </div>
+        }
+      </mat-card-content>
+    </mat-card>
+  `,
+	styles: [
+		`
+    .no-data { opacity: 0.5; padding: 24px 0; text-align: center; }
+    .chart-container { padding: 8px 0; }
+    canvas { width: 100% !important; height: 180px !important; }
+    .x-labels {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: rgba(255,255,255,0.5); padding-top: 4px;
+    }
+    .legend {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      font-size: 12px; color: rgba(255,255,255,0.6);
+      padding-top: 8px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 4px; }
+    .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+  `,
+	],
+})
+export class SpeedChartComponent {
+	readonly data = input<VelocityData | null>(null);
+	readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>("canvas");
+	timeLabels: string[] = [];
+	uniqueModes: string[] = [];
+
+	constructor() {
+		effect(() => {
+			const vel = this.data();
+			const canvasEl = this.canvasRef();
+			if (!vel || vel.points.length === 0 || !canvasEl) return;
+
+			const canvas = canvasEl.nativeElement;
+			const ctx = canvas.getContext("2d");
+			if (!ctx) return;
+
+			const points = vel.points;
+			const segments = vel.segments;
+
+			const firstTs = points[0].ts;
+			const lastTs = points[points.length - 1].ts;
+			const totalDuration = lastTs - firstTs || 1;
+
+			// Find max speed for Y scale
+			const maxSpeed = Math.max(20, ...points.map((p) => p.speed_kmh));
+
+			// Set canvas size
+			const dpr = window.devicePixelRatio || 1;
+			const rect = canvas.getBoundingClientRect();
+			canvas.width = rect.width * dpr;
+			canvas.height = rect.height * dpr;
+			ctx.scale(dpr, dpr);
+			const w = rect.width;
+			const h = rect.height;
+
+			const padTop = 20;
+			const padBottom = 8;
+			const padLeft = 40;
+			const drawW = w - padLeft;
+			const drawH = h - padTop - padBottom;
+
+			const xPos = (ts: number) => padLeft + ((ts - firstTs) / totalDuration) * drawW;
+			const yPos = (speed: number) => padTop + drawH - (speed / maxSpeed) * drawH;
+
+			// Clear
+			ctx.clearRect(0, 0, w, h);
+
+			// Draw segment background bands
+			const modesSet = new Set<string>();
+			for (const seg of segments) {
+				const x1 = xPos(seg.startTs);
+				const x2 = xPos(seg.endTs);
+				ctx.fillStyle = MODE_COLORS[seg.mode] ?? MODE_COLORS["stationary"];
+				ctx.fillRect(x1, padTop, x2 - x1, drawH);
+				modesSet.add(seg.mode);
+			}
+			this.uniqueModes = [...modesSet];
+
+			// Draw Y-axis grid lines and labels
+			ctx.strokeStyle = "rgba(255,255,255,0.08)";
+			ctx.fillStyle = "rgba(255,255,255,0.4)";
+			ctx.font = "11px sans-serif";
+			ctx.textAlign = "right";
+			const ySteps = maxSpeed > 100 ? 50 : maxSpeed > 30 ? 10 : 5;
+			for (let s = 0; s <= maxSpeed; s += ySteps) {
+				const y = yPos(s);
+				ctx.beginPath();
+				ctx.moveTo(padLeft, y);
+				ctx.lineTo(w, y);
+				ctx.stroke();
+				ctx.fillText(`${s}`, padLeft - 4, y + 4);
+			}
+
+			// Draw speed line
+			ctx.strokeStyle = "#e2e8f0";
+			ctx.lineWidth = 1.5;
+			ctx.beginPath();
+			for (let i = 0; i < points.length; i++) {
+				const x = xPos(points[i].ts);
+				const y = yPos(points[i].speed_kmh);
+				if (i === 0) ctx.moveTo(x, y);
+				else ctx.lineTo(x, y);
+			}
+			ctx.stroke();
+
+			// Time labels
+			const labelCount = 6;
+			this.timeLabels = [];
+			for (let i = 0; i <= labelCount; i++) {
+				const ts = firstTs + (totalDuration * i) / labelCount;
+				const d = new Date(ts * 1000);
+				const hh = d.getUTCHours().toString().padStart(2, "0");
+				const mm = d.getUTCMinutes().toString().padStart(2, "0");
+				this.timeLabels.push(`${hh}:${mm}`);
+			}
+		});
+	}
+
+	modeColor(mode: string): string {
+		return (MODE_COLORS[mode] ?? MODE_COLORS["stationary"]).replace(/[\d.]+\)$/, "0.6)");
+	}
+
+	modeLabel(mode: string): string {
+		return MODE_LABELS[mode] ?? mode;
+	}
+}
