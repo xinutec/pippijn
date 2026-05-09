@@ -233,6 +233,31 @@ describe("classifySegments", () => {
 		}
 	});
 
+	it("classifies fidgeting in one spot as stationary, not walking", () => {
+		// Simulates throwing stones at a river: small movements (1-3 km/h GPS noise)
+		// but all within a ~20m radius for 35 minutes
+		const points: FilteredPoint[] = [];
+		const centerLat = 51.8454;
+		const centerLon = 5.8633;
+		for (let t = 0; t <= 2100; t += 30) {
+			// Random jitter within ~15m
+			const jitterLat = (Math.random() - 0.5) * 0.0003;
+			const jitterLon = (Math.random() - 0.5) * 0.0003;
+			points.push({
+				ts: 1000 + t,
+				lat: centerLat + jitterLat,
+				lon: centerLon + jitterLon,
+				speed_kmh: Math.random() * 3, // 0-3 km/h GPS noise
+				bearing: Math.random() * 360,
+			});
+		}
+		const segments = classifySegments(points);
+		expect(segments.length).toBeGreaterThanOrEqual(1);
+		// Should be classified as stationary, NOT walking
+		const primary = segments.reduce((a, b) => (b.endTs - b.startTs > a.endTs - a.startTs ? b : a));
+		expect(primary.mode).toBe("stationary");
+	});
+
 	it("segments cover the full track", () => {
 		const points = generateTrack({
 			startTs: 1000,

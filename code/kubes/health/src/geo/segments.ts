@@ -31,6 +31,8 @@ interface WindowFeatures {
 	linearity: number;
 	accelerationBursts: number; // count of speed changes > 5 km/h/s
 	stopFraction: number; // fraction of points with speed < 1 km/h
+	netDisplacement: number; // meters between first and last point
+	boundingRadius: number; // meters, max distance from centroid
 	pointCount: number;
 }
 
@@ -123,6 +125,19 @@ function extractFeatures(points: FilteredPoint[], windowSec: number): WindowFeat
 		// Stop fraction
 		const stops = speeds.filter((s) => s < 1).length;
 
+		// Net displacement: straight-line distance from start to end
+		const netDisplacement = straightLine;
+
+		// Bounding radius: max distance from centroid
+		const centroidLat = windowPoints.reduce((s, p) => s + p.lat, 0) / windowPoints.length;
+		const centroidLon = windowPoints.reduce((s, p) => s + p.lon, 0) / windowPoints.length;
+		let maxDist = 0;
+		for (const p of windowPoints) {
+			const d = haversineMeters(centroidLat, centroidLon, p.lat, p.lon);
+			if (d > maxDist) maxDist = d;
+		}
+		const boundingRadius = maxDist;
+
 		windows.push({
 			startTs: windowPoints[0].ts,
 			endTs: windowPoints[windowPoints.length - 1].ts,
@@ -133,6 +148,8 @@ function extractFeatures(points: FilteredPoint[], windowSec: number): WindowFeat
 			linearity,
 			accelerationBursts: accelBursts,
 			stopFraction: stops / speeds.length,
+			netDisplacement,
+			boundingRadius,
 			pointCount: windowPoints.length,
 		});
 
@@ -169,6 +186,13 @@ function rangeScore(value: number, ideal: number, tolerance: number): number {
 function scoreStationary(f: WindowFeatures): number {
 	let score = rangeScore(f.medianSpeed, 0, 1.5);
 	score *= 1 + f.stopFraction; // bonus for lots of stops
+
+	// Key insight: if all points are within a small radius, it's stationary
+	// regardless of GPS-noise-induced speed. Catches stone-throwing, fidgeting, etc.
+	if (f.boundingRadius < 30) score *= 3;
+	if (f.boundingRadius < 15) score *= 3;
+	if (f.netDisplacement < 20) score *= 2;
+
 	return score;
 }
 
@@ -177,6 +201,11 @@ function scoreWalking(f: WindowFeatures): number {
 	score *= rangeScore(f.linearity, 0.5, 0.4); // moderate linearity
 	score *= 1 + f.headingChangeRate * 0.5; // walking has more turns
 	if (f.maxSpeed > 15) score *= 0.1; // unlikely if max speed is high
+
+	// If you don't actually go anywhere, it's not walking
+	if (f.boundingRadius < 30) score *= 0.1;
+	if (f.netDisplacement < 30) score *= 0.2;
+
 	return score;
 }
 
@@ -220,7 +249,7 @@ function mergeWindows(windows: WindowFeatures[], scores: ModeScore[][]): TrackSe
 
 	const segments: TrackSegment[] = [];
 	let currentMode = scores[0][0].mode;
-	let currentConfidence = scores[0][0].score;
+	let _currentConfidence = scores[0][0].score;
 	let segStart = 0;
 
 	for (let i = 1; i <= windows.length; i++) {
@@ -250,7 +279,7 @@ function mergeWindows(windows: WindowFeatures[], scores: ModeScore[][]): TrackSe
 
 			if (i < windows.length) {
 				currentMode = newMode!;
-				currentConfidence = scores[i][0].score;
+				_currentConfidence = scores[i][0].score;
 				segStart = i;
 			}
 		}

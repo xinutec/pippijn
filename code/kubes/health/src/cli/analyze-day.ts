@@ -9,7 +9,6 @@
 
 // analyze-day needs Nextcloud config for PhoneTrack API
 import { z } from "zod";
-import { loadSyncConfig } from "../config.js";
 import { initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import { filterGpsTrack } from "../geo/kalman.js";

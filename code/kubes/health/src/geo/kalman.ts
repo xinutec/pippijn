@@ -23,7 +23,7 @@ function metersToDegreesLon(m: number, lat: number): number {
 }
 
 // Convert degrees to meters (haversine-based distance)
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+function _haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
 	const dLat = (lat2 - lat1) * (Math.PI / 180);
 	const dLon = (lon2 - lon1) * (Math.PI / 180);
 	const a =
@@ -103,7 +103,7 @@ function update1D(s: KalmanState1D, measurement: number, measurementVariance: nu
  * At high speed, we expect less lateral acceleration (train), so reduce noise.
  * At low speed, allow more variation (walking, turning corners).
  */
-function adaptiveProcessNoise(speedDegPerSec: number, baseLat: number): number {
+function adaptiveProcessNoise(speedDegPerSec: number, _baseLat: number): number {
 	const speedMs = speedDegPerSec * R_EARTH * (Math.PI / 180);
 	const speedKmh = speedMs * 3.6;
 
@@ -174,7 +174,7 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 		}
 
 		// Adaptive process noise based on current speed estimate
-		const currentSpeed = Math.sqrt(stateLat.v ** 2 + stateLon.v ** 2);
+		const _currentSpeed = Math.sqrt(stateLat.v ** 2 + stateLon.v ** 2);
 		const qLat = adaptiveProcessNoise(Math.abs(stateLat.v), stateLat.x);
 		const qLon = adaptiveProcessNoise(Math.abs(stateLon.v), stateLat.x);
 
