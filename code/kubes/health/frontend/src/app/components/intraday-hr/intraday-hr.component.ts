@@ -1,0 +1,74 @@
+import { Component, input, effect } from "@angular/core";
+import { MatCardModule } from "@angular/material/card";
+import { BaseChartDirective } from "ng2-charts";
+import type { ChartConfiguration } from "chart.js";
+import type { HeartRatePoint } from "../../services/health.service";
+import { chartColors, tickColor, gridColor } from "../../chart-theme";
+
+@Component({
+  selector: "app-intraday-hr",
+  standalone: true,
+  imports: [MatCardModule, BaseChartDirective],
+  template: `
+    <mat-card>
+      <mat-card-header><mat-card-title>Heart Rate</mat-card-title></mat-card-header>
+      <mat-card-content>
+        @if (points().length === 0) {
+          <p class="no-data">No heart rate data available</p>
+        } @else {
+          <canvas baseChart [data]="chartData" [options]="chartOptions" type="line"></canvas>
+        }
+      </mat-card-content>
+    </mat-card>
+  `,
+  styles: [`
+    .no-data { opacity: 0.5; padding: 24px 0; text-align: center; }
+  `],
+})
+export class IntradayHrComponent {
+  readonly points = input<HeartRatePoint[]>([]);
+
+  chartData: ChartConfiguration<"line">["data"] = { labels: [], datasets: [] };
+  chartOptions: ChartConfiguration<"line">["options"] = {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: { legend: { display: false } },
+    elements: { point: { radius: 0 } },
+    scales: {
+      x: {
+        ticks: { color: tickColor, maxTicksLimit: 12 },
+        grid: { display: false },
+      },
+      y: {
+        ticks: { color: tickColor },
+        grid: { color: gridColor },
+        suggestedMin: 40,
+      },
+    },
+  };
+
+  constructor() {
+    effect(() => {
+      const data = this.points();
+      if (data.length === 0) return;
+
+      // Downsample to every 5 minutes for performance
+      const sampled = data.filter((_, i) => i % 5 === 0);
+
+      this.chartData = {
+        labels: sampled.map((p) => {
+          const t = new Date(p.ts);
+          return t.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
+        }),
+        datasets: [{
+          data: sampled.map((p) => p.bpm),
+          borderColor: chartColors.red,
+          backgroundColor: "rgba(239, 68, 68, 0.08)",
+          fill: true,
+          tension: 0.2,
+          borderWidth: 1.5,
+        }],
+      };
+    });
+  }
+}

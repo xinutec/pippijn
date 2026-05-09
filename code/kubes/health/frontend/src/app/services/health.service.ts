@@ -29,13 +29,15 @@ export interface SleepLog {
   is_main_sleep: boolean;
 }
 
-export interface HeartRateZone {
-  date: string;
-  zone_name: string;
-  minutes: number;
-  calories: number;
-  min_bpm: number;
-  max_bpm: number;
+export interface SleepStage {
+  ts: string;
+  stage: string;
+  duration_seconds: number;
+}
+
+export interface HeartRatePoint {
+  ts: string;
+  bpm: number;
 }
 
 export interface UserInfo {
@@ -44,10 +46,13 @@ export interface UserInfo {
   fitbitLinked: boolean;
 }
 
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 @Injectable({ providedIn: "root" })
 export class HealthService {
   readonly user = signal<UserInfo | null>(null);
-  readonly loading = signal(true);
 
   async checkAuth(): Promise<boolean> {
     try {
@@ -75,9 +80,15 @@ export class HealthService {
     return res.json();
   }
 
-  async getHeartRateZones(days = 30): Promise<HeartRateZone[]> {
-    const res = await fetch(`/api/heartrate/zones?days=${days}`);
-    if (!res.ok) throw new Error("Failed to fetch heart rate zones");
+  async getSleepStages(date = today()): Promise<SleepStage[]> {
+    const res = await fetch(`/api/sleep/stages?date=${date}`);
+    if (!res.ok) throw new Error("Failed to fetch sleep stages");
+    return res.json();
+  }
+
+  async getHeartRateIntraday(date = today()): Promise<HeartRatePoint[]> {
+    const res = await fetch(`/api/heartrate/intraday?date=${date}`);
+    if (!res.ok) throw new Error("Failed to fetch heart rate intraday");
     return res.json();
   }
 }

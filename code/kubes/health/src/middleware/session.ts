@@ -1,41 +1,52 @@
 import * as crypto from "node:crypto";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
-import type { AppEnv } from "../env.js";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import type { AppEnv } from "../env.js";
 import type { UserSession } from "../types.js";
-
-interface SessionEntry extends UserSession {
-  expiresAt: number;
-}
+import { db } from "../db/pool.js";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const COOKIE_NAME = "session";
 
-// In-memory session store. Acceptable for single-replica deployment.
-const sessions = new Map<string, SessionEntry>();
-
-export function createSession(secret: string, user: UserSession): string {
+export async function createSession(secret: string, user: UserSession): Promise<string> {
   const id = crypto.randomBytes(32).toString("hex");
-  sessions.set(id, { ...user, expiresAt: Date.now() + SESSION_TTL_MS });
+  await db()
+    .insertInto("sessions")
+    .values({
+      id,
+      user_id: user.userId,
+      display_name: user.displayName,
+      expires_at: new Date(Date.now() + SESSION_TTL_MS),
+    })
+    .execute();
   return signValue(secret, id);
 }
 
-export function destroySession(secret: string, signedId: string): void {
+export async function destroySession(secret: string, signedId: string): Promise<void> {
   const id = verifyValue(secret, signedId);
-  if (id) sessions.delete(id);
+  if (id) {
+    await db().deleteFrom("sessions").where("id", "=", id).execute();
+  }
 }
 
-export function getSession(secret: string, signedId: string): UserSession | null {
+export async function getSession(secret: string, signedId: string): Promise<UserSession | null> {
   const id = verifyValue(secret, signedId);
   if (!id) return null;
-  const entry = sessions.get(id);
-  if (!entry) return null;
-  if (entry.expiresAt < Date.now()) {
-    sessions.delete(id);
+
+  const row = await db()
+    .selectFrom("sessions")
+    .select(["user_id", "display_name", "expires_at"])
+    .where("id", "=", id)
+    .executeTakeFirst();
+
+  if (!row) return null;
+  if (new Date(row.expires_at) < new Date()) {
+    await db().deleteFrom("sessions").where("id", "=", id).execute();
     return null;
   }
-  return { userId: entry.userId, displayName: entry.displayName };
+
+  return { userId: row.user_id, displayName: row.display_name };
 }
 
 export function signValue(secret: string, value: string): string {
@@ -63,7 +74,7 @@ export function sessionMiddleware(secret: string) {
   return createMiddleware<AppEnv>(async (c, next) => {
     const cookie = getCookie(c, COOKIE_NAME);
     if (cookie) {
-      const session = getSession(secret, cookie);
+      const session = await getSession(secret, cookie);
       if (session) {
         c.set("session", session);
       }
@@ -72,7 +83,6 @@ export function sessionMiddleware(secret: string) {
   });
 }
 
-// Helper to set the session cookie on a Hono context
 export function setSessionCookie(c: Context, signedId: string): void {
   setCookie(c, COOKIE_NAME, signedId, {
     path: "/",
@@ -83,8 +93,8 @@ export function setSessionCookie(c: Context, signedId: string): void {
   });
 }
 
-export function clearSessionCookie(c: Context, secret: string): void {
+export async function clearSessionCookie(c: Context, secret: string): Promise<void> {
   const cookie = getCookie(c, COOKIE_NAME);
-  if (cookie) destroySession(secret, cookie);
+  if (cookie) await destroySession(secret, cookie);
   deleteCookie(c, COOKIE_NAME, { path: "/" });
 }

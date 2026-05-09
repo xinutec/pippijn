@@ -140,9 +140,17 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (user_id, device_id)
   )`,
 
-  // Future migrations go here. Examples:
-  // `ALTER TABLE daily_activity ADD COLUMN heart_rate_zones JSON`,
-  // `CREATE TABLE IF NOT EXISTS locations (...)`,
+  // v16: persistent sessions
+  `CREATE TABLE IF NOT EXISTS sessions (
+    id VARCHAR(64) PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    display_name VARCHAR(128) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_sessions_expires (expires_at)
+  )`,
+
+  // Future migrations go here.
 ];
 
 export async function migrate(conn: mariadb.Connection): Promise<void> {

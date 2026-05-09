@@ -80,13 +80,13 @@ export function nextcloudOAuthRoutes(config: Config): Hono<AppEnv> {
       displayName: userData.ocs.data.displayname,
     };
 
-    const signedId = createSession(config.sessionSecret, user);
+    const signedId = await createSession(config.sessionSecret, user);
     setSessionCookie(c, signedId);
     return c.redirect("/");
   });
 
-  app.post("/logout", (c) => {
-    clearSessionCookie(c, config.sessionSecret);
+  app.post("/logout", async (c) => {
+    await clearSessionCookie(c, config.sessionSecret);
     return c.redirect("/");
   });
 

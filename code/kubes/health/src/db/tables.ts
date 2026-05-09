@@ -144,6 +144,14 @@ export interface SchemaMigrationsTable {
   applied_at: Generated<Date>;
 }
 
+export interface SessionsTable {
+  id: string;
+  user_id: string;
+  display_name: string;
+  expires_at: Date;
+  created_at: Generated<Date>;
+}
+
 // The full database interface — Kysely uses this to type-check every query
 export interface Database {
   tokens: TokensTable;
@@ -161,5 +169,6 @@ export interface Database {
   skin_temperature: SkinTemperatureTable;
   cardio_fitness: CardioFitnessTable;
   devices: DevicesTable;
+  sessions: SessionsTable;
   schema_migrations: SchemaMigrationsTable;
 }

@@ -62,6 +62,30 @@ export function apiRoutes(): Hono<AppEnv> {
     return c.json(rows);
   });
 
+  app.get("/sleep/stages", async (c) => {
+    const uid = c.get("session").userId;
+    const date = dateParam.parse(c.req.query("date"));
+    // Find the main sleep log for this date
+    const sleepLog = await db()
+      .selectFrom("sleep")
+      .select("log_id")
+      .where("user_id", "=", uid)
+      .where("date", "=", date)
+      .where("is_main_sleep", "=", true)
+      .executeTakeFirst();
+
+    if (!sleepLog) return c.json([]);
+
+    const stages = await db()
+      .selectFrom("sleep_stages")
+      .selectAll()
+      .where("user_id", "=", uid)
+      .where("sleep_log_id", "=", sleepLog.log_id)
+      .orderBy("ts")
+      .execute();
+    return c.json(stages);
+  });
+
   app.get("/heartrate/zones", async (c) => {
     const uid = c.get("session").userId;
     const days = daysParam.parse(c.req.query("days"));
