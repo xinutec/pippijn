@@ -72,10 +72,6 @@ import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.compon
           </mat-tab>
           <mat-tab label="Trends">
             <div class="tab-content">
-              <app-summary-cards
-                [latestActivity]="latestActivity()"
-                [latestSleep]="latestSleep()"
-              />
               <div class="charts-row">
                 <app-steps-chart [activity]="activity()" />
                 <app-heartrate-chart [activity]="activity()" />
