@@ -17,7 +17,11 @@ import { HeartrateChartComponent } from "./components/heartrate-chart/heartrate-
 import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.component";
 
 function formatDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  // Use local date, not UTC — "today" should match the user's timezone
+  const y = d.getFullYear();
+  const m = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function todayStr(): string { return formatDate(new Date()); }
