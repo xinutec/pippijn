@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: health-db
+  namespace: health
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: health-db
+  template:
+    metadata:
+      labels:
+        app: health-db
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:11.8
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MARIADB_DATABASE
+              value: health
+            - name: MARIADB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: DB_USER
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: DB_PASSWORD
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: DB_ROOT_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+              subPath: mariadb-data
+          livenessProbe:
+            exec:
+              command: ["mariadb-admin", "ping", "-h", "127.0.0.1"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["mariadb", "-h", "127.0.0.1", "-e", "SELECT 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: health-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: health-db
+  namespace: health
+spec:
+  clusterIP: None
+  selector:
+    app: health-db
+  ports:
+    - port: 3306

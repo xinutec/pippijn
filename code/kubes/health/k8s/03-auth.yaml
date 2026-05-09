@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: health-auth
+  namespace: health
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: health-auth
+  template:
+    metadata:
+      labels:
+        app: health-auth
+    spec:
+      containers:
+        - name: auth
+          image: xinutec/health-sync:latest
+          command: ["node", "dist/auth.js"]
+          ports:
+            - containerPort: 3000
+          env:
+            - name: AUTH_PORT
+              value: "3000"
+            - name: DB_HOST
+              value: health-db
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: DB_PASSWORD
+            - name: FITBIT_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: FITBIT_CLIENT_ID
+            - name: FITBIT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: FITBIT_CLIENT_SECRET
+            - name: FITBIT_REDIRECT_URI
+              value: "https://health.xinutec.org/auth"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: health-auth
+  namespace: health
+spec:
+  selector:
+    app: health-auth
+  ports:
+    - port: 80
+      targetPort: 3000

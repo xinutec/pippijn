@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: health-sync
+  namespace: health
+spec:
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3300
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sync
+              image: xinutec/health-sync:latest
+              env:
+                - name: DB_HOST
+                  value: health-db
+                - name: DB_NAME
+                  value: health
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_PASSWORD
+                - name: FITBIT_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: FITBIT_CLIENT_ID
+                - name: FITBIT_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: FITBIT_CLIENT_SECRET
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
