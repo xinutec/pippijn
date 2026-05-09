@@ -3,8 +3,9 @@ import { z } from "zod";
 import type { Config } from "../config.js";
 import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
+import { classifyMode, filterGpsTrack } from "../geo/kalman.js";
 import { requireAuth } from "../middleware/auth.js";
-import { NextcloudClient } from "../nextcloud/client.js";
+import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 
 const daysParam = z.coerce.number().int().min(1).max(365).default(30);
 const dateParam = z
@@ -187,93 +188,32 @@ export function apiRoutes(config: Config): Hono<AppEnv> {
 	app.get("/locations", async (c) => {
 		const uid = c.get("session").userId;
 		const date = dateParam.parse(c.req.query("date"));
-
-		// Get user's Nextcloud token
-		const ncToken = await db()
-			.selectFrom("nc_tokens")
-			.select(["access_token", "refresh_token", "expires_at"])
-			.where("user_id", "=", uid)
-			.executeTakeFirst();
-
-		if (!ncToken) {
-			return c.json({ error: "Nextcloud not linked. Log in again to grant access." }, 400);
+		try {
+			const points = await fetchTrackPoints(config, uid, date, nextDay(date));
+			return c.json(points);
+		} catch (e) {
+			return c.json({ error: String(e) }, 400);
 		}
+	});
 
-		const nc = new NextcloudClient({
-			accessToken: ncToken.access_token,
-			refreshToken: ncToken.refresh_token,
-			expiresAt: new Date(ncToken.expires_at).getTime(),
-			baseUrl: config.nextcloud.baseUrl,
-			clientId: config.nextcloud.clientId,
-			clientSecret: config.nextcloud.clientSecret,
-			onTokenRefresh: async (accessToken, refreshToken, expiresIn) => {
-				await db()
-					.updateTable("nc_tokens")
-					.set({
-						access_token: accessToken,
-						refresh_token: refreshToken,
-						expires_at: new Date(Date.now() + expiresIn * 1000),
-					})
-					.where("user_id", "=", uid)
-					.execute();
-			},
-		});
-
-		// Get all sessions, then fetch points for the requested date
-		const sessions = await nc.get<
-			Record<string, { id: number; name: string; devices?: Record<string, { id: number; name: string }> }>
-		>("/index.php/apps/phonetrack/sessions");
-
-		const minTs = Math.floor(new Date(date).getTime() / 1000);
-		const maxTs = Math.floor(new Date(nextDay(date)).getTime() / 1000);
-		const allPoints: Array<{
-			ts: number;
-			lat: number;
-			lon: number;
-			altitude: number | null;
-			speed: number | null;
-			accuracy: number | null;
-			battery: number | null;
-		}> = [];
-
-		for (const session of Object.values(sessions)) {
-			if (!session.devices) continue;
-			for (const device of Object.values(session.devices)) {
-				try {
-					const points = await nc.get<
-						Array<{
-							timestamp: number;
-							lat: number;
-							lon: number;
-							altitude: number | null;
-							speed: number | null;
-							accuracy: number | null;
-							batterylevel: number | null;
-						}>
-					>(
-						`/index.php/apps/phonetrack/session/${session.id}/device/${device.id}/points?minTimestamp=${minTs}&maxTimestamp=${maxTs}&maxPoints=10000`,
-					);
-					if (Array.isArray(points)) {
-						for (const p of points) {
-							allPoints.push({
-								ts: p.timestamp,
-								lat: p.lat,
-								lon: p.lon,
-								altitude: p.altitude,
-								speed: p.speed,
-								accuracy: p.accuracy,
-								battery: p.batterylevel,
-							});
-						}
-					}
-				} catch {
-					// skip devices that fail
-				}
-			}
+	app.get("/velocity", async (c) => {
+		const uid = c.get("session").userId;
+		const date = dateParam.parse(c.req.query("date"));
+		try {
+			const raw = await fetchTrackPoints(config, uid, date, nextDay(date));
+			const gpsPoints = raw
+				.filter((p) => p.accuracy === null || p.accuracy <= 50) // drop very inaccurate
+				.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon, accuracy: p.accuracy }));
+			const filtered = filterGpsTrack(gpsPoints);
+			return c.json(
+				filtered.map((p) => ({
+					...p,
+					mode: classifyMode(p.speed_kmh),
+				})),
+			);
+		} catch (e) {
+			return c.json({ error: String(e) }, 400);
 		}
-
-		allPoints.sort((a, b) => a.ts - b.ts);
-		return c.json(allPoints);
 	});
 
 	app.get("/sync-state", async (c) => {
