@@ -46,8 +46,21 @@ spec:
                 secretKeyRef:
                   name: health-secret
                   key: FITBIT_CLIENT_SECRET
-            - name: FITBIT_REDIRECT_URI
-              value: "https://health.xinutec.org/auth"
+            - name: NC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: NC_CLIENT_ID
+            - name: NC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: NC_CLIENT_SECRET
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: SESSION_SECRET
           resources:
             requests:
               cpu: 10m
