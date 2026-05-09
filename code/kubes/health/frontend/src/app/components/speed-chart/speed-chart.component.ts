@@ -118,9 +118,10 @@ export class SpeedChartComponent {
 			this.timeLabels = [];
 			for (let i = 0; i <= labelCount; i++) {
 				const ts = firstTs + (totalDuration * i) / labelCount;
+				// PhoneTrack timestamps are UTC — convert to browser local time
 				const d = new Date(ts * 1000);
-				const hh = d.getUTCHours().toString().padStart(2, "0");
-				const mm = d.getUTCMinutes().toString().padStart(2, "0");
+				const hh = d.getHours().toString().padStart(2, "0");
+				const mm = d.getMinutes().toString().padStart(2, "0");
 				this.timeLabels.push(`${hh}:${mm}`);
 			}
 		});

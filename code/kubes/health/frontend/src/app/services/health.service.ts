@@ -124,7 +124,8 @@ export class HealthService {
   }
 
   async getVelocity(date = yesterday()): Promise<VelocityData> {
-    const res = await fetch(`/api/velocity?date=${date}`);
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const res = await fetch(`/api/velocity?date=${date}&tz=${encodeURIComponent(tz)}`);
     if (!res.ok) throw new Error("Failed to fetch velocity data");
     return res.json();
   }
