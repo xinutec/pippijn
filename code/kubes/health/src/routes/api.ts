@@ -3,7 +3,8 @@ import { z } from "zod";
 import type { Config } from "../config.js";
 import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
-import { classifyMode, filterGpsTrack } from "../geo/kalman.js";
+import { filterGpsTrack } from "../geo/kalman.js";
+import { classifySegments } from "../geo/segments.js";
 import { requireAuth } from "../middleware/auth.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 
@@ -202,15 +203,11 @@ export function apiRoutes(config: Config): Hono<AppEnv> {
 		try {
 			const raw = await fetchTrackPoints(config, uid, date, nextDay(date));
 			const gpsPoints = raw
-				.filter((p) => p.accuracy === null || p.accuracy <= 50) // drop very inaccurate
+				.filter((p) => p.accuracy === null || p.accuracy <= 50)
 				.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon, accuracy: p.accuracy }));
 			const filtered = filterGpsTrack(gpsPoints);
-			return c.json(
-				filtered.map((p) => ({
-					...p,
-					mode: classifyMode(p.speed_kmh),
-				})),
-			);
+			const segments = classifySegments(filtered);
+			return c.json({ points: filtered, segments });
 		} catch (e) {
 			return c.json({ error: String(e) }, 400);
 		}
