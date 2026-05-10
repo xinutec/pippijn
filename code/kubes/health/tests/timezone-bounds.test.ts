@@ -87,6 +87,13 @@ describe("fitbitTsToUnix", () => {
 		expect(Number.isNaN(fitbitTsToUnix("not a date"))).toBe(true);
 	});
 
+	it("accepts Date objects (mariadb driver returns DATETIME as Date, not string)", () => {
+		// Date whose UTC components are 03:30 — same as the string form
+		const d = new Date("2026-05-10T03:30:00Z");
+		const ts = fitbitTsToUnix(d, "Europe/Amsterdam");
+		expect(ts).toBe(new Date("2026-05-10T01:30:00Z").getTime() / 1000);
+	});
+
 	it("Asia/Tokyo (UTC+9, no DST) — 09:00 local = 00:00 UTC", () => {
 		const ts = fitbitTsToUnix("2026-05-10 09:00:00", "Asia/Tokyo");
 		expect(ts).toBe(new Date("2026-05-10T00:00:00Z").getTime() / 1000);

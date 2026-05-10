@@ -80,8 +80,12 @@ export function dateBoundsUtc(date: string, tz?: string): { startUtc: number; en
  * Used to align Fitbit-stored heart rate / sleep timestamps with the
  * unix UTC timestamps coming from PhoneTrack so we can join them.
  */
-export function fitbitTsToUnix(s: string, tz?: string): number {
-	const m = s.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+export function fitbitTsToUnix(s: string | Date, tz?: string): number {
+	// The mariadb driver returns DATETIME columns as Date objects whose
+	// UTC components match the stored wall-clock — coerce to an ISO string
+	// so the parser sees a uniform format regardless of source.
+	const str = typeof s === "string" ? s : s instanceof Date ? s.toISOString() : String(s);
+	const m = str.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
 	if (!m) return Number.NaN;
 	const [, ys, mos, ds, hs, mis, ss] = m;
 	const y = Number(ys);
