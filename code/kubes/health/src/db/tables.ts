@@ -44,6 +44,12 @@ export interface HeartRateIntradayTable {
 	bpm: number;
 }
 
+export interface StepsIntradayTable {
+	user_id: string;
+	ts: string; // DATETIME as string
+	steps: number;
+}
+
 export interface HeartRateZonesTable {
 	user_id: string;
 	date: string;
@@ -191,6 +197,7 @@ export interface Database {
 	sync_state: SyncStateTable;
 	daily_activity: DailyActivityTable;
 	heart_rate_intraday: HeartRateIntradayTable;
+	steps_intraday: StepsIntradayTable;
 	heart_rate_zones: HeartRateZonesTable;
 	sleep: SleepTable;
 	sleep_stages: SleepStagesTable;

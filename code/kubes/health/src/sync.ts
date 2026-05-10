@@ -11,6 +11,7 @@ import { syncHeartRateIntraday, syncHeartRateZones } from "./fitbit/sync/heartra
 import { syncHrv } from "./fitbit/sync/hrv.js";
 import { syncSleep } from "./fitbit/sync/sleep.js";
 import { syncSpO2Daily } from "./fitbit/sync/spo2.js";
+import { syncStepsIntraday } from "./fitbit/sync/steps.js";
 import { syncTemperature } from "./fitbit/sync/temperature.js";
 import type { FitbitTokenPair } from "./types.js";
 
@@ -115,6 +116,9 @@ for (const user of users) {
 			await trySync(user.user_id, "HR intraday", () =>
 				syncHeartRateIntraday(client, conn, user.user_id, lastSyncDate, today),
 			);
+			await trySync(user.user_id, "steps intraday", () =>
+				syncStepsIntraday(client, conn, user.user_id, lastSyncDate, today),
+			);
 			await trySync(user.user_id, "SpO2", () => syncSpO2Daily(client, conn, user.user_id, lastSyncDate, today));
 			await trySync(user.user_id, "HRV", () => syncHrv(client, conn, user.user_id, lastSyncDate, today));
 			await trySync(user.user_id, "breathing", () =>
@@ -165,6 +169,13 @@ for (const user of users) {
 					await trySync(user.user_id, `backfill sleep ${dateStr}`, () =>
 						syncSleep(client, conn, user.user_id, dateStr, dateStr),
 					);
+					// Steps intraday only when HR returned data — saves rate limit
+					// on genuinely empty days.
+					if (hrResult.ok && hrResult.points > 0) {
+						await trySync(user.user_id, `backfill steps ${dateStr}`, () =>
+							syncStepsIntraday(client, conn, user.user_id, dateStr, dateStr),
+						);
+					}
 
 					if (shouldAdvanceEmptyStreak(hrResult)) {
 						emptyStreak++;

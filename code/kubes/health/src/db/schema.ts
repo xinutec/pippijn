@@ -207,6 +207,17 @@ const MIGRATIONS: readonly string[] = [
 	// of this particular stay's time-of-day.
 	`ALTER TABLE focus_places ADD COLUMN IF NOT EXISTS sleep_hours INT NULL`,
 
+	// v22: Intraday step counts at Fitbit's finest resolution (1 minute).
+	// Zero-step minutes are NOT stored — implicit zero saves ~5x rows for
+	// a typical day (most minutes have no steps). Use COALESCE / LEFT JOIN
+	// when querying if you need the dense per-minute series.
+	`CREATE TABLE IF NOT EXISTS steps_intraday (
+    user_id VARCHAR(64) NOT NULL,
+    ts DATETIME NOT NULL,
+    steps SMALLINT NOT NULL,
+    PRIMARY KEY (user_id, ts)
+  )`,
+
 	// Future migrations go here.
 ];
 

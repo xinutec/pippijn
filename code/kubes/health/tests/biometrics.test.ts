@@ -4,6 +4,7 @@ import {
 	enrichSegmentWithBiometrics,
 	type HrPoint,
 	type SleepStageRecord,
+	type StepPoint,
 } from "../src/geo/biometrics.js";
 import type { TrackSegment } from "../src/geo/segments.js";
 
@@ -134,5 +135,47 @@ describe("enrichSegmentWithBiometrics — combined real-world cases", () => {
 		const r = enrichSegmentWithBiometrics(seg(start, end), hrPoints, []);
 		expect(r.hrMean).toBeCloseTo(74, 0);
 		expect(r.overlapsSleep).toBe(false);
+	});
+});
+
+describe("enrichSegmentWithBiometrics — step counts", () => {
+	const step = (ts: number, steps: number): StepPoint => ({ ts, steps });
+
+	it("returns null stepsTotal when no step rows are provided (e.g. Fitbit absent)", () => {
+		const r = enrichSegmentWithBiometrics(seg(0, HOUR), [], [], []);
+		expect(r.stepsTotal).toBeNull();
+	});
+
+	it("sums steps inside the segment window", () => {
+		// 5 minutes, 100 steps each — 500 total inside the segment.
+		const stepPoints: StepPoint[] = Array.from({ length: 5 }, (_, i) => step(i * 60, 100));
+		const r = enrichSegmentWithBiometrics(seg(0, 5 * 60), [], [], stepPoints);
+		expect(r.stepsTotal).toBe(500);
+	});
+
+	it("ignores step rows outside the segment window", () => {
+		const stepPoints: StepPoint[] = [
+			step(0, 50), // inside
+			step(5 * HOUR, 1000), // outside (5h later)
+		];
+		const r = enrichSegmentWithBiometrics(seg(0, HOUR), [], [], stepPoints);
+		expect(r.stepsTotal).toBe(50);
+	});
+
+	it("treats zero overlap with same-day step rows as Fitbit-on, zero steps", () => {
+		// User wore the Fitbit (we have step rows for the day) but the
+		// segment in question saw no movement — distinguish from "no Fitbit".
+		const stepPoints: StepPoint[] = [step(7 * HOUR, 200)]; // morning steps
+		// Segment is later and quiet:
+		const r = enrichSegmentWithBiometrics(seg(10 * HOUR, 11 * HOUR), [], [], stepPoints);
+		expect(r.stepsTotal).toBe(0);
+	});
+
+	it("walking segment with steady cadence: ~80 steps/min for 10 min = 800", () => {
+		const start = 0;
+		const end = 10 * 60;
+		const stepPoints: StepPoint[] = Array.from({ length: 10 }, (_, i) => step(i * 60, 80));
+		const r = enrichSegmentWithBiometrics(seg(start, end), [], [], stepPoints);
+		expect(r.stepsTotal).toBe(800);
 	});
 });

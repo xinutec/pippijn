@@ -13,6 +13,7 @@ import {
 	enrichSegmentWithBiometrics,
 	type HrPoint,
 	type SleepStageRecord,
+	type StepPoint,
 } from "./biometrics.js";
 import { localSolarHour } from "./focus-places.js";
 import type { FilteredPoint } from "./kalman.js";
@@ -34,7 +35,7 @@ async function loadBiometrics(
 	startUtc: number,
 	endUtc: number,
 	tz: string | undefined,
-): Promise<{ hr: HrPoint[]; sleep: SleepStageRecord[] }> {
+): Promise<{ hr: HrPoint[]; sleep: SleepStageRecord[]; steps: StepPoint[] }> {
 	// Pad date-string filter by one day on each side to catch tz-edge timestamps
 	const padDate = (ts: number) => new Date(ts * 1000).toISOString().slice(0, 10);
 	const dayBefore = padDate(startUtc - 86400);
@@ -81,7 +82,25 @@ async function loadBiometrics(
 		sleep.push({ startTs, endTs, stage: r.stage });
 	}
 
-	return { hr, sleep };
+	// Steps intraday — only non-zero minutes are stored, so the row count
+	// directly reflects "user took at least one step in this minute".
+	const stepRows = await db()
+		.selectFrom("steps_intraday")
+		.select(["ts", "steps"])
+		.where("user_id", "=", userId)
+		.where("ts", ">=", dayBefore)
+		.where("ts", "<", dayAfter)
+		.execute();
+
+	const steps: StepPoint[] = [];
+	for (const r of stepRows) {
+		const ts = fitbitTsToUnix(r.ts, tz);
+		if (Number.isNaN(ts)) continue;
+		if (ts < startUtc || ts > endUtc) continue;
+		steps.push({ ts, steps: r.steps });
+	}
+
+	return { hr, sleep, steps };
 }
 
 /** Returns true if the segment includes ≥1 hour of local overnight time
@@ -307,20 +326,20 @@ export async function computeVelocity(
 
 	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(enriched)));
 
-	// Cross-modal enrichment: attach HR / sleep stats per segment when the
-	// data is available. Missing Fitbit data → biometrics is just left null.
-	const { hr, sleep } = await time(
+	// Cross-modal enrichment: attach HR / sleep / steps stats per segment when
+	// the data is available. Missing Fitbit data → biometrics is just left null.
+	const { hr, sleep, steps } = await time(
 		"biomLoad",
 		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz).catch((e: unknown) => {
 			// Don't fail the whole request — biometrics are an enrichment.
 			// But log the error so a broken Fitbit feed (or DB issue) doesn't
-			// hide behind silently-empty HR + sleep arrays.
+			// hide behind silently-empty HR + sleep + step arrays.
 			console.warn(`loadBiometrics failed for user=${userId} date=${date}: ${e}`);
-			return { hr: [] as HrPoint[], sleep: [] as SleepStageRecord[] };
+			return { hr: [] as HrPoint[], sleep: [] as SleepStageRecord[], steps: [] as StepPoint[] };
 		}),
 	);
 	const withBiometrics = timeSync("biomEnrich", () =>
-		merged.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep) })),
+		merged.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep, steps) })),
 	);
 
 	const total = Date.now() - t0;

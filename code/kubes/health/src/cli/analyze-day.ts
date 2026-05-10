@@ -85,10 +85,11 @@ for (const s of segments) {
 		`  ${fmt(s.startTs)}-${fmt(s.endTs)} (${dur.toString().padStart(3)}m) ${finalMode.padEnd(11)}${changed} avg:${s.avgSpeed.toString().padStart(5)}km/h max:${s.maxSpeed.toString().padStart(5)}km/h lin:${s.linearity} conf:${s.confidence}${ctx}`,
 	);
 	const b = s.biometrics;
-	if (b && (b.sampleCount > 0 || b.overlapsSleep)) {
+	if (b && (b.sampleCount > 0 || b.overlapsSleep || b.stepsTotal !== null)) {
 		const parts: string[] = [];
 		if (b.sampleCount > 0) parts.push(`HR ${b.hrMean} (min ${b.hrMin} max ${b.hrMax}, n=${b.sampleCount})`);
 		if (b.overlapsSleep) parts.push(`sleep ${(b.sleepFraction * 100).toFixed(0)}%`);
+		if (b.stepsTotal !== null) parts.push(`${b.stepsTotal} steps`);
 		console.log(`              ${parts.join("  ")}`);
 	}
 }

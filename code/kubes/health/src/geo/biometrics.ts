@@ -24,6 +24,13 @@ export interface SleepStageRecord {
 	stage: string; // "asleep" | "awake" | "deep" | "light" | "rem" | "wake"
 }
 
+/** One row from `steps_intraday`. The DB stores only non-zero minutes — a
+ *  missing minute is implicit zero. */
+export interface StepPoint {
+	ts: number; // unix seconds, top-of-minute
+	steps: number;
+}
+
 export interface BiometricEnrichment {
 	/** Mean HR over the segment, or null if no HR samples in window. */
 	hrMean: number | null;
@@ -36,6 +43,10 @@ export interface BiometricEnrichment {
 	overlapsSleep: boolean;
 	/** Fraction of segment duration covered by sleep records (0–1). */
 	sleepFraction: number;
+	/** Total steps recorded inside the segment (Fitbit 1-min intraday).
+	 *  Null when no step rows touched the window — distinguish from zero
+	 *  steps actively recorded. */
+	stepsTotal: number | null;
 }
 
 const EMPTY_BIOMETRICS: BiometricEnrichment = {
@@ -46,12 +57,14 @@ const EMPTY_BIOMETRICS: BiometricEnrichment = {
 	sampleCount: 0,
 	overlapsSleep: false,
 	sleepFraction: 0,
+	stepsTotal: null,
 };
 
 export function enrichSegmentWithBiometrics(
 	segment: TrackSegment,
 	hrPoints: HrPoint[],
 	sleepStages: SleepStageRecord[],
+	stepPoints: StepPoint[] = [],
 ): BiometricEnrichment {
 	const segDuration = segment.endTs - segment.startTs;
 	const result: BiometricEnrichment = { ...EMPTY_BIOMETRICS };
@@ -83,6 +96,27 @@ export function enrichSegmentWithBiometrics(
 		if (overlapSec > 0) {
 			result.overlapsSleep = true;
 			result.sleepFraction = Math.min(1, overlapSec / segDuration);
+		}
+	}
+
+	// Step total. Each row in steps_intraday represents one minute starting at
+	// `ts`; we sum all minutes whose top-of-minute falls inside the segment.
+	// Only attribute steps if the array contains *any* row covering the
+	// segment's day — otherwise leave as null (no Fitbit data, distinct from
+	// "Fitbit recorded zero steps").
+	if (stepPoints.length > 0) {
+		let total = 0;
+		let anyOverlap = false;
+		for (const sp of stepPoints) {
+			if (sp.ts >= segment.startTs && sp.ts <= segment.endTs) {
+				total += sp.steps;
+				anyOverlap = true;
+			}
+		}
+		// Even if no non-zero minutes fell in the window, presence of step rows
+		// for the day implies the Fitbit was on; treat that as zero steps.
+		if (anyOverlap || stepPoints.some((sp) => Math.abs(sp.ts - segment.startTs) < 86400)) {
+			result.stepsTotal = total;
 		}
 	}
 
