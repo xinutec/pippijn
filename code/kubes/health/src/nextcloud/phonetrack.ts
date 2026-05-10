@@ -29,16 +29,17 @@ export interface RawTrackPoint {
 	battery: number | null;
 }
 
-/**
- * Fetch all PhoneTrack points for a user on a given date.
- * Uses the user's stored Nextcloud OAuth tokens.
- */
-export async function fetchTrackPoints(
-	config: NextcloudConfig,
-	userId: string,
-	date: string,
-	nextDay: string,
-): Promise<RawTrackPoint[]> {
+/** Pre-built Nextcloud client + session/device list for a single user.
+ *  Build once via `openPhoneTrack` and reuse across many `fetchTrackPointsRange`
+ *  calls — the multi-week backfill in `cli/refresh-focus-places.ts` would
+ *  otherwise pay the token-lookup + client-construction + sessions-list cost
+ *  on every chunk (26× for a 180-day window). */
+export interface PhoneTrackContext {
+	client: NextcloudClient;
+	sessions: Record<string, { id: number; name: string; devices?: Record<string, { id: number; name: string }> }>;
+}
+
+export async function openPhoneTrack(config: NextcloudConfig, userId: string): Promise<PhoneTrackContext> {
 	const ncToken = await db()
 		.selectFrom("nc_tokens")
 		.select(["access_token", "refresh_token", "expires_at"])
@@ -49,7 +50,7 @@ export async function fetchTrackPoints(
 		throw new NextcloudNotLinkedError();
 	}
 
-	const nc = new NextcloudClient({
+	const client = new NextcloudClient({
 		accessToken: ncToken.access_token,
 		refreshToken: ncToken.refresh_token,
 		expiresAt: new Date(ncToken.expires_at).getTime(),
@@ -69,19 +70,27 @@ export async function fetchTrackPoints(
 		},
 	});
 
-	const sessions = await nc.get<
-		Record<string, { id: number; name: string; devices?: Record<string, { id: number; name: string }> }>
-	>("/index.php/apps/phonetrack/sessions");
+	const sessions = await client.get<PhoneTrackContext["sessions"]>("/index.php/apps/phonetrack/sessions");
+	return { client, sessions };
+}
 
+/** Fetch points using a pre-built context. Use this when fetching many
+ *  ranges for the same user — the context only does one DB lookup +
+ *  one sessions-list call up front. */
+export async function fetchTrackPointsRange(
+	ctx: PhoneTrackContext,
+	date: string,
+	nextDay: string,
+): Promise<RawTrackPoint[]> {
 	const minTs = Math.floor(new Date(date).getTime() / 1000);
 	const maxTs = Math.floor(new Date(nextDay).getTime() / 1000);
 	const allPoints: RawTrackPoint[] = [];
 
-	for (const session of Object.values(sessions)) {
+	for (const session of Object.values(ctx.sessions)) {
 		if (!session.devices) continue;
 		for (const device of Object.values(session.devices)) {
 			try {
-				const points = await nc.get<
+				const points = await ctx.client.get<
 					Array<{
 						timestamp: number;
 						lat: number;
@@ -115,4 +124,16 @@ export async function fetchTrackPoints(
 
 	allPoints.sort((a, b) => a.ts - b.ts);
 	return allPoints;
+}
+
+/** One-shot fetch: build a context and use it for a single range. Convenience
+ *  for the API route which only ever fetches one day at a time. */
+export async function fetchTrackPoints(
+	config: NextcloudConfig,
+	userId: string,
+	date: string,
+	nextDay: string,
+): Promise<RawTrackPoint[]> {
+	const ctx = await openPhoneTrack(config, userId);
+	return fetchTrackPointsRange(ctx, date, nextDay);
 }

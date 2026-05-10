@@ -129,6 +129,32 @@ describe("filterGpsTrack", () => {
 		expect(result[2].speed_kmh).toBeGreaterThan(0); // not the silent stationary fix
 	});
 
+	it("the FIX AFTER a reset reflects real motion (no overshoot from v=0 prior)", () => {
+		// Bug being fixed: at reset, the code computes a forward-look velocity
+		// and emits it on the reset row, but resets the Kalman STATE with v=0.
+		// One predict step later, the v=0 prior + accumulated pv produces a
+		// large Kalman gain on velocity, and the post-reset+1 fix overshoots
+		// the true motion by ~30%. The fix is to seed the Kalman state's
+		// velocity from the same forward-look estimate.
+		const points: GpsPoint[] = [
+			{ ts: 1000, lat: 52.0, lon: 5.0, accuracy: 5 },
+			// Large gap → reset triggers at t=5000
+			{ ts: 5000, lat: 52.05, lon: 5.0, accuracy: 5 },
+			// Continue moving north at ~26 km/h (about 222m every 30s)
+			{ ts: 5030, lat: 52.052, lon: 5.0, accuracy: 5 },
+			{ ts: 5060, lat: 52.054, lon: 5.0, accuracy: 5 },
+		];
+		const result = filterGpsTrack(points);
+		expect(result).toHaveLength(4);
+		// Reset row itself: forward-look gives ~26 km/h (existing behaviour).
+		expect(result[1].speed_kmh).toBeGreaterThan(20);
+		expect(result[1].speed_kmh).toBeLessThan(32);
+		// Post-reset+1: should track the true motion, not overshoot. Without
+		// the seed this read ~35 km/h; with the seed it stays near 26.
+		expect(result[2].speed_kmh).toBeGreaterThan(20);
+		expect(result[2].speed_kmh).toBeLessThan(32);
+	});
+
 	it("post-reset fix has speed=0 when there's no next fix (last point)", () => {
 		const points: GpsPoint[] = [
 			{ ts: 1000, lat: 52.0, lon: 5.0, accuracy: 5 },

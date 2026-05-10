@@ -23,7 +23,7 @@ import {
 	uniqueDayCount,
 } from "../geo/focus-places.js";
 import { bestPlace, nearbyLandmarks } from "../geo/osm.js";
-import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
+import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
 const config = z
 	.object({
@@ -71,12 +71,16 @@ function ymdNDaysAgo(n: number): string {
 }
 
 async function fetchAllPoints(userId: string, daysBack: number): Promise<RawPoint[]> {
+	// Build the Nextcloud client + sessions list once and reuse across all
+	// chunks — used to be one DB lookup + one client construction + one
+	// sessions-list call per chunk (~26× for the default 180-day backfill).
+	const ctx = await openPhoneTrack(config, userId);
 	const all: RawPoint[] = [];
 	const seen = new Set<string>();
 	for (let offset = daysBack; offset > 0; offset -= FETCH_CHUNK_DAYS) {
 		const start = ymdNDaysAgo(offset);
 		const end = ymdNDaysAgo(Math.max(0, offset - FETCH_CHUNK_DAYS));
-		const points = await fetchTrackPoints(config, userId, start, end);
+		const points = await fetchTrackPointsRange(ctx, start, end);
 		for (const p of points) {
 			const k = `${p.ts}/${p.lat.toFixed(6)}/${p.lon.toFixed(6)}`;
 			if (seen.has(k)) continue;

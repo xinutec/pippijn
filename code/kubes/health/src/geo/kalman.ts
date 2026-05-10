@@ -180,10 +180,8 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 
 		if (shouldReset) {
 			const acc = p.accuracy ?? defaultAccuracy;
-			const vLat = metersToDegreesLat(acc) ** 2;
-			const vLon = metersToDegreesLon(acc, p.lat) ** 2;
-			stateLat = { x: p.lat, v: 0, px: vLat, pv: vLat, pxv: 0 };
-			stateLon = { x: p.lon, v: 0, px: vLon, pv: vLon, pxv: 0 };
+			const posVarLat = metersToDegreesLat(acc) ** 2;
+			const posVarLon = metersToDegreesLon(acc, p.lat) ** 2;
 
 			// Forward-look: if there's a next fix close in time, infer initial
 			// speed/bearing from the (this, next) pair so the post-reset point
@@ -191,17 +189,37 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 			// produced a phantom 0-speed segment when tracking turned on mid-trip).
 			let initialSpeed = 0;
 			let initialBearing = 0;
+			let vLatPerSec = 0;
+			let vLonPerSec = 0;
 			if (i + 1 < points.length) {
 				const next = points[i + 1];
 				const dt2 = next.ts - p.ts;
 				if (dt2 > 0 && dt2 < 600) {
-					const dLatM = (next.lat - p.lat) * 111320;
-					const dLonM = (next.lon - p.lon) * 111320 * Math.cos((p.lat * Math.PI) / 180);
+					const dLatDeg = next.lat - p.lat;
+					const dLonDeg = next.lon - p.lon;
+					const dLatM = dLatDeg * 111320;
+					const dLonM = dLonDeg * 111320 * Math.cos((p.lat * Math.PI) / 180);
 					const dist = Math.sqrt(dLatM ** 2 + dLonM ** 2);
 					initialSpeed = (dist / dt2) * 3.6;
 					initialBearing = ((Math.atan2(dLonM, dLatM) * 180) / Math.PI + 360) % 360;
+					// Seed Kalman velocity components (deg/sec) from the same
+					// forward-look. Without this seed the Kalman state's v=0
+					// prior + accumulated process noise produces a large gain
+					// on the next update step, overshooting true motion by
+					// ~30% for several fixes after a reset.
+					vLatPerSec = dLatDeg / dt2;
+					vLonPerSec = dLonDeg / dt2;
 				}
 			}
+
+			// Generous velocity variance so the filter readily updates the
+			// seeded velocity to whatever the next measurement implies. ~100x
+			// position variance corresponds to ≈ 100 km/h of velocity uncertainty.
+			const velVarLat = posVarLat * 100;
+			const velVarLon = posVarLon * 100;
+			stateLat = { x: p.lat, v: vLatPerSec, px: posVarLat, pv: velVarLat, pxv: 0 };
+			stateLon = { x: p.lon, v: vLonPerSec, px: posVarLon, pv: velVarLon, pxv: 0 };
+
 			result.push({ ts: p.ts, lat: p.lat, lon: p.lon, speed_kmh: initialSpeed, bearing: initialBearing });
 			continue;
 		}

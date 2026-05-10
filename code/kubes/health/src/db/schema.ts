@@ -211,30 +211,45 @@ const MIGRATIONS: readonly string[] = [
 ];
 
 export async function migrate(conn: mariadb.Connection): Promise<void> {
-	// Create tracking table (idempotent)
-	await conn.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      version INT PRIMARY KEY,
-      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-	// Find which migrations have already run
-	const applied = await conn.query("SELECT version FROM schema_migrations ORDER BY version");
-	const appliedSet = new Set<number>(applied.map((r: { version: number }) => r.version));
-
-	let ran = 0;
-	for (let i = 0; i < MIGRATIONS.length; i++) {
-		if (appliedSet.has(i)) continue;
-
-		await conn.query(MIGRATIONS[i]);
-		await conn.query("INSERT INTO schema_migrations (version) VALUES (?)", [i]);
-		ran++;
+	// MariaDB advisory lock so only one process runs migrations at a time.
+	// Today health-auth has replicas=1 and sync runs as a separate cron, so
+	// genuine concurrent migrations don't happen — but a rolling deploy or
+	// scale-up could trigger two pods to call migrate() simultaneously, and
+	// MariaDB DDL is non-transactional, so a race could double-fail or apply
+	// half a migration. The lock is cheap insurance.
+	const lockRows = (await conn.query("SELECT GET_LOCK('health_migrate', 30) AS got")) as Array<{ got: number | null }>;
+	if (lockRows[0]?.got !== 1) {
+		throw new Error("Failed to acquire schema_migrations advisory lock within 30s");
 	}
 
-	if (ran > 0) {
-		console.log(`Ran ${ran} migration(s) (${appliedSet.size} already applied, ${MIGRATIONS.length} total)`);
-	} else {
-		console.log(`Schema up to date (${MIGRATIONS.length} migrations)`);
+	try {
+		// Create tracking table (idempotent)
+		await conn.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INT PRIMARY KEY,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+		// Find which migrations have already run
+		const applied = await conn.query("SELECT version FROM schema_migrations ORDER BY version");
+		const appliedSet = new Set<number>(applied.map((r: { version: number }) => r.version));
+
+		let ran = 0;
+		for (let i = 0; i < MIGRATIONS.length; i++) {
+			if (appliedSet.has(i)) continue;
+
+			await conn.query(MIGRATIONS[i]);
+			await conn.query("INSERT INTO schema_migrations (version) VALUES (?)", [i]);
+			ran++;
+		}
+
+		if (ran > 0) {
+			console.log(`Ran ${ran} migration(s) (${appliedSet.size} already applied, ${MIGRATIONS.length} total)`);
+		} else {
+			console.log(`Schema up to date (${MIGRATIONS.length} migrations)`);
+		}
+	} finally {
+		await conn.query("SELECT RELEASE_LOCK('health_migrate')");
 	}
 }
