@@ -97,6 +97,48 @@ describe("filterGpsTrack", () => {
 		expect(result[2].speed_kmh).toBeGreaterThan(0);
 	});
 
+	it("resets on tracking gap (dt ≥ 10 min AND distance ≥ 500m, even at modest implied speed)", () => {
+		// Phone tracking turned off mid-trip: 10 min later, 5 km away.
+		// Implied speed across the gap = 30 km/h — old rule wouldn't reset.
+		// The post-gap fix should reflect the *real* driving speed via forward-
+		// look (~67 km/h here), not the fake 30 km/h average across the gap.
+		const points: GpsPoint[] = [
+			{ ts: 1000, lat: 52.0, lon: 5.0, accuracy: 5 },
+			{ ts: 1030, lat: 52.0001, lon: 5.0, accuracy: 5 }, // stationary
+			{ ts: 1630, lat: 52.045, lon: 5.0, accuracy: 5 }, // 10 min gap, 5km
+			{ ts: 1660, lat: 52.05, lon: 5.0, accuracy: 5 }, // continued motion (~67 km/h)
+		];
+		const result = filterGpsTrack(points);
+		expect(result).toHaveLength(4);
+		// > 50 means: not the ~30 km/h implied-across-gap rate AND not 0.
+		// Only achievable with both the loosened reset rule AND forward-look.
+		expect(result[2].speed_kmh).toBeGreaterThan(50);
+		expect(result[2].speed_kmh).toBeLessThan(200);
+	});
+
+	it("post-reset fix uses forward-look speed (not 0) when there's a next fix", () => {
+		// Big gap, then two close fixes showing real motion
+		const points: GpsPoint[] = [
+			{ ts: 1000, lat: 52.0, lon: 5.0, accuracy: 5 },
+			{ ts: 1030, lat: 52.0001, lon: 5.0, accuracy: 5 },
+			{ ts: 5000, lat: 52.05, lon: 5.0, accuracy: 5 }, // teleport reset triggers
+			{ ts: 5030, lat: 52.0517, lon: 5.0, accuracy: 5 }, // 0.0017° lat = ~190m in 30s → ~22 km/h
+		];
+		const result = filterGpsTrack(points);
+		expect(result).toHaveLength(4);
+		expect(result[2].speed_kmh).toBeGreaterThan(0); // not the silent stationary fix
+	});
+
+	it("post-reset fix has speed=0 when there's no next fix (last point)", () => {
+		const points: GpsPoint[] = [
+			{ ts: 1000, lat: 52.0, lon: 5.0, accuracy: 5 },
+			{ ts: 5000, lat: 52.05, lon: 5.0, accuracy: 5 }, // teleport reset, no follow-up
+		];
+		const result = filterGpsTrack(points);
+		expect(result).toHaveLength(2);
+		expect(result[1].speed_kmh).toBe(0);
+	});
+
 	it("resets on gaps > 1 hour", () => {
 		const points: GpsPoint[] = [
 			{ ts: 1000, lat: 52.0, lon: 5.0, accuracy: 5 },

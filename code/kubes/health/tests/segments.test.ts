@@ -219,6 +219,40 @@ describe("classifySegments", () => {
 		expect(stationarySegments).toHaveLength(0);
 	});
 
+	it("splits two stationary periods at distant locations into separate segments", () => {
+		// 30 min stationary at A (Bairro Alto-like), then 30 min stationary at B
+		// (Plein 1944-like) ~280m away. Same mode (stationary) but different
+		// places — must produce TWO stays, not one merged stay.
+		const A_LAT = 51.84797;
+		const A_LON = 5.86412;
+		const B_LAT = 51.84546;
+		const B_LON = 5.86337;
+		const points: FilteredPoint[] = [];
+		// Stay at A for 30 min, one fix per minute, jitter within 5m
+		for (let t = 0; t < 30 * 60; t += 60) {
+			points.push({
+				ts: 1000 + t,
+				lat: A_LAT + (Math.random() - 0.5) * 0.00005,
+				lon: A_LON + (Math.random() - 0.5) * 0.00005,
+				speed_kmh: 0.2,
+				bearing: 0,
+			});
+		}
+		// Stay at B for 30 min
+		for (let t = 0; t < 30 * 60; t += 60) {
+			points.push({
+				ts: 1000 + 30 * 60 + t,
+				lat: B_LAT + (Math.random() - 0.5) * 0.00005,
+				lon: B_LON + (Math.random() - 0.5) * 0.00005,
+				speed_kmh: 0.2,
+				bearing: 0,
+			});
+		}
+		const segments = classifySegments(points);
+		const stationary = segments.filter((s) => s.mode === "stationary");
+		expect(stationary.length).toBeGreaterThanOrEqual(2);
+	});
+
 	it("segments have valid timestamps", () => {
 		const points = generateWalk(1000, 1200);
 		const segments = classifySegments(points);

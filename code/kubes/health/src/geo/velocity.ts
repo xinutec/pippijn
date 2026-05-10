@@ -139,8 +139,10 @@ export async function computeVelocity(
 							cLat = r.lat;
 							cLon = r.lon;
 							snappedTo = (knownPlaces.find((p) => p.id === r.snappedTo?.id) as NamedPlace) ?? null;
-							if (snappedTo?.displayName) {
-								// Skip the OSM lookup entirely for known-named places.
+							// Only Home and Work are personal labels worth showing directly;
+							// "Stay" is a category, not a useful timeline label, so for Stay
+							// we let bestPlace return the residential address instead.
+							if (snappedTo?.displayName === "Home" || snappedTo?.displayName === "Work") {
 								return { ...seg, place: snappedTo.displayName };
 							}
 						}

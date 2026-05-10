@@ -163,22 +163,46 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 
 		if (dt <= 0) continue; // skip duplicate timestamps
 
-		// Detect teleports: if gap > 5 min AND implied speed > 200 km/h, reset
+		// Detect resets — three independent conditions:
+		//  - very long gap (>1 h): definite re-entry, reset.
+		//  - teleport (>5 min + implied >200 km/h): impossible motion, reset.
+		//  - tracking gap (>10 min + >500m moved): the user was probably stationary
+		//    for some of the gap and then moved — averaging over the whole gap
+		//    would invent a fake low speed, so we reset and let the next fix
+		//    establish a real velocity. (Without this rule the post-gap fix would
+		//    look like "you drove the full distance smoothly across the gap.")
 		const impliedDist = Math.sqrt(
 			((p.lat - points[i - 1].lat) * 111320) ** 2 +
 				((p.lon - points[i - 1].lon) * 111320 * Math.cos((p.lat * Math.PI) / 180)) ** 2,
 		);
 		const impliedSpeedKmh = (impliedDist / dt) * 3.6;
-		const shouldReset = dt > 3600 || (dt > 300 && impliedSpeedKmh > 200);
+		const shouldReset = dt > 3600 || (dt > 300 && impliedSpeedKmh > 200) || (dt >= 600 && impliedDist >= 500);
 
 		if (shouldReset) {
-			// Gap or teleport: reset filter state
 			const acc = p.accuracy ?? defaultAccuracy;
 			const vLat = metersToDegreesLat(acc) ** 2;
 			const vLon = metersToDegreesLon(acc, p.lat) ** 2;
 			stateLat = { x: p.lat, v: 0, px: vLat, pv: vLat, pxv: 0 };
 			stateLon = { x: p.lon, v: 0, px: vLon, pv: vLon, pxv: 0 };
-			result.push({ ts: p.ts, lat: p.lat, lon: p.lon, speed_kmh: 0, bearing: 0 });
+
+			// Forward-look: if there's a next fix close in time, infer initial
+			// speed/bearing from the (this, next) pair so the post-reset point
+			// doesn't appear stationary mid-drive (a known gotcha that previously
+			// produced a phantom 0-speed segment when tracking turned on mid-trip).
+			let initialSpeed = 0;
+			let initialBearing = 0;
+			if (i + 1 < points.length) {
+				const next = points[i + 1];
+				const dt2 = next.ts - p.ts;
+				if (dt2 > 0 && dt2 < 600) {
+					const dLatM = (next.lat - p.lat) * 111320;
+					const dLonM = (next.lon - p.lon) * 111320 * Math.cos((p.lat * Math.PI) / 180);
+					const dist = Math.sqrt(dLatM ** 2 + dLonM ** 2);
+					initialSpeed = (dist / dt2) * 3.6;
+					initialBearing = ((Math.atan2(dLonM, dLatM) * 180) / Math.PI + 360) % 360;
+				}
+			}
+			result.push({ ts: p.ts, lat: p.lat, lon: p.lon, speed_kmh: initialSpeed, bearing: initialBearing });
 			continue;
 		}
 

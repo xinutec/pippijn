@@ -24,6 +24,8 @@ export interface TrackSegment {
 interface WindowFeatures {
 	startTs: number;
 	endTs: number;
+	centroidLat: number;
+	centroidLon: number;
 	medianSpeed: number;
 	maxSpeed: number;
 	speedVariance: number;
@@ -141,6 +143,8 @@ function extractFeatures(points: FilteredPoint[], windowSec: number): WindowFeat
 		windows.push({
 			startTs: windowPoints[0].ts,
 			endTs: windowPoints[windowPoints.length - 1].ts,
+			centroidLat,
+			centroidLon,
 			medianSpeed: median(speeds),
 			maxSpeed: Math.max(...speeds),
 			speedVariance: variance(speeds),
@@ -244,6 +248,12 @@ function scorePlane(f: WindowFeatures): number {
 
 // --- Segment merging ---
 
+/** A new stationary window joining a stationary segment forces a split if its
+ * centroid is more than this far from the segment's running centroid. Catches
+ * "you were stationary at A, then stationary at B, 280m away" — two stays,
+ * not one. Threshold matches STAY_RADIUS_M used elsewhere. */
+const STATIONARY_SPLIT_DIST_M = 100;
+
 function mergeWindows(windows: WindowFeatures[], scores: ModeScore[][]): TrackSegment[] {
 	if (windows.length === 0) return [];
 
@@ -252,31 +262,44 @@ function mergeWindows(windows: WindowFeatures[], scores: ModeScore[][]): TrackSe
 	let _currentConfidence = scores[0][0].score;
 	let segStart = 0;
 
+	function flushSegment(endIdx: number): void {
+		const segWindows = windows.slice(segStart, endIdx);
+		const segScores = scores.slice(segStart, endIdx);
+		const allSpeeds = segWindows.map((w) => w.medianSpeed);
+		const avgConfidence = segScores.reduce((sum, s) => sum + s[0].score, 0) / segScores.length;
+		const avgLinearity = segWindows.reduce((sum, w) => sum + w.linearity, 0) / segWindows.length;
+
+		segments.push({
+			startTs: segWindows[0].startTs,
+			endTs: segWindows[segWindows.length - 1].endTs,
+			mode: currentMode,
+			confidence: Math.round(avgConfidence * 100) / 100,
+			avgSpeed: Math.round(median(allSpeeds) * 10) / 10,
+			maxSpeed: Math.round(Math.max(...segWindows.map((w) => w.maxSpeed)) * 10) / 10,
+			linearity: Math.round(avgLinearity * 100) / 100,
+			pointCount: segWindows.reduce((sum, w) => sum + w.pointCount, 0),
+		});
+	}
+
 	for (let i = 1; i <= windows.length; i++) {
 		const newMode = i < windows.length ? scores[i][0].mode : null;
 
-		if (newMode !== currentMode || i === windows.length) {
-			// Close current segment
+		// Force-split a stationary segment if the new stationary window is far
+		// from the segment's running centroid. Same-mode windows otherwise merge
+		// regardless of location, which would collapse two distinct stays.
+		let locationSplit = false;
+		if (i < windows.length && currentMode === "stationary" && newMode === "stationary") {
 			const segWindows = windows.slice(segStart, i);
-			const segScores = scores.slice(segStart, i);
+			const totalPts = segWindows.reduce((s, w) => s + w.pointCount, 0);
+			const cLat = segWindows.reduce((s, w) => s + w.centroidLat * w.pointCount, 0) / totalPts;
+			const cLon = segWindows.reduce((s, w) => s + w.centroidLon * w.pointCount, 0) / totalPts;
+			const next = windows[i];
+			const dist = haversineMeters(cLat, cLon, next.centroidLat, next.centroidLon);
+			if (dist > STATIONARY_SPLIT_DIST_M) locationSplit = true;
+		}
 
-			const allSpeeds = segWindows.map((w) => w.medianSpeed);
-			const avgConfidence = segScores.reduce((sum, s) => sum + s[0].score, 0) / segScores.length;
-
-			// Calculate linearity over the whole segment
-			const avgLinearity = segWindows.reduce((sum, w) => sum + w.linearity, 0) / segWindows.length;
-
-			segments.push({
-				startTs: segWindows[0].startTs,
-				endTs: segWindows[segWindows.length - 1].endTs,
-				mode: currentMode,
-				confidence: Math.round(avgConfidence * 100) / 100,
-				avgSpeed: Math.round(median(allSpeeds) * 10) / 10,
-				maxSpeed: Math.round(Math.max(...segWindows.map((w) => w.maxSpeed)) * 10) / 10,
-				linearity: Math.round(avgLinearity * 100) / 100,
-				pointCount: segWindows.reduce((sum, w) => sum + w.pointCount, 0),
-			});
-
+		if (newMode !== currentMode || locationSplit || i === windows.length) {
+			flushSegment(i);
 			if (i < windows.length) {
 				currentMode = newMode!;
 				_currentConfidence = scores[i][0].score;
