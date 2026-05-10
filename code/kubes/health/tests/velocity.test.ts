@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
-import { mergeAdjacentMoving, mergeAdjacentStays } from "../src/geo/velocity.js";
+import { composeWayName, mergeAdjacentMoving, mergeAdjacentStays } from "../src/geo/velocity.js";
 
 function stay(startTs: number, endTs: number, place: string | undefined, pointCount = 5): EnrichedSegment {
 	return {
@@ -184,7 +184,7 @@ describe("mergeAdjacentMoving", () => {
 		expect(out[0].avgSpeed).toBe(110);
 	});
 
-	it("collapses a long highway run (8 driving segments → 1)", () => {
+	it("collapses a long highway run (8 driving segments → 1) and labels by dominant ways", () => {
 		// Mirrors today's Tilburg → Antwerp run: 8 short driving segments,
 		// some reclassified from 'train' by refineMode, all on motorway-ish ways.
 		const segs: EnrichedSegment[] = [];
@@ -203,6 +203,42 @@ describe("mergeAdjacentMoving", () => {
 		expect(out).toHaveLength(1);
 		expect(out[0].startTs).toBe(0);
 		expect(out[0].endTs).toBe(8 * 300);
+		// E19 = 5*300=1500s, A58 = 3*300=900s. E19 first (more time), A58 second.
+		expect(out[0].wayName).toBe("E19, A58");
+	});
+
+	it("composes wayName time-weighted with two roads", () => {
+		const out = mergeAdjacentMoving([
+			driving(0, 600, { wayName: "A50" }), // 600s
+			driving(600, 900, { wayName: "B30" }), // 300s
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0].wayName).toBe("A50, B30");
+	});
+
+	it("drops a road that contributes under 15% of total time", () => {
+		const out = mergeAdjacentMoving([
+			driving(0, 900, { wayName: "E19" }), // 90% of total
+			driving(900, 1000, { wayName: "Bredaseweg" }), // 10% of total — dropped
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0].wayName).toBe("E19");
+	});
+
+	it("emits a single name when one road dominates", () => {
+		const out = mergeAdjacentMoving([driving(0, 1800, { wayName: "E19" }), driving(1800, 2100, { wayName: "E19" })]);
+		expect(out).toHaveLength(1);
+		expect(out[0].wayName).toBe("E19");
+	});
+
+	it("drops a wayName from the budget if the joined string would exceed 30 chars", () => {
+		const out = mergeAdjacentMoving([
+			driving(0, 600, { wayName: "Hertogjan van Brabantlaan" }), // 25 chars
+			driving(600, 1200, { wayName: "Eerste Oude Heselaan" }), // 20 chars; adding ", " + this = 47 > 30
+		]);
+		expect(out).toHaveLength(1);
+		// Tied durations → first contributor wins, second drops out by char budget
+		expect(out[0].wayName).toBe("Hertogjan van Brabantlaan");
 	});
 
 	it("does not mutate input segments", () => {
@@ -211,5 +247,34 @@ describe("mergeAdjacentMoving", () => {
 		mergeAdjacentMoving([a, b]);
 		expect(a.endTs).toBe(600);
 		expect(b.endTs).toBe(1200);
+	});
+});
+
+describe("composeWayName", () => {
+	it("returns null for an empty contribution map", () => {
+		expect(composeWayName(new Map())).toBeNull();
+	});
+
+	it("returns the only contributor's name when there is one", () => {
+		expect(composeWayName(new Map([["A1", 600]]))).toBe("A1");
+	});
+
+	it("orders by descending time", () => {
+		const m = new Map([
+			["B", 200],
+			["A", 800],
+		]);
+		expect(composeWayName(m)).toBe("A, B");
+	});
+
+	it("caps at three names", () => {
+		const m = new Map([
+			["A", 400],
+			["B", 300],
+			["C", 200],
+			["D", 100],
+		]);
+		// Total 1000; D = 10% < 15% floor → drop. A,B,C all > 15% → "A, B, C".
+		expect(composeWayName(m)).toBe("A, B, C");
 	});
 });

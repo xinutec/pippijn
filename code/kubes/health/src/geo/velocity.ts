@@ -349,12 +349,55 @@ export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment
  */
 const MOVING_MERGE_MAX_GAP_S = 3 * 60;
 
+/**
+ * Pick a wayName label for a merged moving segment. Each source segment
+ * contributes its `wayName` weighted by its duration; we sort by time,
+ * drop names under WAY_LABEL_MIN_COVERAGE of the total, and emit up to
+ * WAY_LABEL_MAX_NAMES names joined by ", " — but stop early if the
+ * joined string exceeds WAY_LABEL_MAX_CHARS so the timeline UI stays
+ * tidy. The result is always at most one short line of text.
+ */
+const WAY_LABEL_MAX_CHARS = 30;
+const WAY_LABEL_MIN_COVERAGE = 0.15;
+const WAY_LABEL_MAX_NAMES = 3;
+
+export function composeWayName(contribs: Map<string, number>): string | null {
+	let total = 0;
+	for (const v of contribs.values()) total += v;
+	if (total === 0) return null;
+	const ranked = [...contribs.entries()]
+		.sort((a, b) => b[1] - a[1])
+		.filter(([, dur]) => dur / total >= WAY_LABEL_MIN_COVERAGE)
+		.slice(0, WAY_LABEL_MAX_NAMES)
+		.map(([name]) => name);
+	if (ranked.length === 0) return null;
+	let label = ranked[0];
+	for (let i = 1; i < ranked.length; i++) {
+		const tentative = `${label}, ${ranked[i]}`;
+		if (tentative.length > WAY_LABEL_MAX_CHARS) break;
+		label = tentative;
+	}
+	return label;
+}
+
 export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegment[] {
 	const modeOf = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
 	const result: EnrichedSegment[] = [];
+	const wayContribs = new WeakMap<EnrichedSegment, Map<string, number>>();
+	const addContribution = (target: EnrichedSegment, name: string | undefined, durationS: number): void => {
+		if (!name || durationS <= 0) return;
+		let m = wayContribs.get(target);
+		if (!m) {
+			m = new Map();
+			wayContribs.set(target, m);
+		}
+		m.set(name, (m.get(name) ?? 0) + durationS);
+	};
+
 	for (const seg of segments) {
 		const prev = result[result.length - 1];
 		const segMode = modeOf(seg);
+		const segDuration = seg.endTs - seg.startTs;
 		if (
 			prev &&
 			segMode !== "stationary" &&
@@ -370,10 +413,23 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 			prev.maxSpeed = Math.round(Math.max(prev.maxSpeed, seg.maxSpeed) * 10) / 10;
 			prev.linearity = Math.round(((prev.linearity * w0 + seg.linearity * w1) / wTot) * 100) / 100;
 			prev.confidence = Math.round(((prev.confidence * w0 + seg.confidence * w1) / wTot) * 100) / 100;
-			if (!prev.wayName && seg.wayName) prev.wayName = seg.wayName;
+			addContribution(prev, seg.wayName, segDuration);
 		} else {
-			result.push({ ...seg });
+			const copy = { ...seg };
+			result.push(copy);
+			addContribution(copy, seg.wayName, segDuration);
 		}
 	}
+
+	// Resolve composite wayName from per-segment contributions. A single
+	// contributor short-circuits to the existing wayName; multiple sources
+	// produce a time-ordered, coverage-filtered, char-budgeted label.
+	for (const seg of result) {
+		const contribs = wayContribs.get(seg);
+		if (!contribs) continue;
+		const composite = composeWayName(contribs);
+		if (composite) seg.wayName = composite;
+	}
+
 	return result;
 }
