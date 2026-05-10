@@ -202,13 +202,17 @@ export async function computeVelocity(
 				})
 			: inDay;
 
-	// Tight filter (≤50m) for movement classification — Kalman-quality data only.
+	// Use the same loose accuracy ceiling (≤200m) for both movement and stay
+	// detection. The Kalman filter already weights measurements by their
+	// accuracy^2 variance (kalman.ts), so a noisy fix contributes much less
+	// to the trajectory estimate than a clean one — pre-filtering at 50m
+	// just throws away signal that's especially valuable for high-speed
+	// linear travel (trains, planes), where even a 150m fix is a useful
+	// anchor along an inherently smooth path.
 	const gpsPoints = snapped
-		.filter((p) => p.accuracy === null || p.accuracy <= 50)
+		.filter((p) => p.accuracy === null || p.accuracy <= 200)
 		.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon, accuracy: p.accuracy }));
 
-	// Loose filter (≤200m) for stay detection — indoor GPS often degrades
-	// well past 50m but is still good enough to know you were "around here".
 	const stayPoints = snapped
 		.filter((p) => p.accuracy === null || p.accuracy <= 200)
 		.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon }));
