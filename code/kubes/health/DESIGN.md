@@ -135,6 +135,31 @@ Migrations are numbered SQL statements in `src/db/schema.ts`. A
 schema, append a new migration — never modify or remove existing ones.
 This means data is never dropped during deployment.
 
+## Data ownership / what we store
+
+- **Mirror third-party data** that we don't own and can't re-derive: Fitbit
+  health metrics (HR, sleep, activity, ...). Fitbit may sunset, accounts
+  may close, history disappears — we keep our own copy.
+- **Don't mirror data we already own elsewhere.** PhoneTrack location data
+  lives in Nextcloud (which we run). Re-fetching from the PhoneTrack API
+  on demand is preferred over duplicating into the health DB. Slower is
+  fine; we're not in a hurry. Joining live-fetched location data to
+  stored health metrics happens in memory at query time — these datasets
+  fit easily (~MBs per user per quarter).
+- **Persist the *processed output*, not the raw input.** `focus_places`
+  is the algorithm's result (centroid, radius, dwell, classification),
+  not a copy of the underlying GPS history. Re-running the algorithm
+  re-fetches from PhoneTrack rather than reading a local cache.
+- **OSM cache is the exception**: we mirror Nominatim/Overpass responses
+  (`osm_cache`) because the upstream APIs are public, slow, and
+  rate-limited; the cache is a courtesy to them, not duplication of
+  ours.
+
+The trade-off is fewer moving parts (no sync gap, no schema for raw
+location, no double-source-of-truth), at the cost of slower
+recomputation when the algorithm needs the full history again. For our
+scale that cost is invisible.
+
 ## Future extensions
 
 - PhoneTrack location data via Nextcloud API
