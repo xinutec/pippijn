@@ -137,33 +137,44 @@ This means data is never dropped during deployment.
 
 ## Data ownership / what we store
 
-Default rule: **don't denormalise data we already own elsewhere**. Two
-copies of the same fact in two systems eventually drift apart, and
-keeping them in sync is its own bug surface. We accept slower queries
-to avoid that whole class of problem.
+Default rule: **maximal normalisation**. Every fact has exactly one
+storage location; nothing else mirrors, copies, or pre-aggregates it.
+Two copies of the same fact eventually drift apart, and keeping them
+in sync is its own bug surface. We accept slower queries (joins, live
+re-fetches, on-the-fly aggregation) to avoid that class of problem.
 
-- **Mirror third-party data** that we don't own and can't re-derive: Fitbit
-  health metrics (HR, sleep, activity, ...). Fitbit may sunset, accounts
-  may close, history disappears — we keep our own copy.
-- **Don't denormalise data we already own elsewhere.** PhoneTrack location
-  data lives in Nextcloud (which we run). Re-fetching from the PhoneTrack
-  API on demand is preferred over duplicating into the health DB. Slower
-  is fine; we're not in a hurry. Joining live-fetched location data to
-  stored health metrics happens in memory at query time — these datasets
-  fit easily (~MBs per user per quarter).
-- **Persist the *processed output*, not the raw input.** `focus_places`
-  is the algorithm's result (centroid, radius, dwell, classification),
-  not a copy of the underlying GPS history. Re-running the algorithm
-  re-fetches from PhoneTrack rather than reading a local cache.
-- **OSM cache is the exception**: we mirror Nominatim/Overpass responses
-  (`osm_cache`) because the upstream APIs are public, slow, and
-  rate-limited; the cache is a courtesy to them, not duplication of
-  ours.
+Three deliberate exceptions, each justified:
 
-The trade-off is fewer moving parts (no sync gap, no schema for raw
-location, no double-source-of-truth), at the cost of slower
-recomputation when the algorithm needs the full history again. For our
-scale that cost is invisible.
+- **Mirror third-party data we don't own.** Fitbit health metrics (HR,
+  sleep, activity, ...) — Fitbit may sunset, accounts may close,
+  history disappears. Without our own copy we lose access. So we sync
+  Fitbit into MariaDB and treat *our* tables as the source of truth
+  henceforth.
+- **Cache external API responses we don't own** when the upstream is
+  rate-limited or slow. `osm_cache` mirrors Nominatim/Overpass results;
+  the cache is a courtesy to them, not duplication of ours. Cached
+  results are pure functions of inputs (lat/lon), so drift is impossible.
+- **Persist algorithmic outputs, not their inputs.** `focus_places` is
+  the result of running the focus-places pipeline over the user's
+  PhoneTrack history; it's a computed cache that's cheap to refresh
+  (re-fetch + recompute weekly) and avoids a slow recompute on every
+  dashboard load. Crucially, we **don't** persist the raw GPS history
+  itself — that lives in Nextcloud (PhoneTrack), which we own. When
+  the algorithm runs, it re-fetches.
+
+What we explicitly do **not** do:
+
+- Mirror PhoneTrack history into the health DB.
+- Pre-aggregate summary tables (e.g. "weekly_step_total") that can be
+  computed at query time from the underlying intraday data.
+- Store derivable values alongside the inputs they're derived from.
+- Cache anything from a system we already control unless there's a
+  measured performance problem.
+
+When a join across "kept" sources (e.g. Fitbit HR × PhoneTrack
+location) is needed, fetch both into memory and join in code. At our
+scale (single-digit users, MBs of data per quarter per user) this is
+fast enough.
 
 ## Future extensions
 
