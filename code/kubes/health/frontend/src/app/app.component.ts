@@ -75,14 +75,14 @@ export class AppComponent implements OnInit {
       this.intradayHr.set(hrIntraday);
       this.velocity.set(velocity);
 
-      if (activity.length > 0) {
-        // Find the activity for the selected date, or fall back to latest
-        const dayActivity = activity.find(a => a.date.startsWith(date));
-        this.latestActivity.set(dayActivity ?? activity[activity.length - 1]);
-      }
-      const mainSleeps = sleep.filter((s) => s.is_main_sleep);
-      const daySleep = mainSleeps.find(s => s.date.startsWith(date));
-      this.latestSleep.set(daySleep ?? mainSleeps[mainSleeps.length - 1] ?? null);
+      // Show only data that actually belongs to the selected date — no
+      // silent fallback to "the latest". An empty card is correct when
+      // today's data hasn't synced yet (e.g. sleep before the next sync).
+      const dayActivity = activity.find((a) => a.date.startsWith(date));
+      this.latestActivity.set(dayActivity ?? null);
+
+      const dayMainSleep = sleep.find((s) => s.is_main_sleep && s.date.startsWith(date));
+      this.latestSleep.set(dayMainSleep ?? null);
     } catch (e) {
       console.error("Failed to load data:", e);
     }

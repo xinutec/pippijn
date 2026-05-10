@@ -5,7 +5,8 @@
     "ng": "ng",
     "start": "ng serve",
     "build": "ng build",
-    "watch": "ng build --watch --configuration development"
+    "watch": "ng build --watch --configuration development",
+    "test": "ng test --watch=false"
   },
   "private": true,
   "dependencies": {
@@ -28,6 +29,8 @@
     "@angular-devkit/build-angular": "^21.2.10",
     "@angular/cli": "^21.2.10",
     "@angular/compiler-cli": "^21.2.12",
-    "typescript": "~5.9.3"
+    "jsdom": "^29.1.1",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.5"
   }
 }
