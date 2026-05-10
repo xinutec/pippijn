@@ -56,8 +56,13 @@ export async function syncStepsIntraday(
 		if (rows.length === 0) continue;
 
 		await conn.batch(
+			// MAX-preserve: a later sync that returns a smaller count for a
+			// minute we already have data for must not overwrite. Fitbit'\''s
+			// intraday endpoint occasionally returns a less-complete response
+			// (watch-to-cloud sync timing, server-side aggregation tweaks) and
+			// we previously lost real step counts to those replays.
 			`INSERT INTO steps_intraday (user_id, ts, steps) VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE steps=VALUES(steps)`,
+       ON DUPLICATE KEY UPDATE steps=GREATEST(steps, VALUES(steps))`,
 			rows,
 		);
 

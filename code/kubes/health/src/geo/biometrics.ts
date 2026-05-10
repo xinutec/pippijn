@@ -140,12 +140,16 @@ export function cadenceForSegment(segment: TrackSegment, stepPoints: StepPoint[]
 
 /** A walking-classified segment with cadence below this is almost certainly
  *  not walking — typical walking is 80–120 steps/min, jogging 130+, slow
- *  strolling ~40, and even busy urban walking with stops still reads ~25–40.
- *  Threshold deliberately well below "slow walking with stops" so we only
- *  correct genuinely passenger-in-vehicle / escalator / shuttle cases.
- *  False positives (real walks relabelled as driving) are worse than false
- *  negatives (passenger trip kept as walking), so we under-correct. */
-const WALKING_MIN_CADENCE = 10;
+ *  strolling ~40, busy urban walking with stops ~25–40, and even Fitbit
+ *  partial-data minutes for real walking can dip into single digits. Set
+ *  the threshold to 5 to only correct genuinely-zero cases (passenger in
+ *  vehicle, escalator, shuttle); anything above 5 is more likely real
+ *  walking with sparse Fitbit data than vehicle transit.
+ *
+ *  Tradeoff: false positives (real walks → driving) corrupt the timeline
+ *  more visibly than false negatives (passenger trip kept as walking).
+ *  Erring conservative is intentional. */
+const WALKING_MIN_CADENCE = 5;
 
 /** Don'\''t correct very short segments — a 1-min "walking" segment with
  *  zero steps could be a brief pause. Need enough samples to be confident. */
