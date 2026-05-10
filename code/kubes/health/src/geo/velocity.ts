@@ -4,7 +4,8 @@
  * Used by both the API route and the CLI tool.
  */
 
-import { db, withConnection } from "../db/pool.js";
+import { sql } from "kysely";
+import { db } from "../db/pool.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 import {
@@ -42,16 +43,18 @@ async function loadBiometrics(
 	// Per-minute aggregate. Fitbit stores 1-second-resolution HR (~21k rows
 	// per day); for segment-level mean/std the per-minute average loses
 	// essentially no precision and is ~60× cheaper to load + parse.
-	const hrRows = (await withConnection(async (conn) =>
-		conn.query(
-			`SELECT DATE_FORMAT(MIN(ts), '%Y-%m-%d %H:%i:00') AS ts, ROUND(AVG(bpm)) AS bpm
-			 FROM heart_rate_intraday
-			 WHERE user_id = ? AND ts >= ? AND ts < ?
-			 GROUP BY DATE_FORMAT(ts, '%Y-%m-%d %H:%i')
-			 ORDER BY ts`,
-			[userId, dayBefore, dayAfter],
-		),
-	)) as Array<{ ts: string | Date; bpm: number }>;
+	// Type-safe: table + WHERE columns checked at compile time. The
+	// aggregate expressions are unavoidably raw SQL via `sql\`...\`` —
+	// no query-builder does GROUP BY DATE_FORMAT cleanly.
+	const hrRows = await db()
+		.selectFrom("heart_rate_intraday")
+		.select([sql<Date>`DATE_FORMAT(MIN(ts), '%Y-%m-%d %H:%i:00')`.as("ts"), sql<number>`ROUND(AVG(bpm))`.as("bpm")])
+		.where("user_id", "=", userId)
+		.where("ts", ">=", dayBefore)
+		.where("ts", "<", dayAfter)
+		.groupBy(sql`DATE_FORMAT(ts, '%Y-%m-%d %H:%i')`)
+		.orderBy("ts")
+		.execute();
 
 	const hr: HrPoint[] = [];
 	for (const r of hrRows) {
