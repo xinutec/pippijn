@@ -238,6 +238,10 @@ export async function computeVelocity(
 	const enrichStart = Date.now();
 	const enriched: EnrichedSegment[] = await Promise.all(
 		segments.map(async (seg) => {
+			// Inferred-from-gap segments have no real GPS data — enriching them
+			// with road names / OSM places would invent context we don't have.
+			// Pass them through with their inferred refinedReason intact.
+			if (seg.refinedReason?.startsWith("inferred from GPS gap")) return seg;
 			const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
 			if (segPoints.length === 0) return seg;
 
