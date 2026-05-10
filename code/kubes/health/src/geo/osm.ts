@@ -124,6 +124,7 @@ export interface NominatimResult {
 		leisure?: string; // "park", "playground", etc.
 		shop?: string; // "supermarket", "bakery", etc.
 		building?: string;
+		house_number?: string;
 		road?: string;
 		pedestrian?: string; // square / pedestrian street name
 		neighbourhood?: string;
@@ -195,6 +196,12 @@ export async function bestPlace(lat: number, lon: number): Promise<NominatimResu
 	const detailed = await reverseGeocode(lat, lon, 18);
 	if (detailed && hasSpecificVenue(detailed)) return detailed;
 
+	// Indoor stay at a residential address: prefer "161 Plein 1944" over a
+	// 26m-away cafe. The user is *inside* the building, not at the venue
+	// next door. nearbyLandmarks would otherwise pick the closest amenity
+	// even though it's clearly not where someone is sleeping for hours.
+	if (detailed && hasResidentialAddress(detailed)) return detailed;
+
 	const landmarks = await nearbyLandmarks(lat, lon, 100);
 	if (landmarks.length > 0) {
 		return landmarkToResult(pickBestLandmark(landmarks));
@@ -208,6 +215,10 @@ export async function bestPlace(lat: number, lon: number): Promise<NominatimResu
 function hasSpecificVenue(r: NominatimResult): boolean {
 	const a = r.address;
 	return !!(a.amenity || a.tourism || a.leisure || a.shop);
+}
+
+function hasResidentialAddress(r: NominatimResult): boolean {
+	return !!(r.address.house_number && r.address.road);
 }
 
 function isLandmark(r: NominatimResult): boolean {
@@ -368,6 +379,11 @@ export function placeLabel(result: NominatimResult): string {
 
 	// Building name + type
 	if (a.building && result.type) return `${a.building} (${result.type})`;
+
+	// Residential address (or any address with a clear house number).
+	// Use Dutch ordering ("Plein 1944 161") since street + number reads
+	// most naturally for European postal addresses.
+	if (a.house_number && a.road) return `${a.road} ${a.house_number}`;
 
 	// Named pedestrian area / square (zoom-16 lookups commonly land here)
 	if (a.pedestrian) return `${a.pedestrian}${result.type ? ` (${result.type})` : ""}`;

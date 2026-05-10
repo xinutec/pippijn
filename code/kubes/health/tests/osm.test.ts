@@ -81,6 +81,16 @@ describe("placeLabel", () => {
 		expect(placeLabel(r)).toBe("Albert Heijn (supermarket)");
 	});
 
+	it("uses house_number + road for a residential address", () => {
+		const r: NominatimResult = {
+			displayName: "161, Plein 1944, Stadscentrum, Nijmegen, NL",
+			type: "house",
+			category: "place",
+			address: { house_number: "161", road: "Plein 1944", suburb: "Stadscentrum" },
+		};
+		expect(placeLabel(r)).toBe("Plein 1944 161");
+	});
+
 	it("uses pedestrian (square / pedestrian street) name", () => {
 		// Zoom-16 lookups commonly land on named squares like Plein 1944
 		const r: NominatimResult = {
