@@ -159,6 +159,13 @@ const CADENCE_CORRECTION_MIN_DURATION_S = 3 * 60;
  *  — cadence correction shouldn'\''t fight that boundary. */
 const WALKING_MAX_SPEED_KMH = 15;
 
+/** Require at least one step row at or after the segment'\''s end within this
+ *  window — proof that Fitbit data has been synced through the segment'\''s
+ *  time period. Without this, "no steps recorded" might just mean "we
+ *  haven'\''t pulled this minute from Fitbit yet" and we'\''d wrongly correct
+ *  a real walk into driving. */
+const CADENCE_CORRECTION_FRESHNESS_S = 30 * 60;
+
 /** Use cadence to correct mode classifications that GPS alone got wrong.
  *  Today: only the walking-with-no-steps case → relabel as driving (typical
  *  pattern is "passenger stuck in slow traffic"). Other corrections may
@@ -184,6 +191,16 @@ export function correctModeFromCadence<T extends TrackSegment & { refinedMode?: 
 	const currentMode = segment.refinedMode ?? segment.mode;
 	if (currentMode !== "walking") return segment;
 	if (segment.avgSpeed > WALKING_MAX_SPEED_KMH) return segment;
+
+	// Freshness guard: only correct when there'\''s a step row at-or-after the
+	// segment'\''s end, within the freshness window. That proves Fitbit data
+	// has been pulled through the segment'\''s time period; otherwise zero
+	// cadence might just mean the most recent sync hasn'\''t covered this
+	// minute yet, and a real walk would be wrongly relabelled as driving.
+	const hasFreshData = stepPoints.some(
+		(sp) => sp.ts >= segment.endTs && sp.ts <= segment.endTs + CADENCE_CORRECTION_FRESHNESS_S,
+	);
+	if (!hasFreshData) return segment;
 
 	const cadence = cadenceForSegment(segment, stepPoints);
 	if (cadence >= WALKING_MIN_CADENCE) return segment;

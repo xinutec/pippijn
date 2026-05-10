@@ -230,15 +230,31 @@ describe("correctModeFromCadence — passenger-in-traffic detection", () => {
 		expect(r.refinedMode ?? r.mode).toBe("walking");
 	});
 
-	it("re-labels walking → driving when cadence is near zero AND Fitbit data exists", () => {
-		// Fitbit was on (some step rows for the day) but the walking segment
-		// itself has no steps → user was a passenger.
+	it("re-labels walking → driving when cadence is near zero AND Fitbit data is fresh", () => {
+		// Fitbit was on AND data has been pulled past the segment'\''s end
+		// (a step row exists shortly after) — but the segment itself has
+		// no steps → user was a passenger.
 		const seg = baseSeg("walking", 4, 5 * 60);
-		// Other-segment step row in the same day to signal "Fitbit on".
-		const stepsThisDay: StepPoint[] = [step(7 * HOUR, 100)];
+		// Step row 10 min after segment end → satisfies freshness guard.
+		const stepsThisDay: StepPoint[] = [step(5 * 60 + 10 * 60, 100)];
 		const r = correctModeFromCadence(seg, stepsThisDay);
 		expect(r.refinedMode).toBe("driving");
 		expect(r.refinedReason).toMatch(/cadence/i);
+	});
+
+	it("does NOT correct when step data is stale (no rows past segment end — sync hasn'''t caught up)", () => {
+		// Real regression: walked home at 22:30; segment ended 22:45. Latest
+		// Fitbit step sync only reaches 19:04, hours behind. With the old
+		// code, zero cadence in window triggered driving-correction even
+		// though we simply hadn'\''t pulled the relevant minutes from Fitbit
+		// yet. The freshness guard requires a step row within 30 min after
+		// the segment end before applying the correction.
+		const seg = baseSeg("walking", 4, 5 * 60);
+		// Step rows BEFORE the segment exist (Fitbit was on earlier today)
+		// but no rows AFTER the segment end → freshness guard blocks.
+		const stepsThisDay: StepPoint[] = [step(0, 50)];
+		const r = correctModeFromCadence(seg, stepsThisDay);
+		expect(r.refinedMode ?? r.mode).toBe("walking");
 	});
 
 	it("keeps walking when cadence is in the walking range (80–120/min)", () => {
@@ -285,7 +301,8 @@ describe("correctModeFromCadence — passenger-in-traffic detection", () => {
 
 	it("preserves an existing refinedReason in the corrected segment", () => {
 		const seg = { ...baseSeg("walking", 4, 5 * 60), refinedReason: "near tertiary" };
-		const r = correctModeFromCadence(seg, [step(7 * HOUR, 100)]);
+		// Fresh step row after segment end so the freshness guard passes.
+		const r = correctModeFromCadence(seg, [step(5 * 60 + 600, 100)]);
 		expect(r.refinedMode).toBe("driving");
 		expect(r.refinedReason).toMatch(/near tertiary/);
 		expect(r.refinedReason).toMatch(/cadence/i);
