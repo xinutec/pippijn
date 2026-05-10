@@ -279,7 +279,7 @@ export async function computeVelocity(
 	);
 	phaseTimes.osm = Date.now() - enrichStart;
 
-	const merged = timeSync("merge", () => mergeAdjacentStays(enriched));
+	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(enriched)));
 
 	// Cross-modal enrichment: attach HR / sleep stats per segment when the
 	// data is available. Missing Fitbit data → biometrics is just left null.
@@ -325,6 +325,52 @@ export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment
 		) {
 			prev.endTs = seg.endTs;
 			prev.pointCount += seg.pointCount;
+		} else {
+			result.push({ ...seg });
+		}
+	}
+	return result;
+}
+
+/**
+ * Merge consecutive moving segments that share a refined mode and are
+ * separated by a small gap. Mirrors `mergeAdjacentStays` for the moving
+ * case: the segment classifier oscillates between similar modes
+ * (driving ↔ train) on long highway runs and `refineMode` corrects each
+ * label individually but leaves the boundaries in place. This collapses
+ * those now-redundant boundaries.
+ *
+ * Stationary segments are left untouched — that's `mergeAdjacentStays`'
+ * job and the predicate there (same `place`) is stricter.
+ *
+ * A different mode in the middle (e.g. a brief walking break for
+ * dropping someone off) breaks the chain — that pause is exactly what
+ * the user wants to see.
+ */
+const MOVING_MERGE_MAX_GAP_S = 3 * 60;
+
+export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegment[] {
+	const modeOf = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
+	const result: EnrichedSegment[] = [];
+	for (const seg of segments) {
+		const prev = result[result.length - 1];
+		const segMode = modeOf(seg);
+		if (
+			prev &&
+			segMode !== "stationary" &&
+			modeOf(prev) === segMode &&
+			seg.startTs - prev.endTs <= MOVING_MERGE_MAX_GAP_S
+		) {
+			const w0 = prev.pointCount;
+			const w1 = seg.pointCount;
+			const wTot = w0 + w1;
+			prev.endTs = seg.endTs;
+			prev.pointCount = wTot;
+			prev.avgSpeed = Math.round(((prev.avgSpeed * w0 + seg.avgSpeed * w1) / wTot) * 10) / 10;
+			prev.maxSpeed = Math.round(Math.max(prev.maxSpeed, seg.maxSpeed) * 10) / 10;
+			prev.linearity = Math.round(((prev.linearity * w0 + seg.linearity * w1) / wTot) * 100) / 100;
+			prev.confidence = Math.round(((prev.confidence * w0 + seg.confidence * w1) / wTot) * 100) / 100;
+			if (!prev.wayName && seg.wayName) prev.wayName = seg.wayName;
 		} else {
 			result.push({ ...seg });
 		}

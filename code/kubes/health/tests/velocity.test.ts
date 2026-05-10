@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
-import { mergeAdjacentStays } from "../src/geo/velocity.js";
+import { mergeAdjacentMoving, mergeAdjacentStays } from "../src/geo/velocity.js";
 
 function stay(startTs: number, endTs: number, place: string | undefined, pointCount = 5): EnrichedSegment {
 	return {
@@ -102,5 +102,114 @@ describe("mergeAdjacentStays", () => {
 		expect(a.endTs).toBe(HOUR);
 		expect(b.endTs).toBe(2 * HOUR);
 		expect(out[0].endTs).toBe(2 * HOUR);
+	});
+});
+
+function driving(
+	startTs: number,
+	endTs: number,
+	opts: { wayName?: string; refinedMode?: string; mode?: string; avgSpeed?: number; maxSpeed?: number } = {},
+): EnrichedSegment {
+	return {
+		startTs,
+		endTs,
+		mode: opts.mode ?? "driving",
+		confidence: 0.7,
+		avgSpeed: opts.avgSpeed ?? 90,
+		maxSpeed: opts.maxSpeed ?? 100,
+		linearity: 0.95,
+		pointCount: Math.max(1, Math.round((endTs - startTs) / 60)),
+		refinedMode: opts.refinedMode,
+		wayName: opts.wayName,
+	};
+}
+
+describe("mergeAdjacentMoving", () => {
+	it("returns the list unchanged when there is no moving chain", () => {
+		const out = mergeAdjacentMoving([stay(0, HOUR, "Home"), stay(2 * HOUR, 3 * HOUR, "Work")]);
+		expect(out).toHaveLength(2);
+	});
+
+	it("merges two adjacent driving segments into one", () => {
+		const out = mergeAdjacentMoving([driving(0, 600, { wayName: "A50" }), driving(600, 1500, { wayName: "A50" })]);
+		expect(out).toHaveLength(1);
+		expect(out[0].startTs).toBe(0);
+		expect(out[0].endTs).toBe(1500);
+	});
+
+	it("merges a 'train'-classified segment refined to driving with adjacent driving", () => {
+		// On the highway, the classifier flips between driving and train. Once
+		// refineMode says both are driving (motorway), they should collapse.
+		const out = mergeAdjacentMoving([
+			driving(0, 300, { mode: "driving", refinedMode: "driving", wayName: "A50" }),
+			driving(300, 600, { mode: "train", refinedMode: "driving", wayName: "A50" }),
+			driving(600, 900, { mode: "driving", refinedMode: "driving", wayName: "A50" }),
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0].endTs).toBe(900);
+	});
+
+	it("does NOT merge across a different mode (the Tilburg walking break)", () => {
+		const out = mergeAdjacentMoving([
+			driving(0, 600, { wayName: "A50" }),
+			{ ...driving(600, 900), mode: "walking", refinedMode: "walking" },
+			driving(900, 1500, { wayName: "A58" }),
+		]);
+		expect(out).toHaveLength(3);
+		expect(out.map((s) => s.refinedMode ?? s.mode)).toEqual(["driving", "walking", "driving"]);
+	});
+
+	it("does NOT merge if the gap exceeds the threshold", () => {
+		const out = mergeAdjacentMoving([
+			driving(0, 600),
+			driving(600 + 5 * 60, 1200), // 5 min gap > 3 min threshold
+		]);
+		expect(out).toHaveLength(2);
+	});
+
+	it("leaves stationary segments alone (mergeAdjacentStays' job)", () => {
+		const out = mergeAdjacentMoving([stay(0, HOUR, "Home"), stay(HOUR, 2 * HOUR, "Home")]);
+		expect(out).toHaveLength(2); // no change
+	});
+
+	it("keeps maxSpeed = max of inputs and weights avgSpeed by point count", () => {
+		const out = mergeAdjacentMoving([
+			{ ...driving(0, 600), pointCount: 10, avgSpeed: 80, maxSpeed: 90 },
+			{ ...driving(600, 1200), pointCount: 30, avgSpeed: 120, maxSpeed: 130 },
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0].pointCount).toBe(40);
+		expect(out[0].maxSpeed).toBe(130);
+		// weighted avg = (10*80 + 30*120) / 40 = (800 + 3600)/40 = 110
+		expect(out[0].avgSpeed).toBe(110);
+	});
+
+	it("collapses a long highway run (8 driving segments → 1)", () => {
+		// Mirrors today's Tilburg → Antwerp run: 8 short driving segments,
+		// some reclassified from 'train' by refineMode, all on motorway-ish ways.
+		const segs: EnrichedSegment[] = [];
+		for (let i = 0; i < 8; i++) {
+			const start = i * 300;
+			const isTrain = i % 2 === 1;
+			segs.push(
+				driving(start, start + 300, {
+					mode: isTrain ? "train" : "driving",
+					refinedMode: "driving",
+					wayName: i < 3 ? "A58" : "E19",
+				}),
+			);
+		}
+		const out = mergeAdjacentMoving(segs);
+		expect(out).toHaveLength(1);
+		expect(out[0].startTs).toBe(0);
+		expect(out[0].endTs).toBe(8 * 300);
+	});
+
+	it("does not mutate input segments", () => {
+		const a = driving(0, 600, { wayName: "A50" });
+		const b = driving(600, 1200, { wayName: "A50" });
+		mergeAdjacentMoving([a, b]);
+		expect(a.endTs).toBe(600);
+		expect(b.endTs).toBe(1200);
 	});
 });
