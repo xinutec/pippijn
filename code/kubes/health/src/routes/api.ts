@@ -219,7 +219,8 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			if (e instanceof NextcloudNotLinkedError) {
 				return c.json([]);
 			}
-			return c.json({ error: String(e) }, 400);
+			console.error(`/api/locations failed for user=${uid} date=${date}:`, e);
+			return c.json({ error: "locations fetch failed" }, 400);
 		}
 	});
 
@@ -237,7 +238,8 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			if (e instanceof NextcloudNotLinkedError) {
 				return c.json({ points: [], segments: [] });
 			}
-			return c.json({ error: String(e) }, 400);
+			console.error(`/api/velocity failed for user=${uid} date=${date} tz=${tz}:`, e);
+			return c.json({ error: "velocity computation failed" }, 400);
 		}
 	});
 
@@ -284,7 +286,8 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			await nc.put("/index.php/apps/phonetrack/saveOptionValues", { values });
 			return c.json({ ok: true, datemin });
 		} catch (e) {
-			return c.json({ error: String(e) }, 502);
+			console.error(`/api/phonetrack/sync-filter failed for user=${uid}:`, e);
+			return c.json({ error: "phonetrack sync-filter failed" }, 502);
 		}
 	});
 
