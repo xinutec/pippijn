@@ -97,7 +97,17 @@ async function withCache<T>(
 
 	const promise = (async () => {
 		try {
-			const result = await fetcher();
+			let result: FetcherResult<T>;
+			try {
+				result = await fetcher();
+			} catch (e) {
+				// Network-level failure (DNS, TLS, refused connection, etc.) —
+				// fetch() throws before any HTTP status. Treat as a transient
+				// failure so subsequent calls within the TTL are short-circuited;
+				// without this we'd thunder on every dashboard reload.
+				console.warn(`OSM fetch threw for ${queryType} ${lat},${lon}: ${e}`);
+				result = { ok: false, status: 0 };
+			}
 			if (result.ok) {
 				await cacheSet(queryType, lat, lon, result.value);
 				return result.value;

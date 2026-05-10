@@ -214,4 +214,19 @@ describe("negative caching for transient failures (429)", () => {
 
 		expect(fetchCalls).toHaveLength(1);
 	});
+
+	it("a thrown fetch (network/TLS/refused connection) is also negatively cached", async () => {
+		// Simulates the production case where Overpass becomes unreachable —
+		// fetch() throws before any HTTP status.
+		const { nearbyWays } = await loadOsm();
+		fetchHandler = async () => {
+			throw new Error("fetch failed");
+		};
+
+		const r1 = await nearbyWays(51.0, 5.0);
+		const r2 = await nearbyWays(51.0, 5.0);
+		expect(r1).toEqual([]);
+		expect(r2).toEqual([]);
+		expect(fetchCalls).toHaveLength(1); // only one attempt despite two callers
+	});
 });
