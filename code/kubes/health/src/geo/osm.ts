@@ -192,17 +192,27 @@ export async function reverseGeocode(lat: number, lon: number, zoom = 18): Promi
  *    landmark is only known to Nominatim.
  * 4. Last resort: return the residential address from step 1.
  */
+/** Distance below which an amenity is considered to be "in the same building" as
+ * a residential address. Cafés on the ground floor of a residential building
+ * are typically tagged within ~10m of the address centroid. */
+const SAME_BUILDING_AMENITY_M = 20;
+
 export async function bestPlace(lat: number, lon: number): Promise<NominatimResult | null> {
 	const detailed = await reverseGeocode(lat, lon, 18);
 	if (detailed && hasSpecificVenue(detailed)) return detailed;
 
-	// Indoor stay at a residential address: prefer "161 Plein 1944" over a
-	// 26m-away cafe. The user is *inside* the building, not at the venue
-	// next door. nearbyLandmarks would otherwise pick the closest amenity
-	// even though it's clearly not where someone is sleeping for hours.
-	if (detailed && hasResidentialAddress(detailed)) return detailed;
-
 	const landmarks = await nearbyLandmarks(lat, lon, 100);
+
+	// Residential address: use it (e.g. "Plein 1944 161") UNLESS there's a
+	// venue right at the same coordinates — typically a café/restaurant on
+	// the ground floor of the building. That venue is more useful than the
+	// residential street name for the timeline.
+	if (detailed && hasResidentialAddress(detailed)) {
+		const same = landmarks.filter((l) => l.distanceM <= SAME_BUILDING_AMENITY_M);
+		if (same.length > 0) return landmarkToResult(pickBestLandmark(same));
+		return detailed;
+	}
+
 	if (landmarks.length > 0) {
 		return landmarkToResult(pickBestLandmark(landmarks));
 	}
