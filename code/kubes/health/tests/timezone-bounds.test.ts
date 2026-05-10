@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dateBoundsUtc } from "../src/geo/timezone.js";
+import { dateBoundsUtc, fitbitTsToUnix } from "../src/geo/timezone.js";
 
 describe("dateBoundsUtc", () => {
 	it("returns UTC midnight boundaries when no timezone given", () => {
@@ -54,5 +54,41 @@ describe("dateBoundsUtc", () => {
 	it("start is before end", () => {
 		const { startUtc, endUtc } = dateBoundsUtc("2026-05-09", "Pacific/Auckland");
 		expect(startUtc).toBeLessThan(endUtc);
+	});
+});
+
+describe("fitbitTsToUnix", () => {
+	it("parses with no timezone as UTC", () => {
+		const ts = fitbitTsToUnix("2026-05-10 03:30:00");
+		expect(ts).toBe(new Date("2026-05-10T03:30:00Z").getTime() / 1000);
+	});
+
+	it("CEST (UTC+2 in May) — 03:30 local = 01:30 UTC", () => {
+		const ts = fitbitTsToUnix("2026-05-10 03:30:00", "Europe/Amsterdam");
+		expect(ts).toBe(new Date("2026-05-10T01:30:00Z").getTime() / 1000);
+	});
+
+	it("CET (UTC+1 in January) — 12:00 local = 11:00 UTC", () => {
+		const ts = fitbitTsToUnix("2026-01-15 12:00:00", "Europe/Amsterdam");
+		expect(ts).toBe(new Date("2026-01-15T11:00:00Z").getTime() / 1000);
+	});
+
+	it("PDT (UTC-7 in May) — 12:00 local = 19:00 UTC same day", () => {
+		const ts = fitbitTsToUnix("2026-05-10 12:00:00", "America/Los_Angeles");
+		expect(ts).toBe(new Date("2026-05-10T19:00:00Z").getTime() / 1000);
+	});
+
+	it("accepts ISO-style 'T' separator with optional Z (mariadb driver quirk)", () => {
+		const ts = fitbitTsToUnix("2026-05-10T03:30:00.000Z", "Europe/Amsterdam");
+		expect(ts).toBe(new Date("2026-05-10T01:30:00Z").getTime() / 1000);
+	});
+
+	it("returns NaN on unparseable input", () => {
+		expect(Number.isNaN(fitbitTsToUnix("not a date"))).toBe(true);
+	});
+
+	it("Asia/Tokyo (UTC+9, no DST) — 09:00 local = 00:00 UTC", () => {
+		const ts = fitbitTsToUnix("2026-05-10 09:00:00", "Asia/Tokyo");
+		expect(ts).toBe(new Date("2026-05-10T00:00:00Z").getTime() / 1000);
 	});
 });

@@ -67,3 +67,56 @@ export function dateBoundsUtc(date: string, tz?: string): { startUtc: number; en
 
 	return { startUtc, endUtc };
 }
+
+/**
+ * Convert a Fitbit DATETIME string ("2026-05-10 03:30:00" or
+ * "2026-05-10T03:30:00.000Z" — the mariadb driver may add a misleading
+ * Z suffix) to unix UTC seconds, given the user's timezone.
+ *
+ * The components in the string represent wall-clock time in `tz`. The
+ * Z suffix from the driver is decoration we ignore. Without `tz`, we
+ * fall back to interpreting components as UTC.
+ *
+ * Used to align Fitbit-stored heart rate / sleep timestamps with the
+ * unix UTC timestamps coming from PhoneTrack so we can join them.
+ */
+export function fitbitTsToUnix(s: string, tz?: string): number {
+	const m = s.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+	if (!m) return Number.NaN;
+	const [, ys, mos, ds, hs, mis, ss] = m;
+	const y = Number(ys);
+	const mo = Number(mos);
+	const d = Number(ds);
+	const h = Number(hs);
+	const mi = Number(mis);
+	const sec = Number(ss);
+
+	if (!tz) return Date.UTC(y, mo - 1, d, h, mi, sec) / 1000;
+
+	// Round-trip via Intl: pretend the components are UTC, render in tz,
+	// measure the divergence, and apply it as the offset.
+	const guessUtcMs = Date.UTC(y, mo - 1, d, h, mi, sec);
+	const fmt = new Intl.DateTimeFormat("en-US", {
+		timeZone: tz,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+		hour12: false,
+	});
+	const parts = fmt.formatToParts(new Date(guessUtcMs));
+	const get = (k: string): number => Number(parts.find((p) => p.type === k)?.value ?? 0);
+	const renderedY = get("year");
+	const renderedMo = get("month");
+	const renderedD = get("day");
+	let renderedH = get("hour");
+	if (renderedH === 24) renderedH = 0; // some locales render midnight as 24
+	const renderedMi = get("minute");
+	const renderedS = get("second");
+
+	const renderedAsUtcMs = Date.UTC(renderedY, renderedMo - 1, renderedD, renderedH, renderedMi, renderedS);
+	const offsetMs = renderedAsUtcMs - guessUtcMs;
+	return (guessUtcMs - offsetMs) / 1000;
+}

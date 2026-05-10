@@ -7,6 +7,12 @@
 import { db } from "../db/pool.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
+import {
+	type BiometricEnrichment,
+	enrichSegmentWithBiometrics,
+	type HrPoint,
+	type SleepStageRecord,
+} from "./biometrics.js";
 import { localSolarHour } from "./focus-places.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
@@ -14,7 +20,60 @@ import { bestPlace, nearbyWays, placeLabel, refineMode } from "./osm.js";
 import { type KnownPlace, snapToPlace } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments } from "./segments.js";
-import { dateBoundsUtc } from "./timezone.js";
+import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
+
+/**
+ * Load Fitbit HR + sleep stages for a UTC time window. Both queries hit a
+ * date-string column, so we filter loosely (one-day padding) and trim by
+ * unix timestamp after parsing. Both return empty arrays gracefully when
+ * the user wasn't wearing their Fitbit (battery, charger, off-arm).
+ */
+async function loadBiometrics(
+	userId: string,
+	startUtc: number,
+	endUtc: number,
+	tz: string | undefined,
+): Promise<{ hr: HrPoint[]; sleep: SleepStageRecord[] }> {
+	// Pad date-string filter by one day on each side to catch tz-edge timestamps
+	const padDate = (ts: number) => new Date(ts * 1000).toISOString().slice(0, 10);
+	const dayBefore = padDate(startUtc - 86400);
+	const dayAfter = padDate(endUtc + 86400);
+
+	const hrRows = await db()
+		.selectFrom("heart_rate_intraday")
+		.select(["ts", "bpm"])
+		.where("user_id", "=", userId)
+		.where("ts", ">=", dayBefore)
+		.where("ts", "<", dayAfter)
+		.execute();
+
+	const hr: HrPoint[] = [];
+	for (const r of hrRows) {
+		const ts = fitbitTsToUnix(r.ts, tz);
+		if (Number.isNaN(ts)) continue;
+		if (ts < startUtc || ts > endUtc) continue;
+		hr.push({ ts, bpm: r.bpm });
+	}
+
+	const sleepRows = await db()
+		.selectFrom("sleep_stages")
+		.select(["ts", "stage", "duration_seconds"])
+		.where("user_id", "=", userId)
+		.where("ts", ">=", dayBefore)
+		.where("ts", "<", dayAfter)
+		.execute();
+
+	const sleep: SleepStageRecord[] = [];
+	for (const r of sleepRows) {
+		const startTs = fitbitTsToUnix(r.ts, tz);
+		if (Number.isNaN(startTs)) continue;
+		const endTs = startTs + r.duration_seconds;
+		if (endTs < startUtc || startTs > endUtc) continue;
+		sleep.push({ startTs, endTs, stage: r.stage });
+	}
+
+	return { hr, sleep };
+}
 
 /** Returns true if the segment includes ≥1 hour of local overnight time
  *  (00:00–06:00 in the segment's local solar time). Used to decide whether
@@ -59,6 +118,7 @@ export interface EnrichedSegment extends TrackSegment {
 	wayName?: string; // road/rail name (for moving segments)
 	refinedMode?: string; // OSM-refined transport mode (may differ from heuristic mode)
 	refinedReason?: string;
+	biometrics?: BiometricEnrichment;
 }
 
 export interface VelocityResult {
@@ -191,7 +251,17 @@ export async function computeVelocity(
 		}),
 	);
 
-	return { points, segments: mergeAdjacentStays(enriched) };
+	const merged = mergeAdjacentStays(enriched);
+
+	// Cross-modal enrichment: attach HR / sleep stats per segment when the
+	// data is available. Missing Fitbit data → biometrics is just left null.
+	const { hr, sleep } = await loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz).catch(() => ({
+		hr: [] as HrPoint[],
+		sleep: [] as SleepStageRecord[],
+	}));
+	const withBiometrics = merged.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep) }));
+
+	return { points, segments: withBiometrics };
 }
 
 /**
