@@ -1,3 +1,4 @@
+import { backfillHrForDay, shouldAdvanceEmptyStreak } from "./backfill.js";
 import { loadSyncConfig } from "./config.js";
 import { db, destroyPool, initPool, withConnection } from "./db/pool.js";
 import { migrate } from "./db/schema.js";
@@ -146,11 +147,16 @@ for (const user of users) {
 				while (client.rateLimitRemaining > 15 && emptyStreak < MAX_EMPTY_DAYS) {
 					const dateStr = currentDate;
 
-					// Fetch HR intraday (the primary high-value backfill target)
-					let pointCount = 0;
-					await trySync(user.user_id, `backfill HR ${dateStr}`, async () => {
-						pointCount = await syncHeartRateIntraday(client, conn, user.user_id, dateStr, dateStr);
-					});
+					// Primary high-value backfill target. We must distinguish a
+					// genuine empty day (advance streak) from a transient failure
+					// (do NOT advance streak — see src/backfill.ts).
+					const hrResult = await backfillHrForDay(
+						(d) => syncHeartRateIntraday(client, conn, user.user_id, d, d),
+						dateStr,
+					);
+					if (!hrResult.ok) {
+						console.error(`[${user.user_id}] backfill HR ${dateStr} failed: ${hrResult.error}`);
+					}
 
 					// Also backfill daily summaries for this date
 					await trySync(user.user_id, `backfill activity ${dateStr}`, () =>
@@ -160,11 +166,14 @@ for (const user of users) {
 						syncSleep(client, conn, user.user_id, dateStr, dateStr),
 					);
 
-					if (pointCount === 0) {
+					if (shouldAdvanceEmptyStreak(hrResult)) {
 						emptyStreak++;
-					} else {
+					} else if (hrResult.ok) {
+						// Successful day with data — reset the streak.
 						emptyStreak = 0;
 					}
+					// !ok: leave emptyStreak unchanged so transient errors don't
+					// silently terminate backfill.
 
 					// Save cursor after each day so we don't redo work if interrupted
 					await setSyncState(user.user_id, "backfill_cursor", dateStr);
