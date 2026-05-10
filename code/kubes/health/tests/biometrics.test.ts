@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	type BiometricEnrichment,
+	cadenceForSegment,
+	correctModeFromCadence,
 	enrichSegmentWithBiometrics,
 	type HrPoint,
 	type SleepStageRecord,
@@ -177,5 +179,104 @@ describe("enrichSegmentWithBiometrics — step counts", () => {
 		const stepPoints: StepPoint[] = Array.from({ length: 10 }, (_, i) => step(i * 60, 80));
 		const r = enrichSegmentWithBiometrics(seg(start, end), [], [], stepPoints);
 		expect(r.stepsTotal).toBe(800);
+	});
+});
+
+describe("cadenceForSegment", () => {
+	const step = (ts: number, steps: number): StepPoint => ({ ts, steps });
+
+	it("returns 0 for an empty step array", () => {
+		expect(cadenceForSegment(seg(0, HOUR), [])).toBe(0);
+	});
+
+	it("returns steps-per-minute over the segment duration", () => {
+		// 10 minutes, 80 steps each minute → 800 / 10 = 80 steps/min
+		const points = Array.from({ length: 10 }, (_, i) => step(i * 60, 80));
+		expect(cadenceForSegment(seg(0, 10 * 60), points)).toBeCloseTo(80, 0);
+	});
+
+	it("ignores step rows outside the segment", () => {
+		const points = [step(0, 100), step(7 * HOUR, 200)];
+		// Segment 1m → 100 steps total, 100 steps/min
+		expect(cadenceForSegment(seg(0, 60), points)).toBeCloseTo(100, 0);
+	});
+
+	it("returns 0 for very short segments (no minutes to average over)", () => {
+		// segment <30s — denominator would be tiny and we'd amplify any noise
+		const points = [step(0, 5)];
+		expect(cadenceForSegment(seg(0, 20), points)).toBe(0);
+	});
+});
+
+describe("correctModeFromCadence — passenger-in-traffic detection", () => {
+	const step = (ts: number, steps: number): StepPoint => ({ ts, steps });
+	type SegLike = TrackSegment & { refinedMode?: string; refinedReason?: string };
+	const baseSeg = (mode: "walking" | "driving" | "stationary", avgSpeed: number, durationS: number): SegLike => ({
+		startTs: 0,
+		endTs: durationS,
+		mode,
+		confidence: 1,
+		avgSpeed,
+		maxSpeed: avgSpeed * 1.2,
+		linearity: 0.5,
+		pointCount: 5,
+	});
+
+	it("re-labels walking → driving when cadence is near zero (passenger in slow traffic)", () => {
+		// 4 km/h "walking" with no steps for 5 minutes → not actually walking.
+		const seg = baseSeg("walking", 4, 5 * 60);
+		const r = correctModeFromCadence(seg, []); // no step rows → fall through to "no Fitbit"
+		// With no data, must NOT correct (no cadence info to act on).
+		expect(r.refinedMode ?? r.mode).toBe("walking");
+	});
+
+	it("re-labels walking → driving when cadence is near zero AND Fitbit data exists", () => {
+		// Fitbit was on (some step rows for the day) but the walking segment
+		// itself has no steps → user was a passenger.
+		const seg = baseSeg("walking", 4, 5 * 60);
+		// Other-segment step row in the same day to signal "Fitbit on".
+		const stepsThisDay: StepPoint[] = [step(7 * HOUR, 100)];
+		const r = correctModeFromCadence(seg, stepsThisDay);
+		expect(r.refinedMode).toBe("driving");
+		expect(r.refinedReason).toMatch(/cadence/i);
+	});
+
+	it("keeps walking when cadence is in the walking range (80–120/min)", () => {
+		const seg = baseSeg("walking", 4, 5 * 60);
+		// 90 steps/min × 5 min = 450 steps in segment
+		const stepsThisDay: StepPoint[] = Array.from({ length: 5 }, (_, i) => step(i * 60, 90));
+		const r = correctModeFromCadence(seg, stepsThisDay);
+		expect(r.refinedMode ?? r.mode).toBe("walking");
+	});
+
+	it("does NOT correct very short segments (insufficient cadence sample)", () => {
+		// 1-min walking with no steps could be a brief pause; don'\''t over-react.
+		const seg = baseSeg("walking", 4, 60);
+		const stepsThisDay: StepPoint[] = [step(7 * HOUR, 100)];
+		const r = correctModeFromCadence(seg, stepsThisDay);
+		expect(r.refinedMode ?? r.mode).toBe("walking");
+	});
+
+	it("does NOT correct walking at high speed (already implausible as walking)", () => {
+		// If avgSpeed > 15 km/h, the segment classifier would already prefer
+		// cycling/driving — cadence correction shouldn'\''t override.
+		const seg = baseSeg("walking", 25, 5 * 60);
+		const r = correctModeFromCadence(seg, [step(7 * HOUR, 100)]);
+		expect(r.refinedMode ?? r.mode).toBe("walking"); // unchanged
+	});
+
+	it("leaves driving / stationary segments alone (this pass only fixes walking)", () => {
+		const driving = baseSeg("driving", 50, 5 * 60);
+		const stationary = baseSeg("stationary", 0, 5 * 60);
+		expect(correctModeFromCadence(driving, []).refinedMode ?? "driving").toBe("driving");
+		expect(correctModeFromCadence(stationary, []).refinedMode ?? "stationary").toBe("stationary");
+	});
+
+	it("preserves an existing refinedReason in the corrected segment", () => {
+		const seg = { ...baseSeg("walking", 4, 5 * 60), refinedReason: "near tertiary" };
+		const r = correctModeFromCadence(seg, [step(7 * HOUR, 100)]);
+		expect(r.refinedMode).toBe("driving");
+		expect(r.refinedReason).toMatch(/near tertiary/);
+		expect(r.refinedReason).toMatch(/cadence/i);
 	});
 });

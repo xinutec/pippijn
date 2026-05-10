@@ -122,3 +122,70 @@ export function enrichSegmentWithBiometrics(
 
 	return result;
 }
+
+/** Steps per minute over a segment'\''s window. Zero if the segment is shorter
+ *  than 30 seconds (denominator too small to be meaningful). Steps outside
+ *  the window are ignored. */
+export function cadenceForSegment(segment: TrackSegment, stepPoints: StepPoint[]): number {
+	const durationSec = segment.endTs - segment.startTs;
+	if (durationSec < 30) return 0;
+	let total = 0;
+	for (const sp of stepPoints) {
+		if (sp.ts >= segment.startTs && sp.ts <= segment.endTs) total += sp.steps;
+	}
+	return (total / durationSec) * 60;
+}
+
+// --- Cadence-based mode correction ---
+
+/** A walking-classified segment with cadence below this is almost certainly
+ *  not walking — typical walking is 80–120 steps/min, jogging 130+, and
+ *  even slow strolling is ≥40. Anything well below this in a segment the
+ *  GPS classifier called walking is a passenger in slow traffic, a queue,
+ *  an escalator, or similar. */
+const WALKING_MIN_CADENCE = 30;
+
+/** Don'\''t correct very short segments — a 1-min "walking" segment with
+ *  zero steps could be a brief pause. Need enough samples to be confident. */
+const CADENCE_CORRECTION_MIN_DURATION_S = 3 * 60;
+
+/** Above this speed, the segment classifier already wouldn'\''t pick walking
+ *  — cadence correction shouldn'\''t fight that boundary. */
+const WALKING_MAX_SPEED_KMH = 15;
+
+/** Use cadence to correct mode classifications that GPS alone got wrong.
+ *  Today: only the walking-with-no-steps case → relabel as driving (typical
+ *  pattern is "passenger stuck in slow traffic"). Other corrections may
+ *  follow as we learn what'\''s useful.
+ *
+ *  Pure: needs a `TrackSegment`-shaped input plus the day'\''s step rows.
+ *  Returns a segment with `refinedMode` / `refinedReason` updated when a
+ *  correction applies; otherwise returns the input unchanged.
+ *
+ *  Conservative on missing data: if `stepPoints` is empty (no Fitbit data
+ *  for the day at all), no correction is applied — we don'\''t know the
+ *  cadence and a false-positive correction would be worse than leaving
+ *  the GPS classification alone.
+ */
+export function correctModeFromCadence<T extends TrackSegment & { refinedMode?: string; refinedReason?: string }>(
+	segment: T,
+	stepPoints: StepPoint[],
+): T {
+	if (stepPoints.length === 0) return segment;
+	const duration = segment.endTs - segment.startTs;
+	if (duration < CADENCE_CORRECTION_MIN_DURATION_S) return segment;
+
+	const currentMode = segment.refinedMode ?? segment.mode;
+	if (currentMode !== "walking") return segment;
+	if (segment.avgSpeed > WALKING_MAX_SPEED_KMH) return segment;
+
+	const cadence = cadenceForSegment(segment, stepPoints);
+	if (cadence >= WALKING_MIN_CADENCE) return segment;
+
+	const reason = `low cadence (${cadence.toFixed(0)}/min)`;
+	return {
+		...segment,
+		refinedMode: "driving",
+		refinedReason: segment.refinedReason ? `${segment.refinedReason}; ${reason}` : reason,
+	};
+}

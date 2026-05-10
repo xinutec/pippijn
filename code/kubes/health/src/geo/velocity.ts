@@ -10,6 +10,7 @@ import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 import {
 	type BiometricEnrichment,
+	correctModeFromCadence,
 	enrichSegmentWithBiometrics,
 	type HrPoint,
 	type SleepStageRecord,
@@ -221,6 +222,18 @@ export async function computeVelocity(
 
 	const N_SAMPLES = 5;
 
+	// Kick off biometrics load in parallel with OSM enrichment — both are
+	// I/O-bound, no need to serialise them. The result is needed for cadence-
+	// based mode correction (between OSM enrichment and merge) plus the final
+	// per-segment enrichment after merge.
+	const biometricsPromise = time(
+		"biomLoad",
+		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz).catch((e: unknown) => {
+			console.warn(`loadBiometrics failed for user=${userId} date=${date}: ${e}`);
+			return { hr: [] as HrPoint[], sleep: [] as SleepStageRecord[], steps: [] as StepPoint[] };
+		}),
+	);
+
 	// Enrich each segment with OSM data
 	const enrichStart = Date.now();
 	const enriched: EnrichedSegment[] = await Promise.all(
@@ -324,20 +337,16 @@ export async function computeVelocity(
 	);
 	phaseTimes.osm = Date.now() - enrichStart;
 
-	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(enriched)));
+	// Cadence-based correction: a "walking" segment with no recorded steps
+	// is almost certainly a passenger in slow traffic, an escalator, or
+	// similar — relabel before merge so neighbouring drives can absorb it.
+	const { hr, sleep, steps } = await biometricsPromise;
+	const corrected = timeSync("cadenceCorrect", () => enriched.map((s) => correctModeFromCadence(s, steps)));
 
-	// Cross-modal enrichment: attach HR / sleep / steps stats per segment when
-	// the data is available. Missing Fitbit data → biometrics is just left null.
-	const { hr, sleep, steps } = await time(
-		"biomLoad",
-		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz).catch((e: unknown) => {
-			// Don't fail the whole request — biometrics are an enrichment.
-			// But log the error so a broken Fitbit feed (or DB issue) doesn't
-			// hide behind silently-empty HR + sleep + step arrays.
-			console.warn(`loadBiometrics failed for user=${userId} date=${date}: ${e}`);
-			return { hr: [] as HrPoint[], sleep: [] as SleepStageRecord[], steps: [] as StepPoint[] };
-		}),
-	);
+	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(corrected)));
+
+	// Final cross-modal enrichment: attach HR / sleep / steps stats per
+	// segment. Missing Fitbit data → biometrics fields are null/zero.
 	const withBiometrics = timeSync("biomEnrich", () =>
 		merged.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep, steps) })),
 	);
