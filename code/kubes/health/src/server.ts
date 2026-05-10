@@ -24,6 +24,17 @@ app.onError((err, c) => {
 	return c.json({ error: "internal server error" }, 500);
 });
 
+// Request timing — log method, path, status, duration for any request that
+// took ≥ 100ms. Quieter than logging everything, surfaces real bottlenecks.
+app.use("*", async (c, next) => {
+	const t0 = Date.now();
+	await next();
+	const ms = Date.now() - t0;
+	if (ms >= 100) {
+		console.log(`${c.req.method} ${c.req.path} ${c.res.status} ${ms}ms`);
+	}
+});
+
 // Session middleware on all routes
 app.use("*", sessionMiddleware(config.sessionSecret));
 
