@@ -17,7 +17,7 @@ import {
 import { localSolarHour } from "./focus-places.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
-import { bestPlace, extractCity, nearbyWays, placeLabel, refineMode } from "./osm.js";
+import { bestPlace, commonCity, extractCity, nearbyWays, placeLabel, refineMode, reverseGeocode } from "./osm.js";
 import { type KnownPlace, snapToPlace } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments } from "./segments.js";
@@ -267,7 +267,16 @@ export async function computeVelocity(
 				const sampleIdxs = Array.from({ length: sampleCount }, (_, i) =>
 					Math.floor((i * (segPoints.length - 1)) / Math.max(1, sampleCount - 1)),
 				);
-				const wayResults = await Promise.all(sampleIdxs.map((i) => nearbyWays(segPoints[i].lat, segPoints[i].lon)));
+				const movingStart = segPoints[0];
+				const movingEnd = segPoints[segPoints.length - 1];
+				const [wayResults, startPlace, endPlace] = await Promise.all([
+					Promise.all(sampleIdxs.map((i) => nearbyWays(segPoints[i].lat, segPoints[i].lon))),
+					// Endpoint reverseGeocode: tag the segment with a city iff
+					// both endpoints agree. A walk inside one city gets a city
+					// header; a drive between two cities stays untagged.
+					reverseGeocode(movingStart.lat, movingStart.lon),
+					reverseGeocode(movingEnd.lat, movingEnd.lon),
+				]);
 				const seen = new Set<string>();
 				const aggregated = [];
 				for (const ways of wayResults) {
@@ -280,11 +289,13 @@ export async function computeVelocity(
 					}
 				}
 				const refined = refineMode(seg.mode, seg.avgSpeed, aggregated);
+				const movingCity = commonCity(startPlace, endPlace);
 				return {
 					...seg,
 					refinedMode: refined.mode,
 					refinedReason: refined.reason,
 					wayName: refined.wayName,
+					...(movingCity ? { city: movingCity } : {}),
 				};
 			} catch (e) {
 				console.warn(`OSM enrichment failed for segment ${seg.startTs}: ${e}`);
@@ -300,10 +311,13 @@ export async function computeVelocity(
 	// data is available. Missing Fitbit data → biometrics is just left null.
 	const { hr, sleep } = await time(
 		"biomLoad",
-		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz).catch(() => ({
-			hr: [] as HrPoint[],
-			sleep: [] as SleepStageRecord[],
-		})),
+		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz).catch((e: unknown) => {
+			// Don't fail the whole request — biometrics are an enrichment.
+			// But log the error so a broken Fitbit feed (or DB issue) doesn't
+			// hide behind silently-empty HR + sleep arrays.
+			console.warn(`loadBiometrics failed for user=${userId} date=${date}: ${e}`);
+			return { hr: [] as HrPoint[], sleep: [] as SleepStageRecord[] };
+		}),
 	);
 	const withBiometrics = timeSync("biomEnrich", () =>
 		merged.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep) })),
@@ -417,7 +431,12 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 			prev &&
 			segMode !== "stationary" &&
 			modeOf(prev) === segMode &&
-			seg.startTs - prev.endTs <= MOVING_MERGE_MAX_GAP_S
+			seg.startTs - prev.endTs <= MOVING_MERGE_MAX_GAP_S &&
+			// Don't merge across a city boundary. Both undefined (typical
+			// transit) is fine; a defined city followed by transit (or two
+			// different cities) means the user crossed a boundary mid-trip
+			// and the city signal is worth preserving.
+			prev.city === seg.city
 		) {
 			const w0 = prev.pointCount;
 			const w1 = seg.pointCount;

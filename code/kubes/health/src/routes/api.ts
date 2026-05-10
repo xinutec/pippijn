@@ -214,6 +214,11 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			const points = await fetchTrackPoints(config, uid, date, nextDay(date));
 			return c.json(points);
 		} catch (e) {
+			// Match /velocity: unlinked Nextcloud → empty list with 200 so
+			// the frontend can surface the link CTA via /api/me.
+			if (e instanceof NextcloudNotLinkedError) {
+				return c.json([]);
+			}
 			return c.json({ error: String(e) }, 400);
 		}
 	});

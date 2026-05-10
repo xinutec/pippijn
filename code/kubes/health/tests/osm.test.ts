@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	commonCity,
 	extractCity,
 	filterLandmarks,
 	landmarkToResult,
@@ -10,6 +11,39 @@ import {
 	placeLabel,
 	refineMode,
 } from "../src/geo/osm.js";
+
+describe("commonCity", () => {
+	const r = (city?: string, town?: string): NominatimResult => ({
+		displayName: "x",
+		type: "y",
+		category: "z",
+		address: { ...(city && { city }), ...(town && { town }) },
+	});
+
+	it("returns the shared city when both endpoints agree", () => {
+		expect(commonCity(r("Tilburg"), r("Tilburg"))).toBe("Tilburg");
+	});
+
+	it("returns null when the endpoints disagree", () => {
+		expect(commonCity(r("Nijmegen"), r("Brussels"))).toBeNull();
+	});
+
+	it("returns null when either side has no city", () => {
+		expect(commonCity(r(), r("Amsterdam"))).toBeNull();
+		expect(commonCity(r("Amsterdam"), r())).toBeNull();
+	});
+
+	it("returns null when either side is null (geocode failed)", () => {
+		expect(commonCity(null, r("Amsterdam"))).toBeNull();
+		expect(commonCity(r("Amsterdam"), null)).toBeNull();
+		expect(commonCity(null, null)).toBeNull();
+	});
+
+	it("uses the same fallback chain as extractCity (town counts)", () => {
+		// One endpoint reports as `town`, the other as `city`: same place name → match.
+		expect(commonCity(r(undefined, "Hilversum"), r("Hilversum"))).toBe("Hilversum");
+	});
+});
 
 describe("extractCity", () => {
 	const baseResult = {

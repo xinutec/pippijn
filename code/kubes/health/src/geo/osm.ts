@@ -210,6 +210,19 @@ export function extractCity(result: NominatimResult | null): string | null {
 	return a.city ?? a.town ?? a.village ?? a.municipality ?? null;
 }
 
+/**
+ * Return the shared city of two reverse-geocoded points, or null. Used to
+ * tag moving segments only when both endpoints agree — a 5-min walk that
+ * stays inside one city earns a city header in the timeline; a long drive
+ * between two cities (or a walk crossing a boundary) gets no tag and reads
+ * as a transit between groups.
+ */
+export function commonCity(a: NominatimResult | null, b: NominatimResult | null): string | null {
+	const ca = extractCity(a);
+	const cb = extractCity(b);
+	return ca !== null && ca === cb ? ca : null;
+}
+
 interface NominatimResponse {
 	display_name?: string;
 	type?: string;

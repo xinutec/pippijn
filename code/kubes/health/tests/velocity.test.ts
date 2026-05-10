@@ -255,6 +255,32 @@ describe("mergeAdjacentMoving", () => {
 		expect(a.endTs).toBe(600);
 		expect(b.endTs).toBe(1200);
 	});
+
+	it("does NOT merge two moving segments in different cities", () => {
+		const a: EnrichedSegment = { ...driving(0, 600, { wayName: "Hoge" }), city: "Tilburg" };
+		const b: EnrichedSegment = { ...driving(600, 1200, { wayName: "Bd" }), city: "Brussels" };
+		const out = mergeAdjacentMoving([a, b]);
+		expect(out).toHaveLength(2);
+		expect(out[0].city).toBe("Tilburg");
+		expect(out[1].city).toBe("Brussels");
+	});
+
+	it("does NOT merge a city-tagged segment into an untagged transit", () => {
+		const a: EnrichedSegment = { ...driving(0, 600, { wayName: "Bd" }), city: "Tilburg" };
+		const b = driving(600, 1200, { wayName: "A58" }); // no city — transit
+		const out = mergeAdjacentMoving([a, b]);
+		expect(out).toHaveLength(2);
+		expect(out[0].city).toBe("Tilburg");
+		expect(out[1].city).toBeUndefined();
+	});
+
+	it("DOES merge two moving segments in the same city", () => {
+		const a: EnrichedSegment = { ...driving(0, 600, { wayName: "S1" }), city: "Tilburg" };
+		const b: EnrichedSegment = { ...driving(600, 1200, { wayName: "S2" }), city: "Tilburg" };
+		const out = mergeAdjacentMoving([a, b]);
+		expect(out).toHaveLength(1);
+		expect(out[0].city).toBe("Tilburg");
+	});
 });
 
 describe("composeWayName", () => {
