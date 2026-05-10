@@ -53,32 +53,50 @@ export async function computeVelocity(
 		return { points, segments };
 	}
 
+	const N_SAMPLES = 5;
+
 	// Enrich each segment with OSM data
 	const enriched: EnrichedSegment[] = await Promise.all(
 		segments.map(async (seg) => {
-			// Find points belonging to this segment for centroid calculation
 			const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
 			if (segPoints.length === 0) return seg;
 
-			const centroidLat = segPoints.reduce((s, p) => s + p.lat, 0) / segPoints.length;
-			const centroidLon = segPoints.reduce((s, p) => s + p.lon, 0) / segPoints.length;
-
 			try {
 				if (seg.mode === "stationary") {
-					// Reverse geocode the centroid
-					const place = await reverseGeocode(centroidLat, centroidLon);
+					// One place — reverse geocode the centroid.
+					const cLat = segPoints.reduce((s, p) => s + p.lat, 0) / segPoints.length;
+					const cLon = segPoints.reduce((s, p) => s + p.lon, 0) / segPoints.length;
+					const place = await reverseGeocode(cLat, cLon);
 					return place ? { ...seg, place: placeLabel(place) } : seg;
-				} else {
-					// Find nearby ways to refine the mode
-					const ways = await nearbyWays(centroidLat, centroidLon);
-					const refined = refineMode(seg.mode, seg.avgSpeed, ways);
-					return {
-						...seg,
-						refinedMode: refined.mode,
-						refinedReason: refined.reason,
-						wayName: refined.wayName,
-					};
 				}
+				// Moving segment: sample several points along the path so the
+				// OSM evidence reflects the whole route, not whatever the
+				// centroid happens to land on.
+				const sampleCount = Math.min(N_SAMPLES, segPoints.length);
+				const sampleIdxs = Array.from({ length: sampleCount }, (_, i) =>
+					Math.floor((i * (segPoints.length - 1)) / Math.max(1, sampleCount - 1)),
+				);
+				const wayResults = await Promise.all(
+					sampleIdxs.map((i) => nearbyWays(segPoints[i].lat, segPoints[i].lon)),
+				);
+				const seen = new Set<string>();
+				const aggregated = [];
+				for (const ways of wayResults) {
+					for (const w of ways) {
+						const key = `${w.type}/${w.subtype}/${w.name ?? ""}`;
+						if (!seen.has(key)) {
+							seen.add(key);
+							aggregated.push(w);
+						}
+					}
+				}
+				const refined = refineMode(seg.mode, seg.avgSpeed, aggregated);
+				return {
+					...seg,
+					refinedMode: refined.mode,
+					refinedReason: refined.reason,
+					wayName: refined.wayName,
+				};
 			} catch (e) {
 				console.warn(`OSM enrichment failed for segment ${seg.startTs}: ${e}`);
 				return seg;

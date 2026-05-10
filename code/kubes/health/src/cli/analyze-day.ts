@@ -62,12 +62,26 @@ const { points, segments } = await computeVelocity(config, userId, date, tz);
 
 console.log(`Filtered points: ${points.length}`);
 console.log(`\n=== Segments (${segments.length}) ===`);
+const fmt = (ts: number): string => {
+	if (tz) {
+		return new Date(ts * 1000).toLocaleTimeString("en-GB", {
+			timeZone: tz,
+			hour: "2-digit",
+			minute: "2-digit",
+		});
+	}
+	return new Date(ts * 1000).toISOString().slice(11, 16);
+};
 for (const s of segments) {
-	const start = new Date(s.startTs * 1000).toISOString().slice(11, 16);
-	const end = new Date(s.endTs * 1000).toISOString().slice(11, 16);
 	const dur = Math.round((s.endTs - s.startTs) / 60);
+	const finalMode = s.refinedMode ?? s.mode;
+	const changed = s.refinedMode && s.refinedMode !== s.mode ? ` (was ${s.mode})` : "";
+	let ctx = "";
+	if (s.place) ctx = ` @ ${s.place}`;
+	else if (s.wayName) ctx = ` on ${s.wayName}`;
+	if (s.refinedReason) ctx += ` [${s.refinedReason}]`;
 	console.log(
-		`  ${start}-${end} (${dur.toString().padStart(3)}m) ${s.mode.padEnd(12)} avg:${s.avgSpeed.toString().padStart(5)}km/h max:${s.maxSpeed.toString().padStart(5)}km/h lin:${s.linearity} conf:${s.confidence}`,
+		`  ${fmt(s.startTs)}-${fmt(s.endTs)} (${dur.toString().padStart(3)}m) ${finalMode.padEnd(11)}${changed} avg:${s.avgSpeed.toString().padStart(5)}km/h max:${s.maxSpeed.toString().padStart(5)}km/h lin:${s.linearity} conf:${s.confidence}${ctx}`,
 	);
 }
 
@@ -75,7 +89,7 @@ console.log(`\n=== Points (sampled every ~2 min) ===`);
 const sampleInterval = Math.max(1, Math.floor(points.length / 60));
 for (let i = 0; i < points.length; i += sampleInterval) {
 	const p = points[i];
-	const time = new Date(p.ts * 1000).toISOString().slice(11, 16);
+	const time = fmt(p.ts);
 	const seg = segments.find((s) => p.ts >= s.startTs && p.ts <= s.endTs);
 	console.log(
 		`  ${time} lat:${p.lat.toFixed(5)} lon:${p.lon.toFixed(5)} spd:${p.speed_kmh.toString().padStart(5)}km/h brg:${p.bearing.toString().padStart(3)} [${seg?.mode ?? "?"}]`,

@@ -216,16 +216,35 @@ export function refineMode(originalMode: string, speedKmh: number, ways: NearbyW
 		return { mode: "stationary", confidence: "high", reason: "at airport", wayName: aero.name };
 	}
 
-	// Railway with reasonable speed → train (overrides "driving" at 100 km/h)
-	if (railways.length > 0 && speedKmh > 30) {
+	// Major highways present? Roads vastly outnumber rails — when both match,
+	// the user is more likely on the road. Used both as a tie-break and as
+	// rebuttal evidence against a classifier "train" call below.
+	const majorHighways = highways.filter((h) =>
+		["motorway", "trunk", "primary", "secondary"].includes(h.subtype),
+	);
+
+	// Railway → train, but only when no major highway is also present.
+	// Without this guard the Betuweroute (rail running parallel to A15) would
+	// hijack any motorway drive in that corridor.
+	if (railways.length > 0 && speedKmh > 30 && majorHighways.length === 0) {
 		const rail = railways[0];
-		const subway = rail.subtype === "subway" || rail.subtype === "light_rail";
 		return {
-			mode: subway ? "train" : "train",
+			mode: "train",
 			confidence: "high",
 			reason: `on ${rail.subtype}`,
 			wayName: rail.name,
 		};
+	}
+
+	// Classifier said "train" but no rail anywhere in our samples — almost
+	// certainly motorway cruise control (high linearity + steady ~100 km/h
+	// matches the train profile). Downgrade to driving.
+	if (originalMode === "train" && railways.length === 0) {
+		if (majorHighways.length > 0) {
+			const hw = majorHighways[0];
+			return { mode: "driving", confidence: "high", reason: `on ${hw.subtype}`, wayName: hw.name };
+		}
+		return { mode: "driving", confidence: "medium", reason: "no rail evidence" };
 	}
 
 	// Highway match

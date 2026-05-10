@@ -118,4 +118,38 @@ describe("refineMode", () => {
 		const r = refineMode("walking", 4, ways);
 		expect(r.mode).toBe("walking"); // original kept
 	});
+
+	it("prefers motorway over parallel railway (Betuweroute parallels A15)", () => {
+		// Parallel rail and motorway both nearby — the user is on the road, not the train.
+		const ways: NearbyWay[] = [
+			{ type: "railway", subtype: "rail", name: "Betuweroute" },
+			{ type: "highway", subtype: "motorway", name: "A15" },
+		];
+		const r = refineMode("driving", 100, ways);
+		expect(r.mode).toBe("driving");
+		expect(r.wayName).toBe("A15");
+	});
+
+	it("downgrades classifier 'train' to 'driving' when no rail anywhere", () => {
+		// Cruise control on motorway looks like train (steady, linear, fast)
+		// but there's no rail in the OSM samples.
+		const ways: NearbyWay[] = [{ type: "highway", subtype: "motorway", name: "A2" }];
+		const r = refineMode("train", 100, ways);
+		expect(r.mode).toBe("driving");
+		expect(r.wayName).toBe("A2");
+	});
+
+	it("downgrades classifier 'train' to 'driving' even with no OSM context", () => {
+		const r = refineMode("train", 100, []);
+		expect(r.mode).toBe("driving");
+		expect(r.reason).toContain("no rail evidence");
+	});
+
+	it("keeps 'train' when classifier said train AND rail is nearby with no major road", () => {
+		// True train ride — rail is present, no parallel motorway
+		const ways: NearbyWay[] = [{ type: "railway", subtype: "rail", name: "Hoofdspoor" }];
+		const r = refineMode("train", 130, ways);
+		expect(r.mode).toBe("train");
+		expect(r.wayName).toBe("Hoofdspoor");
+	});
 });
