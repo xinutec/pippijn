@@ -80,6 +80,28 @@ export function dateBoundsUtc(date: string, tz?: string): { startUtc: number; en
  * Used to align Fitbit-stored heart rate / sleep timestamps with the
  * unix UTC timestamps coming from PhoneTrack so we can join them.
  */
+// Reuse the (expensive) Intl.DateTimeFormat instance per tz — instantiating a
+// new formatter inside a hot loop costs hundreds of microseconds per call,
+// which compounds badly when converting 20k+ Fitbit timestamps for a day.
+const tzFormatterCache = new Map<string, Intl.DateTimeFormat>();
+function tzFormatter(tz: string): Intl.DateTimeFormat {
+	let f = tzFormatterCache.get(tz);
+	if (!f) {
+		f = new Intl.DateTimeFormat("en-US", {
+			timeZone: tz,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+			hour12: false,
+		});
+		tzFormatterCache.set(tz, f);
+	}
+	return f;
+}
+
 export function fitbitTsToUnix(s: string | Date, tz?: string): number {
 	// The mariadb driver returns DATETIME columns as Date objects whose
 	// UTC components match the stored wall-clock — coerce to an ISO string
@@ -100,17 +122,7 @@ export function fitbitTsToUnix(s: string | Date, tz?: string): number {
 	// Round-trip via Intl: pretend the components are UTC, render in tz,
 	// measure the divergence, and apply it as the offset.
 	const guessUtcMs = Date.UTC(y, mo - 1, d, h, mi, sec);
-	const fmt = new Intl.DateTimeFormat("en-US", {
-		timeZone: tz,
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-		hour12: false,
-	});
-	const parts = fmt.formatToParts(new Date(guessUtcMs));
+	const parts = tzFormatter(tz).formatToParts(new Date(guessUtcMs));
 	const get = (k: string): number => Number(parts.find((p) => p.type === k)?.value ?? 0);
 	const renderedY = get("year");
 	const renderedMo = get("month");
