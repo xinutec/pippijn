@@ -38,8 +38,40 @@ app.use("*", async (c, next) => {
 // Session middleware on all routes
 app.use("*", sessionMiddleware(config.sessionSecret));
 
-// Health check (no auth)
-app.get("/health", (c) => c.text("ok"));
+// Health check (no auth) — returns JSON with system status when ?detail=1
+app.get("/health", async (c) => {
+	if (!c.req.query("detail")) return c.text("ok");
+	const t0 = Date.now();
+	let dbOk = false;
+	let dbLatencyMs = -1;
+	let focusPlacesCount: number | null = null;
+	let osmCacheCount: number | null = null;
+	let lastSyncDate: string | null = null;
+	try {
+		await withConnection(async (conn) => {
+			const fp = (await conn.query("SELECT COUNT(*) AS n FROM focus_places")) as Array<{ n: number }>;
+			focusPlacesCount = Number(fp[0]?.n ?? 0);
+			const oc = (await conn.query("SELECT COUNT(*) AS n FROM osm_cache")) as Array<{ n: number }>;
+			osmCacheCount = Number(oc[0]?.n ?? 0);
+			const ss = (await conn.query(
+				"SELECT value FROM sync_state WHERE key_name = 'last_sync_date' ORDER BY updated_at DESC LIMIT 1",
+			)) as Array<{ value: string }>;
+			lastSyncDate = ss[0]?.value ?? null;
+		});
+		dbLatencyMs = Date.now() - t0;
+		dbOk = true;
+	} catch (e) {
+		console.error("/health detail failed:", e);
+	}
+	return c.json({
+		ok: dbOk,
+		dbLatencyMs,
+		focusPlacesCount,
+		osmCacheCount,
+		lastSyncDate,
+		uptimeSec: Math.round(process.uptime()),
+	});
+});
 
 // OAuth routes
 app.route("/", nextcloudOAuthRoutes(config));

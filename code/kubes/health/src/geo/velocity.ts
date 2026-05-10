@@ -133,6 +133,23 @@ export async function computeVelocity(
 	tz?: string,
 	options: { enrich?: boolean } = {},
 ): Promise<VelocityResult> {
+	const t0 = Date.now();
+	const phaseTimes: Record<string, number> = {};
+	const time = <T>(phase: string, p: Promise<T>): Promise<T> => {
+		const start = Date.now();
+		return p.finally(() => {
+			phaseTimes[phase] = (phaseTimes[phase] ?? 0) + (Date.now() - start);
+		});
+	};
+	const timeSync = <T>(phase: string, fn: () => T): T => {
+		const start = Date.now();
+		try {
+			return fn();
+		} finally {
+			phaseTimes[phase] = (phaseTimes[phase] ?? 0) + (Date.now() - start);
+		}
+	};
+
 	const nextDay = (() => {
 		const d = new Date(date);
 		d.setDate(d.getDate() + 1);
@@ -140,13 +157,13 @@ export async function computeVelocity(
 	})();
 
 	const bounds = dateBoundsUtc(date, tz);
-	const raw = await fetchTrackPoints(config, userId, date, nextDay);
+	const raw = await time("phonetrack", fetchTrackPoints(config, userId, date, nextDay));
 	const inDay = raw.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc);
 
 	// Place-snap: if a fix is unambiguously close to a known cluster (home,
 	// work, etc.), pull it to the cluster centroid. Reduces GPS noise around
 	// well-known locations and stabilises both segment timing and labels.
-	const knownPlaces = await loadKnownPlaces(userId);
+	const knownPlaces = await time("loadPlaces", loadKnownPlaces(userId));
 	const snapped =
 		knownPlaces.length > 0
 			? inDay.map((p) => {
@@ -166,8 +183,8 @@ export async function computeVelocity(
 		.filter((p) => p.accuracy === null || p.accuracy <= 200)
 		.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon }));
 
-	const points = filterGpsTrack(gpsPoints);
-	const segments = classifySegments(points, stayPoints);
+	const points = timeSync("kalman", () => filterGpsTrack(gpsPoints));
+	const segments = timeSync("segments", () => classifySegments(points, stayPoints));
 
 	if (options.enrich === false) {
 		return { points, segments };
@@ -176,6 +193,7 @@ export async function computeVelocity(
 	const N_SAMPLES = 5;
 
 	// Enrich each segment with OSM data
+	const enrichStart = Date.now();
 	const enriched: EnrichedSegment[] = await Promise.all(
 		segments.map(async (seg) => {
 			const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
@@ -250,16 +268,28 @@ export async function computeVelocity(
 			}
 		}),
 	);
+	phaseTimes.osm = Date.now() - enrichStart;
 
-	const merged = mergeAdjacentStays(enriched);
+	const merged = timeSync("merge", () => mergeAdjacentStays(enriched));
 
 	// Cross-modal enrichment: attach HR / sleep stats per segment when the
 	// data is available. Missing Fitbit data → biometrics is just left null.
-	const { hr, sleep } = await loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz).catch(() => ({
-		hr: [] as HrPoint[],
-		sleep: [] as SleepStageRecord[],
-	}));
-	const withBiometrics = merged.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep) }));
+	const { hr, sleep } = await time(
+		"biomLoad",
+		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz).catch(() => ({
+			hr: [] as HrPoint[],
+			sleep: [] as SleepStageRecord[],
+		})),
+	);
+	const withBiometrics = timeSync("biomEnrich", () =>
+		merged.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep) })),
+	);
+
+	const total = Date.now() - t0;
+	const summary = Object.entries(phaseTimes)
+		.map(([k, v]) => `${k}=${v}ms`)
+		.join(" ");
+	console.log(`velocity ${date} user=${userId}: total=${total}ms ${summary} segments=${withBiometrics.length}`);
 
 	return { points, segments: withBiometrics };
 }

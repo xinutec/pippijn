@@ -258,6 +258,33 @@ describe("negative caching for transient failures (429)", () => {
 		expect(fetchCalls).toHaveLength(2);
 	});
 
+	it("Overpass mirror fallback: hung primary aborts after timeout, falls through to mirror", async () => {
+		// Simulates production case: primary connection-refused / hung, mirror responds.
+		// Without abort, the primary fetch could hang for minutes.
+		const { nearbyWays } = await loadOsm();
+		fetchHandler = async (input, init) => {
+			const url = typeof input === "string" ? input : (input as URL).toString();
+			if (url.includes("overpass-api.de")) {
+				const signal = (init as { signal?: AbortSignal } | undefined)?.signal;
+				return new Promise<Response>((_resolve, reject) => {
+					signal?.addEventListener("abort", () => reject(new Error("aborted")));
+				});
+			}
+			return new Response(JSON.stringify({ elements: [{ tags: { highway: "motorway", name: "A2" } }] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		};
+
+		const t0 = Date.now();
+		const r = await nearbyWays(51.0, 5.0);
+		const elapsed = Date.now() - t0;
+		expect(r).toHaveLength(1);
+		expect(r[0].name).toBe("A2");
+		// Must complete well under default fetch's potential 30s+ hang
+		expect(elapsed).toBeLessThan(8000);
+	});
+
 	it("Overpass mirror fallback: primary succeeds → secondary never tried", async () => {
 		const { nearbyWays } = await loadOsm();
 		fetchHandler = async () => {

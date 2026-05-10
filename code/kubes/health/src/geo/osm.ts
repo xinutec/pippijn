@@ -21,19 +21,28 @@ const USER_AGENT = "health.xinutec.org (pippijn@xinutec.org)";
  */
 const OVERPASS_URLS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
 
+/** How long we wait per Overpass mirror before giving up and trying the next.
+ *  Default fetch has no timeout — a hung connection-refused can sit for minutes,
+ *  which we observed today producing 3-minute /api/velocity responses. */
+const OVERPASS_TIMEOUT_MS = 4000;
+
 /**
  * POST a single Overpass query body to each mirror in turn until one returns
- * a successful response. Throws (caught by withCache → negative cache) only
- * if every mirror fails.
+ * a successful response. Each mirror gets up to OVERPASS_TIMEOUT_MS before
+ * we abort and try the next. Throws (caught by withCache → negative cache)
+ * only if every mirror fails.
  */
 async function overpassFetch(body: string): Promise<Response> {
 	let lastErr: unknown;
 	for (const url of OVERPASS_URLS) {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
 		try {
 			const res = await fetch(url, {
 				method: "POST",
 				headers: { "Content-Type": "text/plain", "User-Agent": USER_AGENT },
 				body,
+				signal: controller.signal,
 			});
 			if (res.ok) return res;
 			// Non-OK: only fall through on transient (5xx) or rate-limited (429).
@@ -42,6 +51,8 @@ async function overpassFetch(body: string): Promise<Response> {
 			lastErr = new Error(`Overpass ${url} returned ${res.status}`);
 		} catch (e) {
 			lastErr = e;
+		} finally {
+			clearTimeout(timer);
 		}
 	}
 	throw lastErr ?? new Error("All Overpass mirrors failed");
