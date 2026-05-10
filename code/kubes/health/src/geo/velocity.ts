@@ -427,16 +427,19 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 		const prev = result[result.length - 1];
 		const segMode = modeOf(seg);
 		const segDuration = seg.endTs - seg.startTs;
+		// Strictly conflicting city tags (both defined, different value) block
+		// the merge — the user crossed an actual boundary. A defined city
+		// next to an untagged transit segment is fine to merge: the merged
+		// city falls back to undefined unless all sources agree (handled below).
+		const citiesConflict =
+			prev !== undefined && prev.city !== undefined && seg.city !== undefined && prev.city !== seg.city;
+
 		if (
 			prev &&
 			segMode !== "stationary" &&
 			modeOf(prev) === segMode &&
 			seg.startTs - prev.endTs <= MOVING_MERGE_MAX_GAP_S &&
-			// Don't merge across a city boundary. Both undefined (typical
-			// transit) is fine; a defined city followed by transit (or two
-			// different cities) means the user crossed a boundary mid-trip
-			// and the city signal is worth preserving.
-			prev.city === seg.city
+			!citiesConflict
 		) {
 			const w0 = prev.pointCount;
 			const w1 = seg.pointCount;
@@ -447,6 +450,10 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 			prev.maxSpeed = Math.round(Math.max(prev.maxSpeed, seg.maxSpeed) * 10) / 10;
 			prev.linearity = Math.round(((prev.linearity * w0 + seg.linearity * w1) / wTot) * 100) / 100;
 			prev.confidence = Math.round(((prev.confidence * w0 + seg.confidence * w1) / wTot) * 100) / 100;
+			// City: only carry forward if all merged sources agree on it.
+			// Mismatched (one tagged, the other untagged) → drop, since the
+			// merged span no longer corresponds to a single city.
+			if (prev.city !== seg.city) prev.city = undefined;
 			addContribution(prev, seg.wayName, segDuration);
 		} else {
 			const copy = { ...seg };

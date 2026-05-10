@@ -265,13 +265,17 @@ describe("mergeAdjacentMoving", () => {
 		expect(out[1].city).toBe("Brussels");
 	});
 
-	it("does NOT merge a city-tagged segment into an untagged transit", () => {
+	it("merges a city-tagged segment into an untagged transit, dropping the city", () => {
+		// Loose merge: only strictly-conflicting cities (both defined and
+		// different) block the merge. A defined city next to untagged transit
+		// merges, but the merged segment loses the city tag — the merged span
+		// no longer corresponds to a single city, so claiming it does would
+		// be misleading.
 		const a: EnrichedSegment = { ...driving(0, 600, { wayName: "Bd" }), city: "Tilburg" };
 		const b = driving(600, 1200, { wayName: "A58" }); // no city — transit
 		const out = mergeAdjacentMoving([a, b]);
-		expect(out).toHaveLength(2);
-		expect(out[0].city).toBe("Tilburg");
-		expect(out[1].city).toBeUndefined();
+		expect(out).toHaveLength(1);
+		expect(out[0].city).toBeUndefined();
 	});
 
 	it("DOES merge two moving segments in the same city", () => {
