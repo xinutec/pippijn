@@ -47,12 +47,16 @@ async function cacheSet(queryType: string, lat: number, lon: number, value: unkn
 
 export interface NominatimResult {
 	displayName: string;
-	type: string; // e.g. "restaurant", "cafe", "park", "residential"
-	category: string; // top-level category, e.g. "amenity", "leisure", "building"
+	type: string; // e.g. "restaurant", "cafe", "park", "residential", "square"
+	category: string; // top-level category, e.g. "amenity", "leisure", "building", "place"
 	address: {
 		amenity?: string;
+		tourism?: string; // "hotel", "museum", etc.
+		leisure?: string; // "park", "playground", etc.
+		shop?: string; // "supermarket", "bakery", etc.
 		building?: string;
 		road?: string;
+		pedestrian?: string; // square / pedestrian street name
 		neighbourhood?: string;
 		suburb?: string;
 		city?: string;
@@ -70,15 +74,16 @@ interface NominatimResponse {
 	address?: NominatimResult["address"];
 }
 
-export async function reverseGeocode(lat: number, lon: number): Promise<NominatimResult | null> {
-	const cached = await cacheGet<NominatimResult | null>("nominatim", lat, lon);
+export async function reverseGeocode(lat: number, lon: number, zoom = 18): Promise<NominatimResult | null> {
+	const cacheType = `nominatim_z${zoom}`;
+	const cached = await cacheGet<NominatimResult | null>(cacheType, lat, lon);
 	if (cached !== undefined) return cached;
 
 	const url = new URL(NOMINATIM_URL);
 	url.searchParams.set("lat", lat.toString());
 	url.searchParams.set("lon", lon.toString());
 	url.searchParams.set("format", "json");
-	url.searchParams.set("zoom", "18"); // building-level detail
+	url.searchParams.set("zoom", zoom.toString());
 
 	const res = await fetch(url.toString(), {
 		headers: { "User-Agent": USER_AGENT },
@@ -91,7 +96,7 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Nominati
 
 	const data = (await res.json()) as NominatimResponse;
 	if (!data.display_name) {
-		await cacheSet("nominatim", lat, lon, null);
+		await cacheSet(cacheType, lat, lon, null);
 		return null;
 	}
 
@@ -101,22 +106,53 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Nominati
 		category: data.class ?? data.category ?? "",
 		address: data.address ?? {},
 	};
-	await cacheSet("nominatim", lat, lon, result);
+	await cacheSet(cacheType, lat, lon, result);
 	return result;
 }
 
 /**
+ * Look up a stationary place. Tries building-level (zoom 18) first; if the
+ * result is just a residential address with no specific venue, falls back to
+ * area-level (zoom 16) to catch landmarks like squares, parks, plazas.
+ */
+export async function bestPlace(lat: number, lon: number): Promise<NominatimResult | null> {
+	const detailed = await reverseGeocode(lat, lon, 18);
+	if (detailed && hasSpecificVenue(detailed)) return detailed;
+
+	const area = await reverseGeocode(lat, lon, 16);
+	// Prefer the area lookup only if it actually adds information
+	if (area && (hasSpecificVenue(area) || isLandmark(area))) return area;
+	return detailed ?? area;
+}
+
+function hasSpecificVenue(r: NominatimResult): boolean {
+	const a = r.address;
+	return !!(a.amenity || a.tourism || a.leisure || a.shop);
+}
+
+function isLandmark(r: NominatimResult): boolean {
+	// Squares, parks, plazas, named pedestrian areas — useful even without a venue
+	return r.category === "place" || r.category === "leisure" || !!r.address.pedestrian;
+}
+
+/**
  * Produce a short, human-readable label for a place.
- * Examples: "Brasserie Vermeer (restaurant)", "Vondelpark", "Wembley Park station"
+ * Examples: "Brasserie Vermeer (restaurant)", "Vondelpark", "Plein 1944 (square)"
  */
 export function placeLabel(result: NominatimResult): string {
 	const a = result.address;
 
-	// Prefer named amenity (restaurant, cafe, etc.)
+	// Specific named venue (preferred — most useful for "your day")
 	if (a.amenity) return `${a.amenity}${result.type ? ` (${result.type})` : ""}`;
+	if (a.tourism) return `${a.tourism}${result.type ? ` (${result.type})` : ""}`;
+	if (a.leisure) return `${a.leisure}${result.type ? ` (${result.type})` : ""}`;
+	if (a.shop) return `${a.shop}${result.type ? ` (${result.type})` : ""}`;
 
 	// Building name + type
 	if (a.building && result.type) return `${a.building} (${result.type})`;
+
+	// Named pedestrian area / square (zoom-16 lookups commonly land here)
+	if (a.pedestrian) return `${a.pedestrian}${result.type ? ` (${result.type})` : ""}`;
 
 	// Just the type with road/neighbourhood for context
 	if (result.type && a.road) return `${result.type} on ${a.road}`;

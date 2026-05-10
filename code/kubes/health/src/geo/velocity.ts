@@ -8,7 +8,7 @@ import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
-import { nearbyWays, placeLabel, refineMode, reverseGeocode } from "./osm.js";
+import { bestPlace, nearbyWays, placeLabel, refineMode } from "./osm.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments } from "./segments.js";
 import { dateBoundsUtc } from "./timezone.js";
@@ -63,10 +63,10 @@ export async function computeVelocity(
 
 			try {
 				if (seg.mode === "stationary") {
-					// One place — reverse geocode the centroid.
+					// One place — geocode the centroid (two-zoom: building, then area).
 					const cLat = segPoints.reduce((s, p) => s + p.lat, 0) / segPoints.length;
 					const cLon = segPoints.reduce((s, p) => s + p.lon, 0) / segPoints.length;
-					const place = await reverseGeocode(cLat, cLon);
+					const place = await bestPlace(cLat, cLon);
 					return place ? { ...seg, place: placeLabel(place) } : seg;
 				}
 				// Moving segment: sample several points along the path so the

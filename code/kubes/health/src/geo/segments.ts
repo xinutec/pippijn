@@ -315,6 +315,77 @@ function smoothSegments(segments: TrackSegment[], minDurationSec: number): Track
 	return result;
 }
 
+// --- Stay detection (sparse-data fallback) ---
+
+const STAY_MIN_DURATION_SEC = 15 * 60; // 15 minutes
+const STAY_RADIUS_M = 100; // points must cluster within this radius
+
+/**
+ * Find stationary "stays" in time periods not covered by any classified segment.
+ *
+ * The window-based classifier silently drops windows with < 2 points — which
+ * is exactly the failure mode for "indoors at one place" tracking, where the
+ * phone reports sparse, low-accuracy GPS. This pass walks the gaps between
+ * (and around) the classified segments, and emits a stationary segment for
+ * any gap ≥ 15 min where the available points cluster within 100 m.
+ */
+function findStays(points: FilteredPoint[], existing: TrackSegment[]): TrackSegment[] {
+	if (points.length === 0) return [];
+
+	const sorted = [...existing].sort((a, b) => a.startTs - b.startTs);
+	const gaps: Array<{ start: number; end: number }> = [];
+
+	if (sorted.length === 0) {
+		gaps.push({ start: points[0].ts, end: points[points.length - 1].ts });
+	} else {
+		// Before the first segment
+		const firstPointTs = points[0].ts;
+		if (sorted[0].startTs - firstPointTs >= STAY_MIN_DURATION_SEC) {
+			gaps.push({ start: firstPointTs, end: sorted[0].startTs });
+		}
+		// Between consecutive segments
+		for (let i = 0; i < sorted.length - 1; i++) {
+			const gapStart = sorted[i].endTs;
+			const gapEnd = sorted[i + 1].startTs;
+			if (gapEnd - gapStart >= STAY_MIN_DURATION_SEC) {
+				gaps.push({ start: gapStart, end: gapEnd });
+			}
+		}
+		// After the last segment
+		const lastPointTs = points[points.length - 1].ts;
+		const lastSegEnd = sorted[sorted.length - 1].endTs;
+		if (lastPointTs - lastSegEnd >= STAY_MIN_DURATION_SEC) {
+			gaps.push({ start: lastSegEnd, end: lastPointTs });
+		}
+	}
+
+	const stays: TrackSegment[] = [];
+	for (const gap of gaps) {
+		const inGap = points.filter((p) => p.ts >= gap.start && p.ts <= gap.end);
+		if (inGap.length < 2) continue;
+
+		const cLat = inGap.reduce((s, p) => s + p.lat, 0) / inGap.length;
+		const cLon = inGap.reduce((s, p) => s + p.lon, 0) / inGap.length;
+		const maxDist = Math.max(...inGap.map((p) => haversineMeters(cLat, cLon, p.lat, p.lon)));
+		if (maxDist > STAY_RADIUS_M) continue;
+
+		const duration = inGap[inGap.length - 1].ts - inGap[0].ts;
+		if (duration < STAY_MIN_DURATION_SEC) continue;
+
+		stays.push({
+			startTs: inGap[0].ts,
+			endTs: inGap[inGap.length - 1].ts,
+			mode: "stationary",
+			confidence: 0.7,
+			avgSpeed: 0,
+			maxSpeed: 0,
+			linearity: 0,
+			pointCount: inGap.length,
+		});
+	}
+	return stays;
+}
+
 // --- Public API ---
 
 const WINDOW_SEC = 300; // 5 minute windows
@@ -325,9 +396,14 @@ const MIN_SEGMENT_SEC = 120; // segments shorter than 2 min get merged
  */
 export function classifySegments(points: FilteredPoint[]): TrackSegment[] {
 	const windows = extractFeatures(points, WINDOW_SEC);
-	if (windows.length === 0) return [];
 
-	const scores = windows.map(scoreWindow);
-	const raw = mergeWindows(windows, scores);
-	return smoothSegments(raw, MIN_SEGMENT_SEC);
+	let classified: TrackSegment[] = [];
+	if (windows.length > 0) {
+		const scores = windows.map(scoreWindow);
+		const raw = mergeWindows(windows, scores);
+		classified = smoothSegments(raw, MIN_SEGMENT_SEC);
+	}
+
+	const stays = findStays(points, classified);
+	return [...classified, ...stays].sort((a, b) => a.startTs - b.startTs);
 }

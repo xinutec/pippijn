@@ -41,6 +41,47 @@ describe("placeLabel", () => {
 		};
 		expect(placeLabel(r)).toBe("Unknown Place");
 	});
+
+	it("uses tourism name when present (hotel, museum)", () => {
+		const r: NominatimResult = {
+			displayName: "Hotel Mercure, Plein 1944, Nijmegen",
+			type: "hotel",
+			category: "tourism",
+			address: { tourism: "Hotel Mercure", road: "Plein 1944" },
+		};
+		expect(placeLabel(r)).toBe("Hotel Mercure (hotel)");
+	});
+
+	it("uses leisure name when present (park, playground)", () => {
+		const r: NominatimResult = {
+			displayName: "Vondelpark, Amsterdam",
+			type: "park",
+			category: "leisure",
+			address: { leisure: "Vondelpark" },
+		};
+		expect(placeLabel(r)).toBe("Vondelpark (park)");
+	});
+
+	it("uses shop name when present", () => {
+		const r: NominatimResult = {
+			displayName: "Albert Heijn, Damstraat",
+			type: "supermarket",
+			category: "shop",
+			address: { shop: "Albert Heijn", road: "Damstraat" },
+		};
+		expect(placeLabel(r)).toBe("Albert Heijn (supermarket)");
+	});
+
+	it("uses pedestrian (square / pedestrian street) name", () => {
+		// Zoom-16 lookups commonly land on named squares like Plein 1944
+		const r: NominatimResult = {
+			displayName: "Plein 1944, Stadscentrum, Nijmegen",
+			type: "square",
+			category: "place",
+			address: { pedestrian: "Plein 1944", neighbourhood: "Stadscentrum" },
+		};
+		expect(placeLabel(r)).toBe("Plein 1944 (square)");
+	});
 });
 
 describe("refineMode", () => {

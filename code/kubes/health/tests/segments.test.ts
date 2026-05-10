@@ -258,6 +258,85 @@ describe("classifySegments", () => {
 		expect(primary.mode).toBe("stationary");
 	});
 
+	it("emits a stay segment from sparse points after a moving segment", () => {
+		// 10 minutes walking, then 30 minutes of sparse points clustered tightly
+		// (simulating phone going indoors with poor GPS) — the classifier's window
+		// pass would silently drop the indoor period; findStays should fill it.
+		const walk = generateWalk(1000, 600);
+		const last = walk[walk.length - 1];
+		const stay: FilteredPoint[] = [];
+		// Sparse: only 6 points across 30 minutes, all within ~30m of last walk point
+		for (let t = 0; t < 6; t++) {
+			stay.push({
+				ts: 1700 + t * 300, // every 5 min
+				lat: last.lat + (Math.random() - 0.5) * 0.0004,
+				lon: last.lon + (Math.random() - 0.5) * 0.0004,
+				speed_kmh: 0,
+				bearing: 0,
+			});
+		}
+		const segments = classifySegments([...walk, ...stay]);
+		const stationary = segments.find((s) => s.mode === "stationary" && s.startTs >= 1700);
+		expect(stationary).toBeDefined();
+		if (stationary) {
+			expect(stationary.endTs - stationary.startTs).toBeGreaterThanOrEqual(15 * 60);
+		}
+	});
+
+	it("does not emit a stay when sparse points span > 100m", () => {
+		// Same shape as above but the points wander 300m apart — not a stay
+		const walk = generateWalk(1000, 600);
+		const last = walk[walk.length - 1];
+		const wander: FilteredPoint[] = [];
+		for (let t = 0; t < 6; t++) {
+			wander.push({
+				ts: 1700 + t * 300,
+				lat: last.lat + t * 0.001, // ~111m per step
+				lon: last.lon,
+				speed_kmh: 0,
+				bearing: 0,
+			});
+		}
+		const segments = classifySegments([...walk, ...wander]);
+		const lateStationary = segments.find((s) => s.mode === "stationary" && s.startTs >= 1700);
+		expect(lateStationary).toBeUndefined();
+	});
+
+	it("does not emit a stay when sparse cluster duration < 15 min", () => {
+		const walk = generateWalk(1000, 600);
+		const last = walk[walk.length - 1];
+		const tooShort: FilteredPoint[] = [];
+		for (let t = 0; t < 3; t++) {
+			tooShort.push({
+				ts: 1700 + t * 200, // 0, 200, 400 seconds = 6.7 min total
+				lat: last.lat,
+				lon: last.lon,
+				speed_kmh: 0,
+				bearing: 0,
+			});
+		}
+		const segments = classifySegments([...walk, ...tooShort]);
+		const lateStationary = segments.find((s) => s.mode === "stationary" && s.startTs >= 1700);
+		expect(lateStationary).toBeUndefined();
+	});
+
+	it("emits a stay even when no other segments exist", () => {
+		// Phone sat in one place all day, sparse GPS, classifier sees no movement
+		const stay: FilteredPoint[] = [];
+		for (let t = 0; t < 8; t++) {
+			stay.push({
+				ts: 1000 + t * 600, // every 10 min for 70 min
+				lat: 52.0 + (Math.random() - 0.5) * 0.0003,
+				lon: 5.0 + (Math.random() - 0.5) * 0.0003,
+				speed_kmh: 0,
+				bearing: 0,
+			});
+		}
+		const segments = classifySegments(stay);
+		expect(segments.length).toBeGreaterThanOrEqual(1);
+		expect(segments[0].mode).toBe("stationary");
+	});
+
 	it("segments cover the full track", () => {
 		const points = generateTrack({
 			startTs: 1000,
