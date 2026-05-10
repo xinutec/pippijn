@@ -99,6 +99,13 @@ describe("refineMode", () => {
 		expect(r.mode).toBe("boat");
 	});
 
+	it("does NOT classify high-speed travel as boat (boats don't go 100 km/h)", () => {
+		// Driving across a bridge — Overpass might return a waterway for the centroid
+		const ways: NearbyWay[] = [{ type: "waterway", subtype: "river" }];
+		const r = refineMode("driving", 101, ways);
+		expect(r.mode).not.toBe("boat");
+	});
+
 	it("keeps original mode when no useful OSM context", () => {
 		const r = refineMode("walking", 5, []);
 		expect(r.mode).toBe("walking");

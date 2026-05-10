@@ -160,6 +160,14 @@ export interface NcTokensTable {
 	updated_at: Generated<Date>;
 }
 
+export interface OsmCacheTable {
+	query_type: string;
+	lat_rounded: number;
+	lon_rounded: number;
+	result: string; // JSON
+	cached_at: Generated<Date>;
+}
+
 // The full database interface — Kysely uses this to type-check every query
 export interface Database {
 	tokens: TokensTable;
@@ -179,5 +187,6 @@ export interface Database {
 	devices: DevicesTable;
 	sessions: SessionsTable;
 	nc_tokens: NcTokensTable;
+	osm_cache: OsmCacheTable;
 	schema_migrations: SchemaMigrationsTable;
 }

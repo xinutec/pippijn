@@ -4,13 +4,44 @@
  * - Stationary segments: reverse-geocode the centroid via Nominatim to get place name/type
  * - Moving segments: query Overpass for nearby ways (highway, railway, etc.) to refine the mode
  *
- * Both APIs are free public services with rate limits — we make a few queries per
- * day per user, which is well within limits. Self-host if usage grows.
+ * Results cached in MariaDB (osm_cache table) keyed by rounded coordinates.
+ * Cache hits avoid network entirely — page loads go from seconds to ms.
  */
+
+import { db } from "../db/pool.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const USER_AGENT = "health.xinutec.org (pippijn@xinutec.org)";
+
+// Round to 4 decimals = ~11m precision for cache key
+function roundCoord(n: number): number {
+	return Math.round(n * 10000) / 10000;
+}
+
+async function cacheGet<T>(queryType: string, lat: number, lon: number): Promise<T | undefined> {
+	const row = await db()
+		.selectFrom("osm_cache")
+		.select("result")
+		.where("query_type", "=", queryType)
+		.where("lat_rounded", "=", roundCoord(lat))
+		.where("lon_rounded", "=", roundCoord(lon))
+		.executeTakeFirst();
+	return row ? (JSON.parse(row.result) as T) : undefined;
+}
+
+async function cacheSet(queryType: string, lat: number, lon: number, value: unknown): Promise<void> {
+	await db()
+		.insertInto("osm_cache")
+		.values({
+			query_type: queryType,
+			lat_rounded: roundCoord(lat),
+			lon_rounded: roundCoord(lon),
+			result: JSON.stringify(value),
+		})
+		.onDuplicateKeyUpdate({ result: JSON.stringify(value) })
+		.execute();
+}
 
 // --- Nominatim reverse geocoding ---
 
@@ -40,6 +71,9 @@ interface NominatimResponse {
 }
 
 export async function reverseGeocode(lat: number, lon: number): Promise<NominatimResult | null> {
+	const cached = await cacheGet<NominatimResult | null>("nominatim", lat, lon);
+	if (cached !== undefined) return cached;
+
 	const url = new URL(NOMINATIM_URL);
 	url.searchParams.set("lat", lat.toString());
 	url.searchParams.set("lon", lon.toString());
@@ -56,14 +90,19 @@ export async function reverseGeocode(lat: number, lon: number): Promise<Nominati
 	}
 
 	const data = (await res.json()) as NominatimResponse;
-	if (!data.display_name) return null;
+	if (!data.display_name) {
+		await cacheSet("nominatim", lat, lon, null);
+		return null;
+	}
 
-	return {
+	const result: NominatimResult = {
 		displayName: data.display_name,
 		type: data.type ?? "",
 		category: data.class ?? data.category ?? "",
 		address: data.address ?? {},
 	};
+	await cacheSet("nominatim", lat, lon, result);
+	return result;
 }
 
 /**
@@ -100,6 +139,9 @@ export interface NearbyWay {
  * Used to determine if a moving segment is likely a car, train, etc.
  */
 export async function nearbyWays(lat: number, lon: number, radiusM = 50): Promise<NearbyWay[]> {
+	const cached = await cacheGet<NearbyWay[]>("overpass", lat, lon);
+	if (cached !== undefined) return cached;
+
 	const query = `
 		[out:json][timeout:10];
 		(
@@ -122,14 +164,12 @@ export async function nearbyWays(lat: number, lon: number, radiusM = 50): Promis
 
 	if (!res.ok) {
 		console.warn(`Overpass returned ${res.status} for ${lat},${lon}`);
-		return [];
+		return []; // don't cache transient failures
 	}
 
 	const data = (await res.json()) as { elements?: Array<{ tags?: Record<string, string> }> };
-	if (!data.elements) return [];
-
 	const ways: NearbyWay[] = [];
-	for (const el of data.elements) {
+	for (const el of data.elements ?? []) {
 		const tags = el.tags ?? {};
 		for (const type of ["highway", "railway", "waterway", "aeroway"]) {
 			if (tags[type]) {
@@ -142,6 +182,7 @@ export async function nearbyWays(lat: number, lon: number, radiusM = 50): Promis
 		}
 	}
 
+	await cacheSet("overpass", lat, lon, ways);
 	return ways;
 }
 
@@ -206,9 +247,12 @@ export function refineMode(originalMode: string, speedKmh: number, ways: NearbyW
 		return { mode: originalMode, confidence: "medium", reason: `near ${hw.subtype}`, wayName: hw.name };
 	}
 
-	// On a waterway → boat
-	if (waterways.length > 0 && speedKmh > 3) {
-		const ww = waterways[0];
+	// On a navigable waterway → boat. Excludes drains, ditches, streams (too small).
+	const navigableWaterways = waterways.filter((w) =>
+		["river", "canal", "fairway"].includes(w.subtype),
+	);
+	if (navigableWaterways.length > 0 && speedKmh > 3 && speedKmh < 50) {
+		const ww = navigableWaterways[0];
 		return { mode: "boat", confidence: "medium", reason: `on ${ww.subtype}`, wayName: ww.name };
 	}
 

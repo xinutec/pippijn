@@ -159,6 +159,17 @@ const MIGRATIONS: readonly string[] = [
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   )`,
 
+	// v18: OSM query cache (Nominatim reverse geocoding + Overpass nearby ways).
+	// Keyed by query type and rounded coordinates (~11m precision at 4 decimals).
+	`CREATE TABLE IF NOT EXISTS osm_cache (
+    query_type VARCHAR(32) NOT NULL,
+    lat_rounded DECIMAL(7,4) NOT NULL,
+    lon_rounded DECIMAL(7,4) NOT NULL,
+    result LONGTEXT NOT NULL,
+    cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (query_type, lat_rounded, lon_rounded)
+  )`,
+
 	// Future migrations go here.
 ];
 
