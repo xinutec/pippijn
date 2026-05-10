@@ -168,6 +168,21 @@ export interface OsmCacheTable {
 	cached_at: Generated<Date>;
 }
 
+export interface FocusPlacesTable {
+	id: Generated<number>;
+	user_id: string;
+	centroid_lat: number;
+	centroid_lon: number;
+	radius_m: number;
+	total_dwell_sec: number;
+	visit_count: number;
+	unique_days: number;
+	first_seen_ts: number;
+	last_seen_ts: number;
+	detected_label: string | null;
+	refreshed_at: Generated<Date>;
+}
+
 // The full database interface — Kysely uses this to type-check every query
 export interface Database {
 	tokens: TokensTable;
@@ -188,5 +203,6 @@ export interface Database {
 	sessions: SessionsTable;
 	nc_tokens: NcTokensTable;
 	osm_cache: OsmCacheTable;
+	focus_places: FocusPlacesTable;
 	schema_migrations: SchemaMigrationsTable;
 }

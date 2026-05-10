@@ -4,14 +4,30 @@
  * Used by both the API route and the CLI tool.
  */
 
+import { db } from "../db/pool.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
 import { bestPlace, nearbyWays, placeLabel, refineMode } from "./osm.js";
+import { type KnownPlace, snapToPlace } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments } from "./segments.js";
 import { dateBoundsUtc } from "./timezone.js";
+
+async function loadKnownPlaces(userId: string): Promise<KnownPlace[]> {
+	const rows = await db()
+		.selectFrom("focus_places")
+		.select(["id", "centroid_lat", "centroid_lon", "radius_m"])
+		.where("user_id", "=", userId)
+		.execute();
+	return rows.map((r) => ({
+		id: r.id,
+		centroidLat: Number(r.centroid_lat),
+		centroidLon: Number(r.centroid_lon),
+		radiusM: r.radius_m,
+	}));
+}
 
 export interface EnrichedSegment extends TrackSegment {
 	place?: string; // human-readable place name (for stationary segments)
@@ -42,14 +58,26 @@ export async function computeVelocity(
 	const raw = await fetchTrackPoints(config, userId, date, nextDay);
 	const inDay = raw.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc);
 
+	// Place-snap: if a fix is unambiguously close to a known cluster (home,
+	// work, etc.), pull it to the cluster centroid. Reduces GPS noise around
+	// well-known locations and stabilises both segment timing and labels.
+	const knownPlaces = await loadKnownPlaces(userId);
+	const snapped =
+		knownPlaces.length > 0
+			? inDay.map((p) => {
+					const r = snapToPlace({ lat: p.lat, lon: p.lon, accuracy: p.accuracy }, knownPlaces);
+					return r.snapped ? { ...p, lat: r.lat, lon: r.lon, accuracy: r.accuracy } : p;
+				})
+			: inDay;
+
 	// Tight filter (≤50m) for movement classification — Kalman-quality data only.
-	const gpsPoints = inDay
+	const gpsPoints = snapped
 		.filter((p) => p.accuracy === null || p.accuracy <= 50)
 		.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon, accuracy: p.accuracy }));
 
 	// Loose filter (≤200m) for stay detection — indoor GPS often degrades
 	// well past 50m but is still good enough to know you were "around here".
-	const stayPoints = inDay
+	const stayPoints = snapped
 		.filter((p) => p.accuracy === null || p.accuracy <= 200)
 		.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon }));
 

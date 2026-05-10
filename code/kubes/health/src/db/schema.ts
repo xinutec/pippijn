@@ -170,6 +170,28 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (query_type, lat_rounded, lon_rounded)
   )`,
 
+	// v19: Detected focus places (home, work, frequent café, ...). Refreshed
+	// weekly by re-fetching the user's last 90 days from PhoneTrack and
+	// running the focus-places pipeline. Whole table per user is rebuilt each
+	// refresh — no stable IDs across rebuilds. Used by velocity.ts for
+	// snap-to-place during live timeline rendering.
+	`CREATE TABLE IF NOT EXISTS focus_places (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    centroid_lat DECIMAL(9,6) NOT NULL,
+    centroid_lon DECIMAL(9,6) NOT NULL,
+    radius_m INT NOT NULL,
+    total_dwell_sec BIGINT NOT NULL,
+    visit_count INT NOT NULL,
+    unique_days INT NOT NULL,
+    first_seen_ts INT UNSIGNED NOT NULL,
+    last_seen_ts INT UNSIGNED NOT NULL,
+    detected_label VARCHAR(32),
+    refreshed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_fp_user (user_id),
+    INDEX idx_fp_user_geo (user_id, centroid_lat, centroid_lon)
+  )`,
+
 	// Future migrations go here.
 ];
 
