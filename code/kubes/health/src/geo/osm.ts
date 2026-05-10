@@ -31,16 +31,85 @@ async function cacheGet<T>(queryType: string, lat: number, lon: number): Promise
 }
 
 async function cacheSet(queryType: string, lat: number, lon: number, value: unknown): Promise<void> {
+	const json = JSON.stringify(value);
 	await db()
 		.insertInto("osm_cache")
 		.values({
 			query_type: queryType,
 			lat_rounded: roundCoord(lat),
 			lon_rounded: roundCoord(lon),
-			result: JSON.stringify(value),
+			result: json,
 		})
-		.onDuplicateKeyUpdate({ result: JSON.stringify(value) })
+		.onDuplicateKeyUpdate({ result: json })
 		.execute();
+}
+
+// --- Negative caching + in-flight dedup ---
+
+const NEGATIVE_CACHE_TTL_MS = 5 * 60_000; // 5 min — long enough to survive a rate-limit recovery
+
+interface NegSentinel {
+	_err: number; // HTTP status that caused the failure
+	_at: number; // ms epoch
+}
+
+function isNegSentinel(v: unknown): v is NegSentinel {
+	return typeof v === "object" && v !== null && "_err" in v && "_at" in v;
+}
+
+const inflight = new Map<string, Promise<unknown>>();
+
+type FetcherResult<T> = { ok: true; value: T } | { ok: false; status: number };
+
+/**
+ * Common cache wrapper for OSM lookups. Handles three concerns at once:
+ *
+ *  - **Positive cache**: a previously-fetched valid response is returned
+ *    immediately (including null / empty-array as valid "no result here").
+ *  - **Negative cache (TTL)**: a 4xx/5xx fetcher result is recorded as a
+ *    sentinel `{ _err, _at }`. Subsequent calls within `NEGATIVE_CACHE_TTL_MS`
+ *    return `defaultEmpty` without re-fetching — protects against
+ *    thundering-herd on Overpass / Nominatim outages.
+ *  - **In-flight dedup**: if the same key is already being fetched, the
+ *    second caller awaits the same promise instead of firing a duplicate
+ *    request.
+ */
+async function withCache<T>(
+	queryType: string,
+	lat: number,
+	lon: number,
+	fetcher: () => Promise<FetcherResult<T>>,
+	defaultEmpty: T,
+): Promise<T> {
+	const cached = await cacheGet<T | NegSentinel>(queryType, lat, lon);
+	if (cached !== undefined) {
+		if (isNegSentinel(cached)) {
+			if (Date.now() - cached._at < NEGATIVE_CACHE_TTL_MS) return defaultEmpty;
+			// expired — fall through to refetch
+		} else {
+			return cached as T;
+		}
+	}
+
+	const inflightKey = `${queryType}|${roundCoord(lat)}|${roundCoord(lon)}`;
+	const existing = inflight.get(inflightKey);
+	if (existing) return existing as Promise<T>;
+
+	const promise = (async () => {
+		try {
+			const result = await fetcher();
+			if (result.ok) {
+				await cacheSet(queryType, lat, lon, result.value);
+				return result.value;
+			}
+			await cacheSet(queryType, lat, lon, { _err: result.status, _at: Date.now() } satisfies NegSentinel);
+			return defaultEmpty;
+		} finally {
+			inflight.delete(inflightKey);
+		}
+	})();
+	inflight.set(inflightKey, promise);
+	return promise;
 }
 
 // --- Nominatim reverse geocoding ---
@@ -75,39 +144,38 @@ interface NominatimResponse {
 }
 
 export async function reverseGeocode(lat: number, lon: number, zoom = 18): Promise<NominatimResult | null> {
-	const cacheType = `nominatim_z${zoom}`;
-	const cached = await cacheGet<NominatimResult | null>(cacheType, lat, lon);
-	if (cached !== undefined) return cached;
+	return withCache<NominatimResult | null>(
+		`nominatim_z${zoom}`,
+		lat,
+		lon,
+		async () => {
+			const url = new URL(NOMINATIM_URL);
+			url.searchParams.set("lat", lat.toString());
+			url.searchParams.set("lon", lon.toString());
+			url.searchParams.set("format", "json");
+			url.searchParams.set("zoom", zoom.toString());
 
-	const url = new URL(NOMINATIM_URL);
-	url.searchParams.set("lat", lat.toString());
-	url.searchParams.set("lon", lon.toString());
-	url.searchParams.set("format", "json");
-	url.searchParams.set("zoom", zoom.toString());
+			const res = await fetch(url.toString(), { headers: { "User-Agent": USER_AGENT } });
+			if (!res.ok) {
+				console.warn(`Nominatim returned ${res.status} for ${lat},${lon}`);
+				return { ok: false, status: res.status };
+			}
 
-	const res = await fetch(url.toString(), {
-		headers: { "User-Agent": USER_AGENT },
-	});
+			const data = (await res.json()) as NominatimResponse;
+			if (!data.display_name) return { ok: true, value: null };
 
-	if (!res.ok) {
-		console.warn(`Nominatim returned ${res.status} for ${lat},${lon}`);
-		return null;
-	}
-
-	const data = (await res.json()) as NominatimResponse;
-	if (!data.display_name) {
-		await cacheSet(cacheType, lat, lon, null);
-		return null;
-	}
-
-	const result: NominatimResult = {
-		displayName: data.display_name,
-		type: data.type ?? "",
-		category: data.class ?? data.category ?? "",
-		address: data.address ?? {},
-	};
-	await cacheSet(cacheType, lat, lon, result);
-	return result;
+			return {
+				ok: true,
+				value: {
+					displayName: data.display_name,
+					type: data.type ?? "",
+					category: data.class ?? data.category ?? "",
+					address: data.address ?? {},
+				},
+			};
+		},
+		null,
+	);
 }
 
 /**
@@ -219,62 +287,61 @@ interface OverpassElement {
  * residential building adjacent to the actual landmark.
  */
 export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): Promise<NearbyLandmark[]> {
-	const cacheType = `landmarks_r${radiusM}`;
-	const cached = await cacheGet<NearbyLandmark[]>(cacheType, lat, lon);
-	if (cached !== undefined) return filterLandmarks(cached);
+	const result = await withCache<NearbyLandmark[]>(
+		`landmarks_r${radiusM}`,
+		lat,
+		lon,
+		async () => {
+			const query = `
+				[out:json][timeout:10];
+				(
+					node(around:${radiusM},${lat},${lon})[name][amenity];
+					node(around:${radiusM},${lat},${lon})[name][tourism];
+					node(around:${radiusM},${lat},${lon})[name][leisure];
+					node(around:${radiusM},${lat},${lon})[name][shop];
+					way(around:${radiusM},${lat},${lon})[name][amenity];
+					way(around:${radiusM},${lat},${lon})[name][tourism];
+					way(around:${radiusM},${lat},${lon})[name][leisure];
+					way(around:${radiusM},${lat},${lon})[name][shop];
+					way(around:${radiusM},${lat},${lon})[name][place];
+					way(around:${radiusM},${lat},${lon})[name][highway=pedestrian];
+					relation(around:${radiusM},${lat},${lon})[name][place];
+				);
+				out tags center;
+			`;
+			const res = await fetch(OVERPASS_URL, {
+				method: "POST",
+				headers: { "Content-Type": "text/plain", "User-Agent": USER_AGENT },
+				body: query,
+			});
+			if (!res.ok) {
+				console.warn(`Overpass landmarks returned ${res.status} for ${lat},${lon}`);
+				return { ok: false, status: res.status };
+			}
 
-	const query = `
-		[out:json][timeout:10];
-		(
-			node(around:${radiusM},${lat},${lon})[name][amenity];
-			node(around:${radiusM},${lat},${lon})[name][tourism];
-			node(around:${radiusM},${lat},${lon})[name][leisure];
-			node(around:${radiusM},${lat},${lon})[name][shop];
-			way(around:${radiusM},${lat},${lon})[name][amenity];
-			way(around:${radiusM},${lat},${lon})[name][tourism];
-			way(around:${radiusM},${lat},${lon})[name][leisure];
-			way(around:${radiusM},${lat},${lon})[name][shop];
-			way(around:${radiusM},${lat},${lon})[name][place];
-			way(around:${radiusM},${lat},${lon})[name][highway=pedestrian];
-			relation(around:${radiusM},${lat},${lon})[name][place];
-		);
-		out tags center;
-	`;
-
-	const res = await fetch(OVERPASS_URL, {
-		method: "POST",
-		headers: { "Content-Type": "text/plain", "User-Agent": USER_AGENT },
-		body: query,
-	});
-
-	if (!res.ok) {
-		console.warn(`Overpass landmarks returned ${res.status} for ${lat},${lon}`);
-		return [];
-	}
-
-	const data = (await res.json()) as { elements?: OverpassElement[] };
-	const landmarks: NearbyLandmark[] = [];
-	for (const el of data.elements ?? []) {
-		const tags = el.tags ?? {};
-		const name = tags.name;
-		if (!name) continue;
-
-		const elLat = el.lat ?? el.center?.lat;
-		const elLon = el.lon ?? el.center?.lon;
-		if (elLat === undefined || elLon === undefined) continue;
-		const distanceM = landmarkHaversine(lat, lon, elLat, elLon);
-
-		for (const k of ["amenity", "tourism", "leisure", "shop", "place"] as const) {
-			if (tags[k]) landmarks.push({ name, type: k, subtype: tags[k], distanceM });
-		}
-		if (tags.highway === "pedestrian") {
-			landmarks.push({ name, type: "highway", subtype: "pedestrian", distanceM });
-		}
-	}
-
-	landmarks.sort((a, b) => a.distanceM - b.distanceM);
-	await cacheSet(cacheType, lat, lon, landmarks);
-	return filterLandmarks(landmarks);
+			const data = (await res.json()) as { elements?: OverpassElement[] };
+			const landmarks: NearbyLandmark[] = [];
+			for (const el of data.elements ?? []) {
+				const tags = el.tags ?? {};
+				const name = tags.name;
+				if (!name) continue;
+				const elLat = el.lat ?? el.center?.lat;
+				const elLon = el.lon ?? el.center?.lon;
+				if (elLat === undefined || elLon === undefined) continue;
+				const distanceM = landmarkHaversine(lat, lon, elLat, elLon);
+				for (const k of ["amenity", "tourism", "leisure", "shop", "place"] as const) {
+					if (tags[k]) landmarks.push({ name, type: k, subtype: tags[k], distanceM });
+				}
+				if (tags.highway === "pedestrian") {
+					landmarks.push({ name, type: "highway", subtype: "pedestrian", distanceM });
+				}
+			}
+			landmarks.sort((a, b) => a.distanceM - b.distanceM);
+			return { ok: true, value: landmarks };
+		},
+		[],
+	);
+	return filterLandmarks(result);
 }
 
 /**
@@ -326,51 +393,45 @@ export interface NearbyWay {
  * Used to determine if a moving segment is likely a car, train, etc.
  */
 export async function nearbyWays(lat: number, lon: number, radiusM = 50): Promise<NearbyWay[]> {
-	const cached = await cacheGet<NearbyWay[]>("overpass", lat, lon);
-	if (cached !== undefined) return cached;
-
-	const query = `
-		[out:json][timeout:10];
-		(
-			way(around:${radiusM},${lat},${lon})[highway];
-			way(around:${radiusM},${lat},${lon})[railway];
-			way(around:${radiusM},${lat},${lon})[waterway];
-			way(around:${radiusM},${lat},${lon})[aeroway];
-		);
-		out tags;
-	`;
-
-	const res = await fetch(OVERPASS_URL, {
-		method: "POST",
-		headers: {
-			"Content-Type": "text/plain",
-			"User-Agent": USER_AGENT,
-		},
-		body: query,
-	});
-
-	if (!res.ok) {
-		console.warn(`Overpass returned ${res.status} for ${lat},${lon}`);
-		return []; // don't cache transient failures
-	}
-
-	const data = (await res.json()) as { elements?: Array<{ tags?: Record<string, string> }> };
-	const ways: NearbyWay[] = [];
-	for (const el of data.elements ?? []) {
-		const tags = el.tags ?? {};
-		for (const type of ["highway", "railway", "waterway", "aeroway"]) {
-			if (tags[type]) {
-				ways.push({
-					type,
-					subtype: tags[type],
-					name: tags.name || tags.ref,
-				});
+	return withCache<NearbyWay[]>(
+		`overpass_r${radiusM}`,
+		lat,
+		lon,
+		async () => {
+			const query = `
+				[out:json][timeout:10];
+				(
+					way(around:${radiusM},${lat},${lon})[highway];
+					way(around:${radiusM},${lat},${lon})[railway];
+					way(around:${radiusM},${lat},${lon})[waterway];
+					way(around:${radiusM},${lat},${lon})[aeroway];
+				);
+				out tags;
+			`;
+			const res = await fetch(OVERPASS_URL, {
+				method: "POST",
+				headers: { "Content-Type": "text/plain", "User-Agent": USER_AGENT },
+				body: query,
+			});
+			if (!res.ok) {
+				console.warn(`Overpass returned ${res.status} for ${lat},${lon}`);
+				return { ok: false, status: res.status };
 			}
-		}
-	}
 
-	await cacheSet("overpass", lat, lon, ways);
-	return ways;
+			const data = (await res.json()) as { elements?: Array<{ tags?: Record<string, string> }> };
+			const ways: NearbyWay[] = [];
+			for (const el of data.elements ?? []) {
+				const tags = el.tags ?? {};
+				for (const type of ["highway", "railway", "waterway", "aeroway"]) {
+					if (tags[type]) {
+						ways.push({ type, subtype: tags[type], name: tags.name || tags.ref });
+					}
+				}
+			}
+			return { ok: true, value: ways };
+		},
+		[],
+	);
 }
 
 /**
