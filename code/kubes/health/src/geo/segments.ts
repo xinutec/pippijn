@@ -301,7 +301,7 @@ function mergeWindows(windows: WindowFeatures[], scores: ModeScore[][]): TrackSe
 		if (newMode !== currentMode || locationSplit || i === windows.length) {
 			flushSegment(i);
 			if (i < windows.length) {
-				currentMode = newMode!;
+				currentMode = scores[i][0].mode;
 				_currentConfidence = scores[i][0].score;
 				segStart = i;
 			}

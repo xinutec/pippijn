@@ -1,27 +1,45 @@
 # health-sync — Design
 
-Health data aggregation and visualization service. Syncs Fitbit data into
-MariaDB on isis, accessible via a web dashboard authenticated through
-Nextcloud SSO.
+Health-and-location aggregation and visualization service. Pulls Fitbit
+biometrics on a schedule, fetches GPS history live from Nextcloud
+PhoneTrack, joins them per "Your Day" timeline segment, and serves a
+web dashboard authenticated through Nextcloud SSO. All running on
+isis's k3s cluster behind `health.xinutec.org`.
 
 ## Architecture
 
 ```
-                          ┌──────────────┐
-                          │  Fitbit API  │
-                          └──────┬───────┘
-                                 │ OAuth2 + REST
-                                 ▼
-┌─────────┐  Nextcloud   ┌──────────────┐  SQL   ┌───────────┐
-│ Browser  │◄────SSO────►│  health-sync │◄──────►│ MariaDB   │
-│ (Angular)│   session    │  (Hono)      │  pool  │ (per-user │
-└─────────┘              └──────────────┘        │  tables)  │
-                                 ▲                └───────────┘
-                                 │
-                          ┌──────┴───────┐
-                          │  CronJob     │
-                          │  (hourly)    │
-                          └──────────────┘
+   ┌──────────────┐                     ┌────────────────────┐
+   │  Fitbit API  │                     │ Nextcloud (dash.*) │
+   └──────┬───────┘                     │  SSO + PhoneTrack  │
+          │ OAuth2 + REST               └─────┬───────┬──────┘
+          ▼ (CronJob, hourly)                 │       │ live GPS fetch
+   ┌──────────────┐                           │       │ (no mirror)
+   │ MariaDB      │◄───── biometrics ─────────┤       │
+   │ on isis      │                           │       │
+   │ (per-user    │                           ▼       ▼
+   │  tables +    │                  ┌─────────────────────┐
+   │  osm_cache + │◄────── SQL ──────│  health-auth        │
+   │  focus_places│  (Kysely typed)  │  (Hono + Kysely)    │
+   │ )            │                  │   server.ts         │
+   └──────────────┘                  └─────────┬───────────┘
+                                               │
+                              ┌────────────────┴───────────────┐
+                              │ Velocity pipeline:             │
+                              │  PhoneTrack → Kalman → segment │
+                              │  classify → OSM enrich → join  │
+                              │  with Fitbit biometrics        │
+                              └────────────────┬───────────────┘
+                                               │
+                                               ▼
+                                       ┌──────────────┐
+                                       │   Browser    │
+                                       │  (Angular)   │
+                                       └──────────────┘
+   ┌──────────────────┐
+   │ OSM Overpass +   │  4s timeout per mirror, kumi.systems fallback,
+   │ Nominatim        │  results memoised in osm_cache (HTTP + negative)
+   └──────────────────┘
 ```
 
 ## Components
@@ -79,41 +97,69 @@ own data. The sync job iterates over all users in the `tokens` table.
 
 ```
 src/
-├── server.ts               # Hono app + HTTP server
+├── server.ts               # Hono app + HTTP server + request-timing + /health
 ├── sync.ts                 # CronJob: sync all users
 ├── config.ts               # Validated env config (zod)
 ├── types.ts                # Shared types (DB rows, API responses)
+├── env.ts                  # AppEnv (Hono context types)
 ├── db/
-│   ├── pool.ts             # MariaDB connection pool (singleton)
-│   └── schema.ts           # Numbered migrations, tracked in schema_migrations table
+│   ├── pool.ts             # MariaDB pool + Kysely instance (typed builder)
+│   ├── schema.ts           # Numbered migrations, tracked in schema_migrations
+│   └── tables.ts           # Kysely table type definitions
 ├── middleware/
 │   ├── session.ts          # Session store, cookie signing, middleware
 │   └── auth.ts             # requireAuth middleware
 ├── routes/
-│   ├── api.ts              # /api/* data endpoints
+│   ├── api.ts              # /api/* data endpoints (incl. /api/velocity)
 │   ├── nextcloud-oauth.ts  # /login, /auth/callback, /logout
 │   └── fitbit-oauth.ts     # /fitbit/auth, /fitbit/auth?code=...
-└── fitbit/
-    ├── client.ts           # HTTP client with rate limiting + refresh
-    └── sync/
-        ├── activity.ts
-        ├── sleep.ts
-        ├── heartrate.ts
-        ├── body.ts
-        ├── spo2.ts
-        ├── hrv.ts
-        ├── breathing.ts
-        ├── temperature.ts
-        └── devices.ts
+├── fitbit/
+│   ├── client.ts           # HTTP client with rate limiting + refresh
+│   └── sync/               # one module per Fitbit metric (activity, sleep,
+│       └── …                 heartrate, body, spo2, hrv, breathing,
+│                             temperature, devices)
+├── nextcloud/
+│   ├── client.ts           # Nextcloud OAuth + per-user-token client
+│   ├── phonetrack.ts       # GPS point fetch + visualisation-filter sync
+│   └── phonetrack-prefs.ts # per-user preference storage in NC user_prefs
+├── geo/
+│   ├── timezone.ts         # tz-aware date bounds + Fitbit ts → unix; cached
+│   │                         Intl.DateTimeFormat per tz
+│   ├── kalman.ts           # gap-aware Kalman filter for raw GPS
+│   ├── segments.ts         # window-based mode classifier (stay / walk /
+│   │                         cycle / drive / rail / plane) + merge
+│   ├── place-snap.ts       # snap noisy fixes to known focus_places centroid
+│   ├── focus-places.ts     # cluster history → focus_places (overnight-aware,
+│   │                         carries sleep_hours signal)
+│   ├── osm.ts              # Overpass + Nominatim with mirror fallback,
+│   │                         negative caching, 4s per-mirror timeout
+│   ├── biometrics.ts       # enrich a segment with HR mean/std/min/max +
+│   │                         sleep fraction; graceful nulls when Fitbit absent
+│   └── velocity.ts         # full pipeline: PhoneTrack → Kalman → segments →
+│                             OSM enrich → biometric enrich → API response
+└── cli/
+    ├── analyze-day.ts          # debug: print a day's velocity result
+    ├── find-focus-places.ts    # one-off cluster discovery
+    └── refresh-focus-places.ts # nightly: refresh + warm OSM cache
 ```
 
 ## Testing
 
-Vitest. Tests cover:
-- Session signing and verification
-- OAuth state lifecycle (create, consume, expiry, replay)
-- API user isolation (queries only return data for the session user)
-- Config validation
+Vitest, 204 tests across 16 files. Coverage:
+- Session signing and verification (`session.test.ts`)
+- OAuth state lifecycle: create, consume, expiry, replay (`oauth-state.test.ts`)
+- API user isolation — queries only return data for the session user (`api.test.ts`)
+- Config validation (`config.test.ts`)
+- Time / timezone math (`time.test.ts`, `timezone.test.ts`, `timezone-bounds.test.ts`)
+- Geo pipeline: Kalman (`kalman.test.ts`), segments (`segments.test.ts`),
+  place-snap (`place-snap.test.ts`), focus-places (`focus-places.test.ts`),
+  biometric enrichment (`biometrics.test.ts`), velocity end-to-end
+  (`velocity.test.ts`)
+- OSM cache mechanics: `osm.test.ts` for query shape, `osm-cache.test.ts`
+  for negative caching, mirror fallback, in-flight dedup, 4s abort path
+- PhoneTrack visualisation-filter prefs (`phonetrack-prefs.test.ts`)
+
+Verify cycle: `nix-shell --run "npx tsc && npm run format && npm run lint && npx vitest run"`.
 
 ## Security checklist
 
@@ -176,8 +222,98 @@ location) is needed, fetch both into memory and join in code. At our
 scale (single-digit users, MBs of data per quarter per user) this is
 fast enough.
 
+## Velocity / "Your Day" pipeline
+
+The dashboard's centerpiece. Per request: take a date + tz, return a
+list of typed segments (stay / walk / cycle / drive / rail / plane)
+with human-readable place / route names and per-segment biometric
+overlays. Owned by `src/geo/velocity.ts`; orchestrates the rest of
+`src/geo/` plus the Nextcloud and DB layers.
+
+```
+fetchTrackPoints (Nextcloud, live)
+       │
+       ▼
+filter to date bounds in user's tz (timezone.ts)
+       │
+       ▼
+snapToPlace ← focus_places (DB)
+       │
+       ▼
+filterGpsTrack (kalman.ts) — gap-aware Kalman
+       │
+       ▼
+classifySegments (segments.ts) — window features → mode score
+       │
+       ▼
+per segment, in parallel:
+   bestPlace / placeLabel / nearbyWays (osm.ts)  ──► osm_cache (DB)
+   enrichSegmentWithBiometrics (biometrics.ts)   ──► fitbit tables (DB)
+       │
+       ▼
+EnrichedSegment[]  →  API response (and Angular timeline UI)
+```
+
+### Caches and their purpose
+
+Three caches sit in front of the slow parts. Each is a *cache*, not a
+source of truth — wiping any of them is safe; the next request rebuilds.
+
+- **`focus_places`** (per-user) — clusters of overnight + frequent
+  presence, computed offline by `refresh-focus-places.ts`. Used by
+  `place-snap` to pull noisy GPS to a stable centroid, and by
+  velocity to short-circuit OSM lookups for Home/Work. Carries a
+  `sleep_hours` signal so any stay at a residential cluster prefers
+  the address over a daytime amenity at the same coords.
+- **`osm_cache`** (global) — keyed Overpass/Nominatim query → response.
+  Stores both successful results and a sentinel `{_err, _at}` for
+  failures, with a TTL so transient 429s and timeouts don't stick.
+  In-flight requests are deduped via a `Map<key, Promise>`.
+- **`place_snap` decisions** — not a DB table; the `snapToPlace`
+  function is pure given `focus_places`.
+
+### Performance and observability
+
+- **Per-step timing.** `computeVelocity` instruments each stage and
+  emits one summary line on completion: `velocity 2026-05-10
+  user=pippijn: total=4200ms phonetrack=820ms loadPlaces=15ms
+  kalman=22ms segments=8ms osm=3100ms biomLoad=180ms biomEnrich=12ms
+  segments=14`. Surfaces which stage dominates without ad-hoc logging.
+- **Request-timing middleware.** Hono middleware logs any request
+  ≥100ms with method, path, status, duration. Quieter than logging
+  everything, surfaces real bottlenecks immediately in `kubectl logs`.
+- **`/health` endpoint.** Bare `GET /health` returns `ok` (k8s
+  liveness friendly). `GET /health?detail=1` returns JSON with DB
+  latency, focus-places count, osm-cache size, last-sync date, and
+  process uptime.
+- **OSM mirror fallback.** Each Overpass call is wrapped in
+  `AbortController` with a 4s timeout. On primary failure or timeout,
+  falls through to the kumi.systems mirror within 4s rather than
+  hanging on the kernel TCP timeout (was minutes before).
+- **HR per-minute aggregation.** Fitbit stores 1-second-resolution
+  HR (~21k rows/day). For segment-level mean/std the per-minute
+  average loses essentially no precision and is ~60× cheaper to
+  load + parse. Done in SQL via Kysely's typed builder with `sql\`...\``
+  for the `GROUP BY DATE_FORMAT(...)` aggregate.
+- **Cached `Intl.DateTimeFormat`.** One formatter per tz, module-level
+  `Map`. Was a 90s+ hot loop hit when called once per Fitbit timestamp.
+
+### Graceful degradation
+
+Built-in: any stage may legitimately have no data and the pipeline
+must keep going. Concretely:
+- No Fitbit data for the day (battery, charger, off-arm) →
+  `loadBiometrics` returns empty arrays → segment biometrics are
+  `null`, frontend hides the badge.
+- OSM unreachable on both mirrors → `bestPlace` returns `null` →
+  segment shows coords or focus_place name only.
+- No PhoneTrack data → empty timeline, dashboard shows the empty
+  state, no error.
+
 ## Future extensions
 
-- PhoneTrack location data via Nextcloud API
-- Correlation analysis (health metrics × location/travel)
-- Google Health API migration (Fitbit API deprecated September 2026)
+- HMM smoothing for state transitions in `segments.ts` (low priority).
+- Altitude-aware features (e.g. distinguish flat walk from stairs).
+- "Patterns" tab — health × location correlations (largest product win).
+- Off-site backup of `health` PVC (tracked under fleet-wide odin work).
+- Google Health API migration (Fitbit API deprecated September 2026).

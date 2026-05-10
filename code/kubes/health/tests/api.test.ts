@@ -26,19 +26,16 @@ vi.mock("../src/db/pool.js", () => {
 			return builder;
 		};
 		builder.orderBy = chain;
+		const filterByUser = (rows: unknown[]): unknown[] =>
+			rows.filter((r) => (r as { user_id?: string }).user_id === capturedUserId);
 		builder.executeTakeFirst = async () => {
 			const rows = mockResults[table] ?? [];
-			if (capturedUserId) {
-				const filtered = rows.filter((r: any) => r.user_id === capturedUserId);
-				return filtered[0] ?? null;
-			}
+			if (capturedUserId) return filterByUser(rows)[0] ?? null;
 			return rows[0] ?? null;
 		};
 		builder.execute = async () => {
 			const rows = mockResults[table] ?? [];
-			if (capturedUserId) {
-				return rows.filter((r: any) => r.user_id === capturedUserId);
-			}
+			if (capturedUserId) return filterByUser(rows);
 			return rows;
 		};
 
@@ -59,8 +56,12 @@ vi.mock("../src/db/pool.js", () => {
 	};
 });
 
-// Import mock setter
-const { __setMockResult: setMockResult } = (await import("../src/db/pool.js")) as any;
+// Import mock setter — the mock factory above adds __setMockResult onto the
+// module's exports; the real module shape doesn't have it, so we cast through
+// the known mock shape.
+const { __setMockResult: setMockResult } = (await import("../src/db/pool.js")) as unknown as {
+	__setMockResult: (table: string, rows: unknown[]) => void;
+};
 
 // Helper: create a Hono app with API routes and optional session
 function createApp(session?: UserSession) {

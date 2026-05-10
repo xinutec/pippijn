@@ -84,10 +84,12 @@ function formatDateInTz(d: Date, tz: string): string {
 		day: "2-digit",
 		timeZone: tz,
 	}).formatToParts(d);
-	const year = parts.find((p) => p.type === "year")!.value;
-	const month = parts.find((p) => p.type === "month")!.value;
-	const day = parts.find((p) => p.type === "day")!.value;
-	return `${year}-${month}-${day}`;
+	const part = (type: "year" | "month" | "day"): string => {
+		const v = parts.find((p) => p.type === type)?.value;
+		if (v === undefined) throw new Error(`Intl.DateTimeFormat returned no ${type} part`);
+		return v;
+	};
+	return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 describe("formatDateInTz", () => {
