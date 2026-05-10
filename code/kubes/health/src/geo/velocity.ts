@@ -4,7 +4,7 @@
  * Used by both the API route and the CLI tool.
  */
 
-import { db } from "../db/pool.js";
+import { db, withConnection } from "../db/pool.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 import {
@@ -39,20 +39,26 @@ async function loadBiometrics(
 	const dayBefore = padDate(startUtc - 86400);
 	const dayAfter = padDate(endUtc + 86400);
 
-	const hrRows = await db()
-		.selectFrom("heart_rate_intraday")
-		.select(["ts", "bpm"])
-		.where("user_id", "=", userId)
-		.where("ts", ">=", dayBefore)
-		.where("ts", "<", dayAfter)
-		.execute();
+	// Per-minute aggregate. Fitbit stores 1-second-resolution HR (~21k rows
+	// per day); for segment-level mean/std the per-minute average loses
+	// essentially no precision and is ~60× cheaper to load + parse.
+	const hrRows = (await withConnection(async (conn) =>
+		conn.query(
+			`SELECT DATE_FORMAT(MIN(ts), '%Y-%m-%d %H:%i:00') AS ts, ROUND(AVG(bpm)) AS bpm
+			 FROM heart_rate_intraday
+			 WHERE user_id = ? AND ts >= ? AND ts < ?
+			 GROUP BY DATE_FORMAT(ts, '%Y-%m-%d %H:%i')
+			 ORDER BY ts`,
+			[userId, dayBefore, dayAfter],
+		),
+	)) as Array<{ ts: string | Date; bpm: number }>;
 
 	const hr: HrPoint[] = [];
 	for (const r of hrRows) {
 		const ts = fitbitTsToUnix(r.ts, tz);
 		if (Number.isNaN(ts)) continue;
 		if (ts < startUtc || ts > endUtc) continue;
-		hr.push({ ts, bpm: r.bpm });
+		hr.push({ ts, bpm: Number(r.bpm) });
 	}
 
 	const sleepRows = await db()
