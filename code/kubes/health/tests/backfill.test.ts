@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backfillStreamDay, shouldAdvanceEmptyStreak } from "../src/backfill.js";
+import { backfillStreamDay, shouldAdvanceEmptyStreak, sortStreamsByCursorRecency } from "../src/backfill.js";
 
 describe("backfillStreamDay", () => {
 	it("returns ok with the synced point count on success", async () => {
@@ -44,5 +44,73 @@ describe("shouldAdvanceEmptyStreak", () => {
 		// failure must NOT count as an empty day, otherwise 14 consecutive
 		// blips silently mark backfill complete and truncate history.
 		expect(shouldAdvanceEmptyStreak({ ok: false, error: new Error("any") })).toBe(false);
+	});
+});
+
+describe("sortStreamsByCursorRecency", () => {
+	const today = "2026-05-10";
+	const stream = (name: string) => ({ name });
+	const names = (streams: Array<{ name: string }>) => streams.map((s) => s.name);
+
+	it("returns the input order when nothing is to be sorted", () => {
+		expect(sortStreamsByCursorRecency([], new Map(), today)).toEqual([]);
+		expect(names(sortStreamsByCursorRecency([stream("a")], new Map(), today))).toEqual(["a"]);
+	});
+
+	it("a freshly-deployed stream (no stored cursor) sorts FIRST", () => {
+		// hr_intraday is deep in 2024; steps_intraday just deployed (no row).
+		// Steps must run before hr to catch up.
+		const cursors = new Map([["hr_intraday", "2024-08-08"]]);
+		const sorted = sortStreamsByCursorRecency([stream("hr_intraday"), stream("steps_intraday")], cursors, today);
+		expect(names(sorted)).toEqual(["steps_intraday", "hr_intraday"]);
+	});
+
+	it("most-recent cursor sorts FIRST when both streams have stored cursors", () => {
+		const cursors = new Map([
+			["hr_intraday", "2024-08-08"],
+			["steps_intraday", "2026-04-01"],
+		]);
+		const sorted = sortStreamsByCursorRecency([stream("hr_intraday"), stream("steps_intraday")], cursors, today);
+		expect(names(sorted)).toEqual(["steps_intraday", "hr_intraday"]);
+	});
+
+	it("identical cursors preserve input order (stable)", () => {
+		const cursors = new Map([
+			["hr_intraday", "2025-01-01"],
+			["steps_intraday", "2025-01-01"],
+		]);
+		const sorted = sortStreamsByCursorRecency([stream("hr_intraday"), stream("steps_intraday")], cursors, today);
+		expect(names(sorted)).toEqual(["hr_intraday", "steps_intraday"]);
+	});
+
+	it("multiple fresh streams (no cursor) preserve input order among themselves", () => {
+		// Both new → both fall back to today → tie → stable.
+		const sorted = sortStreamsByCursorRecency([stream("hrv"), stream("steps")], new Map(), today);
+		expect(names(sorted)).toEqual(["hrv", "steps"]);
+	});
+
+	it("orders three streams correctly across all states (fresh / recent / old)", () => {
+		const cursors = new Map([
+			["hr_intraday", "2024-08-08"],
+			["steps_intraday", "2025-12-01"],
+			// "hrv_intraday" missing → fallback today
+		]);
+		const sorted = sortStreamsByCursorRecency(
+			[stream("hr_intraday"), stream("steps_intraday"), stream("hrv_intraday")],
+			cursors,
+			today,
+		);
+		// Order: hrv (today, freshest) → steps (2025-12-01) → hr (2024-08-08)
+		expect(names(sorted)).toEqual(["hrv_intraday", "steps_intraday", "hr_intraday"]);
+	});
+
+	it("does not mutate the input array", () => {
+		const input = [stream("a"), stream("b")];
+		const cursors = new Map([
+			["a", "2024-01-01"],
+			["b", "2025-01-01"],
+		]);
+		sortStreamsByCursorRecency(input, cursors, today);
+		expect(names(input)).toEqual(["a", "b"]);
 	});
 });

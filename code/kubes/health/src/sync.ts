@@ -1,4 +1,9 @@
-import { backfillStreamDay, type IntradayStream, shouldAdvanceEmptyStreak } from "./backfill.js";
+import {
+	backfillStreamDay,
+	type IntradayStream,
+	shouldAdvanceEmptyStreak,
+	sortStreamsByCursorRecency,
+} from "./backfill.js";
 import { loadSyncConfig } from "./config.js";
 import { db, destroyPool, initPool, withConnection } from "./db/pool.js";
 import { migrate } from "./db/schema.js";
@@ -71,25 +76,19 @@ async function migrateLegacyBackfillKeys(userId: string): Promise<void> {
 	}
 }
 
-/** Sort streams by cursor recency, descending. Streams whose cursor is
- *  most recent (or absent — a brand-new stream that hasn'\''t backfilled
- *  yet) come first, so a deeply-backfilled stream can'\''t monopolise the
- *  rate-limit budget while a newer stream waits months to even start. */
+/** Wrapper around the pure sortStreamsByCursorRecency helper: fetches each
+ *  stream'\''s stored cursor from sync_state and feeds it into the sort. */
 async function orderStreamsByCursorRecency(
 	userId: string,
 	streams: IntradayStream[],
 	defaultStartDate: string,
 ): Promise<IntradayStream[]> {
-	const withCursors = await Promise.all(
-		streams.map(async (s) => {
-			const stored = await getSyncState(userId, `backfill_${s.name}_cursor`);
-			// Absent cursor → use defaultStartDate (typically today). That
-			// makes a brand-new stream sort to the front.
-			return { stream: s, cursor: stored ?? defaultStartDate };
-		}),
-	);
-	withCursors.sort((a, b) => b.cursor.localeCompare(a.cursor));
-	return withCursors.map(({ stream }) => stream);
+	const cursors = new Map<string, string>();
+	for (const s of streams) {
+		const stored = await getSyncState(userId, `backfill_${s.name}_cursor`);
+		if (stored !== null) cursors.set(s.name, stored);
+	}
+	return sortStreamsByCursorRecency(streams, cursors, defaultStartDate);
 }
 
 /** Walk one stream backwards from its stored cursor, fetching one day per

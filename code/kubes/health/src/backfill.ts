@@ -71,3 +71,30 @@ export interface IntradayStream {
 	/** Consecutive empty days that mark the stream complete. Default 14. */
 	maxEmptyDays?: number;
 }
+
+/**
+ * Sort streams by cursor recency descending: a brand-new stream (cursor
+ * absent → uses fallback, typically today) goes first, followed by the
+ * stream whose cursor is most recently dated. Lets a newly-deployed
+ * stream catch up to the rest of the fleet before the deeper-backfilling
+ * streams resume — otherwise HR mid-2024-backfill could starve Steps for
+ * many cron runs.
+ *
+ * Pure: the caller passes in already-resolved cursors as a map keyed by
+ * `stream.name`. Stable: streams with the same effective cursor preserve
+ * their input order.
+ *
+ * Date strings are compared lexicographically — works because the
+ * format is YYYY-MM-DD throughout the codebase.
+ */
+export function sortStreamsByCursorRecency<T extends { name: string }>(
+	streams: T[],
+	cursors: Map<string, string>,
+	fallback: string,
+): T[] {
+	return [...streams].sort((a, b) => {
+		const ca = cursors.get(a.name) ?? fallback;
+		const cb = cursors.get(b.name) ?? fallback;
+		return cb.localeCompare(ca);
+	});
+}
