@@ -40,14 +40,21 @@ export async function computeVelocity(
 
 	const bounds = dateBoundsUtc(date, tz);
 	const raw = await fetchTrackPoints(config, userId, date, nextDay);
+	const inDay = raw.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc);
 
-	const gpsPoints = raw
-		.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc)
+	// Tight filter (≤50m) for movement classification — Kalman-quality data only.
+	const gpsPoints = inDay
 		.filter((p) => p.accuracy === null || p.accuracy <= 50)
 		.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon, accuracy: p.accuracy }));
 
+	// Loose filter (≤200m) for stay detection — indoor GPS often degrades
+	// well past 50m but is still good enough to know you were "around here".
+	const stayPoints = inDay
+		.filter((p) => p.accuracy === null || p.accuracy <= 200)
+		.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon }));
+
 	const points = filterGpsTrack(gpsPoints);
-	const segments = classifySegments(points);
+	const segments = classifySegments(points, stayPoints);
 
 	if (options.enrich === false) {
 		return { points, segments };
@@ -76,9 +83,7 @@ export async function computeVelocity(
 				const sampleIdxs = Array.from({ length: sampleCount }, (_, i) =>
 					Math.floor((i * (segPoints.length - 1)) / Math.max(1, sampleCount - 1)),
 				);
-				const wayResults = await Promise.all(
-					sampleIdxs.map((i) => nearbyWays(segPoints[i].lat, segPoints[i].lon)),
-				);
+				const wayResults = await Promise.all(sampleIdxs.map((i) => nearbyWays(segPoints[i].lat, segPoints[i].lon)));
 				const seen = new Set<string>();
 				const aggregated = [];
 				for (const ways of wayResults) {
