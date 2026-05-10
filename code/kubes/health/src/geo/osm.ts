@@ -289,7 +289,14 @@ export async function bestPlace(
 
 	const landmarks = await nearbyLandmarks(lat, lon, 100);
 	if (landmarks.length > 0) {
-		return landmarkToResult(pickBestLandmark(landmarks));
+		// Carry over the Nominatim address (city, road, etc.) so the
+		// timeline UI can group by city even when the place name comes
+		// from an Overpass landmark rather than the address itself.
+		const result = landmarkToResult(pickBestLandmark(landmarks));
+		if (detailed) {
+			result.address = { ...detailed.address, ...result.address };
+		}
+		return result;
 	}
 
 	// No specific venue and no nearby landmark — fall back to the address if we have one
