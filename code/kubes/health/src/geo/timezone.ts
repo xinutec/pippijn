@@ -6,6 +6,21 @@
  * corresponds to midnight-to-midnight in their timezone.
  */
 
+// Used by API routes to reject bad `tz` query parameters with a clean 400
+// before the value reaches code that crashes deep in Intl. We can't use
+// `Intl.supportedValuesOf("timeZone")` because that excludes legacy aliases
+// like "UTC" which the rest of the system happily accepts. Instead, ask
+// Intl directly: it throws RangeError for any string it doesn't recognise,
+// and the constructor cost is small enough that we don't bother caching.
+export function isValidTimezone(tz: string): boolean {
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: tz });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /**
  * Get UTC unix timestamps for the start and end of a date in a given timezone.
  *

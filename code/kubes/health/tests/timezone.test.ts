@@ -1,4 +1,28 @@
 import { describe, expect, it } from "vitest";
+import { isValidTimezone } from "../src/geo/timezone.js";
+
+describe("isValidTimezone", () => {
+	it("accepts well-known IANA names", () => {
+		expect(isValidTimezone("Europe/Amsterdam")).toBe(true);
+		expect(isValidTimezone("America/New_York")).toBe(true);
+		expect(isValidTimezone("UTC")).toBe(true);
+	});
+
+	it("rejects clearly invalid strings", () => {
+		expect(isValidTimezone("Not/A/Real/Zone")).toBe(false);
+		expect(isValidTimezone("")).toBe(false);
+		expect(isValidTimezone("zzz")).toBe(false);
+		expect(isValidTimezone("../etc/passwd")).toBe(false);
+	});
+
+	it("matches whatever Intl.DateTimeFormat would accept", () => {
+		// We deliberately delegate to Intl so the validator and the
+		// downstream consumers (formatToParts etc.) agree. Both case
+		// variants and offset strings are Intl-acceptable.
+		expect(isValidTimezone("europe/amsterdam")).toBe(true);
+		expect(isValidTimezone("+02:00")).toBe(true);
+	});
+});
 
 /**
  * PhoneTrack stores timestamps as unix epoch but the values represent

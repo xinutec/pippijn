@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
+import { isValidTimezone } from "../geo/timezone.js";
 import { computeVelocity } from "../geo/velocity.js";
 import { requireAuth } from "../middleware/auth.js";
 import { NextcloudClient } from "../nextcloud/client.js";
@@ -24,7 +25,7 @@ const dateParam = z
 	.string()
 	.regex(/^\d{4}-\d{2}-\d{2}$/)
 	.default(() => new Date().toISOString().slice(0, 10));
-const tzParam = z.string().optional();
+const tzParam = z.string().refine(isValidTimezone, { message: "Invalid IANA timezone" }).optional();
 
 function nextDay(date: string): string {
 	const d = new Date(date);
