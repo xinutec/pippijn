@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { type NearbyWay, type NominatimResult, placeLabel, refineMode } from "../src/geo/osm.js";
+import {
+	landmarkToResult,
+	type NearbyLandmark,
+	type NearbyWay,
+	type NominatimResult,
+	pickBestLandmark,
+	placeLabel,
+	refineMode,
+} from "../src/geo/osm.js";
 
 describe("placeLabel", () => {
 	it("uses amenity name when available", () => {
@@ -81,6 +89,52 @@ describe("placeLabel", () => {
 			address: { pedestrian: "Plein 1944", neighbourhood: "Stadscentrum" },
 		};
 		expect(placeLabel(r)).toBe("Plein 1944 (square)");
+	});
+});
+
+describe("pickBestLandmark", () => {
+	it("prefers amenity over place at the same distance", () => {
+		const landmarks: NearbyLandmark[] = [
+			{ name: "Plein 1944", type: "place", subtype: "square", distanceM: 50 },
+			{ name: "Brasserie Vermeer", type: "amenity", subtype: "restaurant", distanceM: 50 },
+		];
+		const best = pickBestLandmark(landmarks);
+		expect(best.name).toBe("Brasserie Vermeer");
+	});
+
+	it("falls back to closest among same priority", () => {
+		const landmarks: NearbyLandmark[] = [
+			{ name: "Far Cafe", type: "amenity", subtype: "cafe", distanceM: 90 },
+			{ name: "Near Restaurant", type: "amenity", subtype: "restaurant", distanceM: 20 },
+		];
+		const best = pickBestLandmark(landmarks);
+		expect(best.name).toBe("Near Restaurant");
+	});
+
+	it("picks the named pedestrian square when nothing else available", () => {
+		const landmarks: NearbyLandmark[] = [{ name: "Plein 1944", type: "highway", subtype: "pedestrian", distanceM: 80 }];
+		const best = pickBestLandmark(landmarks);
+		expect(best.name).toBe("Plein 1944");
+	});
+});
+
+describe("landmarkToResult", () => {
+	it("maps amenity into NominatimResult.address.amenity", () => {
+		const r = landmarkToResult({ name: "Cafe X", type: "amenity", subtype: "cafe", distanceM: 10 });
+		expect(r.address.amenity).toBe("Cafe X");
+		expect(placeLabel(r)).toBe("Cafe X (cafe)");
+	});
+
+	it("maps named pedestrian area into address.pedestrian", () => {
+		const r = landmarkToResult({ name: "Plein 1944", type: "highway", subtype: "pedestrian", distanceM: 50 });
+		expect(r.address.pedestrian).toBe("Plein 1944");
+		expect(placeLabel(r)).toBe("Plein 1944 (pedestrian)");
+	});
+
+	it("maps place=square into pedestrian (treated like a named open area)", () => {
+		const r = landmarkToResult({ name: "Dam", type: "place", subtype: "square", distanceM: 30 });
+		expect(r.address.pedestrian).toBe("Dam");
+		expect(placeLabel(r)).toBe("Dam (square)");
 	});
 });
 

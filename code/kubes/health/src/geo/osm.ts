@@ -111,16 +111,28 @@ export async function reverseGeocode(lat: number, lon: number, zoom = 18): Promi
 }
 
 /**
- * Look up a stationary place. Tries building-level (zoom 18) first; if the
- * result is just a residential address with no specific venue, falls back to
- * area-level (zoom 16) to catch landmarks like squares, parks, plazas.
+ * Look up a stationary place. Strategy:
+ *
+ * 1. Detailed building-level Nominatim (zoom 18) — catches venues with addresses
+ *    (Brasserie Vermeer, Hotel X). Use it directly if it returns a specific venue.
+ * 2. If the building lookup is just a residential address, query Overpass for
+ *    named landmarks (amenity/tourism/leisure/shop/place/named pedestrian area)
+ *    within 100 m. The GPS centroid often lands on a residential building next
+ *    door to a square/park/plaza; this surfaces the landmark instead.
+ * 3. Area-level Nominatim (zoom 16) as a softer fallback for places where the
+ *    landmark is only known to Nominatim.
+ * 4. Last resort: return the residential address from step 1.
  */
 export async function bestPlace(lat: number, lon: number): Promise<NominatimResult | null> {
 	const detailed = await reverseGeocode(lat, lon, 18);
 	if (detailed && hasSpecificVenue(detailed)) return detailed;
 
+	const landmarks = await nearbyLandmarks(lat, lon, 100);
+	if (landmarks.length > 0) {
+		return landmarkToResult(pickBestLandmark(landmarks));
+	}
+
 	const area = await reverseGeocode(lat, lon, 16);
-	// Prefer the area lookup only if it actually adds information
 	if (area && (hasSpecificVenue(area) || isLandmark(area))) return area;
 	return detailed ?? area;
 }
@@ -133,6 +145,129 @@ function hasSpecificVenue(r: NominatimResult): boolean {
 function isLandmark(r: NominatimResult): boolean {
 	// Squares, parks, plazas, named pedestrian areas — useful even without a venue
 	return r.category === "place" || r.category === "leisure" || !!r.address.pedestrian;
+}
+
+// --- Overpass: nearby named landmarks ---
+
+export interface NearbyLandmark {
+	name: string;
+	type: "amenity" | "tourism" | "leisure" | "shop" | "place" | "highway";
+	subtype: string; // "restaurant", "park", "square", "pedestrian", etc.
+	distanceM: number;
+}
+
+const LANDMARK_PRIORITY: Record<NearbyLandmark["type"], number> = {
+	amenity: 5,
+	tourism: 5,
+	shop: 4,
+	leisure: 4,
+	place: 3,
+	highway: 1,
+};
+
+export function pickBestLandmark(landmarks: NearbyLandmark[]): NearbyLandmark {
+	return [...landmarks].sort((a, b) => {
+		const pa = LANDMARK_PRIORITY[a.type];
+		const pb = LANDMARK_PRIORITY[b.type];
+		if (pa !== pb) return pb - pa;
+		return a.distanceM - b.distanceM;
+	})[0];
+}
+
+export function landmarkToResult(l: NearbyLandmark): NominatimResult {
+	const address: NominatimResult["address"] = {};
+	if (l.type === "amenity") address.amenity = l.name;
+	else if (l.type === "tourism") address.tourism = l.name;
+	else if (l.type === "leisure") address.leisure = l.name;
+	else if (l.type === "shop") address.shop = l.name;
+	else address.pedestrian = l.name; // place, highway=pedestrian
+	return {
+		displayName: l.name,
+		type: l.subtype,
+		category: l.type,
+		address,
+	};
+}
+
+function landmarkHaversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+	const R = 6371000;
+	const dLat = ((lat2 - lat1) * Math.PI) / 180;
+	const dLon = ((lon2 - lon1) * Math.PI) / 180;
+	const a =
+		Math.sin(dLat / 2) ** 2 +
+		Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+interface OverpassElement {
+	lat?: number;
+	lon?: number;
+	center?: { lat: number; lon: number };
+	tags?: Record<string, string>;
+}
+
+/**
+ * Find named landmarks (squares, parks, restaurants, museums, etc.) near a
+ * point. Used to label stationary stays when the centroid lands on a generic
+ * residential building adjacent to the actual landmark.
+ */
+export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): Promise<NearbyLandmark[]> {
+	const cacheType = `landmarks_r${radiusM}`;
+	const cached = await cacheGet<NearbyLandmark[]>(cacheType, lat, lon);
+	if (cached !== undefined) return cached;
+
+	const query = `
+		[out:json][timeout:10];
+		(
+			node(around:${radiusM},${lat},${lon})[name][amenity];
+			node(around:${radiusM},${lat},${lon})[name][tourism];
+			node(around:${radiusM},${lat},${lon})[name][leisure];
+			node(around:${radiusM},${lat},${lon})[name][shop];
+			way(around:${radiusM},${lat},${lon})[name][amenity];
+			way(around:${radiusM},${lat},${lon})[name][tourism];
+			way(around:${radiusM},${lat},${lon})[name][leisure];
+			way(around:${radiusM},${lat},${lon})[name][shop];
+			way(around:${radiusM},${lat},${lon})[name][place];
+			way(around:${radiusM},${lat},${lon})[name][highway=pedestrian];
+			relation(around:${radiusM},${lat},${lon})[name][place];
+		);
+		out tags center;
+	`;
+
+	const res = await fetch(OVERPASS_URL, {
+		method: "POST",
+		headers: { "Content-Type": "text/plain", "User-Agent": USER_AGENT },
+		body: query,
+	});
+
+	if (!res.ok) {
+		console.warn(`Overpass landmarks returned ${res.status} for ${lat},${lon}`);
+		return [];
+	}
+
+	const data = (await res.json()) as { elements?: OverpassElement[] };
+	const landmarks: NearbyLandmark[] = [];
+	for (const el of data.elements ?? []) {
+		const tags = el.tags ?? {};
+		const name = tags.name;
+		if (!name) continue;
+
+		const elLat = el.lat ?? el.center?.lat;
+		const elLon = el.lon ?? el.center?.lon;
+		if (elLat === undefined || elLon === undefined) continue;
+		const distanceM = landmarkHaversine(lat, lon, elLat, elLon);
+
+		for (const k of ["amenity", "tourism", "leisure", "shop", "place"] as const) {
+			if (tags[k]) landmarks.push({ name, type: k, subtype: tags[k], distanceM });
+		}
+		if (tags.highway === "pedestrian") {
+			landmarks.push({ name, type: "highway", subtype: "pedestrian", distanceM });
+		}
+	}
+
+	landmarks.sort((a, b) => a.distanceM - b.distanceM);
+	await cacheSet(cacheType, lat, lon, landmarks);
+	return landmarks;
 }
 
 /**
@@ -255,9 +390,7 @@ export function refineMode(originalMode: string, speedKmh: number, ways: NearbyW
 	// Major highways present? Roads vastly outnumber rails — when both match,
 	// the user is more likely on the road. Used both as a tie-break and as
 	// rebuttal evidence against a classifier "train" call below.
-	const majorHighways = highways.filter((h) =>
-		["motorway", "trunk", "primary", "secondary"].includes(h.subtype),
-	);
+	const majorHighways = highways.filter((h) => ["motorway", "trunk", "primary", "secondary"].includes(h.subtype));
 
 	// Railway → train, but only when no major highway is also present.
 	// Without this guard the Betuweroute (rail running parallel to A15) would
@@ -303,9 +436,7 @@ export function refineMode(originalMode: string, speedKmh: number, ways: NearbyW
 	}
 
 	// On a navigable waterway → boat. Excludes drains, ditches, streams (too small).
-	const navigableWaterways = waterways.filter((w) =>
-		["river", "canal", "fairway"].includes(w.subtype),
-	);
+	const navigableWaterways = waterways.filter((w) => ["river", "canal", "fairway"].includes(w.subtype));
 	if (navigableWaterways.length > 0 && speedKmh > 3 && speedKmh < 50) {
 		const ww = navigableWaterways[0];
 		return { mode: "boat", confidence: "medium", reason: `on ${ww.subtype}`, wayName: ww.name };
