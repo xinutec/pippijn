@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { TransportMode } from "../src/geo/segments.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
 import { composeWayName, mergeAdjacentMoving, mergeAdjacentStays } from "../src/geo/velocity.js";
 
@@ -108,7 +109,13 @@ describe("mergeAdjacentStays", () => {
 function driving(
 	startTs: number,
 	endTs: number,
-	opts: { wayName?: string; refinedMode?: string; mode?: string; avgSpeed?: number; maxSpeed?: number } = {},
+	opts: {
+		wayName?: string;
+		refinedMode?: TransportMode;
+		mode?: TransportMode;
+		avgSpeed?: number;
+		maxSpeed?: number;
+	} = {},
 ): EnrichedSegment {
 	return {
 		startTs,

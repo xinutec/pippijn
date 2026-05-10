@@ -112,11 +112,14 @@ describe("clusterStays", () => {
 		// clustering creates one cluster whose centroid moves between them.
 		// A fourth stay then ties two of those drifted-apart clusters together.
 		// Set up: three stays at lat 0, 0+25m, 0+50m, 0+75m east.
+		const off60 = offset(HOME_LAT, HOME_LON, 0, 60);
+		const off120 = offset(HOME_LAT, HOME_LON, 0, 120);
+		const off80 = offset(HOME_LAT, HOME_LON, 0, 80);
 		const stays: Stay[] = [
 			stay(0, 9, HOME_LAT, HOME_LON),
-			stay(1, 9, ...Object.values(offset(HOME_LAT, HOME_LON, 0, 60))),
-			stay(2, 9, ...Object.values(offset(HOME_LAT, HOME_LON, 0, 120))),
-			stay(3, 9, ...Object.values(offset(HOME_LAT, HOME_LON, 0, 80))),
+			stay(1, 9, off60.lat, off60.lon),
+			stay(2, 9, off120.lat, off120.lon),
+			stay(3, 9, off80.lat, off80.lon),
 		];
 		const clusters = clusterStays(stays);
 		// All four should land in one cluster after merging

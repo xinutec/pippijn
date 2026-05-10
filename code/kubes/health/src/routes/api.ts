@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import type { Config } from "../config.js";
 import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
 import { computeVelocity } from "../geo/velocity.js";
@@ -8,6 +7,17 @@ import { requireAuth } from "../middleware/auth.js";
 import { NextcloudClient } from "../nextcloud/client.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 import { buildPhoneTrackFilterValues, computePhoneTrackDatemin } from "../nextcloud/phonetrack-prefs.js";
+
+/** Subset of the full Config that the API routes actually need. Narrowing
+ *  the type here keeps test stubs minimal and surfaces dependency drift
+ *  (any new field used by these routes shows up as a type error here). */
+export interface ApiRoutesConfig {
+	nextcloud: {
+		baseUrl: string;
+		clientId: string;
+		clientSecret: string;
+	};
+}
 
 const daysParam = z.coerce.number().int().min(1).max(365).default(30);
 const dateParam = z
@@ -28,7 +38,7 @@ function sinceDate(days: number): string {
 	return d.toISOString().slice(0, 10);
 }
 
-export function apiRoutes(config: Config): Hono<AppEnv> {
+export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 	const app = new Hono<AppEnv>();
 
 	app.use("/*", requireAuth);

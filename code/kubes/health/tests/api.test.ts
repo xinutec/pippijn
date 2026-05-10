@@ -1,8 +1,16 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { AppEnv } from "../src/env.js";
-import { apiRoutes } from "../src/routes/api.js";
+import { type ApiRoutesConfig, apiRoutes } from "../src/routes/api.js";
 import type { UserSession } from "../src/types.js";
+
+const TEST_CONFIG: ApiRoutesConfig = {
+	nextcloud: {
+		baseUrl: "https://nextcloud.test",
+		clientId: "test-client-id",
+		clientSecret: "test-client-secret",
+	},
+};
 
 // Mock the DB pool module — intercept all Kysely queries
 vi.mock("../src/db/pool.js", () => {
@@ -75,7 +83,7 @@ function createApp(session?: UserSession) {
 		});
 	}
 
-	app.route("/api", apiRoutes());
+	app.route("/api", apiRoutes(TEST_CONFIG));
 	return app;
 }
 
