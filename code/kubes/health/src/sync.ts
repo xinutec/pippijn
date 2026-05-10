@@ -71,6 +71,27 @@ async function migrateLegacyBackfillKeys(userId: string): Promise<void> {
 	}
 }
 
+/** Sort streams by cursor recency, descending. Streams whose cursor is
+ *  most recent (or absent — a brand-new stream that hasn'\''t backfilled
+ *  yet) come first, so a deeply-backfilled stream can'\''t monopolise the
+ *  rate-limit budget while a newer stream waits months to even start. */
+async function orderStreamsByCursorRecency(
+	userId: string,
+	streams: IntradayStream[],
+	defaultStartDate: string,
+): Promise<IntradayStream[]> {
+	const withCursors = await Promise.all(
+		streams.map(async (s) => {
+			const stored = await getSyncState(userId, `backfill_${s.name}_cursor`);
+			// Absent cursor → use defaultStartDate (typically today). That
+			// makes a brand-new stream sort to the front.
+			return { stream: s, cursor: stored ?? defaultStartDate };
+		}),
+	);
+	withCursors.sort((a, b) => b.cursor.localeCompare(a.cursor));
+	return withCursors.map(({ stream }) => stream);
+}
+
 /** Walk one stream backwards from its stored cursor, fetching one day per
  *  iteration, until the rate-limit budget is gone or we hit the empty-day
  *  threshold (stream complete). Each stream is independent — HR'\''s
@@ -261,7 +282,12 @@ for (const user of users) {
 				},
 			};
 
-			for (const stream of [hrStream, stepsStream]) {
+			// Priority: stream with the most recent cursor goes first. A
+			// freshly-deployed stream (cursor still at today) gets the rate
+			// budget before an older stream that has been digging through 2024
+			// — otherwise HR'\''s deep backfill could starve Steps for hours.
+			const ordered = await orderStreamsByCursorRecency(user.user_id, [hrStream, stepsStream], lastSyncDate);
+			for (const stream of ordered) {
 				await runIntradayBackfill(client, user.user_id, stream, lastSyncDate);
 			}
 		});
