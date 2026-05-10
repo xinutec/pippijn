@@ -183,11 +183,31 @@ export interface NominatimResult {
 		pedestrian?: string; // square / pedestrian street name
 		neighbourhood?: string;
 		suburb?: string;
+		// City-like fields. Nominatim picks one of these based on the place's
+		// administrative classification + population, so we have to check all.
 		city?: string;
+		town?: string;
+		village?: string;
+		municipality?: string;
 		state?: string;
 		country?: string;
 		postcode?: string;
 	};
+}
+
+/**
+ * Pick the best "city" name from a Nominatim result. Nominatim returns one of
+ * `city`, `town`, `village`, `municipality` depending on a place's admin
+ * level + population, so we walk them in preference order. Returns null when
+ * the result is null or none of those fields are present.
+ *
+ * Used to attach a `city` to stationary segments so the timeline UI can group
+ * consecutive same-city segments under one heading.
+ */
+export function extractCity(result: NominatimResult | null): string | null {
+	if (!result) return null;
+	const a = result.address;
+	return a.city ?? a.town ?? a.village ?? a.municipality ?? null;
 }
 
 interface NominatimResponse {

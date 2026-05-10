@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	extractCity,
 	filterLandmarks,
 	landmarkToResult,
 	type NearbyLandmark,
@@ -9,6 +10,48 @@ import {
 	placeLabel,
 	refineMode,
 } from "../src/geo/osm.js";
+
+describe("extractCity", () => {
+	const baseResult = {
+		displayName: "x",
+		type: "y",
+		category: "z",
+	};
+
+	it("returns the city field when present", () => {
+		const r: NominatimResult = { ...baseResult, address: { city: "Amsterdam" } };
+		expect(extractCity(r)).toBe("Amsterdam");
+	});
+
+	it("falls back to town when no city is set", () => {
+		const r: NominatimResult = { ...baseResult, address: { town: "Hilversum" } };
+		expect(extractCity(r)).toBe("Hilversum");
+	});
+
+	it("falls back to village when no city or town is set", () => {
+		const r: NominatimResult = { ...baseResult, address: { village: "Beek" } };
+		expect(extractCity(r)).toBe("Beek");
+	});
+
+	it("falls back to municipality when no city/town/village", () => {
+		const r: NominatimResult = { ...baseResult, address: { municipality: "Rotterdam-Rijnmond" } };
+		expect(extractCity(r)).toBe("Rotterdam-Rijnmond");
+	});
+
+	it("prefers city over town when both are set", () => {
+		const r: NominatimResult = { ...baseResult, address: { city: "Amsterdam", town: "Diemen" } };
+		expect(extractCity(r)).toBe("Amsterdam");
+	});
+
+	it("returns null for an empty address", () => {
+		const r: NominatimResult = { ...baseResult, address: {} };
+		expect(extractCity(r)).toBeNull();
+	});
+
+	it("returns null for a null result", () => {
+		expect(extractCity(null)).toBeNull();
+	});
+});
 
 describe("placeLabel", () => {
 	it("uses amenity name when available", () => {

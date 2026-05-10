@@ -4,80 +4,100 @@ import { MatIconModule } from "@angular/material/icon";
 import type { TrackSegment, VelocityData } from "../../services/health.service";
 
 interface TimelineEntry {
-	startLabel: string;
-	endLabel: string;
-	durationLabel: string;
-	mode: string;
-	icon: string;
-	primary: string; // main label (place name or "Walking 4.2 km/h")
-	secondary?: string; // additional context
+  startLabel: string;
+  endLabel: string;
+  durationLabel: string;
+  mode: string;
+  icon: string;
+  primary: string; // main label (place name or "Walking 4.2 km/h")
+  secondary?: string; // additional context
 }
 
+type TimelineRow = { kind: "city"; city: string } | { kind: "entry"; entry: TimelineEntry };
+
 const MODE_ICONS: Record<string, string> = {
-	stationary: "place",
-	walking: "directions_walk",
-	cycling: "directions_bike",
-	driving: "directions_car",
-	train: "train",
-	plane: "flight",
-	boat: "directions_boat",
+  stationary: "place",
+  walking: "directions_walk",
+  cycling: "directions_bike",
+  driving: "directions_car",
+  train: "train",
+  plane: "flight",
+  boat: "directions_boat",
 };
 
 @Component({
-	selector: "app-timeline",
-	standalone: true,
-	imports: [MatCardModule, MatIconModule],
-	templateUrl: "./timeline.component.html",
-	styleUrl: "./timeline.component.scss",
+  selector: "app-timeline",
+  standalone: true,
+  imports: [MatCardModule, MatIconModule],
+  templateUrl: "./timeline.component.html",
+  styleUrl: "./timeline.component.scss",
 })
 export class TimelineComponent {
-	readonly data = input<VelocityData | null>(null);
+  readonly data = input<VelocityData | null>(null);
 
-	readonly entries = computed<TimelineEntry[]>(() => {
-		const v = this.data();
-		if (!v?.segments?.length) return [];
-		return v.segments.map((s) => this.toEntry(s));
-	});
+  readonly rows = computed<TimelineRow[]>(() => {
+    const v = this.data();
+    if (!v?.segments?.length) return [];
+    return this.buildRows(v.segments);
+  });
 
-	private toEntry(s: TrackSegment): TimelineEntry {
-		const mode = s.refinedMode ?? s.mode;
-		const icon = MODE_ICONS[mode] ?? "place";
+  /** Walk the segments in order. Emit a city header whenever the city changes
+   *  on a stationary segment; moving segments don't carry city and don't break
+   *  a run (so a city header keeps applying through driving between two stops
+   *  in the same city — but a drive *between* two cities sits between two
+   *  separate headers and reads as a transit). */
+  private buildRows(segments: TrackSegment[]): TimelineRow[] {
+    const rows: TimelineRow[] = [];
+    let lastCity: string | null = null;
+    for (const s of segments) {
+      if (s.city && s.city !== lastCity) {
+        rows.push({ kind: "city", city: s.city });
+        lastCity = s.city;
+      }
+      rows.push({ kind: "entry", entry: this.toEntry(s) });
+    }
+    return rows;
+  }
 
-		const startLabel = this.formatTime(s.startTs);
-		const endLabel = this.formatTime(s.endTs);
-		const durationLabel = this.formatDuration(s.endTs - s.startTs);
+  private toEntry(s: TrackSegment): TimelineEntry {
+    const mode = s.refinedMode ?? s.mode;
+    const icon = MODE_ICONS[mode] ?? "place";
 
-		let primary: string;
-		let secondary: string | undefined;
+    const startLabel = this.formatTime(s.startTs);
+    const endLabel = this.formatTime(s.endTs);
+    const durationLabel = this.formatDuration(s.endTs - s.startTs);
 
-		if (mode === "stationary") {
-			primary = s.place ?? "Stopped";
-			secondary = `${durationLabel} stationary`;
-		} else {
-			const verb = mode.charAt(0).toUpperCase() + mode.slice(1);
-			primary = `${verb} · ${s.avgSpeed} km/h`;
-			if (s.wayName) {
-				secondary = `On ${s.wayName} · ${durationLabel}`;
-			} else if (s.refinedReason) {
-				secondary = `${s.refinedReason} · ${durationLabel}`;
-			} else {
-				secondary = `${durationLabel} · max ${s.maxSpeed} km/h`;
-			}
-		}
+    let primary: string;
+    let secondary: string | undefined;
 
-		return { startLabel, endLabel, durationLabel, mode, icon, primary, secondary };
-	}
+    if (mode === "stationary") {
+      primary = s.place ?? "Stopped";
+      secondary = `${durationLabel} stationary`;
+    } else {
+      const verb = mode.charAt(0).toUpperCase() + mode.slice(1);
+      primary = `${verb} · ${s.avgSpeed} km/h`;
+      if (s.wayName) {
+        secondary = `On ${s.wayName} · ${durationLabel}`;
+      } else if (s.refinedReason) {
+        secondary = `${s.refinedReason} · ${durationLabel}`;
+      } else {
+        secondary = `${durationLabel} · max ${s.maxSpeed} km/h`;
+      }
+    }
 
-	private formatTime(unixTs: number): string {
-		const d = new Date(unixTs * 1000);
-		return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
-	}
+    return { startLabel, endLabel, durationLabel, mode, icon, primary, secondary };
+  }
 
-	private formatDuration(seconds: number): string {
-		const mins = Math.round(seconds / 60);
-		if (mins < 60) return `${mins}m`;
-		const hours = Math.floor(mins / 60);
-		const rem = mins % 60;
-		return rem === 0 ? `${hours}h` : `${hours}h ${rem}m`;
-	}
+  private formatTime(unixTs: number): string {
+    const d = new Date(unixTs * 1000);
+    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+  }
+
+  private formatDuration(seconds: number): string {
+    const mins = Math.round(seconds / 60);
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return rem === 0 ? `${hours}h` : `${hours}h ${rem}m`;
+  }
 }

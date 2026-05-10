@@ -79,3 +79,31 @@
 .mode-stationary .dot {
   color: #94a3b8;
 }
+
+.city-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0 8px 56px;
+  margin-top: 4px;
+
+  .city-icon {
+    color: #c4b5fd;
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+
+  .city-name {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.7);
+  }
+}
+
+/* Tighten spacing when a city header sits right above the first entry */
+.city-header + .entry {
+  padding-top: 0;
+}

@@ -59,6 +59,7 @@ export interface TrackSegment {
   pointCount: number;
   // OSM enrichment (optional, may not be present if Nominatim/Overpass failed)
   place?: string;
+  city?: string; // city/town/village (stationary segments) — used to group consecutive same-city entries
   wayName?: string;
   refinedMode?: string;
   refinedReason?: string;

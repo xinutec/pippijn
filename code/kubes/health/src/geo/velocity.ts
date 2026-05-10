@@ -17,7 +17,7 @@ import {
 import { localSolarHour } from "./focus-places.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
-import { bestPlace, nearbyWays, placeLabel, refineMode } from "./osm.js";
+import { bestPlace, extractCity, nearbyWays, placeLabel, refineMode } from "./osm.js";
 import { type KnownPlace, snapToPlace } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments } from "./segments.js";
@@ -124,6 +124,7 @@ async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 
 export interface EnrichedSegment extends TrackSegment {
 	place?: string; // human-readable place name (for stationary segments)
+	city?: string; // city/town/village (for stationary segments) — frontend groups consecutive same-city segments
 	wayName?: string; // road/rail name (for moving segments)
 	refinedMode?: string; // OSM-refined transport mode (may differ from heuristic mode)
 	refinedReason?: string;
@@ -230,7 +231,15 @@ export async function computeVelocity(
 							// "Stay" is a category, not a useful timeline label, so for Stay
 							// we let bestPlace return the residential address instead.
 							if (snappedTo?.displayName === "Home" || snappedTo?.displayName === "Work") {
-								return { ...seg, place: snappedTo.displayName };
+								// Still call bestPlace (cache hit) so we can attach a city
+								// for timeline grouping — keep the personal label.
+								const namedPlace = await bestPlace(cLat, cLon, { preferResidential: true });
+								const namedCity = extractCity(namedPlace);
+								return {
+									...seg,
+									place: snappedTo.displayName,
+									...(namedCity ? { city: namedCity } : {}),
+								};
 							}
 						}
 					}
@@ -243,7 +252,13 @@ export async function computeVelocity(
 						(snappedTo !== null && snappedTo.sleepHours >= RESIDENCE_SLEEP_THRESHOLD_H) ||
 						hasOvernightPresence(seg.startTs, seg.endTs, cLon);
 					const place = await bestPlace(cLat, cLon, { preferResidential });
-					return place ? { ...seg, place: placeLabel(place) } : seg;
+					if (!place) return seg;
+					const city = extractCity(place);
+					return {
+						...seg,
+						place: placeLabel(place),
+						...(city ? { city } : {}),
+					};
 				}
 				// Moving segment: sample several points along the path so the
 				// OSM evidence reflects the whole route, not whatever the
