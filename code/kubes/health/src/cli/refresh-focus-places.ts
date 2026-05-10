@@ -15,12 +15,14 @@ import { db, destroyPool, initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import {
 	assignDisplayNames,
+	type Cluster,
 	classifyCluster,
 	detectFocusPlaces,
 	type RawPoint,
 	sleepHoursOf,
 	uniqueDayCount,
 } from "../geo/focus-places.js";
+import { bestPlace, nearbyLandmarks } from "../geo/osm.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -137,6 +139,32 @@ async function refreshOne(userId: string): Promise<void> {
 		}
 	});
 	console.log(`[${userId}] focus_places refreshed (${result.clusters.length} rows)`);
+
+	// Proactive OSM cache warming: pre-fetch the place name + nearby
+	// landmarks for each focus_place's centroid. Live dashboard requests
+	// then hit the cache, and we snapshot the OSM data while connectivity
+	// is good — so a future Overpass outage doesn't blank labels for
+	// places we already know about. Failures are non-fatal (negative cache
+	// will TTL out and we'll try again on the next refresh).
+	await warmOsmCache(result.clusters);
+}
+
+async function warmOsmCache(clusters: Cluster[]): Promise<void> {
+	const ordered = [...clusters].sort((a, b) => b.totalDwellSec - a.totalDwellSec);
+	let warmed = 0;
+	let failed = 0;
+	for (const c of ordered) {
+		try {
+			await Promise.all([
+				bestPlace(c.centroidLat, c.centroidLon, { preferResidential: true }),
+				nearbyLandmarks(c.centroidLat, c.centroidLon, 100),
+			]);
+			warmed++;
+		} catch {
+			failed++;
+		}
+	}
+	console.log(`Warmed OSM cache for ${warmed} focus_places (${failed} failed)`);
 }
 
 if (argUserId) {

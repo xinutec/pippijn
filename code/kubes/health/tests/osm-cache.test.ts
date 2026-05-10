@@ -179,11 +179,13 @@ describe("negative caching for transient failures (429)", () => {
 		const r2 = await nearbyWays(51.0, 5.0);
 		expect(r2).toEqual([]);
 
-		// Only one fetch — the second call read from negative cache
-		expect(fetchCalls).toHaveLength(1);
+		// First call tries both Overpass mirrors before negative-caching;
+		// second call hits negative cache and doesn't fetch.
+		expect(fetchCalls).toHaveLength(2);
 	});
 
 	it("reverseGeocode caches a 429 response so a follow-up call doesn't re-fetch", async () => {
+		// Nominatim has no mirror fallback (single endpoint), so 1 fetch only.
 		const { reverseGeocode } = await loadOsm();
 		fetchHandler = async () => new Response("Too Many Requests", { status: 429 });
 
@@ -202,7 +204,8 @@ describe("negative caching for transient failures (429)", () => {
 		await nearbyLandmarks(51.0, 5.0);
 		await nearbyLandmarks(51.0, 5.0);
 
-		expect(fetchCalls).toHaveLength(1);
+		// Two mirrors tried, then cached.
+		expect(fetchCalls).toHaveLength(2);
 	});
 
 	it("a 5xx response is also negatively cached (transient server error)", async () => {
@@ -212,12 +215,66 @@ describe("negative caching for transient failures (429)", () => {
 		await nearbyWays(51.0, 5.0);
 		await nearbyWays(51.0, 5.0);
 
+		expect(fetchCalls).toHaveLength(2);
+	});
+
+	it("Overpass mirror fallback: primary fails, secondary succeeds → cached as success", async () => {
+		const { nearbyWays } = await loadOsm();
+		// Track which Overpass URL was hit
+		fetchHandler = async (input) => {
+			const url = typeof input === "string" ? input : (input as URL).toString();
+			if (url.includes("overpass-api.de")) {
+				throw new Error("primary down");
+			}
+			return new Response(JSON.stringify({ elements: [{ tags: { highway: "motorway", name: "A2" } }] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		};
+
+		const r = await nearbyWays(51.0, 5.0);
+		expect(r).toHaveLength(1);
+		expect(r[0].name).toBe("A2");
+
+		// A second call with the same coords should hit cache, not re-fetch
+		const r2 = await nearbyWays(51.0, 5.0);
+		expect(r2).toEqual(r);
+		// 2 fetch calls: 1× primary (failed) + 1× secondary (succeeded). No retries.
+		const overpassFetches = fetchCalls.filter((c) => c.url.includes("overpass"));
+		expect(overpassFetches).toHaveLength(2);
+	});
+
+	it("Overpass mirror fallback: both fail → negative cache, no thundering", async () => {
+		const { nearbyWays } = await loadOsm();
+		fetchHandler = async () => {
+			throw new Error("network down");
+		};
+
+		const r1 = await nearbyWays(51.0, 5.0);
+		const r2 = await nearbyWays(51.0, 5.0);
+		expect(r1).toEqual([]);
+		expect(r2).toEqual([]);
+		// First call: 2 fetches (primary + secondary). Second call: 0 (neg cache).
+		expect(fetchCalls).toHaveLength(2);
+	});
+
+	it("Overpass mirror fallback: primary succeeds → secondary never tried", async () => {
+		const { nearbyWays } = await loadOsm();
+		fetchHandler = async () => {
+			return new Response(JSON.stringify({ elements: [] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		};
+
+		await nearbyWays(51.0, 5.0);
+		// Just one fetch — no fallback needed
 		expect(fetchCalls).toHaveLength(1);
 	});
 
 	it("a thrown fetch (network/TLS/refused connection) is also negatively cached", async () => {
 		// Simulates the production case where Overpass becomes unreachable —
-		// fetch() throws before any HTTP status.
+		// fetch() throws before any HTTP status. Both mirrors tried, then cached.
 		const { nearbyWays } = await loadOsm();
 		fetchHandler = async () => {
 			throw new Error("fetch failed");
@@ -227,6 +284,6 @@ describe("negative caching for transient failures (429)", () => {
 		const r2 = await nearbyWays(51.0, 5.0);
 		expect(r1).toEqual([]);
 		expect(r2).toEqual([]);
-		expect(fetchCalls).toHaveLength(1); // only one attempt despite two callers
+		expect(fetchCalls).toHaveLength(2);
 	});
 });

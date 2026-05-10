@@ -11,8 +11,41 @@
 import { db } from "../db/pool.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
-const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 const USER_AGENT = "health.xinutec.org (pippijn@xinutec.org)";
+
+/**
+ * Overpass endpoints, tried in order. The main server overpass-api.de is
+ * volunteer-run and intermittently overloaded; kumi.systems is a known-good
+ * mirror with similar rate limits. We fall through on fetch-throw or 5xx
+ * so a primary outage doesn't poison our positive cache with empty results.
+ */
+const OVERPASS_URLS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+
+/**
+ * POST a single Overpass query body to each mirror in turn until one returns
+ * a successful response. Throws (caught by withCache → negative cache) only
+ * if every mirror fails.
+ */
+async function overpassFetch(body: string): Promise<Response> {
+	let lastErr: unknown;
+	for (const url of OVERPASS_URLS) {
+		try {
+			const res = await fetch(url, {
+				method: "POST",
+				headers: { "Content-Type": "text/plain", "User-Agent": USER_AGENT },
+				body,
+			});
+			if (res.ok) return res;
+			// Non-OK: only fall through on transient (5xx) or rate-limited (429).
+			// 4xx that aren't 429 are permanent (bad query); don't waste mirrors.
+			if (res.status !== 429 && res.status < 500) return res;
+			lastErr = new Error(`Overpass ${url} returned ${res.status}`);
+		} catch (e) {
+			lastErr = e;
+		}
+	}
+	throw lastErr ?? new Error("All Overpass mirrors failed");
+}
 
 // Round to 4 decimals = ~11m precision for cache key
 function roundCoord(n: number): number {
@@ -344,11 +377,7 @@ export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): 
 				);
 				out tags center;
 			`;
-			const res = await fetch(OVERPASS_URL, {
-				method: "POST",
-				headers: { "Content-Type": "text/plain", "User-Agent": USER_AGENT },
-				body: query,
-			});
+			const res = await overpassFetch(query);
 			if (!res.ok) {
 				console.warn(`Overpass landmarks returned ${res.status} for ${lat},${lon}`);
 				return { ok: false, status: res.status };
@@ -448,11 +477,7 @@ export async function nearbyWays(lat: number, lon: number, radiusM = 50): Promis
 				);
 				out tags;
 			`;
-			const res = await fetch(OVERPASS_URL, {
-				method: "POST",
-				headers: { "Content-Type": "text/plain", "User-Agent": USER_AGENT },
-				body: query,
-			});
+			const res = await overpassFetch(query);
 			if (!res.ok) {
 				console.warn(`Overpass returned ${res.status} for ${lat},${lon}`);
 				return { ok: false, status: res.status };
