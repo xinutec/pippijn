@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
-import { classifySegments, type TrackSegment } from "../src/geo/segments.js";
+import { classifySegments, inferTransitGaps, type TrackSegment } from "../src/geo/segments.js";
 
 // Helper: generate points moving in a straight line at constant speed
 function generateTrack(opts: {
@@ -371,6 +371,94 @@ describe("classifySegments", () => {
 		expect(segments[0].mode).toBe("stationary");
 	});
 
+	it("does NOT infer a transit segment for a brief GPS gap (< 3 min)", () => {
+		// 5 min at A, 1-min gap, 5 min at A. Same place, short gap.
+		const points: FilteredPoint[] = [];
+		const A = { lat: 50.83, lon: 4.33 };
+		for (let t = 0; t <= 300; t += 30) {
+			points.push({ ts: 1000 + t, lat: A.lat, lon: A.lon, speed_kmh: 0.3, bearing: 0 });
+		}
+		for (let t = 0; t <= 300; t += 30) {
+			points.push({ ts: 1000 + 360 + t, lat: A.lat, lon: A.lon, speed_kmh: 0.3, bearing: 0 });
+		}
+		const segments = classifySegments(points);
+		expect(segments.every((s) => !s.refinedReason?.includes("GPS gap"))).toBe(true);
+	});
+
+	it("does NOT infer a transit segment when the user stayed put despite a long gap", () => {
+		// 10 min at A, 30 min gap, 10 min at A again (same location, just no
+		// fixes for half an hour — phone in pocket / dead). No transit to
+		// infer. (StayDetection might collapse this into one stay; if it
+		// does, that's a separate fine outcome — just no SYNTHETIC transit.)
+		const points: FilteredPoint[] = [];
+		const A = { lat: 50.83, lon: 4.33 };
+		for (let t = 0; t <= 600; t += 30) {
+			points.push({ ts: 1000 + t, lat: A.lat, lon: A.lon, speed_kmh: 0.3, bearing: 0 });
+		}
+		const resumeStart = 1000 + 600 + 30 * 60;
+		for (let t = 0; t <= 600; t += 30) {
+			points.push({ ts: resumeStart + t, lat: A.lat, lon: A.lon, speed_kmh: 0.3, bearing: 0 });
+		}
+		const segments = classifySegments(points);
+		expect(segments.every((s) => !s.refinedReason?.includes("GPS gap"))).toBe(true);
+	});
+
+	it("infers train mode when implied speed is high (>120 km/h)", () => {
+		// 5 min at A, 1-hour gap, 5 min at B which is 200km away.
+		// 200 km / 60 min = 200 km/h → train.
+		const points: FilteredPoint[] = [];
+		// Use lat differences rough but big enough; ~1.8° lat = 200km
+		const A = { lat: 50.0, lon: 4.0 };
+		const B = { lat: 51.8, lon: 4.0 };
+		for (let t = 0; t <= 300; t += 30) {
+			points.push({ ts: 1000 + t, lat: A.lat, lon: A.lon, speed_kmh: 0.3, bearing: 0 });
+		}
+		const bStart = 1000 + 300 + 60 * 60;
+		for (let t = 0; t <= 300; t += 30) {
+			points.push({ ts: bStart + t, lat: B.lat, lon: B.lon, speed_kmh: 0.3, bearing: 0 });
+		}
+		const segments = classifySegments(points);
+		const inferred = segments.find((s) => s.refinedReason?.includes("GPS gap"));
+		expect(inferred).toBeDefined();
+		expect(inferred?.mode).toBe("train");
+	});
+
+	it("inferTransitGaps directly: pure logic (no classifier interference)", () => {
+		const A = { lat: 50.83, lon: 4.33 };
+		const B = { lat: 50.86, lon: 4.4 };
+		const segs: TrackSegment[] = [
+			{
+				startTs: 1000,
+				endTs: 1600,
+				mode: "stationary",
+				confidence: 1,
+				avgSpeed: 0,
+				maxSpeed: 0,
+				linearity: 0,
+				pointCount: 5,
+			},
+			{
+				startTs: 3400,
+				endTs: 4000,
+				mode: "stationary",
+				confidence: 1,
+				avgSpeed: 0,
+				maxSpeed: 0,
+				linearity: 0,
+				pointCount: 5,
+			},
+		];
+		const points: FilteredPoint[] = [
+			{ ts: 1600, lat: A.lat, lon: A.lon, speed_kmh: 0, bearing: 0 },
+			{ ts: 3400, lat: B.lat, lon: B.lon, speed_kmh: 0, bearing: 0 },
+		];
+		const result = inferTransitGaps(segs, points);
+		expect(result).toHaveLength(3);
+		expect(result[1].refinedReason).toMatch(/GPS gap/);
+		expect(result[1].startTs).toBe(1600);
+		expect(result[1].endTs).toBe(3400);
+	});
+
 	it("segments cover the full track", () => {
 		const points = generateTrack({
 			startTs: 1000,
@@ -411,6 +499,36 @@ describe("classifySegments", () => {
 		const segments = classifySegments(points);
 		expect(segments).toHaveLength(1);
 		expect(segments[0].mode).toBe("stationary");
+	});
+
+	it("infers a transit segment in a long GPS gap between two distant stationary segments (Eurostar / underground)", () => {
+		// 10 min stationary at A, then 30 min of NO GPS fixes, then 10 min
+		// stationary at B (~5 km away). Without inference the timeline reads
+		// "stationary at A → stationary at B" with nothing in between, which
+		// looks like teleportation. The inference should fill the gap with
+		// a synthetic "driving" segment (high enough speed → "driving"; very
+		// fast would have been "train").
+		const points: FilteredPoint[] = [];
+		const A = { lat: 50.83, lon: 4.33 };
+		const B = { lat: 50.86, lon: 4.4 }; // ~5 km away
+
+		// 10 min at A, fix every 30s
+		for (let t = 0; t <= 600; t += 30) {
+			points.push({ ts: 1000 + t, lat: A.lat, lon: A.lon, speed_kmh: 0.3, bearing: 0 });
+		}
+		// 30 min gap — no fixes (Eurostar-shaped)
+		// 10 min at B
+		const bStart = 1000 + 600 + 30 * 60;
+		for (let t = 0; t <= 600; t += 30) {
+			points.push({ ts: bStart + t, lat: B.lat, lon: B.lon, speed_kmh: 0.3, bearing: 0 });
+		}
+
+		const segments = classifySegments(points);
+		// Should have at least 3 segments: stationary at A, inferred transit, stationary at B
+		expect(segments.length).toBeGreaterThanOrEqual(3);
+		const inferred = segments.find((s) => s.refinedReason?.includes("GPS gap"));
+		expect(inferred).toBeDefined();
+		expect(inferred?.mode).toBe("driving"); // 5km/30min ≈ 10 km/h is below train threshold
 	});
 
 	it("splits a stationary block when GPS catches a real movement window inside (e.g. underground train surfacing briefly)", () => {

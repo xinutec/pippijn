@@ -19,6 +19,11 @@ export interface TrackSegment {
 	maxSpeed: number;
 	linearity: number; // 0-1, ratio of straight-line to path distance
 	pointCount: number;
+	/** Free-form annotation: why this segment is the mode it is. Set by
+	 *  cross-modal inference (cadence correction, gap inference) and by
+	 *  OSM-aware mode refinement downstream. Optional; absent on plain
+	 *  GPS-classified segments. */
+	refinedReason?: string;
 }
 
 interface WindowFeatures {
@@ -432,6 +437,84 @@ export function findStays(points: StayPoint[], existing: TrackSegment[]): TrackS
 const WINDOW_SEC = 300; // 5 minute windows
 const MIN_SEGMENT_SEC = 120; // segments shorter than 2 min get merged
 
+/** Minimum gap duration between two segments to consider inferring transit. */
+const TRANSIT_GAP_MIN_DURATION_S = 3 * 60;
+/** Minimum displacement between the points bounding the gap. Below this, the
+ *  user effectively stayed put and the gap is just sparse GPS / no movement. */
+const TRANSIT_GAP_MIN_DISTANCE_M = 200;
+
+/**
+ * Insert synthetic transit segments for time gaps where GPS coverage is
+ * absent but the user clearly moved. Catches the underground-train and
+ * Faraday-cage cases (Eurostar, metro) where the segment classifier sees
+ * "stationary at A" then "stationary at B" with no movement in between.
+ *
+ * For each pair of adjacent segments separated by at least
+ * TRANSIT_GAP_MIN_DURATION_S of dead time, we look at the last point
+ * before the gap and the first point after. If their displacement exceeds
+ * TRANSIT_GAP_MIN_DISTANCE_M, we synthesise a segment covering the gap
+ * with `mode` chosen by the implied average speed and a `refinedReason`
+ * marking it as inferred. Inferred segments have pointCount=0 so OSM
+ * enrichment (which iterates point arrays) skips them naturally.
+ */
+export function inferTransitGaps(segments: TrackSegment[], points: FilteredPoint[]): TrackSegment[] {
+	if (segments.length < 2 || points.length < 2) return segments;
+	const result: TrackSegment[] = [];
+	for (let i = 0; i < segments.length; i++) {
+		const seg = segments[i];
+		result.push(seg);
+		const next = segments[i + 1];
+		if (!next) continue;
+		const gapDuration = next.startTs - seg.endTs;
+		if (gapDuration < TRANSIT_GAP_MIN_DURATION_S) continue;
+
+		const lastBefore = lastPointAtOrBefore(points, seg.endTs);
+		const firstAfter = firstPointAtOrAfter(points, next.startTs);
+		if (!lastBefore || !firstAfter) continue;
+
+		const distanceM = haversineMeters(lastBefore.lat, lastBefore.lon, firstAfter.lat, firstAfter.lon);
+		if (distanceM < TRANSIT_GAP_MIN_DISTANCE_M) continue;
+
+		const speedKmh = (distanceM / gapDuration) * 3.6;
+		// Coarse mode guess from implied speed. Cycling/walking/driving are
+		// hard to distinguish at low speeds (a 15 km/h gap could be cycling,
+		// tram, slow car), so we collapse the middle band into "driving" as
+		// the conservative vehicle-of-some-kind. Walking covers the bottom
+		// (under-7 km/h gaps that crossed the 200m distance threshold).
+		const inferredMode: TransportMode = speedKmh < 7 ? "walking" : speedKmh >= 120 ? "train" : "driving";
+		const km = (distanceM / 1000).toFixed(1);
+		const min = Math.round(gapDuration / 60);
+		result.push({
+			startTs: seg.endTs,
+			endTs: next.startTs,
+			mode: inferredMode,
+			confidence: 0.3, // low — inferred, not measured
+			avgSpeed: Math.round(speedKmh * 10) / 10,
+			maxSpeed: Math.round(speedKmh * 10) / 10,
+			linearity: 1, // assumed straight line — we have nothing else
+			pointCount: 0,
+			refinedReason: `inferred from GPS gap (${km} km in ${min} min)`,
+		});
+	}
+	return result;
+}
+
+function lastPointAtOrBefore(points: FilteredPoint[], ts: number): FilteredPoint | null {
+	let result: FilteredPoint | null = null;
+	for (const p of points) {
+		if (p.ts <= ts) result = p;
+		else break;
+	}
+	return result;
+}
+
+function firstPointAtOrAfter(points: FilteredPoint[], ts: number): FilteredPoint | null {
+	for (const p of points) {
+		if (p.ts >= ts) return p;
+	}
+	return null;
+}
+
 /**
  * Classify a Kalman-filtered GPS track into transport mode segments.
  *
@@ -450,5 +533,6 @@ export function classifySegments(points: FilteredPoint[], stayPoints?: StayPoint
 	}
 
 	const stays = findStays(stayPoints ?? points, classified);
-	return [...classified, ...stays].sort((a, b) => a.startTs - b.startTs);
+	const ordered = [...classified, ...stays].sort((a, b) => a.startTs - b.startTs);
+	return inferTransitGaps(ordered, points);
 }
