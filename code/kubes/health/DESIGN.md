@@ -159,18 +159,20 @@ Vitest, 204 tests across 16 files. Coverage:
   for negative caching, mirror fallback, in-flight dedup, 4s abort path
 - PhoneTrack visualisation-filter prefs (`phonetrack-prefs.test.ts`)
 
-Verify cycle: `nix-shell --run "npx tsc && npm run format && npm run lint && npx vitest run"`.
+Verify cycle: `nix-shell --run "npm run verify"` — runs tsc against `src/` and against `src/+tests/` (via `tsconfig.test.json`), then format + lint + vitest. Tests share the same strict type checking as production code, so a stale call into a refactored signature surfaces immediately.
 
 ## Security checklist
 
 - [x] Session cookies: HttpOnly, Secure, SameSite=Lax, HMAC-signed
-- [x] Sessions are in-memory (lost on pod restart — users re-login via Nextcloud SSO, no data lost)
+- [x] Sessions persisted in MariaDB (`sessions` table), TTL 7 days, swept at server startup and every 6 hours so the table doesn't grow unbounded
 - [x] CSRF: state parameter on both OAuth flows, validated on callback
 - [x] PKCE: Fitbit OAuth uses S256 code challenge
 - [x] User isolation: all DB queries filtered by session user_id
 - [x] No credentials in Docker image or git (git-crypt for secret.sh)
 - [x] Input validation: query parameters validated with zod
 - [x] Connection pool: no per-request connect/disconnect
+- [x] OAuth `state` is in-memory only — depends on `replicas: 1` for `health-auth`. Scaling out would silently break login flows; revisit before that happens.
+- [x] Fitbit + Nextcloud OAuth tokens stored as plaintext TEXT columns. Acceptable in the current trust model (single-tenant cluster, MariaDB on the same node, PVC at rest); revisit if/when the data leaves this boundary.
 - [ ] Rate limiting on login endpoint (future)
 - [ ] CSP headers (future)
 
@@ -307,8 +309,13 @@ must keep going. Concretely:
   `null`, frontend hides the badge.
 - OSM unreachable on both mirrors → `bestPlace` returns `null` →
   segment shows coords or focus_place name only.
-- No PhoneTrack data → empty timeline, dashboard shows the empty
-  state, no error.
+- No PhoneTrack data for the day (linked but no GPS recorded) →
+  `fetchTrackPoints` returns `[]` → empty timeline, no error.
+- User has not linked Nextcloud at all → `fetchTrackPoints` throws
+  `NextcloudNotLinkedError`; the `/api/velocity` route catches that
+  specific error and returns `{points: [], segments: []}` with HTTP
+  200. The frontend distinguishes this from "linked but empty" via
+  `/api/me.nextcloudLinked` and can prompt the user to link.
 
 ## Future extensions
 

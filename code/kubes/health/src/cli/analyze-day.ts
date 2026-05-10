@@ -79,6 +79,7 @@ for (const s of segments) {
 	let ctx = "";
 	if (s.place) ctx = ` @ ${s.place}`;
 	else if (s.wayName) ctx = ` on ${s.wayName}`;
+	if (s.city) ctx += ` (${s.city})`;
 	if (s.refinedReason) ctx += ` [${s.refinedReason}]`;
 	console.log(
 		`  ${fmt(s.startTs)}-${fmt(s.endTs)} (${dur.toString().padStart(3)}m) ${finalMode.padEnd(11)}${changed} avg:${s.avgSpeed.toString().padStart(5)}km/h max:${s.maxSpeed.toString().padStart(5)}km/h lin:${s.linearity} conf:${s.confidence}${ctx}`,

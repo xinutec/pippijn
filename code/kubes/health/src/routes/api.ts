@@ -5,7 +5,7 @@ import type { AppEnv } from "../env.js";
 import { computeVelocity } from "../geo/velocity.js";
 import { requireAuth } from "../middleware/auth.js";
 import { NextcloudClient } from "../nextcloud/client.js";
-import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
+import { fetchTrackPoints, NextcloudNotLinkedError } from "../nextcloud/phonetrack.js";
 import { buildPhoneTrackFilterValues, computePhoneTrackDatemin } from "../nextcloud/phonetrack-prefs.js";
 
 /** Subset of the full Config that the API routes actually need. Narrowing
@@ -45,8 +45,16 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 
 	app.get("/me", async (c) => {
 		const { userId, displayName } = c.get("session");
-		const row = await db().selectFrom("tokens").select("user_id").where("user_id", "=", userId).executeTakeFirst();
-		return c.json({ userId, displayName, fitbitLinked: !!row });
+		const [fitbit, nextcloud] = await Promise.all([
+			db().selectFrom("tokens").select("user_id").where("user_id", "=", userId).executeTakeFirst(),
+			db().selectFrom("nc_tokens").select("user_id").where("user_id", "=", userId).executeTakeFirst(),
+		]);
+		return c.json({
+			userId,
+			displayName,
+			fitbitLinked: !!fitbit,
+			nextcloudLinked: !!nextcloud,
+		});
 	});
 
 	app.get("/activity", async (c) => {
@@ -217,6 +225,12 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			const result = await computeVelocity(config, uid, date, tz);
 			return c.json(result);
 		} catch (e) {
+			// Graceful degradation: a user who has not yet linked Nextcloud
+			// gets an empty timeline (HTTP 200) rather than 400. The frontend
+			// can prompt them to link via /api/me.nextcloudLinked.
+			if (e instanceof NextcloudNotLinkedError) {
+				return c.json({ points: [], segments: [] });
+			}
 			return c.json({ error: String(e) }, 400);
 		}
 	});

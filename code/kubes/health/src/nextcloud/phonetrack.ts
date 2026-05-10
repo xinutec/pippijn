@@ -9,6 +9,16 @@ export interface NextcloudConfig {
 	};
 }
 
+/** Thrown when the user has no `nc_tokens` row, i.e. they have not yet
+ *  linked a Nextcloud account. Callers can catch this specifically to
+ *  degrade gracefully (e.g. return an empty timeline instead of HTTP 400). */
+export class NextcloudNotLinkedError extends Error {
+	constructor() {
+		super("Nextcloud not linked");
+		this.name = "NextcloudNotLinkedError";
+	}
+}
+
 export interface RawTrackPoint {
 	ts: number;
 	lat: number;
@@ -36,7 +46,7 @@ export async function fetchTrackPoints(
 		.executeTakeFirst();
 
 	if (!ncToken) {
-		throw new Error("Nextcloud not linked");
+		throw new NextcloudNotLinkedError();
 	}
 
 	const nc = new NextcloudClient({

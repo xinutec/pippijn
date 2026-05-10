@@ -5,7 +5,7 @@ import { loadConfig } from "./config.js";
 import { initPool, withConnection } from "./db/pool.js";
 import { migrate } from "./db/schema.js";
 import type { AppEnv } from "./env.js";
-import { sessionMiddleware } from "./middleware/session.js";
+import { cleanupExpiredSessions, sessionMiddleware } from "./middleware/session.js";
 import { apiRoutes } from "./routes/api.js";
 import { fitbitOAuthRoutes } from "./routes/fitbit-oauth.js";
 import { nextcloudOAuthRoutes } from "./routes/nextcloud-oauth.js";
@@ -15,6 +15,20 @@ initPool(config.db);
 
 // Run migrations on startup
 await withConnection(migrate);
+
+// Sweep expired sessions at startup, then once every 6 hours. The lazy
+// per-request path in `getSession` only deletes a session when its owner
+// returns with the cookie, so dormant accounts would otherwise accumulate.
+const sweepSessions = async () => {
+	try {
+		const n = await cleanupExpiredSessions();
+		if (n > 0) console.log(`Swept ${n} expired session(s)`);
+	} catch (e) {
+		console.error("Session sweep failed:", e);
+	}
+};
+await sweepSessions();
+setInterval(sweepSessions, 6 * 60 * 60 * 1000).unref();
 
 const app = new Hono<AppEnv>();
 

@@ -95,3 +95,12 @@ export async function clearSessionCookie(c: Context, secret: string): Promise<vo
 	if (cookie) await destroySession(secret, cookie);
 	deleteCookie(c, COOKIE_NAME, { path: "/" });
 }
+
+/** Sweep expired session rows. The lazy-on-access path in `getSession`
+ *  only touches sessions whose owner returns; dormant users never trigger
+ *  it, so without this sweep the table grows monotonically. Returns the
+ *  number of rows deleted (for logging). */
+export async function cleanupExpiredSessions(): Promise<number> {
+	const result = await db().deleteFrom("sessions").where("expires_at", "<", new Date()).executeTakeFirst();
+	return Number(result.numDeletedRows ?? 0);
+}
