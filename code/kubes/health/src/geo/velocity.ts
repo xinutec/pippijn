@@ -31,12 +31,17 @@ function hasOvernightPresence(startTs: number, endTs: number, lon: number): bool
 
 interface NamedPlace extends KnownPlace {
 	displayName: string | null;
+	sleepHours: number;
 }
+
+/** A focus_place is "residential" if the user has slept (covered deep-night
+ *  hours) at it for at least RESIDENCE_SLEEP_THRESHOLD_H total hours. */
+const RESIDENCE_SLEEP_THRESHOLD_H = 5;
 
 async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 	const rows = await db()
 		.selectFrom("focus_places")
-		.select(["id", "centroid_lat", "centroid_lon", "radius_m", "display_name"])
+		.select(["id", "centroid_lat", "centroid_lon", "radius_m", "display_name", "sleep_hours"])
 		.where("user_id", "=", userId)
 		.execute();
 	return rows.map((r) => ({
@@ -45,6 +50,7 @@ async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 		centroidLon: Number(r.centroid_lon),
 		radiusM: r.radius_m,
 		displayName: r.display_name,
+		sleepHours: r.sleep_hours ?? 0,
 	}));
 }
 
@@ -123,6 +129,7 @@ export async function computeVelocity(
 					// Stay-centroid snap: long stays accumulate centroid drift past the
 					// per-fix snap radius. Re-snap the segment centroid against known
 					// places with a generous radius so we recover from overnight drift.
+					let snappedTo: NamedPlace | null = null;
 					if (knownPlaces.length > 0) {
 						const r = snapToPlace({ lat: cLat, lon: cLon, accuracy: 200 }, knownPlaces, {
 							snapRadiusM: 100,
@@ -131,15 +138,21 @@ export async function computeVelocity(
 						if (r.snapped) {
 							cLat = r.lat;
 							cLon = r.lon;
-							const matched = knownPlaces.find((p) => p.id === r.snappedTo?.id) as NamedPlace | undefined;
-							if (matched?.displayName) {
+							snappedTo = (knownPlaces.find((p) => p.id === r.snappedTo?.id) as NamedPlace) ?? null;
+							if (snappedTo?.displayName) {
 								// Skip the OSM lookup entirely for known-named places.
-								return { ...seg, place: matched.displayName };
+								return { ...seg, place: snappedTo.displayName };
 							}
 						}
 					}
 
-					const preferResidential = hasOvernightPresence(seg.startTs, seg.endTs, cLon);
+					// "Is this a residential place?" — if the snapped focus_place has
+					// significant deep-night history, the cluster is residential and
+					// every stay there gets the address label, not the closest amenity.
+					// Falls back to per-stay overnight check for unsnapped centroids.
+					const preferResidential =
+						(snappedTo !== null && snappedTo.sleepHours >= RESIDENCE_SLEEP_THRESHOLD_H) ||
+						hasOvernightPresence(seg.startTs, seg.endTs, cLon);
 					const place = await bestPlace(cLat, cLon, { preferResidential });
 					return place ? { ...seg, place: placeLabel(place) } : seg;
 				}

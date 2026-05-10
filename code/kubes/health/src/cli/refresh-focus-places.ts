@@ -18,6 +18,7 @@ import {
 	classifyCluster,
 	detectFocusPlaces,
 	type RawPoint,
+	sleepHoursOf,
 	uniqueDayCount,
 } from "../geo/focus-places.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
@@ -113,7 +114,7 @@ async function refreshOne(userId: string): Promise<void> {
 						userId,
 						c.centroidLat,
 						c.centroidLon,
-						25, // radius_m — what we trust the centroid to within
+						25,
 						c.totalDwellSec,
 						c.stays.length,
 						uniqueDayCount(c.stays, c.centroidLon),
@@ -121,10 +122,11 @@ async function refreshOne(userId: string): Promise<void> {
 						sortedStays[sortedStays.length - 1].endTs,
 						cls.label,
 						displayNames.get(c.id) ?? null,
+						Math.round(sleepHoursOf(c)),
 					];
 				});
 				await conn.batch(
-					"INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label, display_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					"INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label, display_name, sleep_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 					rows,
 				);
 			}

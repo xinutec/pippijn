@@ -48,6 +48,7 @@ export interface Cluster {
 }
 
 export type ClusterLabel = "home" | "work" | "hotel" | "frequent" | "one-off" | "other";
+export type DisplayName = "Home" | "Work" | "Stay";
 
 export interface ClusterClassification {
 	label: ClusterLabel;
@@ -211,6 +212,31 @@ function ymdLocal(ts: number, lon: number): string {
 	return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
+/** Sum of stay durations where the stay covers any of 02:00–06:00 in the
+ *  cluster's local solar time. This is the "you sleep here sometimes"
+ *  signal: robust to varied sleep schedules (22-09 or 02-10), robust to
+ *  long café visits (which don't cross deep-night). A 5-h cafe at 14:00
+ *  contributes nothing; a 6-h overnight stay 22:00-04:00 contributes 6 h. */
+const DEEP_NIGHT_START_HOUR = 2;
+const DEEP_NIGHT_END_HOUR = 6;
+
+function stayCoversDeepNight(s: Stay, lon: number): boolean {
+	const stepSec = 30 * 60;
+	for (let t = s.startTs; t <= s.endTs; t += stepSec) {
+		const h = localSolarHour(t, lon);
+		if (h >= DEEP_NIGHT_START_HOUR && h < DEEP_NIGHT_END_HOUR) return true;
+	}
+	return false;
+}
+
+export function sleepHoursOf(cluster: Cluster): number {
+	let sec = 0;
+	for (const s of cluster.stays) {
+		if (stayCoversDeepNight(s, cluster.centroidLon)) sec += s.durationSec;
+	}
+	return sec / 3600;
+}
+
 function sumHourBucket(stays: Stay[], lon: number, hStart: number, hEnd: number): number {
 	let hours = 0;
 	const stepSec = 30 * 60;
@@ -302,28 +328,45 @@ export function classifyCluster(c: Cluster): ClusterClassification {
 export function assignDisplayNames(clusters: Cluster[]): Map<number, string> {
 	const names = new Map<number, string>();
 
+	// Home: strict — wide span + many unique days + significant long-stay history.
+	// Picks at most one cluster (the strongest "where I usually sleep").
 	const homeCandidates = clusters
 		.map((c) => {
 			const sorted = [...c.stays].sort((a, b) => a.startTs - b.startTs);
 			const dateSpanDays = (sorted[sorted.length - 1].endTs - sorted[0].startTs) / 86400;
 			const uniqueDays = uniqueDayCount(c.stays, c.centroidLon);
-			const overnightHours = sumHourBucket(c.stays, c.centroidLon, 0, 6);
-			return { cluster: c, dateSpanDays, uniqueDays, overnightHours };
+			const sleepHours = sleepHoursOf(c);
+			return { cluster: c, dateSpanDays, uniqueDays, sleepHours };
 		})
-		.filter((x) => x.dateSpanDays >= 30 && x.uniqueDays >= 20 && x.overnightHours >= 10)
-		.sort((a, b) => b.overnightHours - a.overnightHours);
+		.filter((x) => x.dateSpanDays >= 30 && x.uniqueDays >= 20 && x.sleepHours >= 30)
+		.sort((a, b) => b.sleepHours - a.sleepHours);
 
 	const homeId = homeCandidates[0]?.cluster.id ?? null;
 	if (homeId !== null) names.set(homeId, "Home");
 
+	// Work: significant weekday-daytime hours (≥20 — real workplaces vastly
+	// exceed this; a cafe visited 8× over 2 months gives ~6 h, doesn't qualify).
 	const workCandidates = clusters
 		.filter((c) => c.id !== homeId)
 		.map((c) => ({ cluster: c, hours: weekdayDaytimeHours(c.stays, c.centroidLon) }))
-		.filter((x) => x.hours >= 5)
+		.filter((x) => x.hours >= 20)
 		.sort((a, b) => b.hours - a.hours);
 
 	const workId = workCandidates[0]?.cluster.id ?? null;
 	if (workId !== null) names.set(workId, "Work");
+
+	// Stay: clusters with deep-night presence (you sleep here sometimes) but
+	// not enough history to qualify as Home. Parents' flats, friends'
+	// apartments, multi-night hotels. The stay-covers-deep-night signal
+	// keeps long café visits out of this tier.
+	for (const c of clusters) {
+		if (names.has(c.id)) continue;
+		const sleepHours = sleepHoursOf(c);
+		const uniqueDays = uniqueDayCount(c.stays, c.centroidLon);
+		if (sleepHours >= 5 && uniqueDays >= 2) {
+			names.set(c.id, "Stay");
+		}
+	}
 
 	return names;
 }

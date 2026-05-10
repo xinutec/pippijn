@@ -257,13 +257,13 @@ describe("localSolarHour", () => {
 
 describe("assignDisplayNames", () => {
 	function homeLikeCluster(id: number): Cluster {
-		// 30 nights × 8h overnight at HOME, no daytime presence
+		// 30 nights × 8h, each stay starts 22:00 local and crosses 02:00-06:00
 		const stays: Stay[] = [];
 		for (let d = 0; d < 60; d += 2) {
 			const startTs = at(d, 22);
 			stays.push({
 				startTs,
-				endTs: startTs + 8 * 3600,
+				endTs: startTs + 8 * 3600, // ends 06:00 next day — covers deep-night
 				centroidLat: HOME_LAT,
 				centroidLon: HOME_LON,
 				pointCount: 8,
@@ -319,10 +319,84 @@ describe("assignDisplayNames", () => {
 	it("does not double-assign — one Home only, even if two clusters look home-like", () => {
 		const a = homeLikeCluster(1);
 		const b = { ...homeLikeCluster(2), centroidLat: HOME_LAT + 0.1, centroidLon: HOME_LON + 0.1 };
-		// Make `a` slightly more overnight-heavy so it wins
+		// Both qualify; only one gets Home, the other becomes Stay
 		const names = assignDisplayNames([a, b]);
 		expect([...names.values()].filter((v) => v === "Home")).toHaveLength(1);
 		expect(names.get(1)).toBe("Home");
+		// b still has long-stay history → labelled "Stay" (not null)
+		expect(names.get(2)).toBe("Stay");
+	});
+
+	it("assigns Stay to a cluster with overnight history that doesn't qualify as Home", () => {
+		// 4 weekend overnights — each crosses deep-night
+		const stays: Stay[] = [];
+		for (const d of [0, 7, 21, 28]) {
+			const startTs = at(d, 22);
+			stays.push({
+				startTs,
+				endTs: startTs + 8 * 3600, // 06:00 next day — covers 02:00-06:00
+				centroidLat: HOME_LAT,
+				centroidLon: HOME_LON,
+				pointCount: 6,
+				durationSec: 8 * 3600,
+			});
+		}
+		const c: Cluster = {
+			id: 1,
+			centroidLat: HOME_LAT,
+			centroidLon: HOME_LON,
+			stays,
+			totalDwellSec: 32 * 3600,
+		};
+		const names = assignDisplayNames([c]);
+		expect(names.get(1)).toBe("Stay");
+	});
+
+	it("does not assign Stay to a long café visit (no deep-night overlap)", () => {
+		// One 6h cafe stay 14:00-20:00 — long, but no overnight presence
+		const stays: Stay[] = [
+			{
+				startTs: at(0, 14),
+				endTs: at(0, 14) + 6 * 3600,
+				centroidLat: HOME_LAT,
+				centroidLon: HOME_LON,
+				pointCount: 6,
+				durationSec: 6 * 3600,
+			},
+		];
+		const c: Cluster = {
+			id: 1,
+			centroidLat: HOME_LAT,
+			centroidLon: HOME_LON,
+			stays,
+			totalDwellSec: 6 * 3600,
+		};
+		const names = assignDisplayNames([c]);
+		expect(names.has(1)).toBe(false);
+	});
+
+	it("does not assign Stay to a place with only short visits (cafe pattern)", () => {
+		const stays: Stay[] = [];
+		for (let d = 0; d < 60; d += 8) {
+			const startTs = at(d, 14);
+			stays.push({
+				startTs,
+				endTs: startTs + 3600,
+				centroidLat: HOME_LAT,
+				centroidLon: HOME_LON,
+				pointCount: 3,
+				durationSec: 3600,
+			});
+		}
+		const c: Cluster = {
+			id: 1,
+			centroidLat: HOME_LAT,
+			centroidLon: HOME_LON,
+			stays,
+			totalDwellSec: stays.length * 3600,
+		};
+		const names = assignDisplayNames([c]);
+		expect(names.has(1)).toBe(false);
 	});
 });
 

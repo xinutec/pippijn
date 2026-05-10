@@ -198,6 +198,15 @@ const MIGRATIONS: readonly string[] = [
 	// those fall back to OSM nearby-landmark labelling at render time.
 	`ALTER TABLE focus_places ADD COLUMN IF NOT EXISTS display_name VARCHAR(64) NULL`,
 
+	// v21: Per-cluster sum of stay durations where the stay covers any of
+	// 02:00–06:00 local solar time (deep night). This is the residential /
+	// "I sleep here sometimes" signal — robust to people who sleep
+	// 22:00-09:00 or 02:00-10:00, robust to long café visits (which don't
+	// cross deep night). Used by velocity.ts to label any stay at the
+	// cluster with the address rather than the closest amenity, regardless
+	// of this particular stay's time-of-day.
+	`ALTER TABLE focus_places ADD COLUMN IF NOT EXISTS sleep_hours INT NULL`,
+
 	// Future migrations go here.
 ];
 
