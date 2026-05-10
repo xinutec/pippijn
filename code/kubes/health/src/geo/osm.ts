@@ -149,6 +149,13 @@ function isLandmark(r: NominatimResult): boolean {
 
 // --- Overpass: nearby named landmarks ---
 
+/**
+ * tourism subtypes that are POI markers, not venues. Skipped from
+ * nearbyLandmarks so a roadside artwork or viewpoint doesn't beat a real
+ * café next door for the "what is the user actually at" label.
+ */
+const POI_MARKER_TOURISM = new Set(["artwork", "viewpoint", "picnic_site", "information"]);
+
 export interface NearbyLandmark {
 	name: string;
 	type: "amenity" | "tourism" | "leisure" | "shop" | "place" | "highway";
@@ -214,7 +221,7 @@ interface OverpassElement {
 export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): Promise<NearbyLandmark[]> {
 	const cacheType = `landmarks_r${radiusM}`;
 	const cached = await cacheGet<NearbyLandmark[]>(cacheType, lat, lon);
-	if (cached !== undefined) return cached;
+	if (cached !== undefined) return filterLandmarks(cached);
 
 	const query = `
 		[out:json][timeout:10];
@@ -267,7 +274,16 @@ export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): 
 
 	landmarks.sort((a, b) => a.distanceM - b.distanceM);
 	await cacheSet(cacheType, lat, lon, landmarks);
-	return landmarks;
+	return filterLandmarks(landmarks);
+}
+
+/**
+ * Drop POI markers that aren't venues someone "is at" for hours. A 19m-away
+ * artwork on the same square as a residential building shouldn't beat a real
+ * café next door for the timeline label.
+ */
+export function filterLandmarks(landmarks: NearbyLandmark[]): NearbyLandmark[] {
+	return landmarks.filter((l) => !(l.type === "tourism" && POI_MARKER_TOURISM.has(l.subtype)));
 }
 
 /**

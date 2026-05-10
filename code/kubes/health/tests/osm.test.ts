@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	filterLandmarks,
 	landmarkToResult,
 	type NearbyLandmark,
 	type NearbyWay,
@@ -115,6 +116,40 @@ describe("pickBestLandmark", () => {
 		const landmarks: NearbyLandmark[] = [{ name: "Plein 1944", type: "highway", subtype: "pedestrian", distanceM: 80 }];
 		const best = pickBestLandmark(landmarks);
 		expect(best.name).toBe("Plein 1944");
+	});
+});
+
+describe("filterLandmarks", () => {
+	it("drops tourism=artwork (POI marker, not a venue)", () => {
+		const ls: NearbyLandmark[] = [
+			{ name: "Bairro Alto", type: "amenity", subtype: "cafe", distanceM: 30 },
+			{ name: "Valkhof in Vuur en Vlam", type: "tourism", subtype: "artwork", distanceM: 19 },
+		];
+		const out = filterLandmarks(ls);
+		expect(out.map((l) => l.name)).toEqual(["Bairro Alto"]);
+	});
+
+	it("drops other POI markers (viewpoint, picnic_site, information)", () => {
+		const ls: NearbyLandmark[] = [
+			{ name: "View", type: "tourism", subtype: "viewpoint", distanceM: 5 },
+			{ name: "Picnic", type: "tourism", subtype: "picnic_site", distanceM: 7 },
+			{ name: "Info Board", type: "tourism", subtype: "information", distanceM: 9 },
+			{ name: "Hotel Mercure", type: "tourism", subtype: "hotel", distanceM: 50 },
+			{ name: "Museum", type: "tourism", subtype: "museum", distanceM: 60 },
+		];
+		const out = filterLandmarks(ls);
+		expect(out.map((l) => l.name)).toEqual(["Hotel Mercure", "Museum"]);
+	});
+
+	it("keeps non-tourism types untouched", () => {
+		const ls: NearbyLandmark[] = [
+			{ name: "Cafe X", type: "amenity", subtype: "cafe", distanceM: 10 },
+			{ name: "Park Y", type: "leisure", subtype: "park", distanceM: 20 },
+			{ name: "Shop Z", type: "shop", subtype: "supermarket", distanceM: 30 },
+			{ name: "Square", type: "place", subtype: "square", distanceM: 40 },
+		];
+		const out = filterLandmarks(ls);
+		expect(out.length).toBe(4);
 	});
 });
 

@@ -52,7 +52,7 @@ const config = z
 		},
 	});
 
-const DEFAULT_LOOKBACK_DAYS = 90;
+const DEFAULT_LOOKBACK_DAYS = 180;
 const FETCH_CHUNK_DAYS = 7;
 
 const argUserId = process.argv[2] ?? null;
