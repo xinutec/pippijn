@@ -197,6 +197,15 @@ function scoreStationary(f: WindowFeatures): number {
 	if (f.boundingRadius < 15) score *= 3;
 	if (f.netDisplacement < 20) score *= 2;
 
+	// Hidden-movement penalty: stationary should mean *consistently* low speed
+	// AND no significant displacement. A high max speed combined with a real
+	// net displacement (>200m) means the user actually moved during the window
+	// — typically a train segment that surfaced briefly between underground
+	// stretches. Without this, sparse-GPS train rides hide inside a stationary
+	// segment whose median speed is dominated by the surrounding platform fixes.
+	// A GPS noise spike (high max but no displacement) doesn't trigger this.
+	if (f.maxSpeed > 20 && f.netDisplacement > 200) score *= 0.1;
+
 	return score;
 }
 

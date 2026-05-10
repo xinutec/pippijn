@@ -389,4 +389,67 @@ describe("classifySegments", () => {
 			expect(lastSegEnd).toBeLessThanOrEqual(trackEnd);
 		}
 	});
+
+	it("does NOT fall for a single GPS noise spike inside an otherwise stationary period", () => {
+		// 15 minutes of stationary fixes with one outlier point reading at
+		// 25 km/h but at the same lat/lon as everything else (i.e. the
+		// classifier's speed reading is noise). netDisplacement stays tiny so
+		// the hidden-movement penalty must NOT trigger.
+		const points: FilteredPoint[] = [];
+		const baseLat = 52.0;
+		const baseLon = 5.0;
+		for (let t = 0; t <= 900; t += 15) {
+			const isSpike = t === 450; // mid-window
+			points.push({
+				ts: 1000 + t,
+				lat: baseLat,
+				lon: baseLon,
+				speed_kmh: isSpike ? 25 : 0.3,
+				bearing: 90,
+			});
+		}
+		const segments = classifySegments(points);
+		expect(segments).toHaveLength(1);
+		expect(segments[0].mode).toBe("stationary");
+	});
+
+	it("splits a stationary block when GPS catches a real movement window inside (e.g. underground train surfacing briefly)", () => {
+		// Simulate: 10 min waiting at platform A, then 5 min of fast movement
+		// covering 3 km (a train hop), then 10 min waiting at platform B.
+		// Without the hidden-movement penalty the whole 25 min collapses into
+		// one stationary segment because median speed is dominated by the
+		// 20 platform-min on each side. With the penalty, the train window
+		// scores low on stationary and emerges as its own non-stationary
+		// segment between the two stays.
+		const points: FilteredPoint[] = [];
+		const startA = { lat: 52.0, lon: 5.0 };
+		const startB = { lat: 52.0, lon: 5.04 }; // ~2.7 km east
+
+		// 10 min at platform A, fix every 30s
+		for (let t = 0; t <= 600; t += 30) {
+			points.push({ ts: 1000 + t, lat: startA.lat, lon: startA.lon, speed_kmh: 0.4, bearing: 0 });
+		}
+		// Train ride: 5 min covering ~2.7 km; fix every 30s
+		const trainStart = 1000 + 630;
+		for (let i = 0; i <= 10; i++) {
+			const frac = i / 10;
+			points.push({
+				ts: trainStart + i * 30,
+				lat: startA.lat + (startB.lat - startA.lat) * frac,
+				lon: startA.lon + (startB.lon - startA.lon) * frac,
+				speed_kmh: 32, // ~110 km/h would be too fast; use 32 for short hop
+				bearing: 90,
+			});
+		}
+		// 10 min at platform B
+		const platBStart = trainStart + 5 * 60 + 30;
+		for (let t = 0; t <= 600; t += 30) {
+			points.push({ ts: platBStart + t, lat: startB.lat, lon: startB.lon, speed_kmh: 0.4, bearing: 0 });
+		}
+
+		const segments = classifySegments(points);
+		// Should produce at least 3 segments: stationary → moving → stationary.
+		expect(segments.length).toBeGreaterThanOrEqual(3);
+		expect(segments.some((s) => s.mode !== "stationary")).toBe(true);
+	});
 });
