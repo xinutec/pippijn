@@ -1,4 +1,4 @@
-import { backfillHrForDay, shouldAdvanceEmptyStreak } from "./backfill.js";
+import { backfillStreamDay, type IntradayStream, shouldAdvanceEmptyStreak } from "./backfill.js";
 import { loadSyncConfig } from "./config.js";
 import { db, destroyPool, initPool, withConnection } from "./db/pool.js";
 import { migrate } from "./db/schema.js";
@@ -47,6 +47,90 @@ async function setSyncState(userId: string, key: string, value: string): Promise
 		.values({ user_id: userId, key_name: key, value })
 		.onDuplicateKeyUpdate({ value })
 		.execute();
+}
+
+/** One-time, idempotent: migrate the pre-2026-05-10 single-stream
+ *  backfill keys (`backfill_cursor`, `backfill_complete`) into the
+ *  per-stream namespace under the `hr_intraday` stream — that's what
+ *  the legacy keys actually drove. Steps and future streams start
+ *  fresh under their own keys. */
+async function migrateLegacyBackfillKeys(userId: string): Promise<void> {
+	const legacyCursor = await getSyncState(userId, "backfill_cursor");
+	const legacyComplete = await getSyncState(userId, "backfill_complete");
+	if (legacyCursor !== null) {
+		const newCursor = await getSyncState(userId, "backfill_hr_intraday_cursor");
+		if (newCursor === null) {
+			await setSyncState(userId, "backfill_hr_intraday_cursor", legacyCursor);
+		}
+	}
+	if (legacyComplete !== null) {
+		const newComplete = await getSyncState(userId, "backfill_hr_intraday_complete");
+		if (newComplete === null) {
+			await setSyncState(userId, "backfill_hr_intraday_complete", legacyComplete);
+		}
+	}
+}
+
+/** Walk one stream backwards from its stored cursor, fetching one day per
+ *  iteration, until the rate-limit budget is gone or we hit the empty-day
+ *  threshold (stream complete). Each stream is independent — HR'\''s
+ *  cursor + complete flag are unrelated to Steps'\''s, and so on. */
+async function runIntradayBackfill(
+	client: FitbitClient,
+	userId: string,
+	stream: IntradayStream,
+	defaultStartDate: string,
+): Promise<void> {
+	const completeKey = `backfill_${stream.name}_complete`;
+	const cursorKey = `backfill_${stream.name}_cursor`;
+	const maxEmpty = stream.maxEmptyDays ?? 14;
+
+	if ((await getSyncState(userId, completeKey)) === "true") {
+		console.log(`[${userId}] ${stream.name}: backfill already complete`);
+		return;
+	}
+	if (client.rateLimitRemaining <= 15) {
+		console.log(`[${userId}] ${stream.name}: rate limit low (${client.rateLimitRemaining}), skipping`);
+		return;
+	}
+
+	const cursor = (await getSyncState(userId, cursorKey)) ?? defaultStartDate;
+	console.log(`[${userId}] ${stream.name}: backfill from ${cursor} going backwards...`);
+
+	let currentDate = prevDay(cursor);
+	let emptyStreak = 0;
+
+	while (client.rateLimitRemaining > 15 && emptyStreak < maxEmpty) {
+		// skipIf: bypass days that another stream'\''s data tells us are empty.
+		// Cheap DB lookup, no API call, no streak advance — just move past.
+		if (stream.skipIf && (await stream.skipIf(currentDate))) {
+			await setSyncState(userId, cursorKey, currentDate);
+			currentDate = prevDay(currentDate);
+			continue;
+		}
+
+		const result = await backfillStreamDay(stream.sync, currentDate);
+		if (!result.ok) {
+			console.error(`[${userId}] ${stream.name} ${currentDate} failed: ${result.error}`);
+		}
+		if (shouldAdvanceEmptyStreak(result)) {
+			emptyStreak++;
+		} else if (result.ok) {
+			emptyStreak = 0;
+		}
+		// !ok: leave emptyStreak unchanged so transient errors don'\''t
+		// silently terminate this stream'\''s backfill.
+
+		await setSyncState(userId, cursorKey, currentDate);
+		currentDate = prevDay(currentDate);
+	}
+
+	if (emptyStreak >= maxEmpty) {
+		console.log(`[${userId}] ${stream.name}: backfill complete — ${maxEmpty} consecutive empty days`);
+		await setSyncState(userId, completeKey, "true");
+	} else {
+		console.log(`[${userId}] ${stream.name}: paused at ${currentDate}. Rate limit: ${client.rateLimitRemaining}`);
+	}
 }
 
 const config = loadSyncConfig();
@@ -133,73 +217,54 @@ for (const user of users) {
 		console.log(`[${user.user_id}] Forward sync done. Rate limit: ${client.rateLimitRemaining}`);
 
 		// --- Pass 2: Backward backfill (historical data) ---
-		const backfillComplete = (await getSyncState(user.user_id, "backfill_complete")) === "true";
+		// Each intraday stream tracks its own cursor + complete flag. New
+		// streams (e.g. steps added 2026-05-10) start fresh from today and
+		// walk back independently; previously-complete streams stay complete.
+		await migrateLegacyBackfillKeys(user.user_id);
 
-		if (backfillComplete) {
-			console.log(`[${user.user_id}] Backfill already complete.`);
-		} else if (client.rateLimitRemaining <= 15) {
-			console.log(`[${user.user_id}] Skipping backfill, rate limit low (${client.rateLimitRemaining}).`);
-		} else {
-			const cursor = (await getSyncState(user.user_id, "backfill_cursor")) ?? lastSyncDate;
-			console.log(`[${user.user_id}] Backfill from ${cursor} going backwards...`);
-
-			let currentDate = prevDay(cursor);
-			let emptyStreak = 0;
-			const MAX_EMPTY_DAYS = 14; // stop after 14 consecutive empty days
-
-			await withConnection(async (conn) => {
-				while (client.rateLimitRemaining > 15 && emptyStreak < MAX_EMPTY_DAYS) {
-					const dateStr = currentDate;
-
-					// Primary high-value backfill target. We must distinguish a
-					// genuine empty day (advance streak) from a transient failure
-					// (do NOT advance streak — see src/backfill.ts).
-					const hrResult = await backfillHrForDay(
-						(d) => syncHeartRateIntraday(client, conn, user.user_id, d, d),
-						dateStr,
+		await withConnection(async (conn) => {
+			const hrStream: IntradayStream = {
+				name: "hr_intraday",
+				sync: async (date: string) => {
+					const points = await syncHeartRateIntraday(client, conn, user.user_id, date, date);
+					// Daily summaries ride along on HR'\''s coverage. Their per-day
+					// fetch is cheap and they only have meaningful empty/non-empty
+					// at the daily level, which HR'\''s streak already captures.
+					await trySync(user.user_id, `backfill activity ${date}`, () =>
+						syncActivity(client, conn, user.user_id, date, date),
 					);
-					if (!hrResult.ok) {
-						console.error(`[${user.user_id}] backfill HR ${dateStr} failed: ${hrResult.error}`);
-					}
-
-					// Also backfill daily summaries for this date
-					await trySync(user.user_id, `backfill activity ${dateStr}`, () =>
-						syncActivity(client, conn, user.user_id, dateStr, dateStr),
+					await trySync(user.user_id, `backfill sleep ${date}`, () =>
+						syncSleep(client, conn, user.user_id, date, date),
 					);
-					await trySync(user.user_id, `backfill sleep ${dateStr}`, () =>
-						syncSleep(client, conn, user.user_id, dateStr, dateStr),
-					);
-					// Steps intraday only when HR returned data — saves rate limit
-					// on genuinely empty days.
-					if (hrResult.ok && hrResult.points > 0) {
-						await trySync(user.user_id, `backfill steps ${dateStr}`, () =>
-							syncStepsIntraday(client, conn, user.user_id, dateStr, dateStr),
-						);
-					}
+					return points;
+				},
+			};
 
-					if (shouldAdvanceEmptyStreak(hrResult)) {
-						emptyStreak++;
-					} else if (hrResult.ok) {
-						// Successful day with data — reset the streak.
-						emptyStreak = 0;
-					}
-					// !ok: leave emptyStreak unchanged so transient errors don't
-					// silently terminate backfill.
+			const stepsStream: IntradayStream = {
+				name: "steps_intraday",
+				sync: (date: string) => syncStepsIntraday(client, conn, user.user_id, date, date),
+				// Skip days where we already know Fitbit was off (no HR row stored).
+				// Saves rate limit; data integrity is preserved because if HR ever
+				// gets backfilled later, we'\''ll re-evaluate (skipIf is checked each run).
+				skipIf: async (date: string) => {
+					const start = `${date} 00:00:00`;
+					const end = `${date} 23:59:59`;
+					const row = await db()
+						.selectFrom("heart_rate_intraday")
+						.select("ts")
+						.where("user_id", "=", user.user_id)
+						.where("ts", ">=", start)
+						.where("ts", "<=", end)
+						.limit(1)
+						.executeTakeFirst();
+					return !row;
+				},
+			};
 
-					// Save cursor after each day so we don't redo work if interrupted
-					await setSyncState(user.user_id, "backfill_cursor", dateStr);
-
-					currentDate = prevDay(currentDate);
-				}
-			});
-
-			if (emptyStreak >= MAX_EMPTY_DAYS) {
-				console.log(`[${user.user_id}] Backfill complete — ${MAX_EMPTY_DAYS} consecutive empty days.`);
-				await setSyncState(user.user_id, "backfill_complete", "true");
-			} else {
-				console.log(`[${user.user_id}] Backfill paused at ${currentDate}. Rate limit: ${client.rateLimitRemaining}`);
+			for (const stream of [hrStream, stepsStream]) {
+				await runIntradayBackfill(client, user.user_id, stream, lastSyncDate);
 			}
-		}
+		});
 
 		console.log(`[${user.user_id}] Done. Rate limit remaining: ${client.rateLimitRemaining}`);
 	} catch (e) {
