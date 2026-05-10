@@ -7,6 +7,7 @@
 import { db } from "../db/pool.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
+import { localSolarHour } from "./focus-places.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
 import { bestPlace, nearbyWays, placeLabel, refineMode } from "./osm.js";
@@ -14,6 +15,19 @@ import { type KnownPlace, snapToPlace } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments } from "./segments.js";
 import { dateBoundsUtc } from "./timezone.js";
+
+/** Returns true if the segment includes ≥1 hour of local overnight time
+ *  (00:00–06:00 in the segment's local solar time). Used to decide whether
+ *  to prefer a residential address over a nearby amenity at the same coords. */
+function hasOvernightPresence(startTs: number, endTs: number, lon: number): boolean {
+	const stepSec = 30 * 60;
+	let overnight = 0;
+	for (let t = startTs; t <= endTs; t += stepSec) {
+		const h = localSolarHour(t, lon);
+		if (h >= 0 && h < 6) overnight += stepSec / 3600;
+	}
+	return overnight >= 1;
+}
 
 interface NamedPlace extends KnownPlace {
 	displayName: string | null;
@@ -125,7 +139,8 @@ export async function computeVelocity(
 						}
 					}
 
-					const place = await bestPlace(cLat, cLon);
+					const preferResidential = hasOvernightPresence(seg.startTs, seg.endTs, cLon);
+					const place = await bestPlace(cLat, cLon, { preferResidential });
 					return place ? { ...seg, place: placeLabel(place) } : seg;
 				}
 				// Moving segment: sample several points along the path so the
