@@ -1,0 +1,106 @@
+import { describe, expect, it } from "vitest";
+import type { EnrichedSegment } from "../src/geo/velocity.js";
+import { mergeAdjacentStays } from "../src/geo/velocity.js";
+
+function stay(startTs: number, endTs: number, place: string | undefined, pointCount = 5): EnrichedSegment {
+	return {
+		startTs,
+		endTs,
+		mode: "stationary",
+		confidence: 0.7,
+		avgSpeed: 0,
+		maxSpeed: 0,
+		linearity: 0,
+		pointCount,
+		place,
+	};
+}
+
+function walking(startTs: number, endTs: number, place?: string): EnrichedSegment {
+	return {
+		startTs,
+		endTs,
+		mode: "walking",
+		confidence: 0.5,
+		avgSpeed: 4,
+		maxSpeed: 6,
+		linearity: 0.7,
+		pointCount: 10,
+		place,
+	};
+}
+
+const HOUR = 3600;
+
+describe("mergeAdjacentStays", () => {
+	it("returns the same list when there is nothing to merge", () => {
+		const out = mergeAdjacentStays([stay(0, HOUR, "Cafe A"), stay(2 * HOUR, 3 * HOUR, "Cafe B")]);
+		expect(out).toHaveLength(2);
+	});
+
+	it("merges two directly-adjacent stays at the same place", () => {
+		const out = mergeAdjacentStays([
+			stay(10 * HOUR, 11 * HOUR, "Bairro Alto (cafe)", 5),
+			stay(11 * HOUR, 12 * HOUR, "Bairro Alto (cafe)", 7),
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0].startTs).toBe(10 * HOUR);
+		expect(out[0].endTs).toBe(12 * HOUR);
+		expect(out[0].pointCount).toBe(12);
+	});
+
+	it("merges two stays separated by a tiny gap (≤ 5 min)", () => {
+		const out = mergeAdjacentStays([
+			stay(10 * HOUR, 10 * HOUR + 1800, "Home"),
+			stay(10 * HOUR + 1800 + 60, 11 * HOUR, "Home"),
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0].endTs).toBe(11 * HOUR);
+	});
+
+	it("does NOT merge stays separated by more than 5 min", () => {
+		const out = mergeAdjacentStays([stay(0, 3600, "Home"), stay(3600 + 6 * 60, 7200, "Home")]);
+		expect(out).toHaveLength(2);
+	});
+
+	it("does NOT merge stays at different places", () => {
+		const out = mergeAdjacentStays([stay(0, HOUR, "Cafe A"), stay(HOUR, 2 * HOUR, "Cafe B")]);
+		expect(out).toHaveLength(2);
+	});
+
+	it("does NOT merge across a movement segment (walking between stays remains)", () => {
+		const out = mergeAdjacentStays([
+			stay(0, HOUR, "Home"),
+			walking(HOUR, HOUR + 600, "Street"),
+			stay(HOUR + 600, 2 * HOUR, "Home"),
+		]);
+		expect(out).toHaveLength(3);
+		expect(out.map((s) => s.mode)).toEqual(["stationary", "walking", "stationary"]);
+	});
+
+	it("collapses a chain of three same-place stays into one", () => {
+		const out = mergeAdjacentStays([
+			stay(0, HOUR, "Bairro Alto"),
+			stay(HOUR, 2 * HOUR, "Bairro Alto"),
+			stay(2 * HOUR, 3 * HOUR, "Bairro Alto"),
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0].startTs).toBe(0);
+		expect(out[0].endTs).toBe(3 * HOUR);
+	});
+
+	it("does NOT merge stays without a place label (place=undefined)", () => {
+		// Both are unlabelled — shouldn't be coalesced just because both lack a name
+		const out = mergeAdjacentStays([stay(0, HOUR, undefined), stay(HOUR, 2 * HOUR, undefined)]);
+		expect(out).toHaveLength(2);
+	});
+
+	it("returns a deep copy — the original segments are not mutated", () => {
+		const a = stay(0, HOUR, "Home");
+		const b = stay(HOUR, 2 * HOUR, "Home");
+		const out = mergeAdjacentStays([a, b]);
+		expect(a.endTs).toBe(HOUR);
+		expect(b.endTs).toBe(2 * HOUR);
+		expect(out[0].endTs).toBe(2 * HOUR);
+	});
+});

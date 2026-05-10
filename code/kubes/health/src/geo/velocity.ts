@@ -15,10 +15,14 @@ import type { TrackSegment } from "./segments.js";
 import { classifySegments } from "./segments.js";
 import { dateBoundsUtc } from "./timezone.js";
 
-async function loadKnownPlaces(userId: string): Promise<KnownPlace[]> {
+interface NamedPlace extends KnownPlace {
+	displayName: string | null;
+}
+
+async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 	const rows = await db()
 		.selectFrom("focus_places")
-		.select(["id", "centroid_lat", "centroid_lon", "radius_m"])
+		.select(["id", "centroid_lat", "centroid_lon", "radius_m", "display_name"])
 		.where("user_id", "=", userId)
 		.execute();
 	return rows.map((r) => ({
@@ -26,6 +30,7 @@ async function loadKnownPlaces(userId: string): Promise<KnownPlace[]> {
 		centroidLat: Number(r.centroid_lat),
 		centroidLon: Number(r.centroid_lon),
 		radiusM: r.radius_m,
+		displayName: r.display_name,
 	}));
 }
 
@@ -98,9 +103,28 @@ export async function computeVelocity(
 
 			try {
 				if (seg.mode === "stationary") {
-					// One place — geocode the centroid (two-zoom: building, then area).
-					const cLat = segPoints.reduce((s, p) => s + p.lat, 0) / segPoints.length;
-					const cLon = segPoints.reduce((s, p) => s + p.lon, 0) / segPoints.length;
+					let cLat = segPoints.reduce((s, p) => s + p.lat, 0) / segPoints.length;
+					let cLon = segPoints.reduce((s, p) => s + p.lon, 0) / segPoints.length;
+
+					// Stay-centroid snap: long stays accumulate centroid drift past the
+					// per-fix snap radius. Re-snap the segment centroid against known
+					// places with a generous radius so we recover from overnight drift.
+					if (knownPlaces.length > 0) {
+						const r = snapToPlace({ lat: cLat, lon: cLon, accuracy: 200 }, knownPlaces, {
+							snapRadiusM: 100,
+							minAccuracyToSnapM: 0,
+						});
+						if (r.snapped) {
+							cLat = r.lat;
+							cLon = r.lon;
+							const matched = knownPlaces.find((p) => p.id === r.snappedTo?.id) as NamedPlace | undefined;
+							if (matched?.displayName) {
+								// Skip the OSM lookup entirely for known-named places.
+								return { ...seg, place: matched.displayName };
+							}
+						}
+					}
+
 					const place = await bestPlace(cLat, cLon);
 					return place ? { ...seg, place: placeLabel(place) } : seg;
 				}
@@ -137,5 +161,34 @@ export async function computeVelocity(
 		}),
 	);
 
-	return { points, segments: enriched };
+	return { points, segments: mergeAdjacentStays(enriched) };
+}
+
+/**
+ * Merge two consecutive stationary segments that resolved to the same `place`
+ * label and are separated by ≤ 5 min. Reflects the user's intent: a brief
+ * pause that lands inside the same venue should read as one stay, not two.
+ *
+ * Chains (A, A, A) collapse into one. We deliberately do NOT collapse across
+ * a real movement segment yet — keeps the post-step trivially correct.
+ */
+export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment[] {
+	const result: EnrichedSegment[] = [];
+	for (const seg of segments) {
+		const prev = result[result.length - 1];
+		if (
+			prev &&
+			prev.mode === "stationary" &&
+			seg.mode === "stationary" &&
+			prev.place &&
+			prev.place === seg.place &&
+			seg.startTs - prev.endTs <= 5 * 60
+		) {
+			prev.endTs = seg.endTs;
+			prev.pointCount += seg.pointCount;
+		} else {
+			result.push({ ...seg });
+		}
+	}
+	return result;
 }

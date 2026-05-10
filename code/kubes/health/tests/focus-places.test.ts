@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	assignDisplayNames,
 	type Cluster,
 	classifyCluster,
 	clusterStays,
@@ -251,6 +252,77 @@ describe("localSolarHour", () => {
 	it("returns local hour from longitude — UK is ~0h offset", () => {
 		const utcNoon = Date.UTC(2026, 0, 1, 12, 0) / 1000;
 		expect(localSolarHour(utcNoon, 0)).toBe(12);
+	});
+});
+
+describe("assignDisplayNames", () => {
+	function homeLikeCluster(id: number): Cluster {
+		// 30 nights × 8h overnight at HOME, no daytime presence
+		const stays: Stay[] = [];
+		for (let d = 0; d < 60; d += 2) {
+			const startTs = at(d, 22);
+			stays.push({
+				startTs,
+				endTs: startTs + 8 * 3600,
+				centroidLat: HOME_LAT,
+				centroidLon: HOME_LON,
+				pointCount: 8,
+				durationSec: 8 * 3600,
+			});
+		}
+		const totalDwell = stays.reduce((s, x) => s + x.durationSec, 0);
+		return { id, centroidLat: HOME_LAT, centroidLon: HOME_LON, stays, totalDwellSec: totalDwell };
+	}
+
+	function workLikeCluster(id: number): Cluster {
+		// 21 weekday workdays × 8h, no overnight
+		const stays: Stay[] = [];
+		const workLat = HOME_LAT + 0.05;
+		const workLon = HOME_LON + 0.05;
+		for (let d = 0; d < 30; d++) {
+			if (localSolarDayOfWeek(at(d, 12), workLon) > 4) continue; // skip weekends
+			const startTs = at(d, 9);
+			stays.push({
+				startTs,
+				endTs: startTs + 8 * 3600,
+				centroidLat: workLat,
+				centroidLon: workLon,
+				pointCount: 8,
+				durationSec: 8 * 3600,
+			});
+		}
+		const totalDwell = stays.reduce((s, x) => s + x.durationSec, 0);
+		return { id, centroidLat: workLat, centroidLon: workLon, stays, totalDwellSec: totalDwell };
+	}
+
+	it("assigns Home to the cluster with the most overnight + wide span", () => {
+		const home = homeLikeCluster(1);
+		const names = assignDisplayNames([home]);
+		expect(names.get(1)).toBe("Home");
+	});
+
+	it("assigns Work to the strongest weekday-daytime cluster (excluding home)", () => {
+		const home = homeLikeCluster(1);
+		const work = workLikeCluster(2);
+		const names = assignDisplayNames([home, work]);
+		expect(names.get(1)).toBe("Home");
+		expect(names.get(2)).toBe("Work");
+	});
+
+	it("returns empty when no cluster qualifies (single short stay)", () => {
+		// One 30-min daytime stay — not enough overnight, not enough weekday-daytime
+		const s: Stay = stay(0, 14, HOME_LAT, HOME_LON);
+		const c: Cluster = { id: 1, centroidLat: HOME_LAT, centroidLon: HOME_LON, stays: [s], totalDwellSec: 1800 };
+		expect(assignDisplayNames([c]).size).toBe(0);
+	});
+
+	it("does not double-assign — one Home only, even if two clusters look home-like", () => {
+		const a = homeLikeCluster(1);
+		const b = { ...homeLikeCluster(2), centroidLat: HOME_LAT + 0.1, centroidLon: HOME_LON + 0.1 };
+		// Make `a` slightly more overnight-heavy so it wins
+		const names = assignDisplayNames([a, b]);
+		expect([...names.values()].filter((v) => v === "Home")).toHaveLength(1);
+		expect(names.get(1)).toBe("Home");
 	});
 });
 

@@ -192,6 +192,12 @@ const MIGRATIONS: readonly string[] = [
     INDEX idx_fp_user_geo (user_id, centroid_lat, centroid_lon)
   )`,
 
+	// v20: Auto-derived display name for the user's primary clusters
+	// ("Home" — strongest overnight cluster, "Work" — strongest non-home
+	// weekday-daytime cluster). NULL for places without a special role;
+	// those fall back to OSM nearby-landmark labelling at render time.
+	`ALTER TABLE focus_places ADD COLUMN IF NOT EXISTS display_name VARCHAR(64) NULL`,
+
 	// Future migrations go here.
 ];
 

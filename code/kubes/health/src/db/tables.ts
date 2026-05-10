@@ -180,6 +180,7 @@ export interface FocusPlacesTable {
 	first_seen_ts: number;
 	last_seen_ts: number;
 	detected_label: string | null;
+	display_name: string | null;
 	refreshed_at: Generated<Date>;
 }
 

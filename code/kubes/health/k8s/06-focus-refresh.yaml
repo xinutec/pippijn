@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: health-focus-refresh
+  namespace: health
+spec:
+  # Sundays at 04:00 UTC — quiet time, between Fitbit syncs.
+  schedule: "0 4 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3300
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: refresh
+              image: xinutec/health-sync:latest
+              command: ["node", "dist/cli/refresh-focus-places.js"]
+              env:
+                - name: DB_HOST
+                  value: health-db
+                - name: DB_NAME
+                  value: health
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_PASSWORD
+                - name: NC_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: NC_CLIENT_ID
+                - name: NC_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: NC_CLIENT_SECRET
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi

@@ -13,7 +13,13 @@
 import { z } from "zod";
 import { db, destroyPool, initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
-import { classifyCluster, detectFocusPlaces, type RawPoint, uniqueDayCount } from "../geo/focus-places.js";
+import {
+	assignDisplayNames,
+	classifyCluster,
+	detectFocusPlaces,
+	type RawPoint,
+	uniqueDayCount,
+} from "../geo/focus-places.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -99,6 +105,7 @@ async function refreshOne(userId: string): Promise<void> {
 		try {
 			await conn.query("DELETE FROM focus_places WHERE user_id = ?", [userId]);
 			if (result.clusters.length > 0) {
+				const displayNames = assignDisplayNames(result.clusters);
 				const rows = result.clusters.map((c) => {
 					const sortedStays = [...c.stays].sort((a, b) => a.startTs - b.startTs);
 					const cls = classifyCluster(c);
@@ -113,10 +120,11 @@ async function refreshOne(userId: string): Promise<void> {
 						sortedStays[0].startTs,
 						sortedStays[sortedStays.length - 1].endTs,
 						cls.label,
+						displayNames.get(c.id) ?? null,
 					];
 				});
 				await conn.batch(
-					"INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					"INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label, display_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 					rows,
 				);
 			}

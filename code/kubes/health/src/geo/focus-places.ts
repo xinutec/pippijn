@@ -285,6 +285,49 @@ export function classifyCluster(c: Cluster): ClusterClassification {
 	return { label: "other", reason: `${uniqueDays} days, ${Math.round(dateSpanDays)}d span` };
 }
 
+// --- Display names: pick a "Home" and a "Work" cluster from the set ---
+
+/**
+ * Assign at most one "Home" and one "Work" label across a user's clusters,
+ * derived purely from time-of-day patterns. Returns a map cluster.id → name.
+ *
+ * - Home: cluster with the most overnight (00-06 local solar) hours, given
+ *   it has at least 20 unique days of presence across at least 30 days span.
+ *   Singular — only one Home is assigned, even if two clusters look home-like.
+ * - Work: cluster (excluding the Home pick) with the most weekday-daytime
+ *   (Mon-Fri 09-17) hours, given at least 5 weekday-daytime hours overall.
+ *
+ * Other clusters get no display_name; the timeline falls back to OSM.
+ */
+export function assignDisplayNames(clusters: Cluster[]): Map<number, string> {
+	const names = new Map<number, string>();
+
+	const homeCandidates = clusters
+		.map((c) => {
+			const sorted = [...c.stays].sort((a, b) => a.startTs - b.startTs);
+			const dateSpanDays = (sorted[sorted.length - 1].endTs - sorted[0].startTs) / 86400;
+			const uniqueDays = uniqueDayCount(c.stays, c.centroidLon);
+			const overnightHours = sumHourBucket(c.stays, c.centroidLon, 0, 6);
+			return { cluster: c, dateSpanDays, uniqueDays, overnightHours };
+		})
+		.filter((x) => x.dateSpanDays >= 30 && x.uniqueDays >= 20 && x.overnightHours >= 10)
+		.sort((a, b) => b.overnightHours - a.overnightHours);
+
+	const homeId = homeCandidates[0]?.cluster.id ?? null;
+	if (homeId !== null) names.set(homeId, "Home");
+
+	const workCandidates = clusters
+		.filter((c) => c.id !== homeId)
+		.map((c) => ({ cluster: c, hours: weekdayDaytimeHours(c.stays, c.centroidLon) }))
+		.filter((x) => x.hours >= 5)
+		.sort((a, b) => b.hours - a.hours);
+
+	const workId = workCandidates[0]?.cluster.id ?? null;
+	if (workId !== null) names.set(workId, "Work");
+
+	return names;
+}
+
 // --- High-level pipeline ---
 
 export interface PlaceDetectionResult {
