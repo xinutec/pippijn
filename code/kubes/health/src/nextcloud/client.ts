@@ -26,22 +26,40 @@ export class NextcloudClient {
 	}
 
 	async get<T>(path: string): Promise<T> {
+		return this.request<T>("GET", path);
+	}
+
+	async put<T>(path: string, body: unknown): Promise<T> {
+		return this.request<T>("PUT", path, body);
+	}
+
+	async post<T>(path: string, body: unknown): Promise<T> {
+		return this.request<T>("POST", path, body);
+	}
+
+	private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
 		await this.ensureToken();
 
 		const url = path.startsWith("http") ? path : `${this.baseUrl}${path}`;
-		const res = await fetch(url, {
-			headers: {
-				Authorization: `Bearer ${this.accessToken}`,
-				"OCS-APIRequest": "true",
-			},
-		});
-
-		if (!res.ok) {
-			const body = await res.text();
-			throw new Error(`Nextcloud API ${path}: ${res.status} ${body}`);
+		const headers: Record<string, string> = {
+			Authorization: `Bearer ${this.accessToken}`,
+			"OCS-APIRequest": "true",
+		};
+		const init: RequestInit = { method, headers };
+		if (body !== undefined) {
+			headers["Content-Type"] = "application/json";
+			init.body = JSON.stringify(body);
 		}
 
-		return res.json() as Promise<T>;
+		const res = await fetch(url, init);
+		if (!res.ok) {
+			const text = await res.text();
+			throw new Error(`Nextcloud API ${method} ${path}: ${res.status} ${text}`);
+		}
+
+		// Some PhoneTrack endpoints return empty body — guard against that.
+		const text = await res.text();
+		return text ? (JSON.parse(text) as T) : (undefined as unknown as T);
 	}
 
 	private async ensureToken(): Promise<void> {

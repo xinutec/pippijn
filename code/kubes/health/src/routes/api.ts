@@ -5,7 +5,9 @@ import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
 import { computeVelocity } from "../geo/velocity.js";
 import { requireAuth } from "../middleware/auth.js";
+import { NextcloudClient } from "../nextcloud/client.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
+import { buildPhoneTrackFilterValues, computePhoneTrackDatemin } from "../nextcloud/phonetrack-prefs.js";
 
 const daysParam = z.coerce.number().int().min(1).max(365).default(30);
 const dateParam = z
@@ -213,6 +215,47 @@ export function apiRoutes(config: Config): Hono<AppEnv> {
 		const uid = c.get("session").userId;
 		const rows = await db().selectFrom("sync_state").selectAll().where("user_id", "=", uid).execute();
 		return c.json(rows);
+	});
+
+	app.post("/phonetrack/sync-filter", async (c) => {
+		const uid = c.get("session").userId;
+		const tz = tzParam.parse(c.req.query("tz")) ?? "UTC";
+
+		const tok = await db()
+			.selectFrom("nc_tokens")
+			.select(["access_token", "refresh_token", "expires_at"])
+			.where("user_id", "=", uid)
+			.executeTakeFirst();
+		if (!tok) return c.json({ error: "Nextcloud not linked" }, 400);
+
+		const datemin = computePhoneTrackDatemin(new Date(), tz);
+		const values = buildPhoneTrackFilterValues(datemin);
+
+		try {
+			const nc = new NextcloudClient({
+				accessToken: tok.access_token,
+				refreshToken: tok.refresh_token,
+				expiresAt: new Date(tok.expires_at).getTime(),
+				baseUrl: config.nextcloud.baseUrl,
+				clientId: config.nextcloud.clientId,
+				clientSecret: config.nextcloud.clientSecret,
+				onTokenRefresh: async (accessToken, refreshToken, expiresIn) => {
+					await db()
+						.updateTable("nc_tokens")
+						.set({
+							access_token: accessToken,
+							refresh_token: refreshToken,
+							expires_at: new Date(Date.now() + expiresIn * 1000),
+						})
+						.where("user_id", "=", uid)
+						.execute();
+				},
+			});
+			await nc.put("/index.php/apps/phonetrack/saveOptionValues", { values });
+			return c.json({ ok: true, datemin });
+		} catch (e) {
+			return c.json({ error: String(e) }, 502);
+		}
 	});
 
 	return app;

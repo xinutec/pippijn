@@ -134,4 +134,17 @@ export class HealthService {
     if (!res.ok) throw new Error("Failed to fetch velocity data");
     return res.json();
   }
+
+  /** Fire-and-forget — sets PhoneTrack's visualisation date filter to a
+   * sensible default (yesterday 00:00 if before 06:00 local, else today
+   * 00:00, no end). Called on dashboard load so navigating to PhoneTrack
+   * always shows the relevant range. */
+  async syncPhoneTrackFilter(): Promise<void> {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    try {
+      await fetch(`/api/phonetrack/sync-filter?tz=${encodeURIComponent(tz)}`, { method: "POST" });
+    } catch {
+      // Non-fatal — the dashboard works regardless.
+    }
+  }
 }

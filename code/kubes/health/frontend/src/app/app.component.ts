@@ -54,6 +54,10 @@ export class AppComponent implements OnInit {
     this.fitbitLinked.set(this.health.user()?.fitbitLinked ?? false);
     if (!this.fitbitLinked()) { this.loading.set(false); return; }
 
+    // Fire-and-forget: keep PhoneTrack's visualisation filter aligned with
+    // "today from 00:00 (or yesterday after midnight before 06:00)".
+    void this.health.syncPhoneTrackFilter();
+
     await this.loadData();
     this.loading.set(false);
   }
