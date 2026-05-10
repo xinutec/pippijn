@@ -139,11 +139,13 @@ export function cadenceForSegment(segment: TrackSegment, stepPoints: StepPoint[]
 // --- Cadence-based mode correction ---
 
 /** A walking-classified segment with cadence below this is almost certainly
- *  not walking — typical walking is 80–120 steps/min, jogging 130+, and
- *  even slow strolling is ≥40. Anything well below this in a segment the
- *  GPS classifier called walking is a passenger in slow traffic, a queue,
- *  an escalator, or similar. */
-const WALKING_MIN_CADENCE = 30;
+ *  not walking — typical walking is 80–120 steps/min, jogging 130+, slow
+ *  strolling ~40, and even busy urban walking with stops still reads ~25–40.
+ *  Threshold deliberately well below "slow walking with stops" so we only
+ *  correct genuinely passenger-in-vehicle / escalator / shuttle cases.
+ *  False positives (real walks relabelled as driving) are worse than false
+ *  negatives (passenger trip kept as walking), so we under-correct. */
+const WALKING_MIN_CADENCE = 10;
 
 /** Don'\''t correct very short segments — a 1-min "walking" segment with
  *  zero steps could be a brief pause. Need enough samples to be confident. */

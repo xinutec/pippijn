@@ -249,6 +249,17 @@ describe("correctModeFromCadence — passenger-in-traffic detection", () => {
 		expect(r.refinedMode ?? r.mode).toBe("walking");
 	});
 
+	it("keeps walking for slow / interrupted urban walking (~25–40 steps/min)", () => {
+		// Regression: a real urban walk with frequent stops (window-shopping,
+		// crossings, queues) reads ~27 steps/min over 10 min = 270 steps.
+		// Must not be falsely corrected to driving — better to under-correct
+		// than to corrupt a real walking segment.
+		const seg = baseSeg("walking", 3, 10 * 60);
+		const stepsThisDay: StepPoint[] = Array.from({ length: 10 }, (_, i) => step(i * 60, 27));
+		const r = correctModeFromCadence(seg, stepsThisDay);
+		expect(r.refinedMode ?? r.mode).toBe("walking");
+	});
+
 	it("does NOT correct very short segments (insufficient cadence sample)", () => {
 		// 1-min walking with no steps could be a brief pause; don'\''t over-react.
 		const seg = baseSeg("walking", 4, 60);
