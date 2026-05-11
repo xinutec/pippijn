@@ -63,6 +63,12 @@ export interface TrackSegment {
   wayName?: string;
   refinedMode?: string;
   refinedReason?: string;
+  /** IANA tz the segment's timestamps should be rendered in.
+   *  Derived per-segment from the segment's location (stationary
+   *  centroid, moving midpoint). Lets the UI show times "as you
+   *  experienced them" — morning in one tz, evening in another
+   *  on a travel day. */
+  displayTz?: string;
 }
 
 export interface VelocityData {

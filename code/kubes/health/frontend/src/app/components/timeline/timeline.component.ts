@@ -63,8 +63,14 @@ export class TimelineComponent {
     const mode = s.refinedMode ?? s.mode;
     const icon = MODE_ICONS[mode] ?? "place";
 
-    const startLabel = this.formatTime(s.startTs);
-    const endLabel = this.formatTime(s.endTs);
+    // Render timestamps in the segment's location-derived tz so the UI shows
+    // events "as the user experienced them" — morning at parents in CEST,
+    // evening home in BST, even across a travel day. Falls back to the
+    // browser tz when the segment didn't get a displayTz tag (older data
+    // pre-Phase 2 deploy, or a corner case in the backend).
+    const tz = s.displayTz;
+    const startLabel = this.formatTime(s.startTs, tz);
+    const endLabel = this.formatTime(s.endTs, tz);
     const durationLabel = this.formatDuration(s.endTs - s.startTs);
 
     let primary: string;
@@ -88,9 +94,23 @@ export class TimelineComponent {
     return { startLabel, endLabel, durationLabel, mode, icon, primary, secondary };
   }
 
-  private formatTime(unixTs: number): string {
+  private formatTime(unixTs: number, tz?: string): string {
     const d = new Date(unixTs * 1000);
-    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+    if (tz === undefined) {
+      return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+    }
+    // Use Intl with the segment's tz so a CEST-recorded morning shows
+    // "09:44" even when the browser is in BST.
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(d);
+    const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+    const m = parts.find((p) => p.type === "minute")?.value ?? "00";
+    // en-GB renders midnight as "00" not "24" — but be defensive.
+    return `${h === "24" ? "00" : h}:${m}`;
   }
 
   private formatDuration(seconds: number): string {

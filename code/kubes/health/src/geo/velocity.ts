@@ -5,6 +5,7 @@
  */
 
 import { sql } from "kysely";
+import tzLookup from "tz-lookup";
 import { db } from "../db/pool.js";
 import { getSyncState } from "../db/sync-state.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
@@ -162,6 +163,7 @@ export interface EnrichedSegment extends TrackSegment {
 	wayName?: string; // road/rail name (for moving segments)
 	refinedMode?: string; // OSM-refined transport mode (may differ from heuristic mode)
 	refinedReason?: string;
+	displayTz?: string; // IANA tz to render the segment'\''s timestamps in (frontend uses this instead of browser tz)
 	biometrics?: BiometricEnrichment;
 }
 
@@ -367,10 +369,43 @@ export async function computeVelocity(
 
 	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(corrected)));
 
+	// Per-segment displayTz: the IANA tz the frontend should use to render
+	// the segment's wall-clock. Derived from the segment's geographic
+	// location (centroid for stationary, midpoint for moving). Lets the UI
+	// show times "as the user experienced them" — morning at parents in
+	// CEST, evening home in BST, even across a travel day. Fallback to
+	// home_tz / Europe/Amsterdam when no points cover the segment (inferred
+	// gap segments).
+	const homeTz = (await getSyncState(userId, "home_tz")) ?? "Europe/Amsterdam";
+	const withDisplayTz = timeSync("displayTz", () =>
+		merged.map((s): EnrichedSegment => {
+			const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
+			if (segPoints.length === 0) {
+				return { ...s, displayTz: homeTz };
+			}
+			// Stationary: centroid. Moving: midpoint of path.
+			let lat: number;
+			let lon: number;
+			if (s.mode === "stationary") {
+				lat = segPoints.reduce((acc, p) => acc + p.lat, 0) / segPoints.length;
+				lon = segPoints.reduce((acc, p) => acc + p.lon, 0) / segPoints.length;
+			} else {
+				const mid = segPoints[Math.floor(segPoints.length / 2)];
+				lat = mid.lat;
+				lon = mid.lon;
+			}
+			try {
+				return { ...s, displayTz: tzLookup(lat, lon) };
+			} catch {
+				return { ...s, displayTz: homeTz };
+			}
+		}),
+	);
+
 	// Final cross-modal enrichment: attach HR / sleep / steps stats per
 	// segment. Missing Fitbit data → biometrics fields are null/zero.
 	const withBiometrics = timeSync("biomEnrich", () =>
-		merged.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep, steps) })),
+		withDisplayTz.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep, steps) })),
 	);
 
 	const total = Date.now() - t0;
