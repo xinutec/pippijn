@@ -227,6 +227,28 @@ const MIGRATIONS: readonly string[] = [
 	`ALTER TABLE heart_rate_intraday ADD COLUMN IF NOT EXISTS tz VARCHAR(64) NULL`,
 	`ALTER TABLE sleep_stages        ADD COLUMN IF NOT EXISTS tz VARCHAR(64) NULL`,
 
+	// v24: Per-user mode biometric signatures. Mined from historical
+	// (HR, cadence, speed) joint distribution per minute, labeled by
+	// heuristic rules. Used by downstream classification to disambiguate
+	// segments whose GPS-derived confidence is low (cycling-as-driving,
+	// walking-as-driving). Refreshed periodically.
+	`CREATE TABLE IF NOT EXISTS mode_biometrics (
+    user_id              VARCHAR(64)  NOT NULL,
+    mode                 VARCHAR(16)  NOT NULL,
+    hr_mean              DECIMAL(5,1) NULL,
+    hr_std               DECIMAL(5,1) NULL,
+    hr_sample_count      INT          NOT NULL DEFAULT 0,
+    cadence_mean         DECIMAL(6,1) NULL,
+    cadence_std          DECIMAL(6,1) NULL,
+    cadence_sample_count INT          NOT NULL DEFAULT 0,
+    speed_mean           DECIMAL(6,1) NULL,
+    speed_std            DECIMAL(6,1) NULL,
+    speed_sample_count   INT          NOT NULL DEFAULT 0,
+    sample_count         INT          NOT NULL,
+    refreshed_at         TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, mode)
+  )`,
+
 	// Future migrations go here.
 ];
 

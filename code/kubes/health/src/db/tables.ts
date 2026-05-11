@@ -177,6 +177,22 @@ export interface OsmCacheTable {
 	cached_at: Generated<Date>;
 }
 
+export interface ModeBiometricsTable {
+	user_id: string;
+	mode: string;
+	hr_mean: number | null;
+	hr_std: number | null;
+	hr_sample_count: number;
+	cadence_mean: number | null;
+	cadence_std: number | null;
+	cadence_sample_count: number;
+	speed_mean: number | null;
+	speed_std: number | null;
+	speed_sample_count: number;
+	sample_count: number;
+	refreshed_at: Generated<Date>;
+}
+
 export interface FocusPlacesTable {
 	id: Generated<number>;
 	user_id: string;
@@ -216,5 +232,6 @@ export interface Database {
 	nc_tokens: NcTokensTable;
 	osm_cache: OsmCacheTable;
 	focus_places: FocusPlacesTable;
+	mode_biometrics: ModeBiometricsTable;
 	schema_migrations: SchemaMigrationsTable;
 }
