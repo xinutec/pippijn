@@ -482,14 +482,24 @@ export function inferTransitGaps(segments: TrackSegment[], points: FilteredPoint
 		// the conservative vehicle-of-some-kind. Walking covers the bottom
 		// (under-7 km/h gaps that crossed the 200m distance threshold).
 		//
-		// Train continuity: if a bordering segment is itself rail (the
-		// classifier picked "train", or it'\''s a "plane" — included for
-		// symmetry though rare), upgrade a vehicle-speed gap to "train". A
-		// 38 km/h gap between Saint Espresso and a Jubilee Line tube ride
-		// is part of the same transit chain (e.g. line interchange),
-		// not a sudden car ride in the middle of London Underground.
-		const neighbouringTransit =
-			seg.mode === "train" || seg.mode === "plane" || next.mode === "train" || next.mode === "plane";
+		// Train continuity: if a bordering segment is itself rail, upgrade
+		// a vehicle-speed gap to "train". A 38 km/h gap between Saint
+		// Espresso and a Jubilee Line tube ride is part of the same
+		// transit chain (e.g. line interchange), not a sudden car ride in
+		// the middle of London Underground.
+		//
+		// "Bordering is rail" sources:
+		//   - segment.mode is already "train" or "plane" (classifier picked it)
+		//   - segment looks rail-shaped from features alone: very high
+		//     linearity (>0.95) + high maxSpeed (>60 km/h). Rail tracks
+		//     are straighter than roads. The user'\''s motorway drives top
+		//     out around linearity 0.91; tube/train hit 0.99. This catches
+		//     the case where the classifier picked driving for the tube
+		//     but OSM refineMode (which runs *after* inferTransitGaps in
+		//     the velocity pipeline) would later upgrade it to train.
+		const looksLikeRail = (s: TrackSegment): boolean =>
+			s.mode === "train" || s.mode === "plane" || (s.linearity > 0.95 && s.maxSpeed > 60);
+		const neighbouringTransit = looksLikeRail(seg) || looksLikeRail(next);
 		let inferredMode: TransportMode;
 		if (speedKmh < 7) {
 			inferredMode = "walking";
