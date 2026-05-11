@@ -383,7 +383,19 @@ export async function computeVelocity(
 							// individual visits' GPS noise can flip the OSM picker
 							// between adjacent venues, but the aggregate vote across
 							// many visits converges on the real venue.
-							if (snappedTo?.amenityLabel !== null && snappedTo?.amenityLabel !== undefined) {
+							//
+							// EXCEPT for residential clusters. Fitbit knows when you
+							// sleep; `sleepHoursOf` lifts that into the cluster as
+							// `sleep_hours`. A cluster with sustained overnight presence
+							// is your hotel / home / lodging — even daytime visits there
+							// are at the residence, not at the cafe next door. Fall
+							// through to the residential OSM lookup so the address
+							// wins.
+							if (
+								snappedTo?.amenityLabel !== null &&
+								snappedTo?.amenityLabel !== undefined &&
+								snappedTo.sleepHours < RESIDENCE_SLEEP_THRESHOLD_H
+							) {
 								const namedPlace = await bestPlace(cLat, cLon, { preferResidential: false });
 								const namedCity = extractCity(namedPlace);
 								return {
