@@ -60,6 +60,25 @@ describe("labelMinuteByHeuristic", () => {
 	it("labels very high speed zero-cadence as train", () => {
 		expect(labelMinuteByHeuristic({ hr: 72, cadence: 0, speed: 100 })).toBe("train");
 		expect(labelMinuteByHeuristic({ hr: null, cadence: 0, speed: 120 })).toBe("train");
+		// Fastest scheduled high-speed rail: TGV 320 km/h, Shinkansen 285.
+		// Up to ~330 km/h is still rail.
+		expect(labelMinuteByHeuristic({ hr: 75, cadence: 0, speed: 250 })).toBe("train");
+	});
+
+	it("labels cruise-speed zero-cadence as plane", () => {
+		// Commercial jet cruise: 700-900 km/h. Unambiguous vs every other
+		// mode — high-speed trains top out around 320 km/h, so > 500 km/h
+		// is definitely a plane.
+		expect(labelMinuteByHeuristic({ hr: 72, cadence: 0, speed: 800 })).toBe("plane");
+		expect(labelMinuteByHeuristic({ hr: null, cadence: 0, speed: 700 })).toBe("plane");
+		expect(labelMinuteByHeuristic({ hr: 90, cadence: 0, speed: 850 })).toBe("plane");
+	});
+
+	it("does NOT label transition-zone speeds (between high-speed rail and plane)", () => {
+		// 350-500 km/h is climb-out / descent / fast turboprop — ambiguous.
+		// Skip rather than corrupt either signature.
+		expect(labelMinuteByHeuristic({ hr: 75, cadence: 0, speed: 400 })).toBeNull();
+		expect(labelMinuteByHeuristic({ hr: 80, cadence: 0, speed: 450 })).toBeNull();
 	});
 
 	it("does NOT label walking when speed is too high (could be running)", () => {

@@ -78,9 +78,19 @@ export function labelMinuteByHeuristic(obs: MinuteObservation): TransportMode | 
 		return "driving";
 	}
 
-	// Train: zero cadence + train speed.
-	if (cadence !== null && cadence < 5 && speed > 80 && (hr === null || hr < 95)) {
+	// Train: zero cadence + 80–330 km/h. Upper bound covers fastest
+	// scheduled high-speed rail (TGV 320, Shinkansen 285). Speeds above
+	// the bound are likely plane climb-out / descent / cruise (see below).
+	if (cadence !== null && cadence < 5 && speed > 80 && speed <= 330 && (hr === null || hr < 95)) {
 		return "train";
+	}
+
+	// Plane: zero cadence + cruise speed. > 500 km/h is unambiguous —
+	// no rail mode reaches it. The 330–500 km/h band is the plane
+	// climb-out / descent / fast turboprop transition zone; we leave
+	// it unlabeled rather than risk corrupting either signature.
+	if (cadence !== null && cadence < 5 && speed > 500) {
+		return "plane";
 	}
 
 	return null;
