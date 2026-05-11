@@ -92,17 +92,35 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 	app.post("/:token/:device", async (c) => {
 		const token = c.req.param("token");
 		const device = c.req.param("device");
-		const payload = await c.req.json<OwntracksLocation | OwntracksLocation[]>().catch(() => null);
-		if (payload === null) return c.json({ error: "invalid json" }, 400);
+		// Read raw body once so we can both parse it for the decision and
+		// forward it unchanged to PhoneTrack (matters for any signing /
+		// content-length consistency PhoneTrack may care about).
+		const rawBody = await c.req.text();
+		let payload: OwntracksLocation | OwntracksLocation[];
+		try {
+			payload = JSON.parse(rawBody);
+		} catch {
+			return c.json({ error: "invalid json" }, 400);
+		}
 
-		// Forward verbatim to Nextcloud PhoneTrack. The user's existing
-		// session token + device name (in URL) is what authorises the
-		// write at PhoneTrack; we don't add or strip credentials.
+		// Forward verbatim to Nextcloud PhoneTrack. Owntracks sends HTTP
+		// Basic Auth (username/password configured in the app); PhoneTrack
+		// relies on that for write authorisation, so we pass it through
+		// along with the body. We also pass through the User-Agent so any
+		// PhoneTrack-side logs / rate-limiting attribute correctly to the
+		// real client.
 		const phonetrackUrl = `${config.nextcloud.baseUrl}/apps/phonetrack/log/owntracks/${token}/${device}`;
+		const forwardedHeaders: Record<string, string> = {
+			"Content-Type": c.req.header("Content-Type") ?? "application/json",
+		};
+		const auth = c.req.header("Authorization");
+		if (auth) forwardedHeaders.Authorization = auth;
+		const ua = c.req.header("User-Agent");
+		if (ua) forwardedHeaders["User-Agent"] = ua;
 		const upstreamRes = await fetch(phonetrackUrl, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(payload),
+			headers: forwardedHeaders,
+			body: rawBody,
 		}).catch((err: unknown) => {
 			console.warn(`Owntracks proxy: PhoneTrack POST failed for token ${token}: ${err}`);
 			return null;
