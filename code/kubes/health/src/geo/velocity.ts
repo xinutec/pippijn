@@ -35,7 +35,7 @@ import {
 } from "./osm.js";
 import { type KnownPlace, snapToPlace } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
-import { classifySegments } from "./segments.js";
+import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
 
 /**
@@ -456,7 +456,21 @@ export async function computeVelocity(
 		corrected.map((seg) => applyBiometricSignature(seg, hr, steps, modeStats)),
 	);
 
-	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(biometricCorrected)));
+	// Hard physical-impossibility overrides: a car can't sustain 300+ km/h,
+	// a train can't average 600 km/h. These are constraints, not
+	// heuristics — enforced regardless of GPS / OSM / biometric output.
+	// Apply BEFORE merge so consistent modes can coalesce. Also propagate
+	// the override into refinedMode so downstream consumers (annotateRail
+	// Runs, frontend) see the corrected mode.
+	const physicallyCorrected = timeSync("physicalConstraints", () =>
+		biometricCorrected.map((seg) => {
+			const corrected = enforcePhysicalConstraints(seg);
+			if (corrected.mode === seg.mode) return seg;
+			return { ...corrected, refinedMode: corrected.mode };
+		}),
+	);
+
+	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(physicallyCorrected)));
 
 	const withStations = await annotateRailRuns(merged, points);
 

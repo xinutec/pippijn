@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
-import { classifySegments, inferTransitGaps, normalizeScores, type TrackSegment } from "../src/geo/segments.js";
+import {
+	classifySegments,
+	enforcePhysicalConstraints,
+	inferTransitGaps,
+	normalizeScores,
+	type TrackSegment,
+} from "../src/geo/segments.js";
 
 // Helper: generate points moving in a straight line at constant speed
 function generateTrack(opts: {
@@ -656,6 +662,72 @@ describe("classifySegments", () => {
 		// Should produce at least 3 segments: stationary → moving → stationary.
 		expect(segments.length).toBeGreaterThanOrEqual(3);
 		expect(segments.some((s) => s.mode !== "stationary")).toBe(true);
+	});
+});
+
+describe("enforcePhysicalConstraints", () => {
+	// Some classifier outputs are physically impossible. A car can't sustain
+	// 300+ km/h, a train can't sustain 500+ km/h. These are hard constraints,
+	// not heuristic guards — they hold regardless of biometrics or OSM
+	// context. Enforce them as a post-classification override.
+
+	const baseSeg = (overrides: Partial<TrackSegment> = {}): TrackSegment => ({
+		startTs: 1000,
+		endTs: 1500,
+		mode: "driving",
+		confidence: 0.9,
+		confidenceMargin: 5,
+		avgSpeed: 60,
+		maxSpeed: 70,
+		linearity: 0.8,
+		pointCount: 10,
+		...overrides,
+	});
+
+	it("overrides driving with maxSpeed > 250 km/h to train (Eurostar case)", () => {
+		const s = enforcePhysicalConstraints(baseSeg({ mode: "driving", avgSpeed: 130, maxSpeed: 317 }));
+		expect(s.mode).toBe("train");
+	});
+
+	it("leaves regular driving alone (highway speeds)", () => {
+		const s = enforcePhysicalConstraints(baseSeg({ mode: "driving", avgSpeed: 120, maxSpeed: 150 }));
+		expect(s.mode).toBe("driving");
+	});
+
+	it("leaves autobahn-speed driving alone (up to 250 km/h max is plausible)", () => {
+		// Autobahn / Italian autostrada can legitimately hit 200-240 km/h.
+		// Threshold is 250, not 200, to avoid false-positives at the high
+		// end of legal driving.
+		const s = enforcePhysicalConstraints(baseSeg({ mode: "driving", avgSpeed: 140, maxSpeed: 240 }));
+		expect(s.mode).toBe("driving");
+	});
+
+	it("overrides train with avgSpeed > 400 km/h to plane", () => {
+		// avgSpeed: fastest scheduled trains top out around 350 km/h, so a
+		// sustained > 400 average must be a plane. Single fixes can spike
+		// during turbulent GPS samples, so use AVG, not max.
+		const s = enforcePhysicalConstraints(baseSeg({ mode: "train", avgSpeed: 600, maxSpeed: 850 }));
+		expect(s.mode).toBe("plane");
+	});
+
+	it("leaves train at high (but valid) train speeds alone", () => {
+		// 280 km/h average is plausible TGV / Shinkansen. Don't override.
+		const s = enforcePhysicalConstraints(baseSeg({ mode: "train", avgSpeed: 280, maxSpeed: 357 }));
+		expect(s.mode).toBe("train");
+	});
+
+	it("records the override in refinedReason", () => {
+		const s = enforcePhysicalConstraints(baseSeg({ mode: "driving", avgSpeed: 130, maxSpeed: 317 }));
+		expect(s.refinedReason).toMatch(/physical/i);
+	});
+
+	it("leaves stationary, walking, cycling alone (low-speed modes can't trip the limit)", () => {
+		const stay = enforcePhysicalConstraints(baseSeg({ mode: "stationary", avgSpeed: 0, maxSpeed: 1 }));
+		expect(stay.mode).toBe("stationary");
+		const walk = enforcePhysicalConstraints(baseSeg({ mode: "walking", avgSpeed: 5, maxSpeed: 8 }));
+		expect(walk.mode).toBe("walking");
+		const cycle = enforcePhysicalConstraints(baseSeg({ mode: "cycling", avgSpeed: 20, maxSpeed: 35 }));
+		expect(cycle.mode).toBe("cycling");
 	});
 });
 

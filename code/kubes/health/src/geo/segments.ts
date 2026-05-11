@@ -188,6 +188,49 @@ interface ModeScore {
  *  consumers without losing the "unambiguous" signal. */
 const MARGIN_MAX_FINITE = 1000;
 
+/** Driving max plausible speed in km/h. Autobahn / Italian autostrada
+ *  can briefly hit 240 km/h legitimately; we set the bar at 250 to give
+ *  high-end legal driving the benefit of the doubt. A segment whose max
+ *  sustained speed exceeds this cannot be driving — must be train. */
+const DRIVING_MAX_SPEED_KMH = 250;
+
+/** Train max plausible average speed. TGV / Shinkansen / Eurostar top
+ *  out around 350 km/h scheduled; we set the override at 400 km/h
+ *  average to leave room for individual peaks. Anything sustained
+ *  above this must be a plane (or GPS noise, but GPS noise produces
+ *  high MAX, not high AVG over an extended segment). */
+const TRAIN_MAX_AVG_SPEED_KMH = 400;
+
+/**
+ * Hard physical-impossibility overrides. A car cannot sustain 300 km/h
+ * regardless of what the GPS/OSM classification says; a train cannot
+ * average 600 km/h. These constraints hold independent of biometric
+ * data, OSM context, or anything else.
+ *
+ * Apply as a post-classification override so that downstream passes
+ * (mergeAdjacentMoving, annotateRailRuns, biometric correction) see the
+ * physically consistent mode.
+ */
+export function enforcePhysicalConstraints(seg: TrackSegment): TrackSegment {
+	if (seg.mode === "driving" && seg.maxSpeed > DRIVING_MAX_SPEED_KMH) {
+		// 300+ km/h is the LGV / high-speed rail signature. Driving is
+		// impossible at these speeds; relabel as train.
+		return {
+			...seg,
+			mode: "train",
+			refinedReason: `physical-impossibility override (max ${seg.maxSpeed.toFixed(0)} km/h exceeds driving limit)`,
+		};
+	}
+	if (seg.mode === "train" && seg.avgSpeed > TRAIN_MAX_AVG_SPEED_KMH) {
+		return {
+			...seg,
+			mode: "plane",
+			refinedReason: `physical-impossibility override (avg ${seg.avgSpeed.toFixed(0)} km/h exceeds train limit)`,
+		};
+	}
+	return seg;
+}
+
 /**
  * Normalise raw mode scores from `scoreWindow` into a probability + margin.
  *
