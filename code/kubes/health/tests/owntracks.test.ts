@@ -1,56 +1,93 @@
 import { describe, expect, it } from "vitest";
-import { decideMonitoringCommand, type MonitoringMode } from "../src/routes/owntracks.js";
+import { classifyMotion, decideRemoteConfig, type MotionProfile } from "../src/routes/owntracks.js";
 
-describe("decideMonitoringCommand", () => {
-	// Owntracks "monitoring" modes:
-	//   0 = Manual (user-initiated only — no automatic reporting)
-	//   1 = Significant (~100m or movement-triggered, battery-efficient)
-	//   2 = Move (continuous, every X seconds — high fidelity)
-	//
-	// Server-side rule: when the user is clearly in transit (high speed),
-	// flip to Move so we get dense fixes during the journey. When sitting
-	// still (low speed for sustained period), drop to Significant to save
-	// battery. Mid-range stays at whatever was last set.
-	//
-	// Returns null when no command should be sent (either no change
-	// warranted, or the desired mode equals the last-sent mode).
+describe("classifyMotion", () => {
+	// Coarse motion regimes derived from a single velocity reading.
+	// Used to drive Owntracks remote config — each regime maps to a
+	// different fix-density / battery trade-off.
 
-	it("requests Move mode when speed clearly in transit (> 30 km/h)", () => {
-		expect(decideMonitoringCommand(60, null)).toBe(2);
-		expect(decideMonitoringCommand(100, 1)).toBe(2);
+	it("returns transit-fast for sustained high speed (> 80 km/h)", () => {
+		expect(classifyMotion(120)).toBe("transit-fast");
+		expect(classifyMotion(300)).toBe("transit-fast"); // train, plane
 	});
 
-	it("requests Significant mode when speed near zero (< 5 km/h)", () => {
-		expect(decideMonitoringCommand(0, null)).toBe(1);
-		expect(decideMonitoringCommand(2, 2)).toBe(1);
+	it("returns transit for moderate speed (30 < v <= 80 km/h)", () => {
+		expect(classifyMotion(50)).toBe("transit");
+		expect(classifyMotion(70)).toBe("transit");
 	});
 
-	it("returns null when the desired mode equals the last-sent mode", () => {
-		// Don't spam the same command on every fix.
-		expect(decideMonitoringCommand(60, 2)).toBeNull();
-		expect(decideMonitoringCommand(0, 1)).toBeNull();
+	it("returns stationary for very low speed (< 5 km/h)", () => {
+		expect(classifyMotion(0)).toBe("stationary");
+		expect(classifyMotion(2)).toBe("stationary");
 	});
 
-	it("returns null for mid-range speeds (no clear signal either way)", () => {
-		// 5-30 km/h covers walking/cycling/slow drive — the right mode
-		// depends on context we don't have here, so don't override.
-		expect(decideMonitoringCommand(10, null)).toBeNull();
-		expect(decideMonitoringCommand(20, 1)).toBeNull();
-		expect(decideMonitoringCommand(25, 2)).toBeNull();
+	it("returns null for ambiguous mid-range (5-30 km/h)", () => {
+		// Walking, cycling, slow drives — too many possibilities to make
+		// a confident server-side decision. Don't push a profile.
+		expect(classifyMotion(7)).toBeNull();
+		expect(classifyMotion(20)).toBeNull();
 	});
 
-	it("treats threshold values consistently (< is strict)", () => {
-		// exactly 5 km/h → not slow enough to be "stopped"
-		expect(decideMonitoringCommand(5, null)).toBeNull();
-		// exactly 30 km/h → not fast enough to be "in transit"
-		expect(decideMonitoringCommand(30, null)).toBeNull();
+	it("uses strict boundaries (< and >)", () => {
+		expect(classifyMotion(5)).toBeNull(); // not stationary
+		expect(classifyMotion(30)).toBeNull(); // not transit
+		expect(classifyMotion(80)).toBe("transit"); // exactly 80 is still transit, not fast
+	});
+});
+
+describe("decideRemoteConfig", () => {
+	// Produces an Owntracks configuration patch when the motion profile
+	// has changed from what was last pushed. The patch is a partial
+	// configuration — only fields we want to change are included.
+
+	it("returns the config for transit-fast when not yet set", () => {
+		const r = decideRemoteConfig(120, null);
+		expect(r.profile).toBe("transit-fast");
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 10 });
 	});
 
-	it("type-narrows the return to a valid monitoring mode", () => {
-		const r = decideMonitoringCommand(60, null);
-		if (r !== null) {
-			const ok: MonitoringMode = r;
-			expect([0, 1, 2]).toContain(ok);
+	it("returns the config for transit when transitioning from stationary", () => {
+		const r = decideRemoteConfig(50, "stationary");
+		expect(r.profile).toBe("transit");
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
+	});
+
+	it("returns the config for stationary when leaving transit", () => {
+		const r = decideRemoteConfig(0, "transit");
+		expect(r.profile).toBe("stationary");
+		expect(r.patch).toEqual({ monitoring: 1 });
+	});
+
+	it("returns null patch when profile equals lastProfile (avoid spam)", () => {
+		expect(decideRemoteConfig(120, "transit-fast").patch).toBeNull();
+		expect(decideRemoteConfig(50, "transit").patch).toBeNull();
+		expect(decideRemoteConfig(0, "stationary").patch).toBeNull();
+	});
+
+	it("returns null patch for ambiguous speeds (no profile)", () => {
+		const r = decideRemoteConfig(20, "transit");
+		expect(r.profile).toBe("transit"); // keep lastProfile
+		expect(r.patch).toBeNull();
+	});
+
+	it("transitions from fast to slow transit pushes the new interval", () => {
+		// e.g., train slowing into a station, dropping from 100 to 60 km/h.
+		// We want the moveModeLocatorInterval to relax from 10s to 15s.
+		const r = decideRemoteConfig(60, "transit-fast");
+		expect(r.profile).toBe("transit");
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
+	});
+
+	it("type guards: patch is a Partial<OwntracksConfig>-like object", () => {
+		const r = decideRemoteConfig(120, null);
+		if (r.patch !== null) {
+			expect(typeof r.patch.monitoring).toBe("number");
+			expect(typeof r.patch.moveModeLocatorInterval).toBe("number");
 		}
+	});
+
+	it("MotionProfile type narrows to a finite set", () => {
+		const p: MotionProfile = "transit";
+		expect(["transit-fast", "transit", "stationary", null]).toContain(p);
 	});
 });

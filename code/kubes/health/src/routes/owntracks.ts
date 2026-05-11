@@ -34,35 +34,71 @@ import type { AppEnv } from "../env.js";
 
 export type MonitoringMode = 0 | 1 | 2;
 
-/** Speed (km/h) above which we treat the user as "clearly in transit." */
-const TRANSIT_SPEED_KMH = 30;
-
-/** Speed (km/h) below which we treat the user as "clearly not moving." */
-const STATIONARY_SPEED_KMH = 5;
-
-/**
- * Decide whether to push a remote-config command in response to this fix.
- *
- * Returns the desired monitoring mode, or null if no command should be
- * sent (either no clear signal, or the desired mode equals what we last
- * pushed). Pure function so the rule is unit-testable independent of HTTP
- * plumbing.
- */
-export function decideMonitoringCommand(speedKmh: number, lastMode: MonitoringMode | null): MonitoringMode | null {
-	let desired: MonitoringMode | null;
-	if (speedKmh > TRANSIT_SPEED_KMH) desired = 2;
-	else if (speedKmh < STATIONARY_SPEED_KMH) desired = 1;
-	else desired = null;
-	if (desired === null) return null;
-	if (desired === lastMode) return null;
-	return desired;
+/** A subset of Owntracks configuration fields we may push remotely. See
+ *  https://owntracks.org/booklet/tech/json/ for the full schema. Patches
+ *  contain only the fields we want to change — other settings on the
+ *  device are left as-is. */
+export interface OwntracksConfigPatch {
+	monitoring?: MonitoringMode;
+	moveModeLocatorInterval?: number; // seconds between fixes in Move mode
+	locatorDisplacement?: number; // metres of movement to log a fix
 }
 
-/** Per (token,device) memory of the last-pushed monitoring mode. Lost on
+/** A coarse motion regime derived from a single velocity reading. */
+export type MotionProfile = "transit-fast" | "transit" | "stationary" | null;
+
+/**
+ * Classify a velocity reading into a motion regime. Returns null for
+ * the ambiguous mid-range (5-30 km/h) where the right profile depends
+ * on context we don't have here (walking vs cycling vs slow drive).
+ */
+export function classifyMotion(speedKmh: number): MotionProfile {
+	if (speedKmh > 80) return "transit-fast";
+	if (speedKmh > 30) return "transit";
+	if (speedKmh < 5) return "stationary";
+	return null;
+}
+
+/** Owntracks settings for each motion regime. Tuned for the trade-off
+ *  between fix density (better trajectory data) and battery cost:
+ *
+ *  - transit-fast: train / plane / fast driving. 10s gets a fix every
+ *    ~280m at 100 km/h instead of every ~830m at the 30s default —
+ *    meaningful for station-graph annotation on tube/rail.
+ *  - transit: regular driving. 15s is dense enough to capture turns
+ *    without burning battery on a long motorway run.
+ *  - stationary: drop to Significant mode. Owntracks does its own
+ *    motion detection there; interval/displacement only apply in Move
+ *    mode anyway. */
+const PROFILE_CONFIG: Record<Exclude<MotionProfile, null>, OwntracksConfigPatch> = {
+	"transit-fast": { monitoring: 2, moveModeLocatorInterval: 10 },
+	transit: { monitoring: 2, moveModeLocatorInterval: 15 },
+	stationary: { monitoring: 1 },
+};
+
+/**
+ * Decide whether to push a config patch in response to this fix.
+ *
+ * Returns the new motion profile and an optional patch to apply. The
+ * patch is null when no command should be sent — either the speed is
+ * ambiguous, or the desired profile equals what we last pushed (avoid
+ * spamming the same config on every fix).
+ */
+export function decideRemoteConfig(
+	speedKmh: number,
+	lastProfile: MotionProfile,
+): { profile: MotionProfile; patch: OwntracksConfigPatch | null } {
+	const desired = classifyMotion(speedKmh);
+	if (desired === null) return { profile: lastProfile, patch: null };
+	if (desired === lastProfile) return { profile: desired, patch: null };
+	return { profile: desired, patch: PROFILE_CONFIG[desired] };
+}
+
+/** Per (token,device) memory of the last-pushed motion profile. Lost on
  *  restart, which is fine — we just re-push on the next fix if the speed
  *  warrants. Keyed by both so a user with multiple devices gets independent
  *  state. */
-const lastModeByKey = new Map<string, MonitoringMode>();
+const lastProfileByKey = new Map<string, MotionProfile>();
 
 /** Owntracks location-message shape (subset of fields we care about). */
 interface OwntracksLocation {
@@ -82,8 +118,7 @@ interface OwntracksCommand {
 		// the docs at https://owntracks.org/booklet/tech/json/ . Without
 		// it the app rejects the configuration update.
 		_type: "configuration";
-		monitoring: MonitoringMode;
-	};
+	} & OwntracksConfigPatch;
 }
 
 export function owntracksRoutes(config: Config): Hono<AppEnv> {
@@ -138,7 +173,7 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 		const messages = Array.isArray(payload) ? payload : [payload];
 		const maxVel = messages.reduce((m, msg) => (msg.vel !== undefined && msg.vel > m ? msg.vel : m), 0);
 		const stateKey = `${token}/${device}`;
-		const desired = decideMonitoringCommand(maxVel, lastModeByKey.get(stateKey) ?? null);
+		const { profile, patch } = decideRemoteConfig(maxVel, lastProfileByKey.get(stateKey) ?? null);
 
 		// Preserve PhoneTrack's response body. PhoneTrack returns a JSON
 		// array containing a "you are your own friend" location-echo
@@ -156,12 +191,12 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 			// Upstream returned a non-JSON body; nothing to pass through.
 		}
 
-		if (desired !== null) {
-			lastModeByKey.set(stateKey, desired);
+		if (patch !== null) {
+			lastProfileByKey.set(stateKey, profile);
 			baseResponse.push({
 				_type: "cmd",
 				action: "setConfiguration",
-				configuration: { _type: "configuration", monitoring: desired },
+				configuration: { _type: "configuration", ...patch },
 			} satisfies OwntracksCommand);
 		}
 		return c.json(baseResponse);
