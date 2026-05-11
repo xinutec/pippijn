@@ -86,6 +86,46 @@ describe("extractCity", () => {
 	it("returns null for a null result", () => {
 		expect(extractCity(null)).toBeNull();
 	});
+
+	// Coarse grouping for metropolitan areas. Nominatim returns admin
+	// boundaries at multiple levels; for cities that are administratively
+	// subdivided (London boroughs, Paris arrondissements) the per-fix
+	// `city` field is the subdivision, not the metro area. That made the
+	// timeline UI break a single London day into "Greater London → City of
+	// Westminster → Greater London" headers.
+	it("prefers state_district when it's a recognised metropolitan area", () => {
+		const r: NominatimResult = {
+			...baseResult,
+			address: { city: "City of Westminster", state_district: "Greater London" },
+		};
+		expect(extractCity(r)).toBe("Greater London");
+	});
+
+	it("uses state_district even when city is City of London", () => {
+		const r: NominatimResult = {
+			...baseResult,
+			address: { city: "City of London", state_district: "Greater London" },
+		};
+		expect(extractCity(r)).toBe("Greater London");
+	});
+
+	it("falls back to city when state_district is not a recognised metro", () => {
+		// Most cities don't have a metro-area state_district. Hilversum
+		// is in "Noord-Holland" — a province, not a metropolitan area —
+		// so we should NOT promote it.
+		const r: NominatimResult = {
+			...baseResult,
+			address: { city: "Hilversum", state_district: "Noord-Holland" },
+		};
+		expect(extractCity(r)).toBe("Hilversum");
+	});
+
+	it("falls back to city when state_district is absent", () => {
+		// Most older / non-UK responses won't carry state_district.
+		// Backward compat: behaves like before.
+		const r: NominatimResult = { ...baseResult, address: { city: "Amsterdam" } };
+		expect(extractCity(r)).toBe("Amsterdam");
+	});
 });
 
 describe("placeLabel", () => {

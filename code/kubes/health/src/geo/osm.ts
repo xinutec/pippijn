@@ -189,11 +189,34 @@ export interface NominatimResult {
 		town?: string;
 		village?: string;
 		municipality?: string;
+		// One level up from city — used to collapse administrative
+		// subdivisions of large metropolitan areas. For London boroughs
+		// Nominatim returns city="City of Westminster" (or other borough)
+		// and state_district="Greater London"; without this the timeline
+		// would split a single London day across multiple sub-borough
+		// headers. See METROPOLITAN_AREAS.
+		state_district?: string;
 		state?: string;
 		country?: string;
 		postcode?: string;
 	};
 }
+
+/**
+ * State-district / region values that should override the more specific
+ * `city` field when picking a display name. Each entry is a metro area
+ * whose administrative subdivisions are not useful as timeline headers
+ * (e.g. London's 33 boroughs all live inside Greater London — the user
+ * thinks of them as "London"). Extend conservatively: each addition
+ * collapses fine-grained data into coarser groups.
+ */
+const METROPOLITAN_AREAS = new Set([
+	"Greater London",
+	"Greater Manchester",
+	// Île-de-France: Paris + suburbs. Nominatim returns this for the
+	// arrondissements.
+	"Île-de-France",
+]);
 
 /**
  * Pick the best "city" name from a Nominatim result. Nominatim returns one of
@@ -207,6 +230,12 @@ export interface NominatimResult {
 export function extractCity(result: NominatimResult | null): string | null {
 	if (!result) return null;
 	const a = result.address;
+	// If the response carries a recognised metropolitan area, use that
+	// instead of the city — keeps a single London day under one header
+	// instead of splitting into "City of Westminster" / "Greater London".
+	if (a.state_district !== undefined && METROPOLITAN_AREAS.has(a.state_district)) {
+		return a.state_district;
+	}
 	return a.city ?? a.town ?? a.village ?? a.municipality ?? null;
 }
 
