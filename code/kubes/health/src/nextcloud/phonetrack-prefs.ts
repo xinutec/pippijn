@@ -55,16 +55,22 @@ export function computePhoneTrackDatemin(now: Date, tz: string, cutoffHour = DEF
 /**
  * The values we want to set when applying our default visualisation filter.
  *
- * `applyfilters: "1"` is required for PhoneTrack to honour the date range.
+ * `applyfilters: "true"` (the literal string, not "1") is required for
+ * PhoneTrack's frontend to honour the date range. Verified against the
+ * PhoneTrack source at src/App.vue — the UI checks
+ * `state.settings.applyfilters !== 'true'` with strict string equality,
+ * so "1" / true / "yes" all fail and the filter goes off. The PHP
+ * controller (UtilsController::saveOptionValues) stores whatever string
+ * we send unchanged, so we set it to "true" to round-trip correctly.
+ *
  * Only the `min`-side dates are set — leaving `datemax` etc. unset means
- * "no upper bound" rather than "filter disabled." Setting them to empty
- * strings used to flip `applyfilters` back to false on the server side
- * (PhoneTrack's UI logic appears to treat empty-string filter values as
- * "user cleared the filter," so we just don't send them).
+ * "no upper bound." We don't transmit empty strings for the other filter
+ * dimensions; the PHP storage is per-key independent so unset keys keep
+ * their previous user value.
  */
 export function buildPhoneTrackFilterValues(datemin: number): Record<string, string> {
 	return {
-		applyfilters: "1",
+		applyfilters: "true",
 		datemin: String(datemin),
 		timestampmin: String(datemin),
 	};
