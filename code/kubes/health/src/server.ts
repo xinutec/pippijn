@@ -9,6 +9,7 @@ import { cleanupExpiredSessions, sessionMiddleware } from "./middleware/session.
 import { apiRoutes } from "./routes/api.js";
 import { fitbitOAuthRoutes } from "./routes/fitbit-oauth.js";
 import { nextcloudOAuthRoutes } from "./routes/nextcloud-oauth.js";
+import { owntracksRoutes } from "./routes/owntracks.js";
 
 const config = loadConfig();
 initPool(config.db);
@@ -93,6 +94,11 @@ app.route("/", fitbitOAuthRoutes(config));
 
 // API routes (all require auth)
 app.route("/api", apiRoutes(config));
+
+// Owntracks proxy. Auth is the session token in the URL (same as the
+// PhoneTrack endpoint it forwards to). No session cookie required —
+// the request comes from an Android phone, not a browser.
+app.route("/owntracks", owntracksRoutes(config));
 
 // Static files (Angular SPA)
 app.use("/*", serveStatic({ root: "./public" }));
