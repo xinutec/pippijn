@@ -53,22 +53,19 @@ export function computePhoneTrackDatemin(now: Date, tz: string, cutoffHour = DEF
 }
 
 /**
- * The full set of PhoneTrack option key/values we want to set when applying
- * our default visualisation filter. `applyfilters: true` is required for
- * PhoneTrack to honour the date range; the time-of-day fields are cleared
- * so they don't further restrict the view.
+ * The values we want to set when applying our default visualisation filter.
+ *
+ * `applyfilters: "1"` is required for PhoneTrack to honour the date range.
+ * Only the `min`-side dates are set — leaving `datemax` etc. unset means
+ * "no upper bound" rather than "filter disabled." Setting them to empty
+ * strings used to flip `applyfilters` back to false on the server side
+ * (PhoneTrack's UI logic appears to treat empty-string filter values as
+ * "user cleared the filter," so we just don't send them).
  */
 export function buildPhoneTrackFilterValues(datemin: number): Record<string, string> {
 	return {
 		applyfilters: "1",
 		datemin: String(datemin),
 		timestampmin: String(datemin),
-		datemax: "",
-		hourmin: "",
-		hourmax: "",
-		minutemin: "",
-		minutemax: "",
-		secondmin: "",
-		secondmax: "",
 	};
 }
