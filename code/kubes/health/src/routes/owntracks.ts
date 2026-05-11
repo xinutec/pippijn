@@ -140,16 +140,31 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 		const stateKey = `${token}/${device}`;
 		const desired = decideMonitoringCommand(maxVel, lastModeByKey.get(stateKey) ?? null);
 
-		const response: OwntracksCommand[] = [];
+		// Preserve PhoneTrack's response body. PhoneTrack returns a JSON
+		// array containing a "you are your own friend" location-echo
+		// message that Owntracks uses to render the user's own marker on
+		// the in-app map. Without this passthrough the marker disappears.
+		// We then append our own cmd messages to that array.
+		let baseResponse: unknown[] = [];
+		try {
+			const upstreamBody = await upstreamRes.text();
+			if (upstreamBody.trim().length > 0) {
+				const parsed = JSON.parse(upstreamBody);
+				if (Array.isArray(parsed)) baseResponse = parsed;
+			}
+		} catch {
+			// Upstream returned a non-JSON body; nothing to pass through.
+		}
+
 		if (desired !== null) {
 			lastModeByKey.set(stateKey, desired);
-			response.push({
+			baseResponse.push({
 				_type: "cmd",
 				action: "setConfiguration",
 				configuration: { _type: "configuration", monitoring: desired },
-			});
+			} satisfies OwntracksCommand);
 		}
-		return c.json(response);
+		return c.json(baseResponse);
 	});
 
 	return app;
