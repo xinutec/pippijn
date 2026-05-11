@@ -683,14 +683,15 @@ export async function annotateRailRuns(
 		return Boolean(inferredVehicleGap);
 	};
 
-	// A short stationary segment bordered on both sides by rail-like
-	// segments is almost certainly a platform transfer (e.g. Baker Street
-	// while changing tube lines), not a real cafe/landmark visit even if
-	// OSM enrichment found one nearby. The threshold below is generous
-	// enough to cover typical platform waits.
-	const PLATFORM_WAIT_MAX_SEC = 10 * 60;
-	const couldBePlatformWait = (s: EnrichedSegment): boolean =>
-		s.mode === "stationary" && s.endTs - s.startTs <= PLATFORM_WAIT_MAX_SEC;
+	// A short stationary segment bordered by rail-like segments is almost
+	// always a train pause (signal stop, station dwell) — the user is on
+	// the same train the whole time. Collapse the whole run into one
+	// segment so the timeline doesn't show meaningless "Cafe X · 2 min"
+	// artefacts in the middle of a tube ride. Threshold deliberately
+	// tight (5 min) so that genuine longer stays still surface.
+	const TRAIN_PAUSE_MAX_SEC = 5 * 60;
+	const couldBeTrainPause = (s: EnrichedSegment): boolean =>
+		s.mode === "stationary" && s.endTs - s.startTs <= TRAIN_PAUSE_MAX_SEC;
 
 	// Identify maximal rail runs. A run starts and ends with a rail-like
 	// segment but may absorb short stationary "platform" segments in the
@@ -712,7 +713,7 @@ export async function annotateRailRuns(
 			// Absorb a short stationary IFF a rail-like segment follows it.
 			// Without that follow-up condition we'd swallow the trailing
 			// stationary at the end of a journey too (e.g. arriving home).
-			if (couldBePlatformWait(segments[j]) && j + 1 < segments.length && isRailLike(segments[j + 1])) {
+			if (couldBeTrainPause(segments[j]) && j + 1 < segments.length && isRailLike(segments[j + 1])) {
 				absorbed.push(j);
 				j += 2; // skip the stationary AND the rail-like that confirmed it
 				continue;
@@ -772,58 +773,64 @@ export async function annotateRailRuns(
 		}),
 	);
 
-	// For each absorbed-stationary segment, look up nearby stations so we
-	// can overwrite its (misleading) cafe/landmark label with the platform
-	// it's really at. Done in parallel across all absorbed indices.
-	const allAbsorbed = runs.flatMap((r) => r.absorbedStationary);
-	const platformLabels = new Map<number, string>();
-	await Promise.all(
-		allAbsorbed.map(async (idx) => {
-			const seg = segments[idx];
-			// Use the segment's own outer-bounding fixes — these sit at the
-			// platform the user is transferring on.
-			const before = [...points].reverse().find((p) => p.ts <= seg.startTs);
-			const after = points.find((p) => p.ts >= seg.endTs);
-			const probe = before ?? after;
-			if (!probe) return;
-			try {
-				const stations = await stationsLookup(probe.lat, probe.lon);
-				const station = stations[0]?.name;
-				if (station) platformLabels.set(idx, `${station} (platform)`);
-			} catch {
-				// Lookup failure: leave the original landmark alone.
-			}
-		}),
-	);
-
-	// Apply: shallow-copy the input, then overwrite the run segments.
-	const out = segments.map((s) => ({ ...s }));
-	for (let r = 0; r < runs.length; r++) {
-		const label = runLabels[r];
-		const run = runs[r];
-		if (!label) continue;
-		for (let k = run.from; k < run.toExclusive; k++) {
-			const s = out[k];
-			if (s.mode === "stationary") {
-				// Absorbed platform stationary: replace cafe/landmark with
-				// the actual platform context. If station lookup didn't
-				// resolve, leave the original `place` rather than blanking
-				// it (better to be slightly wrong than empty).
-				const platform = platformLabels.get(k);
-				if (platform) s.place = platform;
-				continue;
-			}
-			const wasTrain = s.mode === "train" || s.refinedMode === "train";
-			const wasInferredVehicleGap = s.refinedReason?.startsWith("inferred from GPS gap") && s.avgSpeed >= 7;
-			if (wasInferredVehicleGap && !wasTrain) {
-				// Promote: a vehicle-speed gap inside a confirmed rail run is
-				// part of the tube ride, not a sudden car trip.
-				s.mode = "train";
-				s.refinedMode = "train";
-				s.refinedReason = `${s.refinedReason}; tube ride between known stations`;
-			}
-			s.wayName = label;
+	// Apply. For each rail run:
+	//   - Single-segment run: keep shape, just annotate with the
+	//     station-pair label (if available).
+	//   - Multi-segment run (with or without absorbed short stationaries):
+	//     collapse into one train segment spanning the whole journey.
+	//     The user thinks of it as one ride — "I got on at Kings Cross,
+	//     off at Wembley Park" — not three sub-windows of the classifier
+	//     plus a momentary train pause. Surface the journey, not the
+	//     artefacts.
+	// Segments outside any run pass through unchanged.
+	const out: EnrichedSegment[] = [];
+	const runByStart = new Map(runs.map((r, idx) => [r.from, idx]));
+	let i = 0;
+	while (i < segments.length) {
+		const runIdx = runByStart.get(i);
+		if (runIdx === undefined) {
+			out.push({ ...segments[i] });
+			i++;
+			continue;
 		}
+		const run = runs[runIdx];
+		const label = runLabels[runIdx];
+		if (run.toExclusive - run.from === 1 && run.absorbedStationary.length === 0) {
+			// Single segment — no collapse needed. Just annotate.
+			const s = { ...segments[run.from] };
+			if (label) s.wayName = label;
+			out.push(s);
+			i = run.toExclusive;
+			continue;
+		}
+		// Multi-segment / absorbed run → collapse into one train segment.
+		const first = segments[run.from];
+		const last = segments[run.toExclusive - 1];
+		const railSegs: EnrichedSegment[] = [];
+		for (let k = run.from; k < run.toExclusive; k++) {
+			if (segments[k].mode !== "stationary") railSegs.push(segments[k]);
+		}
+		const totalWeight = railSegs.reduce((a, s) => a + (s.pointCount || 1), 0) || 1;
+		const weighted = (field: (s: EnrichedSegment) => number, digits: number): number => {
+			const sum = railSegs.reduce((a, s) => a + field(s) * (s.pointCount || 1), 0);
+			return Math.round((sum / totalWeight) * 10 ** digits) / 10 ** digits;
+		};
+		const merged: EnrichedSegment = {
+			startTs: first.startTs,
+			endTs: last.endTs,
+			mode: "train",
+			refinedMode: "train",
+			confidence: weighted((s) => s.confidence, 2),
+			confidenceMargin: weighted((s) => s.confidenceMargin, 2),
+			avgSpeed: weighted((s) => s.avgSpeed, 1),
+			maxSpeed: Math.max(...railSegs.map((s) => s.maxSpeed)),
+			linearity: weighted((s) => s.linearity, 2),
+			pointCount: railSegs.reduce((a, s) => a + s.pointCount, 0),
+			refinedReason: "merged rail run (collapsed brief pauses)",
+		};
+		if (label) merged.wayName = label;
+		out.push(merged);
+		i = run.toExclusive;
 	}
 	return out;
 }

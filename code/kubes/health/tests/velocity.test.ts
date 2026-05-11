@@ -372,12 +372,12 @@ describe("annotateRailRuns", () => {
 		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
 	});
 
-	it("merges train + inferred-gap + train into one journey with one label", async () => {
+	it("collapses train + inferred-gap + train into one journey", async () => {
 		// The Baker Street bug: a single mid-ride noisy fix splits the tube
-		// ride into two train segments separated by an inferred vehicle gap.
-		// Each segment used to get its own start/end station, producing
-		// Wembley → Baker Street and Baker Street → Kings Cross.
-		// After merge-then-annotate: one outer-bounded label applies to all.
+		// ride into two train segments separated by an inferred vehicle
+		// gap. After the merge: one continuous train segment from the
+		// run's true start to its true end, labeled by outer-bounding
+		// stations. The intermediate inferred-gap artefact disappears.
 		const segs = [train(1000, 1200), inferredVehicleGap(1200, 1300), train(1300, 1500)];
 		const points = [
 			fix(900, 51.53, -0.125), // Kings Cross — before run
@@ -385,13 +385,12 @@ describe("annotateRailRuns", () => {
 			fix(1600, 51.563, -0.279), // Wembley Park — after run
 		];
 		const out = await annotateRailRuns(segs, points, lookup);
-		// All three segments share the run's outer-bounded label.
+		// Three input segments collapse to one continuous train segment.
+		expect(out).toHaveLength(1);
+		expect(out[0].mode).toBe("train");
+		expect(out[0].startTs).toBe(1000);
+		expect(out[0].endTs).toBe(1500);
 		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
-		expect(out[1].wayName).toBe("Kings Cross St Pancras → Wembley Park");
-		expect(out[2].wayName).toBe("Kings Cross St Pancras → Wembley Park");
-		// And the gap segment is upgraded to train.
-		expect(out[1].mode).toBe("train");
-		expect(out[1].refinedMode).toBe("train");
 	});
 
 	it("does not merge two train runs separated by a non-rail segment", async () => {
@@ -446,12 +445,15 @@ describe("annotateRailRuns", () => {
 		expect(out[0].wayName).toBe("M25"); // unchanged
 	});
 
-	it("preserves refinedReason and chains the upgrade reason on the gap segment", async () => {
+	it("tags the collapsed run with a refinedReason describing the merge", async () => {
+		// Multi-segment runs collapse, so the per-segment refinedReason of
+		// individual inferred-gap segments is gone. The merged segment
+		// carries its own reason explaining the collapse.
 		const segs = [train(1000, 1200), inferredVehicleGap(1200, 1300), train(1300, 1500)];
 		const points = [fix(900, 51.53, -0.125), fix(1600, 51.563, -0.279)];
 		const out = await annotateRailRuns(segs, points, lookup);
-		expect(out[1].refinedReason).toContain("inferred from GPS gap");
-		expect(out[1].refinedReason).toContain("tube ride between known stations");
+		expect(out).toHaveLength(1);
+		expect(out[0].refinedReason).toMatch(/merged rail run/);
 	});
 
 	// Line-intersection disambiguation. The user's commute Wembley Park →
@@ -544,53 +546,83 @@ describe("annotateRailRuns", () => {
 		place,
 	});
 
-	it("absorbs a short stationary segment between two rail segments into one run", async () => {
-		// train + 2-min stationary (near Baker Street, labelled as a cafe)
-		// + train → all three segments become one journey labelled with
-		// the outer-bounding station pair. Interior stationary's misleading
-		// cafe label gets overridden.
+	it("collapses train + short-stationary + train into one continuous train segment", async () => {
+		// A brief train pause (signal stop, station dwell — not a transfer)
+		// shouldn't appear in the timeline. The 2-minute stationary fix is
+		// just GPS recording the train stopped briefly; the user was on the
+		// same train the whole time. Collapse to a single segment.
 		const stations = async (lat: number, _lon: number): Promise<{ name: string }[]> => {
 			if (Math.abs(lat - 51.53) < 0.01) return [{ name: "Kings Cross St Pancras" }];
-			if (Math.abs(lat - 51.523) < 0.01) return [{ name: "Baker Street" }];
 			if (Math.abs(lat - 51.563) < 0.01) return [{ name: "Wembley Park" }];
 			return [];
 		};
 		const segs = [
-			train(1000, 1180), // train Kings Cross → Baker Street
-			platformStationary(1180, 1300, "Saint Espresso (cafe)"), // 2-min platform wait
-			train(1300, 1500), // train Baker Street → Wembley Park
+			train(1000, 1180), // first half
+			platformStationary(1180, 1300, "Saint Espresso (cafe)"), // 2-min train pause
+			train(1300, 1500), // second half
 		];
 		const points = [
-			fix(900, 51.53, -0.125), // Kings Cross — before the run
-			fix(1600, 51.563, -0.279), // Wembley Park — after the run
+			fix(900, 51.53, -0.125), // Kings Cross
+			fix(1600, 51.563, -0.279), // Wembley Park
 		];
 		const out = await annotateRailRuns(segs, points, stations);
-		// Both rail segments share the outer station-pair label.
+		// 3 input segments collapse into 1 train segment spanning the whole ride.
+		expect(out).toHaveLength(1);
+		expect(out[0].mode).toBe("train");
+		expect(out[0].startTs).toBe(1000);
+		expect(out[0].endTs).toBe(1500);
 		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
-		expect(out[2].wayName).toBe("Kings Cross St Pancras → Wembley Park");
-		// Interior stationary's "Saint Espresso (cafe)" gets overridden
-		// with a platform label that reflects what was actually happening.
-		expect(out[1].place).not.toBe("Saint Espresso (cafe)");
-		expect(out[1].place).toMatch(/platform/i);
 	});
 
-	it("does NOT absorb a LONG stationary segment between two rail segments", async () => {
-		// 30 minutes between trains is plausibly a real cafe stop, not a
-		// platform transfer. Don't merge — leave the existing landmark
-		// label intact and treat each rail leg separately.
+	it("collapses a multi-segment rail run even without absorbed stationary", async () => {
+		// Three consecutive train/inferred-gap segments → one continuous
+		// train ride. The user's mental model: I got on at A, off at B.
+		// No need to surface the per-window classifier output as separate
+		// timeline entries.
+		const stations = async (lat: number, _lon: number): Promise<{ name: string }[]> => {
+			if (Math.abs(lat - 51.53) < 0.01) return [{ name: "Kings Cross St Pancras" }];
+			if (Math.abs(lat - 51.563) < 0.01) return [{ name: "Wembley Park" }];
+			return [];
+		};
+		const segs = [train(1000, 1200), train(1200, 1300), train(1300, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, stations);
+		expect(out).toHaveLength(1);
+		expect(out[0].startTs).toBe(1000);
+		expect(out[0].endTs).toBe(1500);
+		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+	});
+
+	it("leaves a single-segment rail run as-is (just annotates)", async () => {
+		// Don't collapse for collapse's sake. A single train segment is
+		// already shaped right.
+		const stations = async (lat: number, _lon: number): Promise<{ name: string }[]> => {
+			if (Math.abs(lat - 51.53) < 0.01) return [{ name: "Kings Cross St Pancras" }];
+			if (Math.abs(lat - 51.563) < 0.01) return [{ name: "Wembley Park" }];
+			return [];
+		};
+		const segs = [train(1000, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, stations);
+		expect(out).toHaveLength(1);
+		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+	});
+
+	it("does NOT absorb a long-stationary (> 5 min) between two rail segments", async () => {
+		// 30 minutes between trains is a real visit, not a brief pause.
 		const segs = [
 			train(1000, 1180),
-			platformStationary(1180, 1180 + 30 * 60, "Saint Espresso (cafe)"), // 30 min
+			platformStationary(1180, 1180 + 30 * 60, "Saint Espresso (cafe)"),
 			train(1180 + 30 * 60, 1180 + 30 * 60 + 200),
 		];
 		const points = [fix(900, 51.53, -0.125), fix(1180 + 30 * 60 + 300, 51.563, -0.279)];
 		const out = await annotateRailRuns(segs, points, lookup);
-		// The stationary stays as the cafe; each rail segment is its own run.
+		// All three segments survive; the cafe label is preserved.
+		expect(out).toHaveLength(3);
 		expect(out[1].place).toBe("Saint Espresso (cafe)");
 	});
 
 	it("does NOT absorb a short stationary that is NOT between two rail segments", async () => {
-		// stationary surrounded by walking, not rail. Keep the cafe label.
 		const walking: EnrichedSegment = {
 			startTs: 800,
 			endTs: 1180,
@@ -606,6 +638,22 @@ describe("annotateRailRuns", () => {
 		const segs = [walking, platformStationary(1180, 1300, "Saint Espresso (cafe)"), walkingAfter];
 		const points = [fix(700, 51.523, -0.158), fix(1600, 51.523, -0.158)];
 		const out = await annotateRailRuns(segs, points, lookup);
+		expect(out).toHaveLength(3);
 		expect(out[1].place).toBe("Saint Espresso (cafe)");
+	});
+
+	it("preserves rail-run collapse when station lookup fails (graceful degradation)", async () => {
+		// Without station data, the run still collapses — we lose the
+		// station-pair label but keep the correct shape (one train
+		// segment, not three artefacts). The Overpass-outage case.
+		const noStations = async () => [];
+		const segs = [train(1000, 1180), platformStationary(1180, 1300, "Saint Espresso (cafe)"), train(1300, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, noStations);
+		// Still one segment; just without the station-pair label.
+		expect(out).toHaveLength(1);
+		expect(out[0].mode).toBe("train");
+		expect(out[0].startTs).toBe(1000);
+		expect(out[0].endTs).toBe(1500);
 	});
 });
