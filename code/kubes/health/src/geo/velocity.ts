@@ -146,6 +146,7 @@ function hasOvernightPresence(startTs: number, endTs: number, lon: number): bool
 interface NamedPlace extends KnownPlace {
 	displayName: string | null;
 	sleepHours: number;
+	amenityLabel: string | null;
 }
 
 /** A focus_place is "residential" if the user has slept (covered deep-night
@@ -221,7 +222,7 @@ function applyBiometricSignature(
 async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 	const rows = await db()
 		.selectFrom("focus_places")
-		.select(["id", "centroid_lat", "centroid_lon", "radius_m", "display_name", "sleep_hours"])
+		.select(["id", "centroid_lat", "centroid_lon", "radius_m", "display_name", "sleep_hours", "amenity_label"])
 		.where("user_id", "=", userId)
 		.execute();
 	return rows.map((r) => ({
@@ -231,6 +232,7 @@ async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 		radiusM: r.radius_m,
 		displayName: r.display_name,
 		sleepHours: r.sleep_hours ?? 0,
+		amenityLabel: r.amenity_label,
 	}));
 }
 
@@ -371,6 +373,22 @@ export async function computeVelocity(
 								return {
 									...seg,
 									place: snappedTo.displayName,
+									...(namedCity ? { city: namedCity } : {}),
+								};
+							}
+							// Per-cluster amenity label: when refresh-focus-places has
+							// majority-voted across the user's visits and produced a
+							// confident venue name, prefer that over the per-visit OSM
+							// picker. This is the Bairro-Alto-vs-Kruidentuin fix:
+							// individual visits' GPS noise can flip the OSM picker
+							// between adjacent venues, but the aggregate vote across
+							// many visits converges on the real venue.
+							if (snappedTo?.amenityLabel !== null && snappedTo?.amenityLabel !== undefined) {
+								const namedPlace = await bestPlace(cLat, cLon, { preferResidential: false });
+								const namedCity = extractCity(namedPlace);
+								return {
+									...seg,
+									place: snappedTo.amenityLabel,
 									...(namedCity ? { city: namedCity } : {}),
 								};
 							}

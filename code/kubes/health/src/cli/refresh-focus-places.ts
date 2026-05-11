@@ -20,11 +20,12 @@ import {
 	type Cluster,
 	classifyCluster,
 	detectFocusPlaces,
+	pickWinningAmenity,
 	type RawPoint,
 	sleepHoursOf,
 	uniqueDayCount,
 } from "../geo/focus-places.js";
-import { bestPlace, nearbyLandmarks } from "../geo/osm.js";
+import { bestPlace, nearbyLandmarks, pickBestLandmark } from "../geo/osm.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -109,6 +110,39 @@ async function refreshOne(userId: string): Promise<void> {
 		`[${userId}] ${points.length} points (fetch ${fetchMs}ms) → ${result.stays.length} stays → ${result.clusters.length} clusters (${Date.now() - t1}ms)`,
 	);
 
+	// Mine per-cluster amenity label by aggregating OSM picks across all
+	// the cluster's stays (time-weighted). A cluster the user has visited
+	// many times converges on the true venue even when single-visit GPS
+	// noise would have flipped the picker to an adjacent venue. See
+	// `pickWinningAmenity` for the threshold rules.
+	const tMine = Date.now();
+	const amenityLabels = new Map<number, string | null>();
+	for (const c of result.clusters) {
+		const votes = new Map<string, number>();
+		for (const s of c.stays) {
+			const landmarks = await nearbyLandmarks(s.centroidLat, s.centroidLon);
+			if (landmarks.length === 0) continue;
+			const best = pickBestLandmark(landmarks);
+			// Only count amenity / tourism / leisure / shop as a vote.
+			// Skip pedestrian-way and place-quarter results — those aren't
+			// venues, and including them dilutes the signal.
+			if (best.type !== "amenity" && best.type !== "tourism" && best.type !== "leisure" && best.type !== "shop") {
+				continue;
+			}
+			votes.set(best.name, (votes.get(best.name) ?? 0) + s.durationSec);
+		}
+		const winner = pickWinningAmenity(votes, {
+			minWeight: 60 * 30, // at least 30 min of total cluster dwell
+			minFraction: 0.5, // winner must take majority of the vote
+		});
+		amenityLabels.set(c.id, winner);
+	}
+	console.log(
+		`[${userId}] amenity mining: ${[...amenityLabels.values()].filter((v) => v !== null).length}/${
+			result.clusters.length
+		} clusters labelled (${Date.now() - tMine}ms)`,
+	);
+
 	await withConnection(async (conn) => {
 		await conn.beginTransaction();
 		try {
@@ -131,10 +165,11 @@ async function refreshOne(userId: string): Promise<void> {
 						cls.label,
 						displayNames.get(c.id) ?? null,
 						Math.round(sleepHoursOf(c)),
+						amenityLabels.get(c.id) ?? null,
 					];
 				});
 				await conn.batch(
-					"INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label, display_name, sleep_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					"INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label, display_name, sleep_hours, amenity_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 					rows,
 				);
 

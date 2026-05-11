@@ -8,6 +8,7 @@ import {
 	detectStays,
 	localSolarDayOfWeek,
 	localSolarHour,
+	pickWinningAmenity,
 	type RawPoint,
 	type Stay,
 	uniqueDayCount,
@@ -419,5 +420,62 @@ describe("detectFocusPlaces", () => {
 		const result = detectFocusPlaces([...a, ...b]);
 		expect(result.clusters.length).toBeGreaterThanOrEqual(2);
 		expect(result.clusters[0].totalDwellSec).toBeGreaterThan(result.clusters[1].totalDwellSec);
+	});
+});
+
+describe("pickWinningAmenity", () => {
+	// For each cluster we aggregate per-visit OSM amenity lookups across
+	// the user's history. Time-weighted: a 2-hour stay at Bairro Alto
+	// counts more than a 5-min stop. Picks a clear winner only when the
+	// data is decisive — otherwise returns null so the per-visit OSM
+	// picker stays in charge as a fallback.
+
+	const opts = { minWeight: 60 * 30, minFraction: 0.5 };
+
+	it("picks the majority-vote amenity when one clearly dominates", () => {
+		// 7 visits to Bairro Alto, all 60-min, totaling 7 × 60 = 420 min.
+		// 1 noisy visit landed at Kruidentuin (the cannabis shop next door),
+		// 15 min. Bairro Alto fraction = 420 / 435 = 97% → wins.
+		const votes = new Map<string, number>([
+			["Bairro Alto", 7 * 60 * 60],
+			["Kruidentuin", 15 * 60],
+		]);
+		expect(pickWinningAmenity(votes, opts)).toBe("Bairro Alto");
+	});
+
+	it("returns null when no amenity has enough total weight", () => {
+		// Total under 30 minutes → not enough evidence to commit.
+		const votes = new Map<string, number>([["Random Place", 10 * 60]]);
+		expect(pickWinningAmenity(votes, opts)).toBeNull();
+	});
+
+	it("returns null when the winner is too close to second place (ambiguous)", () => {
+		// Cafe A 200min vs Cafe B 180min — 52% / 48%. Below the 50%+
+		// fraction-of-total + close to second → not decisive. (The
+		// minFraction default of 0.5 means top must exceed half.)
+		const votes = new Map<string, number>([
+			["Cafe A", 200 * 60],
+			["Cafe B", 180 * 60],
+		]);
+		// 52% just barely passes minFraction. Tighten the gate so a 4%
+		// margin is treated as ambiguous.
+		const strictOpts = { minWeight: 30 * 60, minFraction: 0.65 };
+		expect(pickWinningAmenity(votes, strictOpts)).toBeNull();
+	});
+
+	it("returns the only candidate when there's no competition", () => {
+		const votes = new Map<string, number>([["Solo Cafe", 90 * 60]]);
+		expect(pickWinningAmenity(votes, opts)).toBe("Solo Cafe");
+	});
+
+	it("returns null for empty votes", () => {
+		expect(pickWinningAmenity(new Map(), opts)).toBeNull();
+	});
+
+	it("uses minWeight to prevent picking a name when total is tiny", () => {
+		const votes = new Map<string, number>([
+			["A", 60 * 5], // 5 minutes total
+		]);
+		expect(pickWinningAmenity(votes, { minWeight: 60 * 30, minFraction: 0.5 })).toBeNull();
 	});
 });

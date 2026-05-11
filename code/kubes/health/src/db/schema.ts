@@ -249,6 +249,14 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (user_id, mode)
   )`,
 
+	// v25: Per-cluster amenity-name mining. Each focus_place gets an
+	// optional venue label derived from majority-voting OSM amenity
+	// lookups across all member stays (time-weighted). Fixes the
+	// Bairro-Alto-vs-Kruidentuin case: per-visit OSM picker is sensitive
+	// to GPS noise on a single visit; aggregating across many visits
+	// converges on the venue the user is actually at.
+	`ALTER TABLE focus_places ADD COLUMN IF NOT EXISTS amenity_label VARCHAR(128) NULL`,
+
 	// Future migrations go here.
 ];
 

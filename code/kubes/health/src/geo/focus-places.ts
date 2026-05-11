@@ -373,6 +373,42 @@ export function assignDisplayNames(clusters: Cluster[]): Map<number, string> {
 
 // --- High-level pipeline ---
 
+/**
+ * Pick the dominant amenity name from a vote tally across cluster visits.
+ *
+ * Inputs:
+ *   - `votes`: map of amenity name → total weight (typically dwell seconds).
+ *     A 2-hour stay at one venue counts more than a 5-min stop next door.
+ *   - `opts.minWeight`: the total vote weight must reach this floor before
+ *     we'll commit to a winner. Prevents picking a name from a single
+ *     short-visit cluster with no real evidence.
+ *   - `opts.minFraction`: the winner's share of the total must exceed this.
+ *     A close vote (cafe A 52%, cafe B 48%) returns null so the runtime
+ *     OSM picker stays in charge.
+ *
+ * Returns null when the evidence is insufficient (sparse, contested, or
+ * empty). Caller treats null as "fall back to per-visit OSM lookup."
+ */
+export function pickWinningAmenity(
+	votes: Map<string, number>,
+	opts: { minWeight: number; minFraction: number },
+): string | null {
+	if (votes.size === 0) return null;
+	let total = 0;
+	let winner = "";
+	let winnerWeight = 0;
+	for (const [name, w] of votes) {
+		total += w;
+		if (w > winnerWeight) {
+			winnerWeight = w;
+			winner = name;
+		}
+	}
+	if (total < opts.minWeight) return null;
+	if (winnerWeight / total < opts.minFraction) return null;
+	return winner;
+}
+
 export interface PlaceDetectionResult {
 	stays: Stay[];
 	clusters: Cluster[];

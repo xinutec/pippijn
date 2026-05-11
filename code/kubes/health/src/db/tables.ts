@@ -207,6 +207,7 @@ export interface FocusPlacesTable {
 	detected_label: string | null;
 	display_name: string | null;
 	sleep_hours: number | null;
+	amenity_label: string | null;
 	refreshed_at: Generated<Date>;
 }
 
