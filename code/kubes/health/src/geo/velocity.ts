@@ -683,17 +683,43 @@ export async function annotateRailRuns(
 		return Boolean(inferredVehicleGap);
 	};
 
-	// Identify maximal rail runs as [startIdx, endIdx] (inclusive, half-open
-	// after this is fine — we use endIdxExclusive below).
-	const runs: { from: number; toExclusive: number }[] = [];
+	// A short stationary segment bordered on both sides by rail-like
+	// segments is almost certainly a platform transfer (e.g. Baker Street
+	// while changing tube lines), not a real cafe/landmark visit even if
+	// OSM enrichment found one nearby. The threshold below is generous
+	// enough to cover typical platform waits.
+	const PLATFORM_WAIT_MAX_SEC = 10 * 60;
+	const couldBePlatformWait = (s: EnrichedSegment): boolean =>
+		s.mode === "stationary" && s.endTs - s.startTs <= PLATFORM_WAIT_MAX_SEC;
+
+	// Identify maximal rail runs. A run starts and ends with a rail-like
+	// segment but may absorb short stationary "platform" segments in the
+	// middle when followed by another rail-like segment. The interior
+	// absorbed stationaries get relabelled below.
+	const runs: { from: number; toExclusive: number; absorbedStationary: number[] }[] = [];
 	for (let i = 0; i < segments.length; ) {
 		if (!isRailLike(segments[i])) {
 			i++;
 			continue;
 		}
 		let j = i + 1;
-		while (j < segments.length && isRailLike(segments[j])) j++;
-		runs.push({ from: i, toExclusive: j });
+		const absorbed: number[] = [];
+		while (j < segments.length) {
+			if (isRailLike(segments[j])) {
+				j++;
+				continue;
+			}
+			// Absorb a short stationary IFF a rail-like segment follows it.
+			// Without that follow-up condition we'd swallow the trailing
+			// stationary at the end of a journey too (e.g. arriving home).
+			if (couldBePlatformWait(segments[j]) && j + 1 < segments.length && isRailLike(segments[j + 1])) {
+				absorbed.push(j);
+				j += 2; // skip the stationary AND the rail-like that confirmed it
+				continue;
+			}
+			break;
+		}
+		runs.push({ from: i, toExclusive: j, absorbedStationary: absorbed });
 		i = j;
 	}
 
@@ -746,17 +772,49 @@ export async function annotateRailRuns(
 		}),
 	);
 
+	// For each absorbed-stationary segment, look up nearby stations so we
+	// can overwrite its (misleading) cafe/landmark label with the platform
+	// it's really at. Done in parallel across all absorbed indices.
+	const allAbsorbed = runs.flatMap((r) => r.absorbedStationary);
+	const platformLabels = new Map<number, string>();
+	await Promise.all(
+		allAbsorbed.map(async (idx) => {
+			const seg = segments[idx];
+			// Use the segment's own outer-bounding fixes — these sit at the
+			// platform the user is transferring on.
+			const before = [...points].reverse().find((p) => p.ts <= seg.startTs);
+			const after = points.find((p) => p.ts >= seg.endTs);
+			const probe = before ?? after;
+			if (!probe) return;
+			try {
+				const stations = await stationsLookup(probe.lat, probe.lon);
+				const station = stations[0]?.name;
+				if (station) platformLabels.set(idx, `${station} (platform)`);
+			} catch {
+				// Lookup failure: leave the original landmark alone.
+			}
+		}),
+	);
+
 	// Apply: shallow-copy the input, then overwrite the run segments.
 	const out = segments.map((s) => ({ ...s }));
 	for (let r = 0; r < runs.length; r++) {
 		const label = runLabels[r];
-		if (!label) continue;
 		const run = runs[r];
+		if (!label) continue;
 		for (let k = run.from; k < run.toExclusive; k++) {
 			const s = out[k];
+			if (s.mode === "stationary") {
+				// Absorbed platform stationary: replace cafe/landmark with
+				// the actual platform context. If station lookup didn't
+				// resolve, leave the original `place` rather than blanking
+				// it (better to be slightly wrong than empty).
+				const platform = platformLabels.get(k);
+				if (platform) s.place = platform;
+				continue;
+			}
 			const wasTrain = s.mode === "train" || s.refinedMode === "train";
-			const wasInferredVehicleGap =
-				s.refinedReason?.startsWith("inferred from GPS gap") && s.mode !== "stationary" && s.avgSpeed >= 7;
+			const wasInferredVehicleGap = s.refinedReason?.startsWith("inferred from GPS gap") && s.avgSpeed >= 7;
 			if (wasInferredVehicleGap && !wasTrain) {
 				// Promote: a vehicle-speed gap inside a confirmed rail run is
 				// part of the tube ride, not a sudden car trip.

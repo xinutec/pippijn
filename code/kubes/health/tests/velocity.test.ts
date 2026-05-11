@@ -523,4 +523,89 @@ describe("annotateRailRuns", () => {
 		await annotateRailRuns(segs, points, lookup, linesAt);
 		expect(linesAtCalls).toBe(0);
 	});
+
+	// Platform-transfer absorption. A real journey is "Kings Cross →
+	// (board) → tube → (transfer at Baker Street) → tube → (alight) →
+	// Wembley Park". The classifier produces train + stationary + train.
+	// Without absorption the rail run is broken into two halves, each
+	// gets its own (wrong) station-pair label, and the interior
+	// stationary segment gets labelled as the nearest cafe.
+
+	const platformStationary = (startTs: number, endTs: number, place: string): EnrichedSegment => ({
+		startTs,
+		endTs,
+		mode: "stationary",
+		confidence: 0.7,
+		confidenceMargin: 5,
+		avgSpeed: 0.5,
+		maxSpeed: 2,
+		linearity: 0.3,
+		pointCount: 3,
+		place,
+	});
+
+	it("absorbs a short stationary segment between two rail segments into one run", async () => {
+		// train + 2-min stationary (near Baker Street, labelled as a cafe)
+		// + train → all three segments become one journey labelled with
+		// the outer-bounding station pair. Interior stationary's misleading
+		// cafe label gets overridden.
+		const stations = async (lat: number, _lon: number): Promise<{ name: string }[]> => {
+			if (Math.abs(lat - 51.53) < 0.01) return [{ name: "Kings Cross St Pancras" }];
+			if (Math.abs(lat - 51.523) < 0.01) return [{ name: "Baker Street" }];
+			if (Math.abs(lat - 51.563) < 0.01) return [{ name: "Wembley Park" }];
+			return [];
+		};
+		const segs = [
+			train(1000, 1180), // train Kings Cross → Baker Street
+			platformStationary(1180, 1300, "Saint Espresso (cafe)"), // 2-min platform wait
+			train(1300, 1500), // train Baker Street → Wembley Park
+		];
+		const points = [
+			fix(900, 51.53, -0.125), // Kings Cross — before the run
+			fix(1600, 51.563, -0.279), // Wembley Park — after the run
+		];
+		const out = await annotateRailRuns(segs, points, stations);
+		// Both rail segments share the outer station-pair label.
+		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+		expect(out[2].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+		// Interior stationary's "Saint Espresso (cafe)" gets overridden
+		// with a platform label that reflects what was actually happening.
+		expect(out[1].place).not.toBe("Saint Espresso (cafe)");
+		expect(out[1].place).toMatch(/platform/i);
+	});
+
+	it("does NOT absorb a LONG stationary segment between two rail segments", async () => {
+		// 30 minutes between trains is plausibly a real cafe stop, not a
+		// platform transfer. Don't merge — leave the existing landmark
+		// label intact and treat each rail leg separately.
+		const segs = [
+			train(1000, 1180),
+			platformStationary(1180, 1180 + 30 * 60, "Saint Espresso (cafe)"), // 30 min
+			train(1180 + 30 * 60, 1180 + 30 * 60 + 200),
+		];
+		const points = [fix(900, 51.53, -0.125), fix(1180 + 30 * 60 + 300, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, lookup);
+		// The stationary stays as the cafe; each rail segment is its own run.
+		expect(out[1].place).toBe("Saint Espresso (cafe)");
+	});
+
+	it("does NOT absorb a short stationary that is NOT between two rail segments", async () => {
+		// stationary surrounded by walking, not rail. Keep the cafe label.
+		const walking: EnrichedSegment = {
+			startTs: 800,
+			endTs: 1180,
+			mode: "walking",
+			confidence: 0.8,
+			confidenceMargin: 4,
+			avgSpeed: 5,
+			maxSpeed: 6,
+			linearity: 0.7,
+			pointCount: 20,
+		};
+		const walkingAfter: EnrichedSegment = { ...walking, startTs: 1300, endTs: 1500 };
+		const segs = [walking, platformStationary(1180, 1300, "Saint Espresso (cafe)"), walkingAfter];
+		const points = [fix(700, 51.523, -0.158), fix(1600, 51.523, -0.158)];
+		const out = await annotateRailRuns(segs, points, lookup);
+		expect(out[1].place).toBe("Saint Espresso (cafe)");
+	});
 });
