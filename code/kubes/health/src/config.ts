@@ -54,7 +54,9 @@ export function loadConfig(): Config {
 	});
 }
 
-// Lighter config for sync job (Fitbit only, no Nextcloud needed)
+// Config for sync job. Fitbit creds are required; Nextcloud creds are
+// optional — sync uses them to fetch PhoneTrack fixes for tz inference of
+// Fitbit rows, but falls back to profile.timezone (or NULL) when absent.
 export function loadSyncConfig() {
 	return z
 		.object({
@@ -63,6 +65,13 @@ export function loadSyncConfig() {
 				clientId: z.string().min(1),
 				clientSecret: z.string().min(1),
 			}),
+			nextcloud: z
+				.object({
+					baseUrl: z.string().url().default("https://dash.xinutec.org"),
+					clientId: z.string().min(1),
+					clientSecret: z.string().min(1),
+				})
+				.nullable(),
 		})
 		.parse({
 			db: {
@@ -76,5 +85,13 @@ export function loadSyncConfig() {
 				clientId: process.env.FITBIT_CLIENT_ID,
 				clientSecret: process.env.FITBIT_CLIENT_SECRET,
 			},
+			nextcloud:
+				process.env.NC_CLIENT_ID && process.env.NC_CLIENT_SECRET
+					? {
+							baseUrl: process.env.NC_BASE_URL,
+							clientId: process.env.NC_CLIENT_ID,
+							clientSecret: process.env.NC_CLIENT_SECRET,
+						}
+					: null,
 		});
 }

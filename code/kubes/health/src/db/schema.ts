@@ -218,6 +218,15 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (user_id, ts)
   )`,
 
+	// v23: Per-row IANA timezone for the watch's tz at recording time.
+	// Fitbit returns wall-clock strings with no tz info; correct conversion
+	// to UTC requires knowing which tz the watch was in when it recorded.
+	// NULL = "not inferred yet"; read path falls back to home_tz then
+	// requestTz. See TIMEZONE.md for the full design.
+	`ALTER TABLE steps_intraday      ADD COLUMN IF NOT EXISTS tz VARCHAR(64) NULL`,
+	`ALTER TABLE heart_rate_intraday ADD COLUMN IF NOT EXISTS tz VARCHAR(64) NULL`,
+	`ALTER TABLE sleep_stages        ADD COLUMN IF NOT EXISTS tz VARCHAR(64) NULL`,
+
 	// Future migrations go here.
 ];
 

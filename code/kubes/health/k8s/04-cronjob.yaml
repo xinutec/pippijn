@@ -43,6 +43,16 @@ spec:
                     secretKeyRef:
                       name: health-secret
                       key: FITBIT_CLIENT_SECRET
+                - name: NC_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: NC_CLIENT_ID
+                - name: NC_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: NC_CLIENT_SECRET
               resources:
                 requests:
                   cpu: 50m

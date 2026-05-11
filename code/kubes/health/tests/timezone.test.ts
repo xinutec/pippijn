@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidTimezone } from "../src/geo/timezone.js";
+import { fitbitTsToUnix, isValidTimezone } from "../src/geo/timezone.js";
 
 describe("isValidTimezone", () => {
 	it("accepts well-known IANA names", () => {
@@ -24,38 +24,52 @@ describe("isValidTimezone", () => {
 	});
 });
 
-/**
- * PhoneTrack stores timestamps as unix epoch but the values represent
- * LOCAL time, not UTC. This is the same behavior as Fitbit.
- *
- * When displaying PhoneTrack timestamps:
- * - Use UTC methods (getUTCHours etc) to extract the components
- * - Do NOT apply timezone offset — the offset is already baked in
- *
- * This test documents this behavior so we don't add timezone
- * corrections that double-offset the display.
- */
+// The block formerly here documented an incorrect claim that PhoneTrack
+// stores timestamps as "local time encoded as unix epoch." Empirically,
+// PhoneTrack/OwnTracks stores true UTC unix timestamps; the downstream
+// dateBoundsUtc consumer treats them as UTC and produces correct segments.
+// The misleading test was removed as part of the Fitbit per-row-tz refactor;
+// see TIMEZONE.md.
 
-function formatPhoneTrackTime(unixTs: number): string {
-	const d = new Date(unixTs * 1000);
-	// Use UTC methods because the timestamp already represents local time
-	const h = d.getUTCHours().toString().padStart(2, "0");
-	const m = d.getUTCMinutes().toString().padStart(2, "0");
-	return `${h}:${m}`;
-}
+describe("fitbitTsToUnix", () => {
+	it("returns NaN for a malformed string", () => {
+		expect(Number.isNaN(fitbitTsToUnix("not a timestamp"))).toBe(true);
+	});
 
-describe("PhoneTrack timestamp handling", () => {
-	it("displays timestamps as-is without timezone conversion", () => {
-		// PhoneTrack recorded 16:09 local time.
-		// The unix timestamp encodes this as if it were UTC.
-		// We must display 16:09, not 18:09 (UTC+2).
-		const ts = 1778337000; // some PhoneTrack timestamp
-		const display = formatPhoneTrackTime(ts);
-		// The exact time doesn't matter for this test —
-		// what matters is we use getUTCHours, not getHours
-		const d = new Date(ts * 1000);
-		expect(display).toBe(
-			`${d.getUTCHours().toString().padStart(2, "0")}:${d.getUTCMinutes().toString().padStart(2, "0")}`,
+	it("treats components as UTC when no tz is provided", () => {
+		// 2026-05-10 12:00:00 UTC = unix 1778371200 + 12*3600 = 1778414400
+		expect(fitbitTsToUnix("2026-05-10 12:00:00")).toBe(1778414400);
+	});
+
+	it("converts Europe/Amsterdam summer wall-clock (CEST = UTC+2)", () => {
+		// 14:00 CEST = 12:00 UTC = 1778414400 unix
+		expect(fitbitTsToUnix("2026-05-10 14:00:00", "Europe/Amsterdam")).toBe(1778414400);
+	});
+
+	it("converts Europe/London summer wall-clock (BST = UTC+1)", () => {
+		// 14:00 BST = 13:00 UTC = 1778418000 unix
+		expect(fitbitTsToUnix("2026-05-10 14:00:00", "Europe/London")).toBe(1778418000);
+	});
+
+	it("handles CET/CEST DST transitions consistently", () => {
+		// October fall-back: at 03:00 CEST → 02:00 CET. 02:30 occurs twice;
+		// the Intl round-trip resolves to one of them deterministically.
+		// We just verify the call doesn't throw and returns a plausible value.
+		const noon = fitbitTsToUnix("2026-10-25 12:00:00", "Europe/Amsterdam");
+		expect(Number.isNaN(noon)).toBe(false);
+		// Noon Amsterdam in late October is CET (UTC+1): 12:00 CET = 11:00 UTC.
+		// Unix epoch for 2026-10-25 11:00 UTC = (296 days into year, Oct 25)
+		// We don't compute the exact value; instead assert the conversion is
+		// applied (result differs from UTC interpretation by exactly 1h).
+		const noonUtc = fitbitTsToUnix("2026-10-25 12:00:00");
+		expect(noonUtc - noon).toBe(3600); // 1 hour offset
+	});
+
+	it("accepts a Date input (mariadb driver shape) and parses it like a string", () => {
+		// new Date("2026-05-10T14:00:00Z").toISOString() == "2026-05-10T14:00:00.000Z"
+		const asDate = new Date("2026-05-10T14:00:00Z");
+		expect(fitbitTsToUnix(asDate, "Europe/Amsterdam")).toBe(
+			fitbitTsToUnix("2026-05-10T14:00:00.000Z", "Europe/Amsterdam"),
 		);
 	});
 });

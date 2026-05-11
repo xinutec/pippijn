@@ -1,4 +1,5 @@
 import type * as mariadb from "mariadb";
+import { NULL_TZ_SOURCE, type TzSource } from "../../geo/fitbit-tz.js";
 import type { FitbitClient } from "../client.js";
 
 export interface StepsApiResponse {
@@ -13,19 +14,21 @@ export interface StepsApiResponse {
  * (absence implies zero).
  *
  * Returns tuples shaped for `conn.batch(INSERT INTO steps_intraday ...)` so
- * the caller doesn't have to massage the shape.
+ * the caller doesn't have to massage the shape. The trailing `tz` slot is
+ * the IANA tz the wall-clock was recorded in; see TIMEZONE.md.
  */
 export function parseStepsDataset(
 	response: StepsApiResponse,
 	userId: string,
 	date: string,
-): Array<[string, string, number]> {
+	tzSource: TzSource = NULL_TZ_SOURCE,
+): Array<[string, string, number, string | null]> {
 	const dataset = response["activities-steps-intraday"]?.dataset;
 	if (!dataset?.length) return [];
-	const rows: Array<[string, string, number]> = [];
+	const rows: Array<[string, string, number, string | null]> = [];
 	for (const d of dataset) {
 		if (d.value <= 0) continue;
-		rows.push([userId, `${date} ${d.time}`, d.value]);
+		rows.push([userId, `${date} ${d.time}`, d.value, tzSource.forWallClock(date, d.time)]);
 	}
 	return rows;
 }
@@ -34,6 +37,10 @@ export function parseStepsDataset(
  * Sync intraday steps for a date range. Mirrors `syncHeartRateIntraday` —
  * one Fitbit call per day, day-by-day, respects rate limit. Returns the
  * total number of stored points across the range.
+ *
+ * Forward sync passes a real `tzSource` derived from PhoneTrack + profile.tz.
+ * Backward backfill leaves it at default (NULL_TZ_SOURCE), which writes
+ * `tz=NULL` rows for the Phase 3 backfill CLI to fill in later.
  */
 export async function syncStepsIntraday(
 	client: FitbitClient,
@@ -41,6 +48,7 @@ export async function syncStepsIntraday(
 	userId: string,
 	startDate: string,
 	endDate: string,
+	tzSource: TzSource = NULL_TZ_SOURCE,
 ): Promise<number> {
 	let totalSynced = 0;
 
@@ -52,17 +60,19 @@ export async function syncStepsIntraday(
 
 		const date = d.toISOString().slice(0, 10);
 		const data = await client.get<StepsApiResponse>(`/1/user/-/activities/steps/date/${date}/1d/1min.json`);
-		const rows = parseStepsDataset(data, userId, date);
+		const rows = parseStepsDataset(data, userId, date, tzSource);
 		if (rows.length === 0) continue;
 
 		await conn.batch(
-			// MAX-preserve: a later sync that returns a smaller count for a
-			// minute we already have data for must not overwrite. Fitbit'\''s
-			// intraday endpoint occasionally returns a less-complete response
-			// (watch-to-cloud sync timing, server-side aggregation tweaks) and
-			// we previously lost real step counts to those replays.
-			`INSERT INTO steps_intraday (user_id, ts, steps) VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE steps=GREATEST(steps, VALUES(steps))`,
+			// MAX-preserve `steps` (a later sync returning a smaller count for a
+			// minute we already have data for must not overwrite — Fitbit's
+			// intraday endpoint occasionally serves a less-complete response).
+			// COALESCE-preserve `tz` (the first non-NULL sticks; the backfill
+			// CLI bypasses this to write tz directly).
+			`INSERT INTO steps_intraday (user_id, ts, steps, tz) VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         steps = GREATEST(steps, VALUES(steps)),
+         tz    = COALESCE(tz, VALUES(tz))`,
 			rows,
 		);
 

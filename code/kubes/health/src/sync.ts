@@ -7,6 +7,7 @@ import {
 import { loadSyncConfig } from "./config.js";
 import { db, destroyPool, initPool, withConnection } from "./db/pool.js";
 import { migrate } from "./db/schema.js";
+import { getSyncState, setSyncState } from "./db/sync-state.js";
 import { FitbitClient } from "./fitbit/client.js";
 import { syncActivity } from "./fitbit/sync/activity.js";
 import { syncBody } from "./fitbit/sync/body.js";
@@ -18,6 +19,8 @@ import { syncSleep } from "./fitbit/sync/sleep.js";
 import { syncSpO2Daily } from "./fitbit/sync/spo2.js";
 import { syncStepsIntraday } from "./fitbit/sync/steps.js";
 import { syncTemperature } from "./fitbit/sync/temperature.js";
+import { buildForwardTzSource, NULL_TZ_SOURCE, type TzSource } from "./geo/fitbit-tz.js";
+import { fetchTrackPointsRange, openPhoneTrack, type RawTrackPoint } from "./nextcloud/phonetrack.js";
 import type { FitbitTokenPair } from "./types.js";
 
 function formatDate(d: Date): string {
@@ -34,24 +37,6 @@ function prevDay(date: string): string {
 	const d = new Date(date);
 	d.setDate(d.getDate() - 1);
 	return formatDate(d);
-}
-
-async function getSyncState(userId: string, key: string): Promise<string | null> {
-	const row = await db()
-		.selectFrom("sync_state")
-		.select("value")
-		.where("user_id", "=", userId)
-		.where("key_name", "=", key)
-		.executeTakeFirst();
-	return row?.value ?? null;
-}
-
-async function setSyncState(userId: string, key: string, value: string): Promise<void> {
-	await db()
-		.insertInto("sync_state")
-		.values({ user_id: userId, key_name: key, value })
-		.onDuplicateKeyUpdate({ value })
-		.execute();
 }
 
 /** One-time, idempotent: migrate the pre-2026-05-10 single-stream
@@ -179,6 +164,49 @@ const trySync = async (userId: string, name: string, fn: () => Promise<unknown>)
 	}
 };
 
+/** Build the TzSource for the forward-sync window. Fetches PhoneTrack
+ *  fixes (chunked weekly so a 30-day first-sync doesn't slam Nextcloud)
+ *  and Fitbit profile.timezone, then constructs a TzSource that prefers
+ *  PhoneTrack-derived tz over profile. Returns NULL_TZ_SOURCE if neither
+ *  signal is available — sync continues, rows go in with tz=NULL. */
+async function buildSyncTzSource(
+	userId: string,
+	fitbitClient: FitbitClient,
+	startDate: string,
+	endDate: string,
+): Promise<TzSource> {
+	const fixes: RawTrackPoint[] = [];
+	if (config.nextcloud !== null) {
+		try {
+			const ctx = await openPhoneTrack({ nextcloud: config.nextcloud }, userId);
+			// Chunk per week to match the established pattern in refresh-focus-places.
+			const start = new Date(startDate);
+			const end = new Date(endDate);
+			for (let chunkStart = new Date(start); chunkStart <= end; chunkStart.setDate(chunkStart.getDate() + 7)) {
+				const chunkEnd = new Date(chunkStart);
+				chunkEnd.setDate(chunkEnd.getDate() + 7);
+				const startStr = chunkStart.toISOString().slice(0, 10);
+				const endStr = (chunkEnd > end ? end : chunkEnd).toISOString().slice(0, 10);
+				const chunk = await fetchTrackPointsRange(ctx, startStr, endStr);
+				fixes.push(...chunk);
+			}
+		} catch (e) {
+			console.warn(`[${userId}] PhoneTrack fetch for tz inference failed: ${e}. Falling back to profile.tz.`);
+		}
+	}
+	let profileTz: string | null = null;
+	try {
+		const profile = await fitbitClient.get<{ user: { timezone?: string } }>("/1/user/-/profile.json");
+		profileTz = profile.user.timezone ?? null;
+	} catch (e) {
+		console.warn(`[${userId}] Fitbit profile fetch failed: ${e}. Forward-sync rows may get tz=NULL.`);
+	}
+	if (fixes.length === 0 && profileTz === null) {
+		return NULL_TZ_SOURCE;
+	}
+	return buildForwardTzSource({ fixes, profileTz });
+}
+
 for (const user of users) {
 	try {
 		console.log(`\n=== Syncing: ${user.user_id} ===`);
@@ -209,19 +237,27 @@ for (const user of users) {
 
 		console.log(`[${user.user_id}] Forward sync: ${lastSyncDate} → ${today}`);
 
+		// Build the TzSource for any Fitbit rows that need per-row tz tagging.
+		// Forward sync gets a real source (PhoneTrack fixes + profile.tz);
+		// backward backfill below uses NULL_TZ_SOURCE so rows go in with
+		// tz=NULL, leaving inference to the Phase 3 backfill CLI.
+		const forwardTzSource = await buildSyncTzSource(user.user_id, client, lastSyncDate, today);
+
 		await withConnection(async (conn) => {
 			await trySync(user.user_id, "devices", () => syncDevices(client, conn, user.user_id));
 			await trySync(user.user_id, "activity", () => syncActivity(client, conn, user.user_id, lastSyncDate, today));
-			await trySync(user.user_id, "sleep", () => syncSleep(client, conn, user.user_id, lastSyncDate, today));
+			await trySync(user.user_id, "sleep", () =>
+				syncSleep(client, conn, user.user_id, lastSyncDate, today, forwardTzSource),
+			);
 			await trySync(user.user_id, "HR zones", () =>
 				syncHeartRateZones(client, conn, user.user_id, lastSyncDate, today),
 			);
 			await trySync(user.user_id, "body", () => syncBody(client, conn, user.user_id, lastSyncDate, today));
 			await trySync(user.user_id, "HR intraday", () =>
-				syncHeartRateIntraday(client, conn, user.user_id, lastSyncDate, today),
+				syncHeartRateIntraday(client, conn, user.user_id, lastSyncDate, today, forwardTzSource),
 			);
 			await trySync(user.user_id, "steps intraday", () =>
-				syncStepsIntraday(client, conn, user.user_id, lastSyncDate, today),
+				syncStepsIntraday(client, conn, user.user_id, lastSyncDate, today, forwardTzSource),
 			);
 			await trySync(user.user_id, "SpO2", () => syncSpO2Daily(client, conn, user.user_id, lastSyncDate, today));
 			await trySync(user.user_id, "HRV", () => syncHrv(client, conn, user.user_id, lastSyncDate, today));

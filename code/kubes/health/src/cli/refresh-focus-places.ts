@@ -10,9 +10,11 @@
  *   node dist/cli/refresh-focus-places.js <user_id> 90 # one user, explicit days
  */
 
+import tzLookup from "tz-lookup";
 import { z } from "zod";
 import { db, destroyPool, initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
+import { setSyncState } from "../db/sync-state.js";
 import {
 	assignDisplayNames,
 	type Cluster,
@@ -135,6 +137,21 @@ async function refreshOne(userId: string): Promise<void> {
 					"INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label, display_name, sleep_hours) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 					rows,
 				);
+
+				// Identify the Home cluster (if any) and write the residence tz
+				// to sync_state for use as a fallback at read time. Passing `conn`
+				// makes this part of the transaction — a half-failed refresh
+				// rolls back the home_tz update along with the focus_places rows.
+				// If no Home cluster qualifies this run, leave sync_state.home_tz
+				// untouched (don't clobber a previously-good value).
+				for (const c of result.clusters) {
+					if (displayNames.get(c.id) === "Home") {
+						const homeTz = tzLookup(c.centroidLat, c.centroidLon);
+						await setSyncState(userId, "home_tz", homeTz, conn);
+						console.log(`[${userId}] home_tz = ${homeTz}`);
+						break;
+					}
+				}
 			}
 			await conn.commit();
 		} catch (e) {

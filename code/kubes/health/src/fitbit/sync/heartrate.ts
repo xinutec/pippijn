@@ -1,12 +1,29 @@
 import type * as mariadb from "mariadb";
+import { NULL_TZ_SOURCE, type TzSource } from "../../geo/fitbit-tz.js";
 import type { FitbitClient } from "../client.js";
 
-interface HRResponse {
+export interface HRResponse {
 	"activities-heart": Array<{
 		dateTime: string;
 		value: { heartRateZones: Array<{ name: string; min: number; max: number; minutes: number; caloriesOut: number }> };
 	}>;
 	"activities-heart-intraday"?: { dataset: Array<{ time: string; value: number }> };
+}
+
+/**
+ * Pure parser: take a Fitbit intraday-heart-rate response, return rows shaped
+ * for `conn.batch(INSERT INTO heart_rate_intraday ...)`. The trailing `tz`
+ * slot is the IANA tz the wall-clock was recorded in; see TIMEZONE.md.
+ */
+export function parseHRDataset(
+	response: HRResponse,
+	userId: string,
+	date: string,
+	tzSource: TzSource = NULL_TZ_SOURCE,
+): Array<[string, string, number, string | null]> {
+	const dataset = response["activities-heart-intraday"]?.dataset;
+	if (!dataset?.length) return [];
+	return dataset.map((d) => [userId, `${date} ${d.time}`, d.value, tzSource.forWallClock(date, d.time)]);
 }
 
 export async function syncHeartRateZones(
@@ -39,6 +56,10 @@ export async function syncHeartRateZones(
  * Sync intraday heart rate for a date range.
  * The Fitbit API only allows 24h per request, so this loops day-by-day.
  * Respects rate limits — stops if remaining calls drop below 10.
+ *
+ * Forward sync passes a real `tzSource` derived from PhoneTrack + profile.tz.
+ * Backward backfill leaves it at default (NULL_TZ_SOURCE), which writes
+ * `tz=NULL` rows for the Phase 3 backfill CLI to fill in later.
  */
 export async function syncHeartRateIntraday(
 	client: FitbitClient,
@@ -46,6 +67,7 @@ export async function syncHeartRateIntraday(
 	userId: string,
 	startDate: string,
 	endDate: string,
+	tzSource: TzSource = NULL_TZ_SOURCE,
 ): Promise<number> {
 	let totalSynced = 0;
 
@@ -57,17 +79,21 @@ export async function syncHeartRateIntraday(
 
 		const date = d.toISOString().slice(0, 10);
 		const data = await client.get<HRResponse>(`/1/user/-/activities/heart/date/${date}/1d/1sec.json`);
-		const dataset = data["activities-heart-intraday"]?.dataset;
-		if (!dataset?.length) continue;
+		const rows = parseHRDataset(data, userId, date, tzSource);
+		if (rows.length === 0) continue;
 
 		await conn.batch(
-			`INSERT INTO heart_rate_intraday (user_id, ts, bpm) VALUES (?, ?, ?)
-     ON DUPLICATE KEY UPDATE bpm=VALUES(bpm)`,
-			dataset.map((d) => [userId, `${date} ${d.time}`, d.value]),
+			// COALESCE-preserve `tz` so the backfill CLI can later upgrade
+			// NULL → value but a normal re-sync doesn't overwrite a known tz.
+			`INSERT INTO heart_rate_intraday (user_id, ts, bpm, tz) VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         bpm = VALUES(bpm),
+         tz  = COALESCE(tz, VALUES(tz))`,
+			rows,
 		);
 
-		totalSynced += dataset.length;
-		console.log(`[${userId}] Synced ${dataset.length} HR intraday points for ${date}`);
+		totalSynced += rows.length;
+		console.log(`[${userId}] Synced ${rows.length} HR intraday points for ${date}`);
 	}
 
 	return totalSynced;

@@ -26,7 +26,8 @@ describe("parseStepsDataset", () => {
 			"u1",
 			"2026-05-10",
 		);
-		expect(rows).toEqual([["u1", "2026-05-10 00:01:00", 5]]);
+		// Default TzSource (NULL_TZ_SOURCE) → tz=null in the trailing slot.
+		expect(rows).toEqual([["u1", "2026-05-10 00:01:00", 5, null]]);
 	});
 
 	it("emits one row per non-zero minute", () => {
@@ -40,7 +41,22 @@ describe("parseStepsDataset", () => {
 			"2026-05-10",
 		);
 		expect(rows).toHaveLength(3);
-		expect(rows[0]).toEqual(["alice", "2026-05-10 08:30:00", 100]);
-		expect(rows[2]).toEqual(["alice", "2026-05-10 08:32:00", 95]);
+		expect(rows[0]).toEqual(["alice", "2026-05-10 08:30:00", 100, null]);
+		expect(rows[2]).toEqual(["alice", "2026-05-10 08:32:00", 95, null]);
+	});
+
+	it("populates the tz slot from the provided TzSource", () => {
+		const tzSource = { forWallClock: (_d: string, _t: string) => "Europe/Amsterdam" };
+		const rows = parseStepsDataset(
+			r([
+				{ time: "08:30:00", value: 100 },
+				{ time: "08:31:00", value: 110 },
+			]),
+			"u1",
+			"2026-05-10",
+			tzSource,
+		);
+		expect(rows[0]).toEqual(["u1", "2026-05-10 08:30:00", 100, "Europe/Amsterdam"]);
+		expect(rows[1][3]).toBe("Europe/Amsterdam");
 	});
 });

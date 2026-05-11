@@ -6,6 +6,7 @@
 
 import { sql } from "kysely";
 import { db } from "../db/pool.js";
+import { getSyncState } from "../db/sync-state.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 import {
@@ -42,15 +43,28 @@ async function loadBiometrics(
 	const dayBefore = padDate(startUtc - 86400);
 	const dayAfter = padDate(endUtc + 86400);
 
+	// Per-row tz fallback chain: row.tz → home_tz → request tz. The request
+	// tz only applies to rows where the recording tz couldn't be inferred
+	// (legacy NULL rows from before Phase 1+2 deploy, or rows in a sync
+	// run where both PhoneTrack and profile.tz were unavailable).
+	// See TIMEZONE.md for the full design.
+	const homeTz = await getSyncState(userId, "home_tz");
+	const resolveTz = (rowTz: string | null): string | undefined => rowTz ?? homeTz ?? tz;
+
 	// Per-minute aggregate. Fitbit stores 1-second-resolution HR (~21k rows
 	// per day); for segment-level mean/std the per-minute average loses
 	// essentially no precision and is ~60× cheaper to load + parse.
-	// Type-safe: table + WHERE columns checked at compile time. The
-	// aggregate expressions are unavoidably raw SQL via `sql\`...\`` —
-	// no query-builder does GROUP BY DATE_FORMAT cleanly.
+	// MAX(tz): all rows in a per-minute bucket share the same wall-clock-
+	// formatted minute, and a tz change moves wall-clock discontinuously,
+	// so a single bucket cannot contain rows recorded under two tzs.
+	// MAX gives a deterministic "the bucket's tz" picking arbitrarily.
 	const hrRows = await db()
 		.selectFrom("heart_rate_intraday")
-		.select([sql<Date>`DATE_FORMAT(MIN(ts), '%Y-%m-%d %H:%i:00')`.as("ts"), sql<number>`ROUND(AVG(bpm))`.as("bpm")])
+		.select([
+			sql<Date>`DATE_FORMAT(MIN(ts), '%Y-%m-%d %H:%i:00')`.as("ts"),
+			sql<number>`ROUND(AVG(bpm))`.as("bpm"),
+			sql<string | null>`MAX(tz)`.as("tz"),
+		])
 		.where("user_id", "=", userId)
 		.where("ts", ">=", dayBefore)
 		.where("ts", "<", dayAfter)
@@ -60,7 +74,7 @@ async function loadBiometrics(
 
 	const hr: HrPoint[] = [];
 	for (const r of hrRows) {
-		const ts = fitbitTsToUnix(r.ts, tz);
+		const ts = fitbitTsToUnix(r.ts, resolveTz(r.tz));
 		if (Number.isNaN(ts)) continue;
 		if (ts < startUtc || ts > endUtc) continue;
 		hr.push({ ts, bpm: Number(r.bpm) });
@@ -68,7 +82,7 @@ async function loadBiometrics(
 
 	const sleepRows = await db()
 		.selectFrom("sleep_stages")
-		.select(["ts", "stage", "duration_seconds"])
+		.select(["ts", "stage", "duration_seconds", "tz"])
 		.where("user_id", "=", userId)
 		.where("ts", ">=", dayBefore)
 		.where("ts", "<", dayAfter)
@@ -76,7 +90,7 @@ async function loadBiometrics(
 
 	const sleep: SleepStageRecord[] = [];
 	for (const r of sleepRows) {
-		const startTs = fitbitTsToUnix(r.ts, tz);
+		const startTs = fitbitTsToUnix(r.ts, resolveTz(r.tz));
 		if (Number.isNaN(startTs)) continue;
 		const endTs = startTs + r.duration_seconds;
 		if (endTs < startUtc || startTs > endUtc) continue;
@@ -87,7 +101,7 @@ async function loadBiometrics(
 	// directly reflects "user took at least one step in this minute".
 	const stepRows = await db()
 		.selectFrom("steps_intraday")
-		.select(["ts", "steps"])
+		.select(["ts", "steps", "tz"])
 		.where("user_id", "=", userId)
 		.where("ts", ">=", dayBefore)
 		.where("ts", "<", dayAfter)
@@ -95,7 +109,7 @@ async function loadBiometrics(
 
 	const steps: StepPoint[] = [];
 	for (const r of stepRows) {
-		const ts = fitbitTsToUnix(r.ts, tz);
+		const ts = fitbitTsToUnix(r.ts, resolveTz(r.tz));
 		if (Number.isNaN(ts)) continue;
 		if (ts < startUtc || ts > endUtc) continue;
 		steps.push({ ts, steps: r.steps });

@@ -42,12 +42,14 @@ export interface HeartRateIntradayTable {
 	user_id: string;
 	ts: string; // DATETIME as string
 	bpm: number;
+	tz: string | null; // IANA tz the wall-clock was recorded in; see TIMEZONE.md
 }
 
 export interface StepsIntradayTable {
 	user_id: string;
 	ts: string; // DATETIME as string
 	steps: number;
+	tz: string | null; // IANA tz the wall-clock was recorded in; see TIMEZONE.md
 }
 
 export interface HeartRateZonesTable {
@@ -83,6 +85,7 @@ export interface SleepStagesTable {
 	ts: string;
 	stage: string;
 	duration_seconds: number;
+	tz: string | null; // IANA tz the wall-clock was recorded in; see TIMEZONE.md
 }
 
 export interface BodyTable {
