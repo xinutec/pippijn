@@ -468,6 +468,73 @@ export function filterLandmarks(landmarks: NearbyLandmark[]): NearbyLandmark[] {
 	return landmarks.filter((l) => !(l.type === "tourism" && POI_MARKER_TOURISM.has(l.subtype)));
 }
 
+export interface NearbyStation {
+	name: string;
+	/** "subway", "rail", "light_rail", "tram" — what Fitbit's API calls it. */
+	subtype: string;
+	distanceM: number;
+}
+
+/**
+ * Find named rail / metro / tram stations near a point. Used to (a) annotate
+ * the start and end of a tube ride with station names, and (b) infer that a
+ * GPS-gap segment between two stations was a tube ride even when speed alone
+ * is ambiguous. A subway_entrance is treated as evidence of the parent
+ * station — we collapse adjacent entrances by name, picking the closest.
+ */
+export async function nearbyStations(lat: number, lon: number, radiusM = 200): Promise<NearbyStation[]> {
+	return withCache<NearbyStation[]>(
+		`stations_r${radiusM}`,
+		lat,
+		lon,
+		async () => {
+			const query = `
+				[out:json][timeout:10];
+				(
+					node(around:${radiusM},${lat},${lon})[name][railway=station];
+					node(around:${radiusM},${lat},${lon})[name][railway=halt];
+					node(around:${radiusM},${lat},${lon})[name][railway=subway_entrance];
+					node(around:${radiusM},${lat},${lon})[name][public_transport=station];
+					way(around:${radiusM},${lat},${lon})[name][railway=station];
+					way(around:${radiusM},${lat},${lon})[name][public_transport=station];
+					relation(around:${radiusM},${lat},${lon})[name][public_transport=station];
+				);
+				out tags center;
+			`;
+			const res = await overpassFetch(query);
+			if (!res.ok) {
+				console.warn(`Overpass stations returned ${res.status} for ${lat},${lon}`);
+				return { ok: false, status: res.status };
+			}
+			const data = (await res.json()) as { elements?: OverpassElement[] };
+			const stations = new Map<string, NearbyStation>();
+			for (const el of data.elements ?? []) {
+				const tags = el.tags ?? {};
+				const name = tags.name;
+				if (!name) continue;
+				const elLat = el.lat ?? el.center?.lat;
+				const elLon = el.lon ?? el.center?.lon;
+				if (elLat === undefined || elLon === undefined) continue;
+				const distanceM = landmarkHaversine(lat, lon, elLat, elLon);
+				// Determine subtype: subway / rail / light_rail / tram / generic.
+				let subtype = "rail";
+				if (tags.station === "subway" || tags.railway === "subway_entrance") subtype = "subway";
+				else if (tags.station === "light_rail") subtype = "light_rail";
+				else if (tags.tram === "yes" || tags.railway === "tram_stop") subtype = "tram";
+				else if (tags.railway === "halt") subtype = "halt";
+				// Collapse multiple entries with same name (entrances of one station)
+				// by keeping the closest.
+				const existing = stations.get(name);
+				if (!existing || distanceM < existing.distanceM) {
+					stations.set(name, { name, subtype, distanceM });
+				}
+			}
+			return { ok: true, value: [...stations.values()].sort((a, b) => a.distanceM - b.distanceM) };
+		},
+		[],
+	);
+}
+
 /**
  * Produce a short, human-readable label for a place.
  * Examples: "Brasserie Vermeer (restaurant)", "Vondelpark", "Plein 1944 (square)"

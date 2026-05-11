@@ -21,7 +21,16 @@ import {
 import { localSolarHour } from "./focus-places.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
-import { bestPlace, commonCity, extractCity, nearbyWays, placeLabel, refineMode, reverseGeocode } from "./osm.js";
+import {
+	bestPlace,
+	commonCity,
+	extractCity,
+	nearbyStations,
+	nearbyWays,
+	placeLabel,
+	refineMode,
+	reverseGeocode,
+} from "./osm.js";
 import { type KnownPlace, snapToPlace } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments } from "./segments.js";
@@ -369,6 +378,75 @@ export async function computeVelocity(
 
 	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(corrected)));
 
+	// Tube-station enrichment. For any train segment (and for inferred-gap
+	// "driving" segments that match the rail-shape signature at endpoints),
+	// look up nearby OSM stations at each endpoint and annotate with "Start
+	// Station → End Station". This is more accurate than the OSM way name
+	// alone: in central London the Metropolitan and Jubilee Lines share
+	// surface tracks, so refineMode often picks the wrong line. Station
+	// names are unambiguous.
+	const withStations = await Promise.all(
+		merged.map(async (s) => {
+			const isTrain = s.mode === "train" || s.refinedMode === "train";
+			const isInferredVehicleGap =
+				s.refinedReason?.startsWith("inferred from GPS gap") && s.mode !== "stationary" && s.avgSpeed >= 7;
+			if (!isTrain && !isInferredVehicleGap) return s;
+
+			// For real (GPS-tracked) train segments use the segment's first
+			// and last in-window points. For inferred-gap segments use the
+			// last fix before the gap and the first fix after — exactly the
+			// pair inferTransitGaps already used to measure distance.
+			let startCoord: { lat: number; lon: number } | null = null;
+			let endCoord: { lat: number; lon: number } | null = null;
+			if (isInferredVehicleGap) {
+				const before = points.filter((p) => p.ts <= s.startTs).pop();
+				const after = points.find((p) => p.ts >= s.endTs);
+				if (before && after) {
+					startCoord = before;
+					endCoord = after;
+				}
+			} else {
+				const seg = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
+				if (seg.length >= 2) {
+					startCoord = seg[0];
+					endCoord = seg[seg.length - 1];
+				}
+			}
+			if (!startCoord || !endCoord) return s;
+
+			try {
+				const [startStations, endStations] = await Promise.all([
+					nearbyStations(startCoord.lat, startCoord.lon),
+					nearbyStations(endCoord.lat, endCoord.lon),
+				]);
+				const startStation = startStations[0]?.name;
+				const endStation = endStations[0]?.name;
+				if (!startStation || !endStation) return s;
+				if (startStation === endStation) {
+					// Both endpoints near the same station — probably hung-out
+					// near the station rather than actually riding.
+					return s;
+				}
+				// Inferred gap that wasn't already classified as train: upgrade.
+				let upgraded = s;
+				if (isInferredVehicleGap && !isTrain) {
+					upgraded = {
+						...s,
+						mode: "train",
+						refinedMode: "train",
+						refinedReason: `${s.refinedReason}; tube ride between known stations`,
+					};
+				}
+				return {
+					...upgraded,
+					wayName: `${startStation} → ${endStation}`,
+				};
+			} catch {
+				return s;
+			}
+		}),
+	);
+
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
 	// location (centroid for stationary, midpoint for moving). Lets the UI
@@ -378,7 +456,7 @@ export async function computeVelocity(
 	// gap segments).
 	const homeTz = (await getSyncState(userId, "home_tz")) ?? "Europe/Amsterdam";
 	const withDisplayTz = timeSync("displayTz", () =>
-		merged.map((s): EnrichedSegment => {
+		withStations.map((s): EnrichedSegment => {
 			const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
 			if (segPoints.length === 0) {
 				return { ...s, displayTz: homeTz };
