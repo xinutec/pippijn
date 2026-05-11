@@ -392,27 +392,19 @@ export async function computeVelocity(
 				s.refinedReason?.startsWith("inferred from GPS gap") && s.mode !== "stationary" && s.avgSpeed >= 7;
 			if (!isTrain && !isInferredVehicleGap) return s;
 
-			// For real (GPS-tracked) train segments use the segment's first
-			// and last in-window points. For inferred-gap segments use the
-			// last fix before the gap and the first fix after — exactly the
-			// pair inferTransitGaps already used to measure distance.
-			let startCoord: { lat: number; lon: number } | null = null;
-			let endCoord: { lat: number; lon: number } | null = null;
-			if (isInferredVehicleGap) {
-				const before = points.filter((p) => p.ts <= s.startTs).pop();
-				const after = points.find((p) => p.ts >= s.endTs);
-				if (before && after) {
-					startCoord = before;
-					endCoord = after;
-				}
-			} else {
-				const seg = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
-				if (seg.length >= 2) {
-					startCoord = seg[0];
-					endCoord = seg[seg.length - 1];
-				}
-			}
-			if (!startCoord || !endCoord) return s;
+			// Use the journey'\''s outer bounding fixes — the last fix at-or-
+			// before startTs and the first fix at-or-after endTs. These
+			// correspond to "the platform you walked away from" and "the
+			// platform you walked toward". Works uniformly for pure
+			// inferred-gap segments AND for merged inferred+train segments
+			// where in-window points are sparse (a tube ride may surface
+			// for one fix in the middle but still have unambiguous platform
+			// endpoints just outside the segment'\''s nominal range).
+			const before = [...points].reverse().find((p) => p.ts <= s.startTs);
+			const after = points.find((p) => p.ts >= s.endTs);
+			if (!before || !after) return s;
+			const startCoord = before;
+			const endCoord = after;
 
 			try {
 				const [startStations, endStations] = await Promise.all([
