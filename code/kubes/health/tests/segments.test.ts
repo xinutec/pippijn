@@ -423,6 +423,44 @@ describe("classifySegments", () => {
 		expect(inferred?.mode).toBe("train");
 	});
 
+	it("inferTransitGaps: vehicle-speed gap adjacent to a train segment upgrades to train (Tube interchange)", () => {
+		// Real case: Saint Espresso café (likely at a station) at 21:19, then
+		// a 5-min gap of 3.2 km, then the Jubilee Line at 21:25. The gap is
+		// part of the same transit chain, not a sudden 38 km/h car ride.
+		const A = { lat: 51.515, lon: -0.144 }; // Oxford Circus-ish
+		const B = { lat: 51.522, lon: -0.187 }; // Marylebone-ish
+		const segs: TrackSegment[] = [
+			{
+				startTs: 1000,
+				endTs: 1120,
+				mode: "stationary",
+				confidence: 1,
+				avgSpeed: 0,
+				maxSpeed: 0,
+				linearity: 0,
+				pointCount: 5,
+			},
+			{
+				startTs: 1420,
+				endTs: 1720,
+				mode: "train",
+				confidence: 0.6,
+				avgSpeed: 85,
+				maxSpeed: 100,
+				linearity: 0.99,
+				pointCount: 30,
+			},
+		];
+		const points: FilteredPoint[] = [
+			{ ts: 1120, lat: A.lat, lon: A.lon, speed_kmh: 0, bearing: 0 },
+			{ ts: 1420, lat: B.lat, lon: B.lon, speed_kmh: 85, bearing: 90 },
+		];
+		const result = inferTransitGaps(segs, points);
+		const inferred = result.find((s) => s.refinedReason?.includes("GPS gap"));
+		expect(inferred).toBeDefined();
+		expect(inferred?.mode).toBe("train"); // not "driving"
+	});
+
 	it("inferTransitGaps directly: pure logic (no classifier interference)", () => {
 		const A = { lat: 50.83, lon: 4.33 };
 		const B = { lat: 50.86, lon: 4.4 };

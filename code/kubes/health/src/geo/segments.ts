@@ -481,7 +481,25 @@ export function inferTransitGaps(segments: TrackSegment[], points: FilteredPoint
 		// tram, slow car), so we collapse the middle band into "driving" as
 		// the conservative vehicle-of-some-kind. Walking covers the bottom
 		// (under-7 km/h gaps that crossed the 200m distance threshold).
-		const inferredMode: TransportMode = speedKmh < 7 ? "walking" : speedKmh >= 120 ? "train" : "driving";
+		//
+		// Train continuity: if a bordering segment is itself rail (the
+		// classifier picked "train", or it'\''s a "plane" — included for
+		// symmetry though rare), upgrade a vehicle-speed gap to "train". A
+		// 38 km/h gap between Saint Espresso and a Jubilee Line tube ride
+		// is part of the same transit chain (e.g. line interchange),
+		// not a sudden car ride in the middle of London Underground.
+		const neighbouringTransit =
+			seg.mode === "train" || seg.mode === "plane" || next.mode === "train" || next.mode === "plane";
+		let inferredMode: TransportMode;
+		if (speedKmh < 7) {
+			inferredMode = "walking";
+		} else if (speedKmh >= 120) {
+			inferredMode = "train";
+		} else if (neighbouringTransit) {
+			inferredMode = "train";
+		} else {
+			inferredMode = "driving";
+		}
 		const km = (distanceM / 1000).toFixed(1);
 		const min = Math.round(gapDuration / 60);
 		result.push({
