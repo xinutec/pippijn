@@ -394,10 +394,42 @@ function landmarkHaversine(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 interface OverpassElement {
+	type?: string; // "node" | "way" | "relation"
 	lat?: number;
 	lon?: number;
 	center?: { lat: number; lon: number };
 	tags?: Record<string, string>;
+}
+
+/** Rail-class route types in OSM. Bus, ferry, bicycle, hiking, etc. are
+ *  not considered "rail" for our line-disambiguation purposes. */
+const RAIL_ROUTE_TYPES = new Set(["subway", "train", "light_rail", "tram", "monorail"]);
+
+/**
+ * Extract the set of named rail-line route relations from an Overpass response.
+ * Used by `linesAtPoint` after fetching route relations near a coordinate.
+ * Kept as a pure function so the parsing logic is testable without mocking
+ * fetch.
+ *
+ * Permissive input typing (`tags?: Record<string, string | undefined>`)
+ * because real Overpass JSON has tags as a sparsely-populated map and
+ * pickier types make test fixtures awkward without buying us safety the
+ * runtime checks below don't already provide.
+ */
+export function extractLineNames(data: {
+	elements?: ReadonlyArray<{ type?: string; tags?: Record<string, string | undefined> }>;
+}): Set<string> {
+	const lines = new Set<string>();
+	for (const el of data.elements ?? []) {
+		if (el.type !== "relation") continue;
+		const tags = el.tags ?? {};
+		if (tags.type !== "route") continue;
+		if (!tags.route || !RAIL_ROUTE_TYPES.has(tags.route)) continue;
+		const name = tags.name;
+		if (!name) continue;
+		lines.add(name);
+	}
+	return lines;
 }
 
 /**
@@ -533,6 +565,47 @@ export async function nearbyStations(lat: number, lon: number, radiusM = 200): P
 		},
 		[],
 	);
+}
+
+/**
+ * Find rail-class route relations whose member stops include a station near
+ * the given coordinate. Used to disambiguate parallel-track line confusion:
+ * given a tube ride with Wembley Park at one end and Kings Cross at the
+ * other, the intersection of `linesAtPoint(wembley)` and `linesAtPoint(kc)`
+ * is `{Metropolitan Line}` — Jubilee serves Wembley but not Kings Cross, so
+ * it falls out of the intersection.
+ *
+ * Overpass query: stops/stations near the point → their containing route
+ * relations → relation tags. Cached via the standard OSM cache.
+ */
+export async function linesAtPoint(lat: number, lon: number, radiusM = 100): Promise<Set<string>> {
+	// Cache stores arrays — Set doesn't round-trip through JSON. Convert at
+	// the function boundary.
+	const arr = await withCache<string[]>(
+		`lines_r${radiusM}`,
+		lat,
+		lon,
+		async () => {
+			const query = `
+				[out:json][timeout:10];
+				(
+					node(around:${radiusM},${lat},${lon})[railway~"^(station|halt|stop|tram_stop)$"];
+					node(around:${radiusM},${lat},${lon})[public_transport~"^(station|stop_position|platform)$"];
+				);
+				rel(bn)[type=route];
+				out tags;
+			`;
+			const res = await overpassFetch(query);
+			if (!res.ok) {
+				console.warn(`Overpass lines returned ${res.status} for ${lat},${lon}`);
+				return { ok: false, status: res.status };
+			}
+			const data = (await res.json()) as { elements?: OverpassElement[] };
+			return { ok: true, value: [...extractLineNames(data)] };
+		},
+		[],
+	);
+	return new Set(arr);
 }
 
 /**

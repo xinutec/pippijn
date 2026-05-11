@@ -446,4 +446,74 @@ describe("annotateRailRuns", () => {
 		expect(out[1].refinedReason).toContain("inferred from GPS gap");
 		expect(out[1].refinedReason).toContain("tube ride between known stations");
 	});
+
+	// Line-intersection disambiguation. The user's commute Wembley Park →
+	// Kings Cross has the parallel-track Met/Jubilee ambiguity (both serve
+	// Wembley Park; Jubilee doesn't reach Kings Cross). When both lookups
+	// agree on exactly one line, append the line name to the label.
+	it("appends line name when both endpoints' line sets intersect to one line", async () => {
+		// Wembley Park is served by Met + Jubilee; Kings Cross by Met +
+		// many others but NOT Jubilee. Intersection = {Met} → use it.
+		const linesAt = async (lat: number, _lon: number): Promise<Set<string>> => {
+			if (Math.abs(lat - 51.563) < 0.01) return new Set(["Metropolitan Line", "Jubilee Line"]);
+			if (Math.abs(lat - 51.53) < 0.01)
+				return new Set(["Metropolitan Line", "Circle Line", "Northern Line", "Piccadilly Line", "Victoria Line"]);
+			return new Set();
+		};
+		const segs = [train(1000, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, lookup, linesAt);
+		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park · Metropolitan Line");
+	});
+
+	it("omits line name when intersection has more than one line (ambiguous)", async () => {
+		// Two lines both serve both endpoints — can't disambiguate.
+		const linesAt = async () => new Set(["Northern Line", "Victoria Line"]);
+		const segs = [train(1000, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, lookup, linesAt);
+		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+	});
+
+	it("omits line name when intersection is empty (one endpoint has no lines)", async () => {
+		// Train ride ending at a non-station: OSM has no route serving that
+		// coord. Annotation falls back to the bare station pair.
+		const linesAt = async (lat: number, _lon: number): Promise<Set<string>> => {
+			if (Math.abs(lat - 51.53) < 0.01) return new Set(["Metropolitan Line"]);
+			return new Set();
+		};
+		const segs = [train(1000, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, lookup, linesAt);
+		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+	});
+
+	it("omits line name when intersection is empty (lines disjoint)", async () => {
+		// Surfaced bug case: refineMode might think the tracks belong to
+		// Line A near one fix and Line B near the other, but no line
+		// actually serves both physical points. Skip line tagging.
+		const linesAt = async (lat: number, _lon: number): Promise<Set<string>> => {
+			if (Math.abs(lat - 51.53) < 0.01) return new Set(["Northern Line"]);
+			if (Math.abs(lat - 51.563) < 0.01) return new Set(["Jubilee Line"]);
+			return new Set();
+		};
+		const segs = [train(1000, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, lookup, linesAt);
+		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+	});
+
+	it("does not call line-lookup when station annotation was already skipped", async () => {
+		// Same station both ends → skip. The line lookup should not fire
+		// (avoids unnecessary network calls for a non-annotation case).
+		let linesAtCalls = 0;
+		const linesAt = async () => {
+			linesAtCalls++;
+			return new Set<string>();
+		};
+		const segs = [train(1000, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.53, -0.125)];
+		await annotateRailRuns(segs, points, lookup, linesAt);
+		expect(linesAtCalls).toBe(0);
+	});
 });

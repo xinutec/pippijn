@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	commonCity,
 	extractCity,
+	extractLineNames,
 	filterLandmarks,
 	landmarkToResult,
 	type NearbyLandmark,
@@ -368,5 +369,96 @@ describe("refineMode", () => {
 		const r = refineMode("train", 130, ways);
 		expect(r.mode).toBe("train");
 		expect(r.wayName).toBe("Hoofdspoor");
+	});
+});
+
+describe("extractLineNames", () => {
+	// Overpass returns relation elements that are route members of a stop
+	// node near a queried point. We only want named route relations whose
+	// route= tag identifies a rail-class line.
+	it("returns the set of named rail lines from an Overpass response", () => {
+		const data = {
+			elements: [
+				{ type: "relation", tags: { type: "route", route: "subway", name: "Metropolitan Line" } },
+				{ type: "relation", tags: { type: "route", route: "subway", name: "Jubilee Line" } },
+				{ type: "relation", tags: { type: "route", route: "train", name: "Thameslink" } },
+			],
+		};
+		expect(extractLineNames(data)).toEqual(new Set(["Metropolitan Line", "Jubilee Line", "Thameslink"]));
+	});
+
+	it("ignores non-route relations (e.g. boundaries, multipolygons)", () => {
+		const data = {
+			elements: [
+				{ type: "relation", tags: { type: "boundary", name: "Greater London" } },
+				{ type: "relation", tags: { type: "multipolygon", name: "Hyde Park" } },
+				{ type: "relation", tags: { type: "route", route: "subway", name: "Piccadilly Line" } },
+			],
+		};
+		expect(extractLineNames(data)).toEqual(new Set(["Piccadilly Line"]));
+	});
+
+	it("ignores non-rail routes (bus, ferry, bicycle)", () => {
+		const data = {
+			elements: [
+				{ type: "relation", tags: { type: "route", route: "bus", name: "139" } },
+				{ type: "relation", tags: { type: "route", route: "ferry", name: "Woolwich Ferry" } },
+				{ type: "relation", tags: { type: "route", route: "bicycle", name: "NCN 4" } },
+				{ type: "relation", tags: { type: "route", route: "subway", name: "Victoria Line" } },
+			],
+		};
+		expect(extractLineNames(data)).toEqual(new Set(["Victoria Line"]));
+	});
+
+	it("includes train, light_rail, tram, monorail as rail-class routes", () => {
+		const data = {
+			elements: [
+				{ type: "relation", tags: { type: "route", route: "train", name: "Elizabeth Line" } },
+				{ type: "relation", tags: { type: "route", route: "light_rail", name: "DLR" } },
+				{ type: "relation", tags: { type: "route", route: "tram", name: "Tramlink 1" } },
+				{ type: "relation", tags: { type: "route", route: "monorail", name: "Disney Monorail" } },
+			],
+		};
+		expect(extractLineNames(data)).toEqual(new Set(["Elizabeth Line", "DLR", "Tramlink 1", "Disney Monorail"]));
+	});
+
+	it("skips relations without a name tag", () => {
+		const data = {
+			elements: [
+				{ type: "relation", tags: { type: "route", route: "subway" } },
+				{ type: "relation", tags: { type: "route", route: "subway", name: "Bakerloo Line" } },
+			],
+		};
+		expect(extractLineNames(data)).toEqual(new Set(["Bakerloo Line"]));
+	});
+
+	it("deduplicates lines that appear in multiple route directions", () => {
+		// OSM often has one route relation per direction or per service
+		// variant (e.g. Met Line Aldgate-Uxbridge, Aldgate-Amersham). They
+		// share the same name; we want the line counted once.
+		const data = {
+			elements: [
+				{ type: "relation", tags: { type: "route", route: "subway", name: "Metropolitan Line" } },
+				{ type: "relation", tags: { type: "route", route: "subway", name: "Metropolitan Line" } },
+				{ type: "relation", tags: { type: "route", route: "subway", name: "Metropolitan Line" } },
+			],
+		};
+		expect(extractLineNames(data)).toEqual(new Set(["Metropolitan Line"]));
+	});
+
+	it("returns an empty set for empty or undefined elements", () => {
+		expect(extractLineNames({ elements: [] })).toEqual(new Set());
+		expect(extractLineNames({})).toEqual(new Set());
+	});
+
+	it("ignores non-relation elements (ways, nodes)", () => {
+		const data = {
+			elements: [
+				{ type: "node", tags: { railway: "station", name: "Kings Cross" } },
+				{ type: "way", tags: { highway: "primary", name: "Euston Road" } },
+				{ type: "relation", tags: { type: "route", route: "subway", name: "Northern Line" } },
+			],
+		};
+		expect(extractLineNames(data)).toEqual(new Set(["Northern Line"]));
 	});
 });

@@ -25,6 +25,7 @@ import {
 	bestPlace,
 	commonCity,
 	extractCity,
+	linesAtPoint,
 	nearbyStations,
 	nearbyWays,
 	placeLabel,
@@ -592,7 +593,8 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 export async function annotateRailRuns(
 	segments: EnrichedSegment[],
 	points: FilteredPoint[],
-	lookup: (lat: number, lon: number) => Promise<{ name: string }[]> = nearbyStations,
+	stationsLookup: (lat: number, lon: number) => Promise<{ name: string }[]> = nearbyStations,
+	linesLookup: (lat: number, lon: number) => Promise<Set<string>> = linesAtPoint,
 ): Promise<EnrichedSegment[]> {
 	const isRailLike = (s: EnrichedSegment): boolean => {
 		if (s.mode === "train" || s.refinedMode === "train") return true;
@@ -615,7 +617,10 @@ export async function annotateRailRuns(
 		i = j;
 	}
 
-	// Look up board/alight stations for each run in parallel.
+	// Look up board/alight stations and disambiguating line names for each
+	// run in parallel. The station lookup and line lookup have independent
+	// failure modes — a line-lookup failure (Overpass down, no data) should
+	// degrade to a station-pair label, not lose the annotation entirely.
 	const runLabels = await Promise.all(
 		runs.map(async (run) => {
 			const startTs = segments[run.from].startTs;
@@ -623,20 +628,40 @@ export async function annotateRailRuns(
 			const before = [...points].reverse().find((p) => p.ts <= startTs);
 			const after = points.find((p) => p.ts >= endTs);
 			if (!before || !after) return null;
+			let startStation: string | undefined;
+			let endStation: string | undefined;
 			try {
 				const [startStations, endStations] = await Promise.all([
-					lookup(before.lat, before.lon),
-					lookup(after.lat, after.lon),
+					stationsLookup(before.lat, before.lon),
+					stationsLookup(after.lat, after.lon),
 				]);
-				const startStation = startStations[0]?.name;
-				const endStation = endStations[0]?.name;
-				if (!startStation || !endStation) return null;
-				// Same station at both ends: probably hanging around a single
-				// station rather than actually riding. Skip annotation.
-				if (startStation === endStation) return null;
-				return `${startStation} → ${endStation}`;
+				startStation = startStations[0]?.name;
+				endStation = endStations[0]?.name;
 			} catch {
 				return null;
+			}
+			if (!startStation || !endStation) return null;
+			// Same station at both ends: probably hanging around a single
+			// station rather than actually riding. Skip annotation — don't
+			// even fetch lines for this run.
+			if (startStation === endStation) return null;
+			const base = `${startStation} → ${endStation}`;
+			// Line intersection: which line serves both physical endpoints?
+			// Met/Jubilee both serve Wembley Park but only Met reaches Kings
+			// Cross — the intersection is {Met}. Append the suffix only
+			// when the intersection is a singleton; on empty (one endpoint
+			// off-OSM, or disjoint sets) or ambiguous (>1 line serves both),
+			// fall through to the bare station-pair label.
+			try {
+				const [startLines, endLines] = await Promise.all([
+					linesLookup(before.lat, before.lon),
+					linesLookup(after.lat, after.lon),
+				]);
+				const intersection = [...startLines].filter((l) => endLines.has(l));
+				if (intersection.length === 1) return `${base} · ${intersection[0]}`;
+				return base;
+			} catch {
+				return base;
 			}
 		}),
 	);
