@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { FilteredPoint } from "../src/geo/kalman.js";
 import type { TransportMode } from "../src/geo/segments.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
-import { composeWayName, mergeAdjacentMoving, mergeAdjacentStays } from "../src/geo/velocity.js";
+import { annotateRailRuns, composeWayName, mergeAdjacentMoving, mergeAdjacentStays } from "../src/geo/velocity.js";
 
 function stay(startTs: number, endTs: number, place: string | undefined, pointCount = 5): EnrichedSegment {
 	return {
@@ -313,5 +314,136 @@ describe("composeWayName", () => {
 		]);
 		// Total 1000; D = 10% < 15% floor → drop. A,B,C all > 15% → "A, B, C".
 		expect(composeWayName(m)).toBe("A, B, C");
+	});
+});
+
+describe("annotateRailRuns", () => {
+	const train = (startTs: number, endTs: number, refinedReason?: string): EnrichedSegment => ({
+		startTs,
+		endTs,
+		mode: "train",
+		refinedMode: "train",
+		confidence: 0.6,
+		avgSpeed: 80,
+		maxSpeed: 100,
+		linearity: 0.98,
+		pointCount: 30,
+		refinedReason,
+	});
+
+	const inferredVehicleGap = (startTs: number, endTs: number): EnrichedSegment => ({
+		startTs,
+		endTs,
+		mode: "driving",
+		confidence: 0.3,
+		avgSpeed: 42,
+		maxSpeed: 42,
+		linearity: 1,
+		pointCount: 0,
+		refinedReason: "inferred from GPS gap (3.2 km in 5 min)",
+	});
+
+	const fix = (ts: number, lat: number, lon: number): FilteredPoint => ({
+		ts,
+		lat,
+		lon,
+		speed_kmh: 0,
+		bearing: 0,
+	});
+
+	// Kings Cross 51.530,-0.125 ; Baker Street 51.523,-0.158 ; Wembley Park 51.563,-0.279
+	const stationAt = (lat: number, lon: number): string => {
+		if (Math.abs(lat - 51.53) < 0.01 && Math.abs(lon - -0.125) < 0.01) return "Kings Cross St Pancras";
+		if (Math.abs(lat - 51.523) < 0.01 && Math.abs(lon - -0.158) < 0.01) return "Baker Street";
+		if (Math.abs(lat - 51.563) < 0.01 && Math.abs(lon - -0.279) < 0.01) return "Wembley Park";
+		return "Unknown";
+	};
+	const lookup = async (lat: number, lon: number) => [{ name: stationAt(lat, lon) }];
+
+	it("annotates a single train segment with its outer-bounding-fix stations", async () => {
+		const segs = [train(1000, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, lookup);
+		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+	});
+
+	it("merges train + inferred-gap + train into one journey with one label", async () => {
+		// The Baker Street bug: a single mid-ride noisy fix splits the tube
+		// ride into two train segments separated by an inferred vehicle gap.
+		// Each segment used to get its own start/end station, producing
+		// Wembley → Baker Street and Baker Street → Kings Cross.
+		// After merge-then-annotate: one outer-bounded label applies to all.
+		const segs = [train(1000, 1200), inferredVehicleGap(1200, 1300), train(1300, 1500)];
+		const points = [
+			fix(900, 51.53, -0.125), // Kings Cross — before run
+			fix(1250, 51.523, -0.158), // Baker Street — mid-ride noise
+			fix(1600, 51.563, -0.279), // Wembley Park — after run
+		];
+		const out = await annotateRailRuns(segs, points, lookup);
+		// All three segments share the run's outer-bounded label.
+		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+		expect(out[1].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+		expect(out[2].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+		// And the gap segment is upgraded to train.
+		expect(out[1].mode).toBe("train");
+		expect(out[1].refinedMode).toBe("train");
+	});
+
+	it("does not merge two train runs separated by a non-rail segment", async () => {
+		const stationary: EnrichedSegment = {
+			startTs: 1200,
+			endTs: 1800,
+			mode: "stationary",
+			confidence: 0.7,
+			avgSpeed: 0,
+			maxSpeed: 0,
+			linearity: 0,
+			pointCount: 5,
+		};
+		const segs = [train(1000, 1200), stationary, train(1800, 2000)];
+		const points = [
+			fix(900, 51.53, -0.125), // Kings Cross
+			fix(1100, 51.53, -0.125),
+			fix(1900, 51.563, -0.279), // Wembley
+			fix(2100, 51.563, -0.279),
+		];
+		const out = await annotateRailRuns(segs, points, lookup);
+		// Each train segment is its own 1-segment run.
+		expect(out[0].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+		// The stationary segment is untouched (no rail-like classification).
+		expect(out[1].wayName).toBeUndefined();
+		expect(out[2].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+	});
+
+	it("skips annotation when both endpoints resolve to the same station", async () => {
+		// Hanging out near the station, not actually riding.
+		const segs = [train(1000, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.53, -0.125)];
+		const out = await annotateRailRuns(segs, points, lookup);
+		expect(out[0].wayName).toBeUndefined();
+	});
+
+	it("leaves non-rail segments alone", async () => {
+		const driving: EnrichedSegment = {
+			startTs: 1000,
+			endTs: 1500,
+			mode: "driving",
+			confidence: 0.7,
+			avgSpeed: 60,
+			maxSpeed: 80,
+			linearity: 0.6,
+			pointCount: 20,
+			wayName: "M25",
+		};
+		const out = await annotateRailRuns([driving], [fix(900, 51.5, -0.1)], lookup);
+		expect(out[0].wayName).toBe("M25"); // unchanged
+	});
+
+	it("preserves refinedReason and chains the upgrade reason on the gap segment", async () => {
+		const segs = [train(1000, 1200), inferredVehicleGap(1200, 1300), train(1300, 1500)];
+		const points = [fix(900, 51.53, -0.125), fix(1600, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, lookup);
+		expect(out[1].refinedReason).toContain("inferred from GPS gap");
+		expect(out[1].refinedReason).toContain("tube ride between known stations");
 	});
 });

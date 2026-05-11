@@ -378,66 +378,7 @@ export async function computeVelocity(
 
 	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(corrected)));
 
-	// Tube-station enrichment. For any train segment (and for inferred-gap
-	// "driving" segments that match the rail-shape signature at endpoints),
-	// look up nearby OSM stations at each endpoint and annotate with "Start
-	// Station → End Station". This is more accurate than the OSM way name
-	// alone: in central London the Metropolitan and Jubilee Lines share
-	// surface tracks, so refineMode often picks the wrong line. Station
-	// names are unambiguous.
-	const withStations = await Promise.all(
-		merged.map(async (s) => {
-			const isTrain = s.mode === "train" || s.refinedMode === "train";
-			const isInferredVehicleGap =
-				s.refinedReason?.startsWith("inferred from GPS gap") && s.mode !== "stationary" && s.avgSpeed >= 7;
-			if (!isTrain && !isInferredVehicleGap) return s;
-
-			// Use the journey'\''s outer bounding fixes — the last fix at-or-
-			// before startTs and the first fix at-or-after endTs. These
-			// correspond to "the platform you walked away from" and "the
-			// platform you walked toward". Works uniformly for pure
-			// inferred-gap segments AND for merged inferred+train segments
-			// where in-window points are sparse (a tube ride may surface
-			// for one fix in the middle but still have unambiguous platform
-			// endpoints just outside the segment'\''s nominal range).
-			const before = [...points].reverse().find((p) => p.ts <= s.startTs);
-			const after = points.find((p) => p.ts >= s.endTs);
-			if (!before || !after) return s;
-			const startCoord = before;
-			const endCoord = after;
-
-			try {
-				const [startStations, endStations] = await Promise.all([
-					nearbyStations(startCoord.lat, startCoord.lon),
-					nearbyStations(endCoord.lat, endCoord.lon),
-				]);
-				const startStation = startStations[0]?.name;
-				const endStation = endStations[0]?.name;
-				if (!startStation || !endStation) return s;
-				if (startStation === endStation) {
-					// Both endpoints near the same station — probably hung-out
-					// near the station rather than actually riding.
-					return s;
-				}
-				// Inferred gap that wasn't already classified as train: upgrade.
-				let upgraded = s;
-				if (isInferredVehicleGap && !isTrain) {
-					upgraded = {
-						...s,
-						mode: "train",
-						refinedMode: "train",
-						refinedReason: `${s.refinedReason}; tube ride between known stations`,
-					};
-				}
-				return {
-					...upgraded,
-					wayName: `${startStation} → ${endStation}`,
-				};
-			} catch {
-				return s;
-			}
-		}),
-	);
+	const withStations = await annotateRailRuns(merged, points);
 
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
@@ -628,4 +569,98 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 	}
 
 	return result;
+}
+
+/**
+ * Annotate consecutive rail-like segments as a single tube/train journey.
+ *
+ * A "rail-like" segment is anything classified as train (mode or refinedMode)
+ * plus inferred-vehicle-speed gaps that look like a tube ride continuation
+ * (refinedReason "inferred from GPS gap" with non-stationary mode and
+ * avgSpeed >= 7). A maximal run of these is a single journey: a Wembley
+ * Park → Kings Cross tube ride that surfaced for one fix mid-route shows
+ * up as train + inferred-gap + train (different modes, so mergeAdjacentMoving
+ * leaves them separate), but it's one journey and gets one label.
+ *
+ * Per run, we look up nearby stations at the outer-bounding fixes (last fix
+ * at-or-before run start, first fix at-or-after run end) and label every
+ * segment in the run with "<board> → <alight>". This fixes the Baker Street
+ * false-alight: a noisy mid-ride fix near Baker Street can't produce a
+ * "Baker Street" annotation because the run's outer fixes are at the true
+ * board/alight platforms.
+ */
+export async function annotateRailRuns(
+	segments: EnrichedSegment[],
+	points: FilteredPoint[],
+	lookup: (lat: number, lon: number) => Promise<{ name: string }[]> = nearbyStations,
+): Promise<EnrichedSegment[]> {
+	const isRailLike = (s: EnrichedSegment): boolean => {
+		if (s.mode === "train" || s.refinedMode === "train") return true;
+		const inferredVehicleGap =
+			s.refinedReason?.startsWith("inferred from GPS gap") && s.mode !== "stationary" && s.avgSpeed >= 7;
+		return Boolean(inferredVehicleGap);
+	};
+
+	// Identify maximal rail runs as [startIdx, endIdx] (inclusive, half-open
+	// after this is fine — we use endIdxExclusive below).
+	const runs: { from: number; toExclusive: number }[] = [];
+	for (let i = 0; i < segments.length; ) {
+		if (!isRailLike(segments[i])) {
+			i++;
+			continue;
+		}
+		let j = i + 1;
+		while (j < segments.length && isRailLike(segments[j])) j++;
+		runs.push({ from: i, toExclusive: j });
+		i = j;
+	}
+
+	// Look up board/alight stations for each run in parallel.
+	const runLabels = await Promise.all(
+		runs.map(async (run) => {
+			const startTs = segments[run.from].startTs;
+			const endTs = segments[run.toExclusive - 1].endTs;
+			const before = [...points].reverse().find((p) => p.ts <= startTs);
+			const after = points.find((p) => p.ts >= endTs);
+			if (!before || !after) return null;
+			try {
+				const [startStations, endStations] = await Promise.all([
+					lookup(before.lat, before.lon),
+					lookup(after.lat, after.lon),
+				]);
+				const startStation = startStations[0]?.name;
+				const endStation = endStations[0]?.name;
+				if (!startStation || !endStation) return null;
+				// Same station at both ends: probably hanging around a single
+				// station rather than actually riding. Skip annotation.
+				if (startStation === endStation) return null;
+				return `${startStation} → ${endStation}`;
+			} catch {
+				return null;
+			}
+		}),
+	);
+
+	// Apply: shallow-copy the input, then overwrite the run segments.
+	const out = segments.map((s) => ({ ...s }));
+	for (let r = 0; r < runs.length; r++) {
+		const label = runLabels[r];
+		if (!label) continue;
+		const run = runs[r];
+		for (let k = run.from; k < run.toExclusive; k++) {
+			const s = out[k];
+			const wasTrain = s.mode === "train" || s.refinedMode === "train";
+			const wasInferredVehicleGap =
+				s.refinedReason?.startsWith("inferred from GPS gap") && s.mode !== "stationary" && s.avgSpeed >= 7;
+			if (wasInferredVehicleGap && !wasTrain) {
+				// Promote: a vehicle-speed gap inside a confirmed rail run is
+				// part of the tube ride, not a sudden car trip.
+				s.mode = "train";
+				s.refinedMode = "train";
+				s.refinedReason = `${s.refinedReason}; tube ride between known stations`;
+			}
+			s.wayName = label;
+		}
+	}
+	return out;
 }
