@@ -58,9 +58,11 @@ export function decideMonitoringCommand(speedKmh: number, lastMode: MonitoringMo
 	return desired;
 }
 
-/** Per-token memory of the last-pushed monitoring mode. Lost on restart,
- *  which is fine — we just re-push on the next fix if the speed warrants. */
-const lastModeByToken = new Map<string, MonitoringMode>();
+/** Per (token,device) memory of the last-pushed monitoring mode. Lost on
+ *  restart, which is fine — we just re-push on the next fix if the speed
+ *  warrants. Keyed by both so a user with multiple devices gets independent
+ *  state. */
+const lastModeByKey = new Map<string, MonitoringMode>();
 
 /** Owntracks location-message shape (subset of fields we care about). */
 interface OwntracksLocation {
@@ -81,15 +83,16 @@ interface OwntracksCommand {
 export function owntracksRoutes(config: Config): Hono<AppEnv> {
 	const app = new Hono<AppEnv>();
 
-	app.post("/:token", async (c) => {
+	app.post("/:token/:device", async (c) => {
 		const token = c.req.param("token");
+		const device = c.req.param("device");
 		const payload = await c.req.json<OwntracksLocation | OwntracksLocation[]>().catch(() => null);
 		if (payload === null) return c.json({ error: "invalid json" }, 400);
 
 		// Forward verbatim to Nextcloud PhoneTrack. The user's existing
-		// session token (in URL) is what authorises the write at PhoneTrack;
-		// we don't add or strip credentials.
-		const phonetrackUrl = `${config.nextcloud.baseUrl}/apps/phonetrack/log/owntracks-http/${token}`;
+		// session token + device name (in URL) is what authorises the
+		// write at PhoneTrack; we don't add or strip credentials.
+		const phonetrackUrl = `${config.nextcloud.baseUrl}/apps/phonetrack/log/owntracks/${token}/${device}`;
 		const upstreamRes = await fetch(phonetrackUrl, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -110,11 +113,12 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 		// at the highest velocity reported in the batch.
 		const messages = Array.isArray(payload) ? payload : [payload];
 		const maxVel = messages.reduce((m, msg) => (msg.vel !== undefined && msg.vel > m ? msg.vel : m), 0);
-		const desired = decideMonitoringCommand(maxVel, lastModeByToken.get(token) ?? null);
+		const stateKey = `${token}/${device}`;
+		const desired = decideMonitoringCommand(maxVel, lastModeByKey.get(stateKey) ?? null);
 
 		const response: OwntracksCommand[] = [];
 		if (desired !== null) {
-			lastModeByToken.set(token, desired);
+			lastModeByKey.set(stateKey, desired);
 			response.push({
 				_type: "cmd",
 				action: "setConfiguration",
