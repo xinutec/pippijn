@@ -54,6 +54,30 @@ export function shouldAdvanceEmptyStreak(result: BackfillDayResult): boolean {
 }
 
 /**
+ * Decrement a `YYYY-MM-DD` cursor by one day, refusing to go past `floor`.
+ *
+ * Returns `null` when:
+ *   - input is not a parseable date in `YYYY-MM-DD` form
+ *   - the previous day is `<= floor` (we treat `floor` as the earliest
+ *     date the backfill should ever consider, exclusive)
+ *
+ * Backfill loops MUST stop when this returns null. Without the floor
+ * guard, a skip-if-condition that always fires can walk the cursor
+ * indefinitely backward, eventually crossing year 0 and producing
+ * malformed strings like `-000026-02` (the bug we hit on pippijn's
+ * steps backfill before this helper existed).
+ */
+export function prevDayBounded(date: string, floor: string): string | null {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+	const d = new Date(`${date}T00:00:00Z`);
+	if (Number.isNaN(d.getTime())) return null;
+	d.setUTCDate(d.getUTCDate() - 1);
+	const prev = d.toISOString().slice(0, 10);
+	if (prev <= floor) return null;
+	return prev;
+}
+
+/**
  * Descriptor for a per-day backfillable stream. The orchestrator iterates
  * backwards from the stream's stored cursor, calling `sync(date)` on each
  * day (unless `skipIf` returns true) and using `shouldAdvanceEmptyStreak`

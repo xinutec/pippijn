@@ -1,6 +1,7 @@
 import {
 	backfillStreamDay,
 	type IntradayStream,
+	prevDayBounded,
 	shouldAdvanceEmptyStreak,
 	sortStreamsByCursorRecency,
 } from "./backfill.js";
@@ -33,11 +34,12 @@ function daysAgo(n: number): string {
 	return formatDate(d);
 }
 
-function prevDay(date: string): string {
-	const d = new Date(date);
-	d.setDate(d.getDate() - 1);
-	return formatDate(d);
-}
+/** Earliest date the backfill is allowed to consider. Fitbit's first
+ *  consumer tracker shipped in 2008; before 2010 the API has no data for
+ *  anyone. Without this floor a stuck loop can walk into negative years
+ *  and produce malformed cursor strings (the bug fix this constant is
+ *  part of). */
+const BACKFILL_FLOOR_DATE = "2010-01-01";
 
 /** One-time, idempotent: migrate the pre-2026-05-10 single-stream
  *  backfill keys (`backfill_cursor`, `backfill_complete`) into the
@@ -102,15 +104,31 @@ async function runIntradayBackfill(
 	const cursor = (await getSyncState(userId, cursorKey)) ?? defaultStartDate;
 	console.log(`[${userId}] ${stream.name}: backfill from ${cursor} going backwards...`);
 
-	let currentDate = prevDay(cursor);
+	let currentDate = prevDayBounded(cursor, BACKFILL_FLOOR_DATE);
+	if (currentDate === null) {
+		// Cursor is malformed or already at/before the floor. Either we've
+		// genuinely backfilled as far as possible, or a prior bug pushed
+		// the cursor into the negative-year zone. Mark complete — without
+		// this guard the loop spins forever.
+		console.log(`[${userId}] ${stream.name}: cursor at floor or malformed (${cursor}), marking complete`);
+		await setSyncState(userId, completeKey, "true");
+		return;
+	}
 	let emptyStreak = 0;
 
 	while (client.rateLimitRemaining > 15 && emptyStreak < maxEmpty) {
-		// skipIf: bypass days that another stream'\''s data tells us are empty.
-		// Cheap DB lookup, no API call, no streak advance — just move past.
+		// skipIf: bypass days that another stream's data tells us are
+		// empty (cheap DB lookup, no API call). Count toward the empty
+		// streak — a long run of skipped days terminates the loop just
+		// like a long run of empty fetches. Without this, a permanently-
+		// true skipIf walks the cursor backward indefinitely (the steps-
+		// backfill bug fixed alongside this code change).
 		if (stream.skipIf && (await stream.skipIf(currentDate))) {
 			await setSyncState(userId, cursorKey, currentDate);
-			currentDate = prevDay(currentDate);
+			emptyStreak++;
+			const next = prevDayBounded(currentDate, BACKFILL_FLOOR_DATE);
+			if (next === null) break;
+			currentDate = next;
 			continue;
 		}
 
@@ -123,15 +141,21 @@ async function runIntradayBackfill(
 		} else if (result.ok) {
 			emptyStreak = 0;
 		}
-		// !ok: leave emptyStreak unchanged so transient errors don'\''t
-		// silently terminate this stream'\''s backfill.
+		// !ok: leave emptyStreak unchanged so transient errors don't
+		// silently terminate this stream's backfill.
 
 		await setSyncState(userId, cursorKey, currentDate);
-		currentDate = prevDay(currentDate);
+		const next = prevDayBounded(currentDate, BACKFILL_FLOOR_DATE);
+		if (next === null) {
+			console.log(`[${userId}] ${stream.name}: reached backfill floor ${BACKFILL_FLOOR_DATE}`);
+			await setSyncState(userId, completeKey, "true");
+			return;
+		}
+		currentDate = next;
 	}
 
 	if (emptyStreak >= maxEmpty) {
-		console.log(`[${userId}] ${stream.name}: backfill complete — ${maxEmpty} consecutive empty days`);
+		console.log(`[${userId}] ${stream.name}: backfill complete — ${maxEmpty} consecutive empty/skipped days`);
 		await setSyncState(userId, completeKey, "true");
 	} else {
 		console.log(`[${userId}] ${stream.name}: paused at ${currentDate}. Rate limit: ${client.rateLimitRemaining}`);

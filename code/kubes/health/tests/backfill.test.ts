@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { backfillStreamDay, shouldAdvanceEmptyStreak, sortStreamsByCursorRecency } from "../src/backfill.js";
+import {
+	backfillStreamDay,
+	prevDayBounded,
+	shouldAdvanceEmptyStreak,
+	sortStreamsByCursorRecency,
+} from "../src/backfill.js";
 
 describe("backfillStreamDay", () => {
 	it("returns ok with the synced point count on success", async () => {
@@ -112,5 +117,40 @@ describe("sortStreamsByCursorRecency", () => {
 		]);
 		sortStreamsByCursorRecency(input, cursors, today);
 		expect(names(input)).toEqual(["a", "b"]);
+	});
+});
+
+describe("prevDayBounded", () => {
+	// Decrement a YYYY-MM-DD date string by one day, but return null when
+	// the result would be earlier than `floor`. Used by the backfill loop
+	// to refuse to walk past a sentinel "Fitbit didn't exist yet" date —
+	// without this guard, a loop bug elsewhere could push the cursor into
+	// negative years, producing malformed date strings like "-000026-02"
+	// (which is what happened to pippijn's steps backfill cursor).
+
+	it("returns the previous day for a normal date", () => {
+		expect(prevDayBounded("2026-01-02", "2000-01-01")).toBe("2026-01-01");
+	});
+
+	it("crosses month boundaries correctly", () => {
+		expect(prevDayBounded("2026-03-01", "2000-01-01")).toBe("2026-02-28");
+	});
+
+	it("crosses year boundaries correctly", () => {
+		expect(prevDayBounded("2025-01-01", "2000-01-01")).toBe("2024-12-31");
+	});
+
+	it("returns null when the previous day is before the floor", () => {
+		expect(prevDayBounded("2000-01-01", "2000-01-01")).toBeNull();
+	});
+
+	it("returns null when the input is already before the floor", () => {
+		expect(prevDayBounded("1999-12-31", "2000-01-01")).toBeNull();
+	});
+
+	it("returns null for malformed input (never produces -000026-02)", () => {
+		expect(prevDayBounded("-000026-02", "2000-01-01")).toBeNull();
+		expect(prevDayBounded("garbage", "2000-01-01")).toBeNull();
+		expect(prevDayBounded("", "2000-01-01")).toBeNull();
 	});
 });
