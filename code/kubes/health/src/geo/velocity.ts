@@ -735,6 +735,13 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
  *  position after the user has already walked away from the platform. */
 const RAIL_RUN_STATION_RADIUS_M = 400;
 
+/** Speed (km/h) below which we treat a fix as "the user is at or near a
+ *  station, not in transit." The first fix at-or-after the rail run's
+ *  endTs is often still on the train (surface GPS reading mid-route);
+ *  we want the first fix where the user has actually disembarked and is
+ *  walking or stopped. Walking pace is ~5 km/h, generous buffer at 15. */
+const POST_TRANSIT_SPEED_KMH = 15;
+
 export async function annotateRailRuns(
 	segments: EnrichedSegment[],
 	points: FilteredPoint[],
@@ -798,8 +805,18 @@ export async function annotateRailRuns(
 		runs.map(async (run) => {
 			const startTs = segments[run.from].startTs;
 			const endTs = segments[run.toExclusive - 1].endTs;
-			const before = [...points].reverse().find((p) => p.ts <= startTs);
-			const after = points.find((p) => p.ts >= endTs);
+			// Prefer fixes where the user is NOT in transit (speed below
+			// walking pace) — these are at-or-near a station rather than
+			// mid-route. Met line surfaces between Finchley Road and
+			// Wembley Park, so the first fix at-or-after the run's endTs
+			// can be a real GPS reading at ~30 km/h mid-train. Skipping
+			// transit-speed fixes gets us to the actual disembark-and-
+			// walk-near-station fix. Fall back to any fix if none qualify.
+			const slow = (p: FilteredPoint): boolean => p.speed_kmh < POST_TRANSIT_SPEED_KMH;
+			const before =
+				[...points].reverse().find((p) => p.ts <= startTs && slow(p)) ??
+				[...points].reverse().find((p) => p.ts <= startTs);
+			const after = points.find((p) => p.ts >= endTs && slow(p)) ?? points.find((p) => p.ts >= endTs);
 			if (!before || !after) return null;
 			let startStation: string | undefined;
 			let endStation: string | undefined;
