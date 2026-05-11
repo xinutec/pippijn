@@ -77,7 +77,13 @@ interface OwntracksLocation {
 interface OwntracksCommand {
 	_type: "cmd";
 	action: "setConfiguration";
-	configuration: { monitoring: MonitoringMode };
+	configuration: {
+		// The inner `_type: "configuration"` is required by Owntracks per
+		// the docs at https://owntracks.org/booklet/tech/json/ . Without
+		// it the app rejects the configuration update.
+		_type: "configuration";
+		monitoring: MonitoringMode;
+	};
 }
 
 export function owntracksRoutes(config: Config): Hono<AppEnv> {
@@ -122,7 +128,7 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 			response.push({
 				_type: "cmd",
 				action: "setConfiguration",
-				configuration: { monitoring: desired },
+				configuration: { _type: "configuration", monitoring: desired },
 			});
 		}
 		return c.json(response);
