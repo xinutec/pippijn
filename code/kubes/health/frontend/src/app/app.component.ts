@@ -1,4 +1,5 @@
-import { Component, signal, OnInit } from "@angular/core";
+import { Component, signal, OnInit, inject } from "@angular/core";
+import { ActivatedRoute, Router } from "@angular/router";
 import { MatToolbarModule } from "@angular/material/toolbar";
 import { MatButtonModule } from "@angular/material/button";
 import { MatIconModule } from "@angular/material/icon";
@@ -44,7 +45,33 @@ export class AppComponent implements OnInit {
   readonly loading = signal(true);
   readonly dayLoading = signal(false);
 
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+
   constructor(readonly health: HealthService) {}
+
+  /** Validate a ?date=YYYY-MM-DD query parameter. Rejects malformed
+   *  strings and future dates (the timeline doesn't render future days). */
+  private parseDateParam(raw: string | null): string | null {
+    if (raw === null) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+    if (raw > todayLocal()) return null;
+    return raw;
+  }
+
+  /** Sync `selectedDate` into the URL as `?date=`. Omits the parameter
+   *  for today so the canonical URL stays clean. Replaces history so a
+   *  single reload doesn't pile up entries; left/right navigation pushes
+   *  a new entry so back/forward work as expected. */
+  private writeDateToUrl(date: string, push: boolean): void {
+    const queryParams = date === todayLocal() ? { date: null } : { date };
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams,
+      queryParamsHandling: "merge",
+      replaceUrl: !push,
+    });
+  }
 
   async ngOnInit(): Promise<void> {
     const ok = await this.health.checkAuth();
@@ -53,6 +80,22 @@ export class AppComponent implements OnInit {
 
     this.fitbitLinked.set(this.health.user()?.fitbitLinked ?? false);
     if (!this.fitbitLinked()) { this.loading.set(false); return; }
+
+    // Restore the day from `?date=YYYY-MM-DD` on first paint so reload
+    // stays on the day the user navigated to.
+    const initial = this.parseDateParam(this.route.snapshot.queryParamMap.get("date"));
+    if (initial !== null) this.selectedDate.set(initial);
+
+    // Browser back/forward: when the user changes the URL externally
+    // (history nav, hand-edit), sync the in-app state.
+    this.route.queryParamMap.subscribe(async (params) => {
+      const next = this.parseDateParam(params.get("date")) ?? todayLocal();
+      if (next === this.selectedDate()) return;
+      this.selectedDate.set(next);
+      this.dayLoading.set(true);
+      await this.loadData();
+      this.dayLoading.set(false);
+    });
 
     // Fire-and-forget: keep PhoneTrack's visualisation filter aligned with
     // "today from 00:00 (or yesterday after midnight before 06:00)".
@@ -98,10 +141,11 @@ export class AppComponent implements OnInit {
     const newDate = formatDateInTz(d, browserTimezone());
     // Don't go into the future
     if (newDate > todayLocal()) return;
-    this.selectedDate.set(newDate);
-    this.dayLoading.set(true);
-    await this.loadData();
-    this.dayLoading.set(false);
+    // Push to URL — the queryParamMap subscription in ngOnInit drives
+    // the rest (sets the signal, triggers loadData). Single source of
+    // truth so back/forward navigation and in-app left/right behave
+    // identically.
+    this.writeDateToUrl(newDate, /* push */ true);
   }
 
   isToday(): boolean {
