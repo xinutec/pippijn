@@ -547,6 +547,7 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 			prev.maxSpeed = Math.round(Math.max(prev.maxSpeed, seg.maxSpeed) * 10) / 10;
 			prev.linearity = Math.round(((prev.linearity * w0 + seg.linearity * w1) / wTot) * 100) / 100;
 			prev.confidence = Math.round(((prev.confidence * w0 + seg.confidence * w1) / wTot) * 100) / 100;
+			prev.confidenceMargin = Math.round(((prev.confidenceMargin * w0 + seg.confidenceMargin * w1) / wTot) * 100) / 100;
 			// City: only carry forward if all merged sources agree on it.
 			// Mismatched (one tagged, the other untagged) → drop, since the
 			// merged span no longer corresponds to a single city.

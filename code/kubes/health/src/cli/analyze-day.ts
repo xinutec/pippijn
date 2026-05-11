@@ -81,8 +81,9 @@ for (const s of segments) {
 	else if (s.wayName) ctx = ` on ${s.wayName}`;
 	if (s.city) ctx += ` (${s.city})`;
 	if (s.refinedReason) ctx += ` [${s.refinedReason}]`;
+	const marginStr = s.confidenceMargin >= 100 ? "∞" : s.confidenceMargin.toFixed(1);
 	console.log(
-		`  ${fmt(s.startTs)}-${fmt(s.endTs)} (${dur.toString().padStart(3)}m) ${finalMode.padEnd(11)}${changed} avg:${s.avgSpeed.toString().padStart(5)}km/h max:${s.maxSpeed.toString().padStart(5)}km/h lin:${s.linearity} conf:${s.confidence}${ctx}`,
+		`  ${fmt(s.startTs)}-${fmt(s.endTs)} (${dur.toString().padStart(3)}m) ${finalMode.padEnd(11)}${changed} avg:${s.avgSpeed.toString().padStart(5)}km/h max:${s.maxSpeed.toString().padStart(5)}km/h lin:${s.linearity} conf:${s.confidence} marg:${marginStr}${ctx}`,
 	);
 	const b = s.biometrics;
 	if (b && (b.sampleCount > 0 || b.overlapsSleep || b.stepsTotal !== null)) {

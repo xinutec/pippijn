@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
-import { classifySegments, inferTransitGaps, type TrackSegment } from "../src/geo/segments.js";
+import { classifySegments, inferTransitGaps, normalizeScores, type TrackSegment } from "../src/geo/segments.js";
 
 // Helper: generate points moving in a straight line at constant speed
 function generateTrack(opts: {
@@ -144,6 +144,51 @@ describe("classifySegments", () => {
 		expect(train).toBeDefined();
 		if (train) {
 			expect(train.linearity).toBeGreaterThan(0.9);
+		}
+	});
+
+	it("produces confidence as a 0-1 probability, and confidenceMargin as a ratio", () => {
+		// A clean walking track produces a confident walking segment.
+		// Confidence (probability of walking among modes) should be > 0.5,
+		// margin (walking score / runner-up score) should be > 1.5.
+		const points = generateTrack({
+			startTs: 1000,
+			durationSec: 600,
+			intervalSec: 15,
+			speedKmh: 4,
+			speedJitter: 0.5,
+			bearingJitter: 10,
+		});
+		const segments = classifySegments(points);
+		const walking = findSegment(segments, "walking");
+		expect(walking).toBeDefined();
+		if (walking) {
+			expect(walking.confidence).toBeGreaterThan(0.5);
+			expect(walking.confidence).toBeLessThanOrEqual(1);
+			expect(walking.confidenceMargin).toBeGreaterThan(1.5);
+		}
+	});
+
+	it("findStays-produced stationary segments carry confidence and margin", () => {
+		// A stay produces a stationary segment with high confidence and
+		// large margin (stays are unambiguous by construction).
+		const points: FilteredPoint[] = [];
+		for (let i = 0; i < 60; i++) {
+			points.push({
+				ts: 1000 + i * 10,
+				lat: 51.5 + (Math.random() - 0.5) * 0.0001,
+				lon: -0.1 + (Math.random() - 0.5) * 0.0001,
+				speed_kmh: 0.3,
+				bearing: 0,
+			});
+		}
+		const segments = classifySegments(points);
+		const stay = findSegment(segments, "stationary");
+		expect(stay).toBeDefined();
+		if (stay) {
+			expect(stay.confidence).toBeGreaterThan(0.5);
+			expect(stay.confidence).toBeLessThanOrEqual(1);
+			expect(stay.confidenceMargin).toBeGreaterThanOrEqual(1);
 		}
 	});
 
@@ -435,6 +480,7 @@ describe("classifySegments", () => {
 				endTs: 1120,
 				mode: "stationary",
 				confidence: 1,
+				confidenceMargin: 100,
 				avgSpeed: 0,
 				maxSpeed: 0,
 				linearity: 0,
@@ -445,6 +491,7 @@ describe("classifySegments", () => {
 				endTs: 1720,
 				mode: "train",
 				confidence: 0.6,
+				confidenceMargin: 3,
 				avgSpeed: 85,
 				maxSpeed: 100,
 				linearity: 0.99,
@@ -470,6 +517,7 @@ describe("classifySegments", () => {
 				endTs: 1600,
 				mode: "stationary",
 				confidence: 1,
+				confidenceMargin: 100,
 				avgSpeed: 0,
 				maxSpeed: 0,
 				linearity: 0,
@@ -480,6 +528,7 @@ describe("classifySegments", () => {
 				endTs: 4000,
 				mode: "stationary",
 				confidence: 1,
+				confidenceMargin: 100,
 				avgSpeed: 0,
 				maxSpeed: 0,
 				linearity: 0,
@@ -607,5 +656,103 @@ describe("classifySegments", () => {
 		// Should produce at least 3 segments: stationary → moving → stationary.
 		expect(segments.length).toBeGreaterThanOrEqual(3);
 		expect(segments.some((s) => s.mode !== "stationary")).toBe(true);
+	});
+});
+
+describe("normalizeScores", () => {
+	// Pure function: given the sorted-descending raw mode scores from
+	// scoreWindow, return the top mode's probability (share of total) and
+	// the margin (best / runner-up). Used to turn raw heuristic scores
+	// into a usable confidence signal.
+
+	it("returns probability ≈ 1.0 when one mode dominates absolutely", () => {
+		const r = normalizeScores([
+			{ mode: "stationary", score: 18 },
+			{ mode: "walking", score: 0.01 },
+			{ mode: "driving", score: 0.01 },
+		]);
+		expect(r.mode).toBe("stationary");
+		expect(r.probability).toBeGreaterThan(0.99);
+		expect(r.margin).toBeGreaterThan(100);
+	});
+
+	it("returns probability ≈ 0.5 when two modes tie", () => {
+		const r = normalizeScores([
+			{ mode: "walking", score: 2.0 },
+			{ mode: "driving", score: 2.0 },
+		]);
+		// share-of-total = 2 / (2+2) = 0.5
+		expect(r.probability).toBeCloseTo(0.5, 2);
+		// margin = 2 / 2 = 1.0
+		expect(r.margin).toBeCloseTo(1.0, 2);
+	});
+
+	it("returns probability near 0.33 when three modes tie", () => {
+		const r = normalizeScores([
+			{ mode: "walking", score: 1 },
+			{ mode: "cycling", score: 1 },
+			{ mode: "driving", score: 1 },
+		]);
+		expect(r.probability).toBeCloseTo(1 / 3, 2);
+		expect(r.margin).toBeCloseTo(1.0, 2);
+	});
+
+	it("captures realistic walking-vs-driving ambiguity", () => {
+		// walking=2.1, driving=2.0: barely walking. Probability ~0.51,
+		// margin ~1.05 → flag as ambiguous.
+		const r = normalizeScores([
+			{ mode: "walking", score: 2.1 },
+			{ mode: "driving", score: 2.0 },
+			{ mode: "stationary", score: 0.01 },
+		]);
+		expect(r.mode).toBe("walking");
+		expect(r.probability).toBeLessThan(0.6);
+		expect(r.margin).toBeLessThan(1.1);
+	});
+
+	it("captures realistic walking-clearly-wins case", () => {
+		// walking=2, driving=0.5: confident walking. Probability ~0.79,
+		// margin = 4.
+		const r = normalizeScores([
+			{ mode: "walking", score: 2 },
+			{ mode: "driving", score: 0.5 },
+			{ mode: "stationary", score: 0.01 },
+			{ mode: "cycling", score: 0.01 },
+			{ mode: "train", score: 0.01 },
+			{ mode: "plane", score: 0.01 },
+		]);
+		expect(r.mode).toBe("walking");
+		expect(r.probability).toBeGreaterThan(0.7);
+		expect(r.probability).toBeLessThan(0.9);
+		expect(r.margin).toBeCloseTo(4.0, 1);
+	});
+
+	it("handles a single-element array (no runner-up)", () => {
+		// No other modes scored — margin is treated as 'unambiguous'
+		// (use a large finite value rather than Infinity so it serialises).
+		const r = normalizeScores([{ mode: "walking", score: 1 }]);
+		expect(r.mode).toBe("walking");
+		expect(r.probability).toBe(1);
+		expect(r.margin).toBeGreaterThan(10);
+		expect(Number.isFinite(r.margin)).toBe(true);
+	});
+
+	it("handles all-zero scores (degenerate, GPS-free window)", () => {
+		// All scores are 0 → share-of-total is undefined. Return mode of
+		// the first entry with probability=0 and margin=1 (no info).
+		const r = normalizeScores([
+			{ mode: "stationary", score: 0 },
+			{ mode: "walking", score: 0 },
+		]);
+		expect(r.mode).toBe("stationary");
+		expect(r.probability).toBe(0);
+		expect(r.margin).toBe(1);
+	});
+
+	it("handles an empty array (degenerate, should not happen in practice)", () => {
+		const r = normalizeScores([]);
+		// Sentinel: still safe to consume.
+		expect(r.probability).toBe(0);
+		expect(r.margin).toBe(1);
 	});
 });

@@ -14,7 +14,14 @@ export interface TrackSegment {
 	startTs: number;
 	endTs: number;
 	mode: TransportMode;
-	confidence: number; // 0-1
+	/** Probability of the chosen mode given the window features — share of
+	 *  total mode score, normalised to [0,1]. Confident classifications
+	 *  approach 1; a coin flip between two modes sits at 0.5. */
+	confidence: number;
+	/** Ratio of the top mode score to the runner-up. > 2 is unambiguous;
+	 *  ~1 is genuinely ambiguous (low margin). Capped at MARGIN_MAX_FINITE
+	 *  to keep the value JSON-serialisable. */
+	confidenceMargin: number;
 	avgSpeed: number; // km/h
 	maxSpeed: number;
 	linearity: number; // 0-1, ratio of straight-line to path distance
@@ -175,6 +182,40 @@ interface ModeScore {
 	score: number;
 }
 
+/** Maximum finite margin value, used when the runner-up score is zero
+ *  (single-element input, or all-zero array with one non-zero entry). A
+ *  finite cap keeps the value JSON-serialisable and bounded for downstream
+ *  consumers without losing the "unambiguous" signal. */
+const MARGIN_MAX_FINITE = 1000;
+
+/**
+ * Normalise raw mode scores from `scoreWindow` into a probability + margin.
+ *
+ * - `probability`: share-of-total. The top mode's score divided by the sum
+ *   of all scores. A confident classification approaches 1.0; a coin flip
+ *   between two modes sits at 0.5.
+ * - `margin`: ratio of the top score to the runner-up. > 2 is unambiguous;
+ *   ~1 is genuinely ambiguous.
+ *
+ * Kept as a pure function so the calibration is testable without rebuilding
+ * a whole pipeline. Returns sentinel values for degenerate inputs (empty
+ * array or all-zero scores) so callers don't need defensive checks.
+ */
+export function normalizeScores(scores: ModeScore[]): {
+	mode: TransportMode;
+	probability: number;
+	margin: number;
+} {
+	if (scores.length === 0) return { mode: "stationary", probability: 0, margin: 1 };
+	const top = scores[0];
+	const sum = scores.reduce((acc, s) => acc + s.score, 0);
+	if (sum === 0) return { mode: top.mode, probability: 0, margin: 1 };
+	const probability = top.score / sum;
+	const runnerUp = scores.length > 1 ? scores[1].score : 0;
+	const margin = runnerUp > 0 ? Math.min(top.score / runnerUp, MARGIN_MAX_FINITE) : MARGIN_MAX_FINITE;
+	return { mode: top.mode, probability, margin };
+}
+
 function scoreWindow(f: WindowFeatures): ModeScore[] {
 	const scores: ModeScore[] = [
 		{ mode: "stationary", score: scoreStationary(f) },
@@ -280,7 +321,13 @@ function mergeWindows(windows: WindowFeatures[], scores: ModeScore[][]): TrackSe
 		const segWindows = windows.slice(segStart, endIdx);
 		const segScores = scores.slice(segStart, endIdx);
 		const allSpeeds = segWindows.map((w) => w.medianSpeed);
-		const avgConfidence = segScores.reduce((sum, s) => sum + s[0].score, 0) / segScores.length;
+		// Per-window probability + margin, averaged across the segment.
+		// Each window's probability is the share-of-total of its top mode
+		// score; averaging is approximately the segment-wide posterior
+		// confidence (close enough for a heuristic).
+		const norms = segScores.map(normalizeScores);
+		const avgConfidence = norms.reduce((sum, n) => sum + n.probability, 0) / norms.length;
+		const avgMargin = norms.reduce((sum, n) => sum + n.margin, 0) / norms.length;
 		const avgLinearity = segWindows.reduce((sum, w) => sum + w.linearity, 0) / segWindows.length;
 
 		segments.push({
@@ -288,6 +335,7 @@ function mergeWindows(windows: WindowFeatures[], scores: ModeScore[][]): TrackSe
 			endTs: segWindows[segWindows.length - 1].endTs,
 			mode: currentMode,
 			confidence: Math.round(avgConfidence * 100) / 100,
+			confidenceMargin: Math.round(avgMargin * 100) / 100,
 			avgSpeed: Math.round(median(allSpeeds) * 10) / 10,
 			maxSpeed: Math.round(Math.max(...segWindows.map((w) => w.maxSpeed)) * 10) / 10,
 			linearity: Math.round(avgLinearity * 100) / 100,
@@ -422,7 +470,11 @@ export function findStays(points: StayPoint[], existing: TrackSegment[]): TrackS
 			startTs: inCluster[0].ts,
 			endTs: inCluster[inCluster.length - 1].ts,
 			mode: "stationary",
-			confidence: 0.7,
+			// Stays detected by clustering are unambiguous by construction:
+			// every point in the gap fits within STAY_RADIUS_M for the
+			// minimum duration. High probability, high margin.
+			confidence: 0.9,
+			confidenceMargin: MARGIN_MAX_FINITE,
 			avgSpeed: 0,
 			maxSpeed: 0,
 			linearity: 0,
@@ -516,7 +568,10 @@ export function inferTransitGaps(segments: TrackSegment[], points: FilteredPoint
 			startTs: seg.endTs,
 			endTs: next.startTs,
 			mode: inferredMode,
-			confidence: 0.3, // low — inferred, not measured
+			// Inferred from implied speed across a gap with no observations
+			// — genuinely ambiguous mode-wise. Low probability, low margin.
+			confidence: 0.3,
+			confidenceMargin: 1.2,
 			avgSpeed: Math.round(speedKmh * 10) / 10,
 			maxSpeed: Math.round(speedKmh * 10) / 10,
 			linearity: 1, // assumed straight line — we have nothing else

@@ -52,7 +52,10 @@ export interface TrackSegment {
   startTs: number;
   endTs: number;
   mode: string;
+  /** 0-1 probability of the chosen mode, normalised across modes. */
   confidence: number;
+  /** Ratio of best mode score to runner-up. > 2 unambiguous, ~1 ambiguous. */
+  confidenceMargin: number;
   avgSpeed: number;
   maxSpeed: number;
   linearity: number;
