@@ -27,8 +27,10 @@ import {
 	commonCity,
 	extractCity,
 	linesAtPoint,
+	type NearbyStation,
 	nearbyStations,
 	nearbyWays,
+	pickBestStation,
 	placeLabel,
 	refineMode,
 	reverseGeocode,
@@ -727,10 +729,17 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
  * "Baker Street" annotation because the run's outer fixes are at the true
  * board/alight platforms.
  */
+/** Search radius (m) for rail-run endpoint station lookup. Larger than the
+ *  default 200m of nearbyStations because overground stations often have
+ *  the first post-train GPS fix 200-300m away — the phone reports the next
+ *  position after the user has already walked away from the platform. */
+const RAIL_RUN_STATION_RADIUS_M = 400;
+
 export async function annotateRailRuns(
 	segments: EnrichedSegment[],
 	points: FilteredPoint[],
-	stationsLookup: (lat: number, lon: number) => Promise<{ name: string }[]> = nearbyStations,
+	stationsLookup: (lat: number, lon: number) => Promise<NearbyStation[]> = (lat, lon) =>
+		nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
 	linesLookup: (lat: number, lon: number) => Promise<Set<string>> = linesAtPoint,
 ): Promise<EnrichedSegment[]> {
 	const isRailLike = (s: EnrichedSegment): boolean => {
@@ -799,8 +808,8 @@ export async function annotateRailRuns(
 					stationsLookup(before.lat, before.lon),
 					stationsLookup(after.lat, after.lon),
 				]);
-				startStation = startStations[0]?.name;
-				endStation = endStations[0]?.name;
+				startStation = pickBestStation(startStations)?.name;
+				endStation = pickBestStation(endStations)?.name;
 			} catch {
 				return null;
 			}

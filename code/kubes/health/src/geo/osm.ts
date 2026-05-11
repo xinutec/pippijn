@@ -562,6 +562,31 @@ export interface NearbyStation {
  * is ambiguous. A subway_entrance is treated as evidence of the parent
  * station — we collapse adjacent entrances by name, picking the closest.
  */
+/**
+ * Pick the most station-like entry from a `nearbyStations` result list.
+ *
+ * The complication: OSM tags station entrances as separate nodes (often
+ * labelled "A", "B", "C", etc. — one per physical entrance gate). For
+ * a station node within walking distance of the user's GPS fix, the
+ * entrance labels may be CLOSER than the station node itself. The picker
+ * therefore deprioritises:
+ *   1. entries with subtype = "subway_entrance"
+ *   2. single-letter names (proxy for entrance labels when subtype info
+ *      is missing or coincidentally "subway")
+ *
+ * Falls through to closest-by-distance for the remaining candidates, or
+ * to entrance-letters as a last resort if nothing else is present.
+ */
+export function pickBestStation(stations: NearbyStation[]): NearbyStation | null {
+	if (stations.length === 0) return null;
+	const isEntranceLike = (s: NearbyStation): boolean => s.subtype === "subway_entrance" || /^[A-Z]\d?$/.test(s.name);
+	const real = stations.filter((s) => !isEntranceLike(s));
+	if (real.length > 0) {
+		return [...real].sort((a, b) => a.distanceM - b.distanceM)[0];
+	}
+	return [...stations].sort((a, b) => a.distanceM - b.distanceM)[0];
+}
+
 export async function nearbyStations(lat: number, lon: number, radiusM = 200): Promise<NearbyStation[]> {
 	return withCache<NearbyStation[]>(
 		`stations_r${radiusM}`,
@@ -597,8 +622,13 @@ export async function nearbyStations(lat: number, lon: number, radiusM = 200): P
 				if (elLat === undefined || elLon === undefined) continue;
 				const distanceM = landmarkHaversine(lat, lon, elLat, elLon);
 				// Determine subtype: subway / rail / light_rail / tram / generic.
+				// Entrances get their own subtype ("subway_entrance") so the
+				// picker can deprioritise them — entrance nodes are labelled
+				// "A", "B", "C" in OSM and would otherwise beat the real
+				// station node by distance for nearby fixes.
 				let subtype = "rail";
-				if (tags.station === "subway" || tags.railway === "subway_entrance") subtype = "subway";
+				if (tags.railway === "subway_entrance") subtype = "subway_entrance";
+				else if (tags.station === "subway") subtype = "subway";
 				else if (tags.station === "light_rail") subtype = "light_rail";
 				else if (tags.tram === "yes" || tags.railway === "tram_stop") subtype = "tram";
 				else if (tags.railway === "halt") subtype = "halt";

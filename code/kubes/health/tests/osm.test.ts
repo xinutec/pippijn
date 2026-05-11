@@ -6,9 +6,11 @@ import {
 	filterLandmarks,
 	landmarkToResult,
 	type NearbyLandmark,
+	type NearbyStation,
 	type NearbyWay,
 	type NominatimResult,
 	pickBestLandmark,
+	pickBestStation,
 	placeLabel,
 	refineMode,
 } from "../src/geo/osm.js";
@@ -424,6 +426,59 @@ describe("refineMode", () => {
 		const r = refineMode("train", 130, ways);
 		expect(r.mode).toBe("train");
 		expect(r.wayName).toBe("Hoofdspoor");
+	});
+});
+
+describe("pickBestStation", () => {
+	// When a rail run ends at an overground station, the first post-train
+	// GPS fix is often 200-400m from the station (phone reports lag in
+	// time + walking distance). Increasing the search radius brings the
+	// real station into range, but also pulls in OSM's many `subway_
+	// entrance` nodes labelled by letter (A, B, C, D, E). The picker must
+	// prefer the actual station name over single-letter entrance labels.
+
+	const s = (name: string, subtype: string, distanceM: number): NearbyStation => ({
+		name,
+		subtype,
+		distanceM,
+	});
+
+	it("returns null for an empty list", () => {
+		expect(pickBestStation([])).toBeNull();
+	});
+
+	it("prefers a station entry over closer entrance-letter labels", () => {
+		// Real Wembley Park dump from production:
+		const out = pickBestStation([
+			s("A", "subway_entrance", 242),
+			s("B", "subway_entrance", 258),
+			s("Wembley Park", "subway", 260),
+			s("C", "subway_entrance", 274),
+		]);
+		expect(out?.name).toBe("Wembley Park");
+	});
+
+	it("falls back to the closest station when all are equivalent type", () => {
+		const out = pickBestStation([
+			s("King's Cross St Pancras", "subway", 143),
+			s("King's Cross St Pancras Underground Station", "subway", 173),
+		]);
+		expect(out?.name).toBe("King's Cross St Pancras");
+	});
+
+	it("falls back to entrance when no actual station is present", () => {
+		// If a station node isn't tagged but only its entrances are, take
+		// the closest entrance rather than returning nothing.
+		const out = pickBestStation([s("A", "subway_entrance", 200), s("B", "subway_entrance", 220)]);
+		expect(out?.name).toBe("A");
+	});
+
+	it("filters out single-letter names if a multi-letter alternative exists", () => {
+		// Defensive: even if subtype info is missing/unreliable, a single-
+		// letter name "A" is almost certainly an entrance label, not a
+		// real station name.
+		const out = pickBestStation([s("A", "subway", 240), s("Wembley Park", "subway", 260)]);
+		expect(out?.name).toBe("Wembley Park");
 	});
 });
 

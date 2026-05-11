@@ -369,7 +369,7 @@ describe("annotateRailRuns", () => {
 		if (Math.abs(lat - 51.563) < 0.01 && Math.abs(lon - -0.279) < 0.01) return "Wembley Park";
 		return "Unknown";
 	};
-	const lookup = async (lat: number, lon: number) => [{ name: stationAt(lat, lon) }];
+	const lookup = async (lat: number, lon: number) => [{ name: stationAt(lat, lon), subtype: "subway", distanceM: 50 }];
 
 	it("annotates a single train segment with its outer-bounding-fix stations", async () => {
 		const segs = [train(1000, 1500)];
@@ -557,9 +557,12 @@ describe("annotateRailRuns", () => {
 		// shouldn't appear in the timeline. The 2-minute stationary fix is
 		// just GPS recording the train stopped briefly; the user was on the
 		// same train the whole time. Collapse to a single segment.
-		const stations = async (lat: number, _lon: number): Promise<{ name: string }[]> => {
-			if (Math.abs(lat - 51.53) < 0.01) return [{ name: "Kings Cross St Pancras" }];
-			if (Math.abs(lat - 51.563) < 0.01) return [{ name: "Wembley Park" }];
+		const stations = async (
+			lat: number,
+			_lon: number,
+		): Promise<{ name: string; subtype: string; distanceM: number }[]> => {
+			if (Math.abs(lat - 51.53) < 0.01) return [{ name: "Kings Cross St Pancras", subtype: "subway", distanceM: 50 }];
+			if (Math.abs(lat - 51.563) < 0.01) return [{ name: "Wembley Park", subtype: "subway", distanceM: 50 }];
 			return [];
 		};
 		const segs = [
@@ -585,9 +588,12 @@ describe("annotateRailRuns", () => {
 		// train ride. The user's mental model: I got on at A, off at B.
 		// No need to surface the per-window classifier output as separate
 		// timeline entries.
-		const stations = async (lat: number, _lon: number): Promise<{ name: string }[]> => {
-			if (Math.abs(lat - 51.53) < 0.01) return [{ name: "Kings Cross St Pancras" }];
-			if (Math.abs(lat - 51.563) < 0.01) return [{ name: "Wembley Park" }];
+		const stations = async (
+			lat: number,
+			_lon: number,
+		): Promise<{ name: string; subtype: string; distanceM: number }[]> => {
+			if (Math.abs(lat - 51.53) < 0.01) return [{ name: "Kings Cross St Pancras", subtype: "subway", distanceM: 50 }];
+			if (Math.abs(lat - 51.563) < 0.01) return [{ name: "Wembley Park", subtype: "subway", distanceM: 50 }];
 			return [];
 		};
 		const segs = [train(1000, 1200), train(1200, 1300), train(1300, 1500)];
@@ -602,9 +608,12 @@ describe("annotateRailRuns", () => {
 	it("leaves a single-segment rail run as-is (just annotates)", async () => {
 		// Don't collapse for collapse's sake. A single train segment is
 		// already shaped right.
-		const stations = async (lat: number, _lon: number): Promise<{ name: string }[]> => {
-			if (Math.abs(lat - 51.53) < 0.01) return [{ name: "Kings Cross St Pancras" }];
-			if (Math.abs(lat - 51.563) < 0.01) return [{ name: "Wembley Park" }];
+		const stations = async (
+			lat: number,
+			_lon: number,
+		): Promise<{ name: string; subtype: string; distanceM: number }[]> => {
+			if (Math.abs(lat - 51.53) < 0.01) return [{ name: "Kings Cross St Pancras", subtype: "subway", distanceM: 50 }];
+			if (Math.abs(lat - 51.563) < 0.01) return [{ name: "Wembley Park", subtype: "subway", distanceM: 50 }];
 			return [];
 		};
 		const segs = [train(1000, 1500)];
