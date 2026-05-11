@@ -21,6 +21,7 @@ import {
 import { localSolarHour } from "./focus-places.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
+import { correctModeBySignature, type ModeStats } from "./mode-biometrics.js";
 import {
 	bestPlace,
 	commonCity,
@@ -150,6 +151,72 @@ interface NamedPlace extends KnownPlace {
 /** A focus_place is "residential" if the user has slept (covered deep-night
  *  hours) at it for at least RESIDENCE_SLEEP_THRESHOLD_H total hours. */
 const RESIDENCE_SLEEP_THRESHOLD_H = 5;
+
+/** Load the user's mined per-mode biometric signatures. Returns an empty
+ *  array for cold-start users (no `mode_biometrics` rows) so callers can
+ *  treat absent-data as no-op without special-casing. */
+async function loadModeBiometrics(userId: string): Promise<ModeStats[]> {
+	const rows = await db().selectFrom("mode_biometrics").selectAll().where("user_id", "=", userId).execute();
+	return rows.map((r) => ({
+		mode: r.mode,
+		hrMean: r.hr_mean !== null ? Number(r.hr_mean) : null,
+		hrStd: r.hr_std !== null ? Number(r.hr_std) : null,
+		hrSampleCount: r.hr_sample_count,
+		cadenceMean: r.cadence_mean !== null ? Number(r.cadence_mean) : null,
+		cadenceStd: r.cadence_std !== null ? Number(r.cadence_std) : null,
+		cadenceSampleCount: r.cadence_sample_count,
+		speedMean: r.speed_mean !== null ? Number(r.speed_mean) : null,
+		speedStd: r.speed_std !== null ? Number(r.speed_std) : null,
+		speedSampleCount: r.speed_sample_count,
+		sampleCount: r.sample_count,
+	}));
+}
+
+/** Mean of HR / cadence stream values over a segment's time range. */
+function meanInWindow<T extends { ts: number }>(
+	stream: T[],
+	field: (x: T) => number | null,
+	startTs: number,
+	endTs: number,
+): number | null {
+	let sum = 0;
+	let count = 0;
+	for (const s of stream) {
+		if (s.ts < startTs || s.ts > endTs) continue;
+		const v = field(s);
+		if (v === null) continue;
+		sum += v;
+		count++;
+	}
+	return count > 0 ? sum / count : null;
+}
+
+/** Apply per-user biometric-signature correction to one segment. Inferred-
+ *  gap segments are skipped (no observations to score). For others, aggregate
+ *  HR + cadence from the loaded biometric streams and run the pure decision
+ *  helper. On change, record refinedReason so the timeline shows why. */
+function applyBiometricSignature(
+	seg: EnrichedSegment,
+	hr: HrPoint[],
+	steps: StepPoint[],
+	modeStats: ModeStats[],
+): EnrichedSegment {
+	if (seg.refinedReason?.startsWith("inferred from GPS gap")) return seg;
+	const obsHr = meanInWindow(hr, (p) => p.bpm, seg.startTs, seg.endTs);
+	const obsCadence = meanInWindow(steps, (p) => p.steps, seg.startTs, seg.endTs);
+	const obsSpeed = seg.avgSpeed;
+	const currentMode = seg.refinedMode ?? seg.mode;
+	const r = correctModeBySignature(
+		{ mode: currentMode, confidenceMargin: seg.confidenceMargin, obsHr, obsCadence, obsSpeed },
+		modeStats,
+	);
+	if (!r.changed) return seg;
+	return {
+		...seg,
+		refinedMode: r.mode,
+		refinedReason: `re-classified as ${r.mode} by biometric signature`,
+	};
+}
 
 async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 	const rows = await db()
@@ -377,7 +444,19 @@ export async function computeVelocity(
 	const { hr, sleep, steps } = await biometricsPromise;
 	const corrected = timeSync("cadenceCorrect", () => enriched.map((s) => correctModeFromCadence(s, steps)));
 
-	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(corrected)));
+	// Biometric-signature correction: re-evaluate ambiguous segments
+	// against the user's per-mode (HR, cadence, speed) signatures from
+	// mode_biometrics. Fixes the walking-mislabeled-as-driving case
+	// (low-speed segment with HR 110 + cadence 100 looks nothing like
+	// driving even though the speed scored ambiguously) and the cycling-
+	// mislabeled-as-driving case. See `correctModeBySignature` for the
+	// gating rules.
+	const modeStats = await loadModeBiometrics(userId);
+	const biometricCorrected = timeSync("biometricCorrect", () =>
+		corrected.map((seg) => applyBiometricSignature(seg, hr, steps, modeStats)),
+	);
+
+	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(biometricCorrected)));
 
 	const withStations = await annotateRailRuns(merged, points);
 

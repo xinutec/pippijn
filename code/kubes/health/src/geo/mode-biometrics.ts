@@ -87,6 +87,87 @@ export function labelMinuteByHeuristic(obs: MinuteObservation): TransportMode | 
 }
 
 /**
+ * Score the log-likelihood of an observation under a mode's Gaussian
+ * emission per modality. Modalities with null observations OR null/zero
+ * stats are skipped (contribute zero to log-likelihood — equivalent to
+ * marginalising out). Returns `-Infinity` when every modality drops out.
+ */
+export function scoreModeLogLikelihood(obs: MinuteObservation, stats: ModeStats): number {
+	let logLik = 0;
+	let contributed = 0;
+	const factor = (val: number | null, mean: number | null, std: number | null): void => {
+		if (val === null || mean === null || std === null || std === 0) return;
+		const z = (val - mean) / std;
+		logLik += -0.5 * z * z;
+		contributed++;
+	};
+	factor(obs.hr, stats.hrMean, stats.hrStd);
+	factor(obs.cadence, stats.cadenceMean, stats.cadenceStd);
+	factor(obs.speed, stats.speedMean, stats.speedStd);
+	return contributed === 0 ? Number.NEGATIVE_INFINITY : logLik;
+}
+
+/** Minimum log-likelihood improvement (best alternative vs current) to
+ *  trigger a re-label. Equivalent to a likelihood ratio of e^4 ≈ 55× —
+ *  alternative explains the observation 55× better than current. */
+const RELABEL_LL_THRESHOLD = 4;
+
+/** Maximum original confidenceMargin at which we'll consider biometric
+ *  re-classification. Above this the GPS-derived classification is
+ *  treated as authoritative even if biometrics look slightly off. */
+const RELABEL_MAX_MARGIN = 3;
+
+/** Minimum number of non-null modality observations the segment must
+ *  provide for biometric correction to have a real say. Speed alone
+ *  isn't enough — we need at least one biometric signal. */
+const RELABEL_MIN_BIOMETRIC_OBS = 1;
+
+/**
+ * Decide whether to relabel a segment's mode based on per-user
+ * biometric signatures. Returns the chosen mode plus whether a change
+ * was made.
+ *
+ * Triggers only when:
+ *   - the segment's current mode is non-stationary (stays are
+ *     detected by clustering, not by mode score)
+ *   - the current classification is ambiguous (margin < RELABEL_MAX_MARGIN)
+ *   - the segment carries at least one biometric observation (HR or
+ *     cadence — speed alone isn't enough info)
+ *   - an alternative mode has log-likelihood >= RELABEL_LL_THRESHOLD
+ *     higher than the current mode
+ */
+export function correctModeBySignature(
+	seg: {
+		mode: string;
+		confidenceMargin: number;
+		obsHr: number | null;
+		obsCadence: number | null;
+		obsSpeed: number | null;
+	},
+	stats: ModeStats[],
+): { mode: string; changed: boolean } {
+	if (seg.mode === "stationary") return { mode: seg.mode, changed: false };
+	if (seg.confidenceMargin >= RELABEL_MAX_MARGIN) return { mode: seg.mode, changed: false };
+	if (stats.length === 0) return { mode: seg.mode, changed: false };
+
+	const obs: MinuteObservation = { hr: seg.obsHr, cadence: seg.obsCadence, speed: seg.obsSpeed };
+	const biometricObsCount = (obs.hr !== null ? 1 : 0) + (obs.cadence !== null ? 1 : 0);
+	if (biometricObsCount < RELABEL_MIN_BIOMETRIC_OBS) return { mode: seg.mode, changed: false };
+
+	let best = { mode: seg.mode, score: Number.NEGATIVE_INFINITY };
+	let currentScore = Number.NEGATIVE_INFINITY;
+	for (const s of stats) {
+		const score = scoreModeLogLikelihood(obs, s);
+		if (s.mode === seg.mode) currentScore = score;
+		if (score > best.score) best = { mode: s.mode, score };
+	}
+
+	if (best.mode === seg.mode) return { mode: seg.mode, changed: false };
+	if (best.score - currentScore < RELABEL_LL_THRESHOLD) return { mode: seg.mode, changed: false };
+	return { mode: best.mode, changed: true };
+}
+
+/**
  * Aggregate labeled minute samples into per-mode summary stats. Modality
  * means/stds use only non-null values; mean is `null` when zero non-null
  * samples for that mode/modality. Population (not sample) std-dev.

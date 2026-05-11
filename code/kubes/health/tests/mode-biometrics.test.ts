@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { aggregateModeStats, labelMinuteByHeuristic, type MinuteObservation } from "../src/geo/mode-biometrics.js";
+import {
+	aggregateModeStats,
+	correctModeBySignature,
+	labelMinuteByHeuristic,
+	type MinuteObservation,
+	type ModeStats,
+	scoreModeLogLikelihood,
+} from "../src/geo/mode-biometrics.js";
 
 describe("labelMinuteByHeuristic", () => {
 	// The heuristic labels per-minute observations into a "confident" mode
@@ -150,5 +157,230 @@ describe("aggregateModeStats", () => {
 		const walking = stats.find((s) => s.mode === "walking");
 		expect(walking?.speedMean).toBeCloseTo(5, 1);
 		expect(walking?.sampleCount).toBe(2);
+	});
+});
+
+// Mined from pippijn's 2-year history (see commit message): close-to-real
+// signatures used in scoring + correction tests. The walking/driving HR
+// gap (108 vs 75) is exactly the signal we want the corrector to use.
+const PIPPIJN_STATS: ModeStats[] = [
+	{
+		mode: "stationary",
+		hrMean: 68.5,
+		hrStd: 12.3,
+		hrSampleCount: 50000,
+		cadenceMean: 0,
+		cadenceStd: 0.4,
+		cadenceSampleCount: 50000,
+		speedMean: 0.3,
+		speedStd: 0.3,
+		speedSampleCount: 50000,
+		sampleCount: 51693,
+	},
+	{
+		mode: "walking",
+		hrMean: 108,
+		hrStd: 14,
+		hrSampleCount: 9000,
+		cadenceMean: 107,
+		cadenceStd: 11,
+		cadenceSampleCount: 10000,
+		speedMean: 5.1,
+		speedStd: 1.1,
+		speedSampleCount: 10000,
+		sampleCount: 10034,
+	},
+	{
+		mode: "driving",
+		hrMean: 75,
+		hrStd: 8,
+		hrSampleCount: 4000,
+		cadenceMean: 0,
+		cadenceStd: 0.5,
+		cadenceSampleCount: 4274,
+		speedMean: 52,
+		speedStd: 15,
+		speedSampleCount: 4274,
+		sampleCount: 4274,
+	},
+	{
+		mode: "cycling",
+		hrMean: 107,
+		hrStd: 6,
+		hrSampleCount: 60,
+		cadenceMean: 0,
+		cadenceStd: 0.8,
+		cadenceSampleCount: 60,
+		speedMean: 17.5,
+		speedStd: 3.3,
+		speedSampleCount: 60,
+		sampleCount: 60,
+	},
+	{
+		mode: "train",
+		hrMean: 74,
+		hrStd: 9,
+		hrSampleCount: 4000,
+		cadenceMean: 0,
+		cadenceStd: 0.4,
+		cadenceSampleCount: 4052,
+		speedMean: 100, // realistic train cruise; ignore the airplane-skewed real value
+		speedStd: 30,
+		speedSampleCount: 4052,
+		sampleCount: 4052,
+	},
+];
+
+describe("scoreModeLogLikelihood", () => {
+	const walking = PIPPIJN_STATS.find((s) => s.mode === "walking")!;
+	const driving = PIPPIJN_STATS.find((s) => s.mode === "driving")!;
+
+	it("scores a perfect walking observation high under walking", () => {
+		const score = scoreModeLogLikelihood({ hr: 108, cadence: 107, speed: 5.1 }, walking);
+		// Three z-scores all zero → log-lik = 0 (the max under Gaussian).
+		expect(score).toBeCloseTo(0, 1);
+	});
+
+	it("scores a perfect walking observation low under driving", () => {
+		// HR 108 is 4σ above driving's 75; speed 5 is 3σ below driving's 52.
+		const score = scoreModeLogLikelihood({ hr: 108, cadence: 107, speed: 5.1 }, driving);
+		// Significantly negative — driving doesn't explain this observation.
+		expect(score).toBeLessThan(-10);
+	});
+
+	it("scores an observation higher under the correct mode", () => {
+		const obs = { hr: 105, cadence: 105, speed: 5 };
+		const wScore = scoreModeLogLikelihood(obs, walking);
+		const dScore = scoreModeLogLikelihood(obs, driving);
+		expect(wScore).toBeGreaterThan(dScore);
+	});
+
+	it("handles null observations gracefully (drops the modality)", () => {
+		// HR missing → just cadence + speed contribute.
+		const score = scoreModeLogLikelihood({ hr: null, cadence: 107, speed: 5.1 }, walking);
+		expect(Number.isFinite(score)).toBe(true);
+		expect(score).toBeCloseTo(0, 1); // cadence+speed at mean
+	});
+
+	it("returns -Infinity when modeStat has all-null modalities (unusable)", () => {
+		const empty: ModeStats = {
+			mode: "x",
+			hrMean: null,
+			hrStd: null,
+			hrSampleCount: 0,
+			cadenceMean: null,
+			cadenceStd: null,
+			cadenceSampleCount: 0,
+			speedMean: null,
+			speedStd: null,
+			speedSampleCount: 0,
+			sampleCount: 0,
+		};
+		expect(scoreModeLogLikelihood({ hr: 100, cadence: 100, speed: 5 }, empty)).toBe(-Infinity);
+	});
+
+	it("returns the same score regardless of std-zero modalities (skipped)", () => {
+		// std=0 would be /0; should be treated as "no info" for that modality.
+		const degenerate: ModeStats = {
+			mode: "x",
+			hrMean: 80,
+			hrStd: 0,
+			hrSampleCount: 1,
+			cadenceMean: 0,
+			cadenceStd: 0.4,
+			cadenceSampleCount: 100,
+			speedMean: 5,
+			speedStd: 1,
+			speedSampleCount: 100,
+			sampleCount: 100,
+		};
+		const score = scoreModeLogLikelihood({ hr: 80, cadence: 0, speed: 5 }, degenerate);
+		expect(Number.isFinite(score)).toBe(true);
+	});
+});
+
+describe("correctModeBySignature", () => {
+	// The bug we're fixing: a walking segment near Bridge Road got
+	// classified as "driving 6.3 km/h". HR ~110, cadence ~100, speed ~6.
+	// Under driving's signature this fits terribly (HR way too high,
+	// speed way too low). Under walking it fits well.
+
+	it("fixes walking-mislabeled-as-driving (HR + cadence dispositive)", () => {
+		const r = correctModeBySignature(
+			{ mode: "driving", confidenceMargin: 1.2, obsHr: 110, obsCadence: 100, obsSpeed: 6 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).toBe("walking");
+		expect(r.changed).toBe(true);
+	});
+
+	it("fixes cycling-mislabeled-as-driving (HR + speed dispositive)", () => {
+		// 18 km/h with no steps and HR 130 — cycling, not slow driving.
+		const r = correctModeBySignature(
+			{ mode: "driving", confidenceMargin: 1.5, obsHr: 130, obsCadence: 0, obsSpeed: 18 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).toBe("cycling");
+		expect(r.changed).toBe(true);
+	});
+
+	it("leaves a clear driving segment alone (high speed, low HR, no steps)", () => {
+		const r = correctModeBySignature(
+			{ mode: "driving", confidenceMargin: 5, obsHr: 75, obsCadence: 0, obsSpeed: 60 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).toBe("driving");
+		expect(r.changed).toBe(false);
+	});
+
+	it("does NOT relabel when original confidence is high (margin > 3)", () => {
+		// High-margin classifications are trusted even when biometrics look
+		// a little off — could be a stressed driver (HR 110 in traffic).
+		const r = correctModeBySignature(
+			{ mode: "driving", confidenceMargin: 4, obsHr: 110, obsCadence: 0, obsSpeed: 30 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).toBe("driving");
+		expect(r.changed).toBe(false);
+	});
+
+	it("does NOT relabel when biometrics are completely missing", () => {
+		const r = correctModeBySignature(
+			{ mode: "driving", confidenceMargin: 1, obsHr: null, obsCadence: null, obsSpeed: 25 },
+			PIPPIJN_STATS,
+		);
+		// Speed alone is too weak a signal to override.
+		expect(r.changed).toBe(false);
+	});
+
+	it("does NOT relabel when the new mode is only marginally better", () => {
+		// A small log-likelihood gap shouldn't flip the label. Only big
+		// differences (>= LL_THRESHOLD) trigger a correction.
+		const r = correctModeBySignature(
+			{ mode: "walking", confidenceMargin: 1.2, obsHr: 100, obsCadence: 100, obsSpeed: 4.5 },
+			PIPPIJN_STATS,
+		);
+		// Slight HR deviation but everything still walking-like.
+		expect(r.mode).toBe("walking");
+		expect(r.changed).toBe(false);
+	});
+
+	it("returns no change when modeStats are empty (cold-start user)", () => {
+		const r = correctModeBySignature(
+			{ mode: "driving", confidenceMargin: 1, obsHr: 110, obsCadence: 100, obsSpeed: 5 },
+			[],
+		);
+		expect(r.mode).toBe("driving");
+		expect(r.changed).toBe(false);
+	});
+
+	it("returns no change when current mode is stationary (stays not corrected)", () => {
+		// Stationary segments are detected by clustering, not by mode score.
+		// Biometric correction doesn't apply.
+		const r = correctModeBySignature(
+			{ mode: "stationary", confidenceMargin: 100, obsHr: 75, obsCadence: 0, obsSpeed: 0.3 },
+			PIPPIJN_STATS,
+		);
+		expect(r.changed).toBe(false);
 	});
 });
