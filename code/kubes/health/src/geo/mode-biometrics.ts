@@ -132,6 +132,15 @@ const RELABEL_MAX_MARGIN = 3;
  *  isn't enough — we need at least one biometric signal. */
 const RELABEL_MIN_BIOMETRIC_OBS = 1;
 
+/** Modes where the user is sitting — biometrically indistinguishable
+ *  (same low HR, same zero cadence). Biometric correction must not flip
+ *  among these because speed alone is the discriminator, and speed is
+ *  what GPS-feature classification + refineMode already used (with OSM
+ *  road/rail context). Letting biometrics override their decision adds
+ *  noise: motorway driving at 94 km/h gets flipped to train because the
+ *  driving sample is dominated by 52 km/h city driving. */
+const SIT_MODES = new Set(["driving", "train", "plane"]);
+
 /**
  * Decide whether to relabel a segment's mode based on per-user
  * biometric signatures. Returns the chosen mode plus whether a change
@@ -166,12 +175,22 @@ export function correctModeBySignature(
 
 	let best = { mode: seg.mode, score: Number.NEGATIVE_INFINITY };
 	let currentScore = Number.NEGATIVE_INFINITY;
+	let currentFound = false;
 	for (const s of stats) {
 		const score = scoreModeLogLikelihood(obs, s);
-		if (s.mode === seg.mode) currentScore = score;
+		if (s.mode === seg.mode) {
+			currentScore = score;
+			currentFound = true;
+		}
+		// Don't consider sit-modes as flip targets when the current mode
+		// is also a sit-mode — they're biometrically equivalent.
+		if (SIT_MODES.has(seg.mode) && SIT_MODES.has(s.mode) && s.mode !== seg.mode) continue;
 		if (score > best.score) best = { mode: s.mode, score };
 	}
 
+	// No stats for current mode → we can't reason about whether the
+	// alternative is genuinely better. Keep as classified.
+	if (!currentFound) return { mode: seg.mode, changed: false };
 	if (best.mode === seg.mode) return { mode: seg.mode, changed: false };
 	if (best.score - currentScore < RELABEL_LL_THRESHOLD) return { mode: seg.mode, changed: false };
 	return { mode: best.mode, changed: true };

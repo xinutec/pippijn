@@ -402,4 +402,71 @@ describe("correctModeBySignature", () => {
 		);
 		expect(r.changed).toBe(false);
 	});
+
+	// Sit-mode pairs (driving / train / plane) are biometrically
+	// indistinguishable — same low HR, same zero cadence. Only speed
+	// differs, and speed is what the GPS classifier + refineMode already
+	// used (with OSM road/rail data). Letting biometric correction flip
+	// between them adds noise on top of the genuine signal. Real bug:
+	// motorway driving at 94 km/h got flipped to train because the user's
+	// driving stats are dominated by 52 km/h city driving, making 94 km/h
+	// look more train-like by speed alone.
+
+	it("does NOT flip driving to train on a fast motorway stretch", () => {
+		// 94 km/h on a motorway: clearly driving but speed is closer to
+		// the train signature's mean. Biometric correction must not flip.
+		const r = correctModeBySignature(
+			{ mode: "driving", confidenceMargin: 1.5, obsHr: 75, obsCadence: 0, obsSpeed: 94 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).toBe("driving");
+		expect(r.changed).toBe(false);
+	});
+
+	it("does NOT flip train to driving on a slow stretch", () => {
+		// 60 km/h on a train: could be a slowdown approaching a station,
+		// or a regional service. Speed is closer to driving signature but
+		// biometrics can't tell driving from train. Keep as classified.
+		const r = correctModeBySignature(
+			{ mode: "train", confidenceMargin: 1.5, obsHr: 75, obsCadence: 0, obsSpeed: 60 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).toBe("train");
+		expect(r.changed).toBe(false);
+	});
+
+	it("does NOT flip plane to train or driving on a slow descent", () => {
+		// Plane on final approach at 350 km/h: speed below typical plane
+		// cruise (850) but well above train (119) and driving (52). The
+		// biometrics (low HR, no cadence) match all three sit-modes
+		// equally. Don't flip.
+		const r = correctModeBySignature(
+			{ mode: "plane", confidenceMargin: 1.5, obsHr: 75, obsCadence: 0, obsSpeed: 350 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).toBe("plane");
+		expect(r.changed).toBe(false);
+	});
+
+	it("STILL flips driving to walking when biometrics genuinely disagree", () => {
+		// Re-verify that legitimate cross-class corrections still work.
+		// Walking and driving are biometrically distinguishable (cadence
+		// + HR), so this flip should fire — regression check.
+		const r = correctModeBySignature(
+			{ mode: "driving", confidenceMargin: 1.2, obsHr: 110, obsCadence: 100, obsSpeed: 6 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).toBe("walking");
+		expect(r.changed).toBe(true);
+	});
+
+	it("STILL flips driving to cycling when HR + speed match cycling", () => {
+		// Regression check on the other cross-class case.
+		const r = correctModeBySignature(
+			{ mode: "driving", confidenceMargin: 1.5, obsHr: 130, obsCadence: 0, obsSpeed: 18 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).toBe("cycling");
+		expect(r.changed).toBe(true);
+	});
 });
