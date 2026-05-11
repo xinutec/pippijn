@@ -126,6 +126,21 @@ describe("extractCity", () => {
 		const r: NominatimResult = { ...baseResult, address: { city: "Amsterdam" } };
 		expect(extractCity(r)).toBe("Amsterdam");
 	});
+
+	it("collapses 'City of Westminster' to 'Greater London'", () => {
+		// Westminster is administratively its own city in Nominatim's
+		// model, so it appears as city='City of Westminster' with no
+		// state_district or borough to override. Most London boroughs
+		// return city='Greater London' directly; only the two 'City of'
+		// subdivisions need explicit mapping.
+		const r: NominatimResult = { ...baseResult, address: { city: "City of Westminster" } };
+		expect(extractCity(r)).toBe("Greater London");
+	});
+
+	it("collapses 'City of London' to 'Greater London'", () => {
+		const r: NominatimResult = { ...baseResult, address: { city: "City of London" } };
+		expect(extractCity(r)).toBe("Greater London");
+	});
 });
 
 describe("placeLabel", () => {

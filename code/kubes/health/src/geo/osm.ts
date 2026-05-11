@@ -219,6 +219,20 @@ const METROPOLITAN_AREAS = new Set([
 ]);
 
 /**
+ * Cities that are administrative subdivisions of a metropolitan area and
+ * should be displayed as the metro instead. London has 33 boroughs; 31 of
+ * them return city="Greater London" from Nominatim directly. The two that
+ * don't — Westminster and the City of London — are historic "cities" in
+ * their own right and need this explicit mapping. Extend conservatively
+ * as similar cases turn up (Île-de-France's arrondissements all return
+ * city="Paris" so they don't need entries here).
+ */
+const SUBDIVISION_TO_METRO = new Map<string, string>([
+	["City of Westminster", "Greater London"],
+	["City of London", "Greater London"],
+]);
+
+/**
  * Pick the best "city" name from a Nominatim result. Nominatim returns one of
  * `city`, `town`, `village`, `municipality` depending on a place's admin
  * level + population, so we walk them in preference order. Returns null when
@@ -236,7 +250,12 @@ export function extractCity(result: NominatimResult | null): string | null {
 	if (a.state_district !== undefined && METROPOLITAN_AREAS.has(a.state_district)) {
 		return a.state_district;
 	}
-	return a.city ?? a.town ?? a.village ?? a.municipality ?? null;
+	const raw = a.city ?? a.town ?? a.village ?? a.municipality ?? null;
+	if (raw !== null) {
+		const collapsed = SUBDIVISION_TO_METRO.get(raw);
+		if (collapsed !== undefined) return collapsed;
+	}
+	return raw;
 }
 
 /**
