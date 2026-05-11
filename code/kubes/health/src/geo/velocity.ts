@@ -153,6 +153,32 @@ interface NamedPlace extends KnownPlace {
  *  hours) at it for at least RESIDENCE_SLEEP_THRESHOLD_H total hours. */
 const RESIDENCE_SLEEP_THRESHOLD_H = 5;
 
+/**
+ * Decide whether to label a stationary segment with its cluster's mined
+ * `amenity_label` (Bairro Alto, Wasabi, etc.) instead of going through the
+ * one-shot OSM picker. Pure function so the gate is testable independent of
+ * the I/O-heavy enrichment pipeline.
+ *
+ * Returns true iff all of:
+ *   - the segment snapped to a cluster (snappedTo non-null)
+ *   - the cluster has a mined amenity_label
+ *   - the cluster is NOT residential (sleepHours < threshold) — residential
+ *     clusters are lodging, so the closest amenity is wrong even on daytime
+ *     visits. Fitbit's overnight presence is the constraint.
+ *   - the cluster is not Home/Work, which has its own labelling branch
+ *     upstream and shouldn't be reached here in practice (defensive).
+ */
+export function shouldUseClusterAmenity(
+	snappedTo: { displayName: string | null; sleepHours: number; amenityLabel: string | null } | null,
+	residenceThreshold: number,
+): boolean {
+	if (!snappedTo) return false;
+	if (snappedTo.amenityLabel === null) return false;
+	if (snappedTo.displayName === "Home" || snappedTo.displayName === "Work") return false;
+	if (snappedTo.sleepHours >= residenceThreshold) return false;
+	return true;
+}
+
 /** Load the user's mined per-mode biometric signatures. Returns an empty
  *  array for cold-start users (no `mode_biometrics` rows) so callers can
  *  treat absent-data as no-op without special-casing. */
@@ -379,23 +405,10 @@ export async function computeVelocity(
 							// Per-cluster amenity label: when refresh-focus-places has
 							// majority-voted across the user's visits and produced a
 							// confident venue name, prefer that over the per-visit OSM
-							// picker. This is the Bairro-Alto-vs-Kruidentuin fix:
-							// individual visits' GPS noise can flip the OSM picker
-							// between adjacent venues, but the aggregate vote across
-							// many visits converges on the real venue.
-							//
-							// EXCEPT for residential clusters. Fitbit knows when you
-							// sleep; `sleepHoursOf` lifts that into the cluster as
-							// `sleep_hours`. A cluster with sustained overnight presence
-							// is your hotel / home / lodging — even daytime visits there
-							// are at the residence, not at the cafe next door. Fall
-							// through to the residential OSM lookup so the address
-							// wins.
-							if (
-								snappedTo?.amenityLabel !== null &&
-								snappedTo?.amenityLabel !== undefined &&
-								snappedTo.sleepHours < RESIDENCE_SLEEP_THRESHOLD_H
-							) {
+							// picker — except for residential clusters, where Fitbit's
+							// sleep data tells us the user is at lodging, not at the
+							// closest cafe. See `shouldUseClusterAmenity`.
+							if (shouldUseClusterAmenity(snappedTo, RESIDENCE_SLEEP_THRESHOLD_H) && snappedTo?.amenityLabel) {
 								const namedPlace = await bestPlace(cLat, cLon, { preferResidential: false });
 								const namedCity = extractCity(namedPlace);
 								return {
