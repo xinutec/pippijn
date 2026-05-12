@@ -427,6 +427,56 @@ describe("refineMode", () => {
 		expect(r.mode).toBe("train");
 		expect(r.wayName).toBe("Hoofdspoor");
 	});
+
+	it("prefers a driveable road over a closer footway at driving speeds", () => {
+		// Real case from 2026-05-12: GPS fix on the 13:29-13:46 drive
+		// landed on the pavement next to Great Central Way. The mirror
+		// returned the footway at 21m AND Great Central Way (secondary)
+		// at 27m, both within nearbyWays' 50m radius. Aggregation by
+		// distance puts the footway first, and the old refineMode
+		// blindly picked highways[0] → labelled the drive "near footway"
+		// even though the user is clearly on a real road (61 km/h, 17
+		// minutes, 17 km of travel). At driving speed the labeller must
+		// pass over pedestrian-only ways and pick the closest car-road.
+		const ways: NearbyWay[] = [
+			{ type: "highway", subtype: "footway" },
+			{ type: "highway", subtype: "secondary", name: "Great Central Way" },
+		];
+		const r = refineMode("driving", 61, ways);
+		expect(r.mode).toBe("driving");
+		expect(r.wayName).toBe("Great Central Way");
+		expect(r.reason).toContain("secondary");
+	});
+
+	it("still picks the footway for walking speeds (no over-correction)", () => {
+		// Same way list, walking speed — the user really IS on the
+		// footway. The mode-aware filter must NOT kick in at walking
+		// speeds; we want "on footway" here, not "on secondary".
+		const ways: NearbyWay[] = [
+			{ type: "highway", subtype: "footway" },
+			{ type: "highway", subtype: "secondary", name: "Some Road" },
+		];
+		const r = refineMode("walking", 4, ways);
+		expect(r.mode).toBe("walking");
+		expect(r.reason).toContain("footway");
+	});
+
+	it("falls back to the footway label when no driveable road is in range", () => {
+		// Driving speed but only pedestrian-only ways nearby. The fix
+		// shouldn't silently swallow this — the label still reflects
+		// the only highway we can see ("near footway") rather than
+		// pretending there's a road. Worth keeping because it makes the
+		// regression case (the 13:29 drive when truly no road is in
+		// range) visible in the UI rather than hidden behind a generic
+		// fallback.
+		const ways: NearbyWay[] = [
+			{ type: "highway", subtype: "footway" },
+			{ type: "highway", subtype: "path" },
+		];
+		const r = refineMode("driving", 61, ways);
+		expect(r.mode).toBe("driving");
+		expect(r.reason).toContain("footway");
+	});
 });
 
 describe("pickBestStation", () => {

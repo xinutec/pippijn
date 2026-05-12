@@ -684,6 +684,25 @@ export interface ModeRefinement {
 	wayName?: string;
 }
 
+/** Highway subtypes that cars can't be on. Used by `pickBestHighway`
+ *  to skip a closer pedestrian-only way when the segment is clearly
+ *  vehicular (speed > 30 km/h). */
+const PEDESTRIAN_HIGHWAY_SUBTYPES = new Set(["footway", "path", "pedestrian", "cycleway", "bridleway", "steps"]);
+
+/** Pick the highway from `highways` (ordered closest-first) that best
+ *  represents what the user is on. At driving speed, skip pedestrian-
+ *  only ways and return the closest driveable road; if none are in
+ *  range, fall back to the closest pedestrian way so the label still
+ *  reflects what the mirror sees. At walking/ambiguous speeds, just
+ *  return the closest. */
+function pickBestHighway(highways: NearbyWay[], speedKmh: number): NearbyWay {
+	if (speedKmh > 30) {
+		const driveable = highways.find((h) => !PEDESTRIAN_HIGHWAY_SUBTYPES.has(h.subtype));
+		if (driveable) return driveable;
+	}
+	return highways[0];
+}
+
 export function refineMode(originalMode: string, speedKmh: number, ways: NearbyWay[]): ModeRefinement {
 	const railways = ways.filter((w) => w.type === "railway");
 	const highways = ways.filter((w) => w.type === "highway");
@@ -728,9 +747,15 @@ export function refineMode(originalMode: string, speedKmh: number, ways: NearbyW
 		return { mode: "driving", confidence: "medium", reason: "no rail evidence" };
 	}
 
-	// Highway match
+	// Highway match. At driving speed (> 30 km/h), prefer a driveable
+	// road over a pedestrian-only way that just happens to be closer.
+	// Urban GPS routinely lands on the pavement: a footway can sit 20m
+	// away from a road centred at 27m, and a blind `highways[0]` pick
+	// then labels the drive "near footway". Walking and ambiguous mid-
+	// range speeds keep the simple closest-first pick — at those speeds
+	// the footway really might be where the user is.
 	if (highways.length > 0) {
-		const hw = highways[0];
+		const hw = pickBestHighway(highways, speedKmh);
 		// Pedestrian-only highways
 		if (hw.subtype === "footway" || hw.subtype === "path" || hw.subtype === "pedestrian") {
 			if (speedKmh < 10) return { mode: "walking", confidence: "high", reason: `on ${hw.subtype}`, wayName: hw.name };
@@ -743,7 +768,11 @@ export function refineMode(originalMode: string, speedKmh: number, ways: NearbyW
 				return { mode: "driving", confidence: "high", reason: `on ${hw.subtype}`, wayName: hw.name };
 			}
 		}
-		// Generic road
+		// Generic road — for secondary/tertiary/residential/service at driving
+		// speeds, this is the path that produces "on Great Central Way" labels.
+		if (speedKmh > 30 && !PEDESTRIAN_HIGHWAY_SUBTYPES.has(hw.subtype)) {
+			return { mode: originalMode, confidence: "medium", reason: `on ${hw.subtype}`, wayName: hw.name };
+		}
 		return { mode: originalMode, confidence: "medium", reason: `near ${hw.subtype}`, wayName: hw.name };
 	}
 
