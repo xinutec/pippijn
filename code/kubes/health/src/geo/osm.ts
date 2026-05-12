@@ -551,6 +551,8 @@ export function pickBestStation(stations: NearbyStation[]): NearbyStation | null
 }
 
 export async function nearbyStations(lat: number, lon: number, radiusM = 200): Promise<NearbyStation[]> {
+	// TEMP DEBUG
+	console.log(`nearbyStations(${lat.toFixed(4)}, ${lon.toFixed(4)}, r=${radiusM})`);
 	// Local-mirror path: ensure the railway-feature bucket has coverage
 	// for this point, then run a POINT-only spatial query against
 	// osm_points. Stations are stored separately from line features
