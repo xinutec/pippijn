@@ -1,4 +1,5 @@
-import { Injectable, signal } from "@angular/core";
+import { Injectable, inject, signal } from "@angular/core";
+import { ConnectionStateService } from "./connection-state.service";
 
 export interface ActivityDay {
   date: string;
@@ -83,6 +84,13 @@ export interface UserInfo {
   userId: string;
   displayName: string;
   fitbitLinked: boolean;
+  /** Per-connection status object. Old clients see only the
+   *  top-level booleans; new clients use this richer view to render
+   *  the reauth banner. */
+  connections?: {
+    nextcloud: { status: "active" | "needs_reauth" | "not_linked" };
+    fitbit: { status: "active" | "not_linked" };
+  };
 }
 
 function today(): string {
@@ -98,12 +106,30 @@ function yesterday(): string {
 @Injectable({ providedIn: "root" })
 export class HealthService {
   readonly user = signal<UserInfo | null>(null);
+  private readonly connection = inject(ConnectionStateService);
+
+  /** All HTTP calls go through here so the connection-state service
+   *  can observe 409 reauth signals from any endpoint and flip the
+   *  global banner. Mirrors `fetch`'s signature. */
+  private fetch(input: string, init?: RequestInit): Promise<Response> {
+    return this.connection.fetch(input, init);
+  }
 
   async checkAuth(): Promise<boolean> {
     try {
-      const res = await fetch("/api/me");
+      const res = await this.fetch("/api/me");
       if (res.ok) {
-        this.user.set(await res.json());
+        const info = (await res.json()) as UserInfo;
+        this.user.set(info);
+        // Seed connection-state from /api/me so the banner can render
+        // on app-load without waiting for the first 409 from a data
+        // endpoint. Falls back to legacy boolean when the new field
+        // isn't present (server older than this client).
+        if (info.connections?.nextcloud) {
+          this.connection.setNextcloudStatus(info.connections.nextcloud.status);
+        } else {
+          this.connection.setNextcloudStatus("active"); // optimistic on legacy backends
+        }
         return true;
       }
     } catch {
@@ -114,33 +140,32 @@ export class HealthService {
   }
 
   async getActivity(days = 30): Promise<ActivityDay[]> {
-    const res = await fetch(`/api/activity?days=${days}`);
+    const res = await this.fetch(`/api/activity?days=${days}`);
     if (!res.ok) throw new Error("Failed to fetch activity");
     return res.json();
   }
 
   async getSleep(days = 30): Promise<SleepLog[]> {
-    const res = await fetch(`/api/sleep?days=${days}`);
+    const res = await this.fetch(`/api/sleep?days=${days}`);
     if (!res.ok) throw new Error("Failed to fetch sleep");
     return res.json();
   }
 
   async getSleepStages(date = today()): Promise<SleepStage[]> {
-    // Try today first (last night's sleep), fall back to yesterday
-    const res = await fetch(`/api/sleep/stages?date=${date}`);
+    const res = await this.fetch(`/api/sleep/stages?date=${date}`);
     if (!res.ok) throw new Error("Failed to fetch sleep stages");
     return res.json();
   }
 
   async getHeartRateIntraday(date = yesterday()): Promise<HeartRatePoint[]> {
-    const res = await fetch(`/api/heartrate/intraday?date=${date}`);
+    const res = await this.fetch(`/api/heartrate/intraday?date=${date}`);
     if (!res.ok) throw new Error("Failed to fetch heart rate intraday");
     return res.json();
   }
 
   async getVelocity(date = yesterday()): Promise<VelocityData> {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const res = await fetch(`/api/velocity?date=${date}&tz=${encodeURIComponent(tz)}`);
+    const res = await this.fetch(`/api/velocity?date=${date}&tz=${encodeURIComponent(tz)}`);
     if (!res.ok) throw new Error("Failed to fetch velocity data");
     return res.json();
   }
@@ -152,7 +177,7 @@ export class HealthService {
   async syncPhoneTrackFilter(): Promise<void> {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     try {
-      await fetch(`/api/phonetrack/sync-filter?tz=${encodeURIComponent(tz)}`, { method: "POST" });
+      await this.fetch(`/api/phonetrack/sync-filter?tz=${encodeURIComponent(tz)}`, { method: "POST" });
     } catch {
       // Non-fatal — the dashboard works regardless.
     }

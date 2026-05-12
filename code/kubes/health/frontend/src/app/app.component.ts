@@ -9,6 +9,7 @@ import {
   HealthService,
   type ActivityDay, type SleepLog, type SleepStage, type HeartRatePoint, type VelocityData,
 } from "./services/health.service";
+import { ReauthBannerComponent } from "./components/reauth-banner/reauth-banner.component";
 import { SummaryCardsComponent } from "./components/summary-cards/summary-cards.component";
 import { HypnogramComponent } from "./components/hypnogram/hypnogram.component";
 import { IntradayHrComponent } from "./components/intraday-hr/intraday-hr.component";
@@ -24,6 +25,7 @@ import { formatDateInTz, browserTimezone, todayLocal } from "./time-utils";
   standalone: true,
   imports: [
     MatToolbarModule, MatButtonModule, MatIconModule, MatTabsModule, MatProgressSpinnerModule,
+    ReauthBannerComponent,
     SummaryCardsComponent, HypnogramComponent, IntradayHrComponent, SpeedChartComponent, TimelineComponent,
     StepsChartComponent, HeartrateChartComponent, SleepChartComponent,
   ],
