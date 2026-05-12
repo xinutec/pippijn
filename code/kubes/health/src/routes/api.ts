@@ -2,13 +2,14 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
+import { getConnectionStatus as getFitbitConnectionStatus } from "../fitbit/token-manager.js";
 import { isValidTimezone } from "../geo/timezone.js";
 import { computeVelocity } from "../geo/velocity.js";
 import { requireAuth } from "../middleware/auth.js";
 import { NextcloudClient } from "../nextcloud/client.js";
 import { fetchTrackPoints, NextcloudNotLinkedError, NextcloudReauthRequiredError } from "../nextcloud/phonetrack.js";
 import { buildPhoneTrackFilterValues, computePhoneTrackDatemin } from "../nextcloud/phonetrack-prefs.js";
-import { getConnectionStatus } from "../nextcloud/token-manager.js";
+import { getConnectionStatus as getNextcloudConnectionStatus } from "../nextcloud/token-manager.js";
 
 /** Subset of the full Config that the API routes actually need. Narrowing
  *  the type here keeps test stubs minimal and surfaces dependency drift
@@ -47,18 +48,20 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 
 	app.get("/me", async (c) => {
 		const { userId, displayName } = c.get("session");
-		const [fitbit, ncStatus] = await Promise.all([
-			db().selectFrom("tokens").select("user_id").where("user_id", "=", userId).executeTakeFirst(),
-			getConnectionStatus(userId),
+		const [ncStatus, fbStatus] = await Promise.all([
+			getNextcloudConnectionStatus(userId),
+			getFitbitConnectionStatus(userId),
 		]);
 		return c.json({
 			userId,
 			displayName,
-			fitbitLinked: !!fitbit,
-			nextcloudLinked: ncStatus !== "not_linked", // legacy boolean kept for compatibility
+			// Legacy booleans kept for older SPA builds. New code reads
+			// the typed `connections` object below.
+			fitbitLinked: fbStatus !== "not_linked",
+			nextcloudLinked: ncStatus !== "not_linked",
 			connections: {
 				nextcloud: { status: ncStatus },
-				fitbit: { status: fitbit ? "active" : "not_linked" },
+				fitbit: { status: fbStatus },
 			},
 		});
 	});

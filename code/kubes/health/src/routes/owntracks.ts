@@ -57,9 +57,15 @@
  */
 
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import type { Config } from "../config.js";
 import type { AppEnv } from "../env.js";
 import { haversineMeters } from "../geo/place-snap.js";
+
+/** Owntracks payloads are tiny — a typical batched fix is well under
+ *  1 KB. Cap at 32 KB so a misconfigured client (or a hostile probe)
+ *  can't OOM the proxy by streaming megabytes of body. */
+const MAX_BODY_BYTES = 32 * 1024;
 
 // ============================================================================
 // Constants
@@ -491,6 +497,30 @@ export function decideRemoteConfig(
 // Route handler state
 // ============================================================================
 
+/** Maximum number of distinct (token,device) state keys we'll retain at
+ *  once. Single-user setups only ever populate 1-3 keys, but a cap
+ *  prevents unbounded growth if a misconfigured client cycles device
+ *  names or tokens. Eviction is LRU-by-recency-of-write — a key gets
+ *  re-promoted every time we touch it. */
+const MAX_STATE_KEYS = 32;
+
+/** Promote `key` to most-recently-used and evict the oldest entry from
+ *  every state map in lockstep. JS Maps preserve insertion order, so
+ *  delete-then-set moves the key to the end. */
+function touchStateKey(key: string): void {
+	if (historyByKey.has(key)) historyByKey.delete(key);
+	if (lastProfileByKey.has(key)) lastProfileByKey.delete(key);
+	if (lastPushTsByKey.has(key)) lastPushTsByKey.delete(key);
+	// Caller re-inserts via .set after we've made room below.
+	while (historyByKey.size >= MAX_STATE_KEYS) {
+		const oldest = historyByKey.keys().next().value;
+		if (oldest === undefined) break;
+		historyByKey.delete(oldest);
+		lastProfileByKey.delete(oldest);
+		lastPushTsByKey.delete(oldest);
+	}
+}
+
 /** Per (token,device) memory of the last-pushed motion profile. */
 const lastProfileByKey = new Map<string, MotionProfile>();
 /** Per-device fix history used by the decision pipeline. */
@@ -504,127 +534,150 @@ const lastPushTsByKey = new Map<string, number>();
 
 export function owntracksRoutes(config: Config): Hono<AppEnv> {
 	const app = new Hono<AppEnv>();
+	const allowedTokens = new Set(config.owntracks.allowedTokens);
 
-	app.post("/:token/:device", async (c) => {
-		const token = c.req.param("token");
-		const device = c.req.param("device");
-		const rawBody = await c.req.text();
-		let payload: OwntracksLocation | OwntracksLocation[];
-		try {
-			payload = JSON.parse(rawBody);
-		} catch {
-			return c.json({ error: "invalid json" }, 400);
-		}
+	app.post(
+		"/:token/:device",
+		bodyLimit({
+			maxSize: MAX_BODY_BYTES,
+			onError: (c) => c.json({ error: "payload too large" }, 413),
+		}),
+		async (c) => {
+			const token = c.req.param("token");
+			const device = c.req.param("device");
 
-		// Forward verbatim to Nextcloud PhoneTrack. Owntracks sends HTTP
-		// Basic Auth (username/password configured in the app); PhoneTrack
-		// relies on that for write authorisation, so we pass it through
-		// along with the body. User-Agent is forwarded so PhoneTrack-side
-		// logs/rate-limiting attribute correctly to the real client.
-		const phonetrackUrl = `${config.nextcloud.baseUrl}/apps/phonetrack/log/owntracks/${token}/${device}`;
-		const forwardedHeaders: Record<string, string> = {
-			"Content-Type": c.req.header("Content-Type") ?? "application/json",
-		};
-		const auth = c.req.header("Authorization");
-		if (auth) forwardedHeaders.Authorization = auth;
-		const ua = c.req.header("User-Agent");
-		if (ua) forwardedHeaders["User-Agent"] = ua;
-		const upstreamRes = await fetch(phonetrackUrl, {
-			method: "POST",
-			headers: forwardedHeaders,
-			body: rawBody,
-		}).catch((err: unknown) => {
-			console.warn(`Owntracks proxy: PhoneTrack POST failed for token ${token}: ${err}`);
-			return null;
-		});
-
-		if (upstreamRes === null) return c.json({ error: "upstream unreachable" }, 502);
-		if (!upstreamRes.ok) return c.json({ error: "upstream rejected" }, upstreamRes.status as 400 | 502);
-
-		// Build fix records from the payload. We retain only `location`
-		// messages with full position; pings without coordinates contribute
-		// to nothing useful for our decision.
-		const messages = Array.isArray(payload) ? payload : [payload];
-		const stateKey = `${token}/${device}`;
-		const newFixes: FixRecord[] = [];
-		for (const msg of messages) {
-			if (msg.lat !== undefined && msg.lon !== undefined && msg.tst !== undefined) {
-				newFixes.push({
-					ts: msg.tst,
-					lat: msg.lat,
-					lon: msg.lon,
-					vel: msg.vel ?? null,
-					trigger: msg.t ?? null,
-					monitoringMode: msg.m ?? null,
-				});
+			// Auth gate: require HTTP Basic Auth header presence (Owntracks
+			// Android always sends it) and validate the URL token against the
+			// configured allowlist. Both guard the in-process state maps and
+			// avoid pointless upstream round-trips on adversarial probes.
+			if (!c.req.header("Authorization")) {
+				return c.json({ error: "authorization required" }, 401);
 			}
-		}
-		const nowTs = newFixes.length > 0 ? newFixes[newFixes.length - 1].ts : Math.floor(Date.now() / 1000);
-
-		const merged = [...(historyByKey.get(stateKey) ?? []), ...newFixes];
-		const history = pruneFixHistory(merged, HISTORY_MAX_AGE_SEC, nowTs);
-		historyByKey.set(stateKey, history);
-
-		const prevProfile = lastProfileByKey.get(stateKey) ?? null;
-		const lastPushTs = lastPushTsByKey.get(stateKey) ?? null;
-
-		const signals: DecisionSignals =
-			history.length > 0
-				? computeSignals(history)
-				: {
-						reportedVelKmh: 0,
-						computedVelKmh: 0,
-						gapSinceLastFixSec: 0,
-						effectiveSpeedKmh: 0,
-						straightness: 0,
-						historySpanSec: 0,
-						trigger: null,
-						monitoringMode: null,
-					};
-
-		const maxVel = signals.reportedVelKmh;
-		const { profile, patch } = decideRemoteConfig(maxVel, prevProfile, history, { lastPushTs, nowTs });
-
-		// One-line decision log per Owntracks POST — makes proxy behaviour
-		// debuggable from `kubectl logs` without instrumenting the phone.
-		// Fields: vel = reported velocity, cvel = computed velocity from
-		// displacement, hist = fix count, eff = history-effective speed,
-		// str = straightness, gap = seconds since previous fix, t = Owntracks
-		// trigger type, m = monitoring mode reported by phone, prev->next =
-		// profile transition, patch = the config command (or "no-op").
-		const patchStr = patch ? JSON.stringify(patch) : "no-op";
-		console.log(
-			`owntracks ${token.slice(0, 6)}/${device} vel=${signals.reportedVelKmh.toFixed(1)} cvel=${signals.computedVelKmh.toFixed(1)} hist=${history.length} eff=${signals.effectiveSpeedKmh.toFixed(1)}km/h str=${signals.straightness.toFixed(2)} gap=${signals.gapSinceLastFixSec}s t=${signals.trigger ?? "-"} m=${signals.monitoringMode ?? "-"} ${prevProfile ?? "init"}->${profile ?? "keep"} ${patchStr}`,
-		);
-
-		if (patch !== null) {
-			lastProfileByKey.set(stateKey, profile);
-			lastPushTsByKey.set(stateKey, nowTs);
-		}
-
-		// Preserve PhoneTrack's response body (the "you are your own
-		// friend" location-echo Owntracks needs to render the user's marker
-		// on its in-app map). Append our cmd to that array.
-		let baseResponse: unknown[] = [];
-		try {
-			const upstreamBody = await upstreamRes.text();
-			if (upstreamBody.trim().length > 0) {
-				const parsed = JSON.parse(upstreamBody);
-				if (Array.isArray(parsed)) baseResponse = parsed;
+			if (!allowedTokens.has(token)) {
+				return c.json({ error: "token not permitted" }, 403);
 			}
-		} catch {
-			// Upstream returned non-JSON; nothing to pass through.
-		}
 
-		if (patch !== null) {
-			baseResponse.push({
-				_type: "cmd",
-				action: "setConfiguration",
-				configuration: { _type: "configuration", ...patch },
-			} satisfies OwntracksCommand);
-		}
-		return c.json(baseResponse);
-	});
+			const rawBody = await c.req.text();
+			let payload: OwntracksLocation | OwntracksLocation[];
+			try {
+				payload = JSON.parse(rawBody);
+			} catch {
+				return c.json({ error: "invalid json" }, 400);
+			}
+
+			// Forward verbatim to Nextcloud PhoneTrack. Owntracks sends HTTP
+			// Basic Auth (username/password configured in the app); PhoneTrack
+			// relies on that for write authorisation, so we pass it through
+			// along with the body. User-Agent is forwarded so PhoneTrack-side
+			// logs/rate-limiting attribute correctly to the real client.
+			const phonetrackUrl = `${config.nextcloud.baseUrl}/apps/phonetrack/log/owntracks/${token}/${device}`;
+			const forwardedHeaders: Record<string, string> = {
+				"Content-Type": c.req.header("Content-Type") ?? "application/json",
+			};
+			const auth = c.req.header("Authorization");
+			if (auth) forwardedHeaders.Authorization = auth;
+			const ua = c.req.header("User-Agent");
+			if (ua) forwardedHeaders["User-Agent"] = ua;
+			const upstreamRes = await fetch(phonetrackUrl, {
+				method: "POST",
+				headers: forwardedHeaders,
+				body: rawBody,
+			}).catch((err: unknown) => {
+				console.warn(`Owntracks proxy: PhoneTrack POST failed for token ${token}: ${err}`);
+				return null;
+			});
+
+			if (upstreamRes === null) return c.json({ error: "upstream unreachable" }, 502);
+			if (!upstreamRes.ok) return c.json({ error: "upstream rejected" }, upstreamRes.status as 400 | 502);
+
+			// Build fix records from the payload. We retain only `location`
+			// messages with full position; pings without coordinates contribute
+			// to nothing useful for our decision.
+			const messages = Array.isArray(payload) ? payload : [payload];
+			const stateKey = `${token}/${device}`;
+			const newFixes: FixRecord[] = [];
+			for (const msg of messages) {
+				if (msg.lat !== undefined && msg.lon !== undefined && msg.tst !== undefined) {
+					newFixes.push({
+						ts: msg.tst,
+						lat: msg.lat,
+						lon: msg.lon,
+						vel: msg.vel ?? null,
+						trigger: msg.t ?? null,
+						monitoringMode: msg.m ?? null,
+					});
+				}
+			}
+			const nowTs = newFixes.length > 0 ? newFixes[newFixes.length - 1].ts : Math.floor(Date.now() / 1000);
+
+			const merged = [...(historyByKey.get(stateKey) ?? []), ...newFixes];
+			const history = pruneFixHistory(merged, HISTORY_MAX_AGE_SEC, nowTs);
+			// LRU bookkeeping: promotes stateKey to most-recent and evicts the
+			// oldest entries from every state map if we're above the cap.
+			touchStateKey(stateKey);
+			historyByKey.set(stateKey, history);
+
+			const prevProfile = lastProfileByKey.get(stateKey) ?? null;
+			const lastPushTs = lastPushTsByKey.get(stateKey) ?? null;
+
+			const signals: DecisionSignals =
+				history.length > 0
+					? computeSignals(history)
+					: {
+							reportedVelKmh: 0,
+							computedVelKmh: 0,
+							gapSinceLastFixSec: 0,
+							effectiveSpeedKmh: 0,
+							straightness: 0,
+							historySpanSec: 0,
+							trigger: null,
+							monitoringMode: null,
+						};
+
+			const maxVel = signals.reportedVelKmh;
+			const { profile, patch } = decideRemoteConfig(maxVel, prevProfile, history, { lastPushTs, nowTs });
+
+			// One-line decision log per Owntracks POST — makes proxy behaviour
+			// debuggable from `kubectl logs` without instrumenting the phone.
+			// Fields: vel = reported velocity, cvel = computed velocity from
+			// displacement, hist = fix count, eff = history-effective speed,
+			// str = straightness, gap = seconds since previous fix, t = Owntracks
+			// trigger type, m = monitoring mode reported by phone, prev->next =
+			// profile transition, patch = the config command (or "no-op").
+			const patchStr = patch ? JSON.stringify(patch) : "no-op";
+			console.log(
+				`owntracks ${token.slice(0, 6)}/${device} vel=${signals.reportedVelKmh.toFixed(1)} cvel=${signals.computedVelKmh.toFixed(1)} hist=${history.length} eff=${signals.effectiveSpeedKmh.toFixed(1)}km/h str=${signals.straightness.toFixed(2)} gap=${signals.gapSinceLastFixSec}s t=${signals.trigger ?? "-"} m=${signals.monitoringMode ?? "-"} ${prevProfile ?? "init"}->${profile ?? "keep"} ${patchStr}`,
+			);
+
+			if (patch !== null) {
+				lastProfileByKey.set(stateKey, profile);
+				lastPushTsByKey.set(stateKey, nowTs);
+			}
+
+			// Preserve PhoneTrack's response body (the "you are your own
+			// friend" location-echo Owntracks needs to render the user's marker
+			// on its in-app map). Append our cmd to that array.
+			let baseResponse: unknown[] = [];
+			try {
+				const upstreamBody = await upstreamRes.text();
+				if (upstreamBody.trim().length > 0) {
+					const parsed = JSON.parse(upstreamBody);
+					if (Array.isArray(parsed)) baseResponse = parsed;
+				}
+			} catch {
+				// Upstream returned non-JSON; nothing to pass through.
+			}
+
+			if (patch !== null) {
+				baseResponse.push({
+					_type: "cmd",
+					action: "setConfiguration",
+					configuration: { _type: "configuration", ...patch },
+				} satisfies OwntracksCommand);
+			}
+			return c.json(baseResponse);
+		},
+	);
 
 	return app;
 }

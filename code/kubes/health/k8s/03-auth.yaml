@@ -61,6 +61,15 @@ spec:
                 secretKeyRef:
                   name: health-secret
                   key: SESSION_SECRET
+            # Comma-separated PhoneTrack session tokens allowed through
+            # the Owntracks proxy. Requests with any other token are
+            # rejected before reaching Nextcloud — protects both NC's
+            # brute-force counter and the proxy's in-process state.
+            - name: OWNTRACKS_ALLOWED_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: OWNTRACKS_ALLOWED_TOKENS
           resources:
             requests:
               cpu: 10m

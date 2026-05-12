@@ -24,6 +24,23 @@ const schema = z.object({
 		redirectUri: z.string().url().default("https://health.xinutec.org/auth/callback"),
 	}),
 
+	owntracks: z.object({
+		/** Comma-separated list of PhoneTrack session tokens this proxy
+		 *  is willing to forward. Requests for any other token are
+		 *  rejected before touching upstream — protects both Nextcloud
+		 *  (no wasted brute-force-counter increments) and our own
+		 *  in-process state maps (no attacker-controlled growth). */
+		allowedTokens: z
+			.string()
+			.transform((s) =>
+				s
+					.split(",")
+					.map((t) => t.trim())
+					.filter((t) => t.length > 0),
+			)
+			.pipe(z.array(z.string().min(8))),
+	}),
+
 	sessionSecret: z.string().min(16),
 });
 
@@ -49,6 +66,9 @@ export function loadConfig(): Config {
 			clientId: process.env.NC_CLIENT_ID,
 			clientSecret: process.env.NC_CLIENT_SECRET,
 			redirectUri: process.env.NC_REDIRECT_URI,
+		},
+		owntracks: {
+			allowedTokens: process.env.OWNTRACKS_ALLOWED_TOKENS ?? "",
 		},
 		sessionSecret: process.env.SESSION_SECRET,
 	});

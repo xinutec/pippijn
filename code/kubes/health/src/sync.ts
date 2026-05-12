@@ -22,7 +22,6 @@ import { syncStepsIntraday } from "./fitbit/sync/steps.js";
 import { syncTemperature } from "./fitbit/sync/temperature.js";
 import { buildForwardTzSource, NULL_TZ_SOURCE, type TzSource } from "./geo/fitbit-tz.js";
 import { fetchTrackPointsRange, openPhoneTrack, type RawTrackPoint } from "./nextcloud/phonetrack.js";
-import type { FitbitTokenPair } from "./types.js";
 
 function formatDate(d: Date): string {
 	return d.toISOString().slice(0, 10);
@@ -235,24 +234,9 @@ for (const user of users) {
 	try {
 		console.log(`\n=== Syncing: ${user.user_id} ===`);
 
-		const client = new FitbitClient({
-			accessToken: user.access_token,
-			refreshToken: user.refresh_token,
-			expiresAt: new Date(user.expires_at).getTime(),
+		const client = new FitbitClient(user.user_id, {
 			clientId: config.fitbit.clientId,
 			clientSecret: config.fitbit.clientSecret,
-			onTokenRefresh: async (tokens: FitbitTokenPair) => {
-				await db()
-					.updateTable("tokens")
-					.set({
-						access_token: tokens.access_token,
-						refresh_token: tokens.refresh_token,
-						expires_at: new Date(Date.now() + tokens.expires_in * 1000),
-					})
-					.where("user_id", "=", user.user_id)
-					.execute();
-				console.log(`[${user.user_id}] Tokens refreshed`);
-			},
 		});
 
 		// --- Pass 1: Forward sync (new data) ---

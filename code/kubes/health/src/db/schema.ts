@@ -266,6 +266,13 @@ const MIGRATIONS: readonly string[] = [
 	// triggering side-effects.
 	`ALTER TABLE nc_tokens ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`,
 
+	// v27: Same connection-status column for Fitbit tokens. Mirrors v26.
+	// Sync today runs serially per-user so concurrent refresh wasn't
+	// actually exploding the Fitbit brute-force counter — but the
+	// architectural shape is identical to the NC bug we just fixed, so
+	// fix it before it bites.
+	`ALTER TABLE tokens ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`,
+
 	// Future migrations go here.
 ];
 

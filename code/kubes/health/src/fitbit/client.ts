@@ -1,42 +1,33 @@
-import type { FitbitTokenPair } from "../types.js";
+/**
+ * Thin Fitbit HTTP client. All token management lives in
+ * `token-manager.ts`, which provides per-user refresh mutex and
+ * typed reauth-required signalling. The client is constructed with
+ * userId + OAuth config; rate-limit state stays here because it's a
+ * per-process concern, not a per-user one.
+ */
+
+import { type FitbitOAuthConfig, getValidTokens } from "./token-manager.js";
 
 export class FitbitClient {
-	private accessToken: string;
-	private refreshToken: string;
-	private expiresAt: number;
-	private readonly clientId: string;
-	private readonly clientSecret: string;
-	private readonly onTokenRefresh?: (tokens: FitbitTokenPair) => Promise<void>;
 	private rateLimitRemaining_ = 150;
 	private rateLimitResetAt = 0;
 
-	constructor(config: {
-		accessToken: string;
-		refreshToken: string;
-		expiresAt: number;
-		clientId: string;
-		clientSecret: string;
-		onTokenRefresh?: (tokens: FitbitTokenPair) => Promise<void>;
-	}) {
-		this.accessToken = config.accessToken;
-		this.refreshToken = config.refreshToken;
-		this.expiresAt = config.expiresAt;
-		this.clientId = config.clientId;
-		this.clientSecret = config.clientSecret;
-		this.onTokenRefresh = config.onTokenRefresh;
-	}
+	constructor(
+		private readonly userId: string,
+		private readonly config: FitbitOAuthConfig,
+	) {}
 
 	get rateLimitRemaining(): number {
 		return this.rateLimitRemaining_;
 	}
 
 	async get<T>(path: string, retries = 0): Promise<T> {
-		await this.ensureToken();
+		const tokens = await getValidTokens(this.userId, this.config);
 		await this.waitForRateLimit();
 
 		const url = path.startsWith("http") ? path : `https://api.fitbit.com${path}`;
 		const res = await fetch(url, {
-			headers: { Authorization: `Bearer ${this.accessToken}` },
+			headers: { Authorization: `Bearer ${tokens.accessToken}` },
 		});
 
 		this.updateRateLimit(res.headers);
@@ -55,34 +46,6 @@ export class FitbitClient {
 		}
 
 		return res.json() as Promise<T>;
-	}
-
-	private async ensureToken(): Promise<void> {
-		if (Date.now() < this.expiresAt - 5 * 60 * 1000) return;
-
-		const basicAuth = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString("base64");
-		const res = await fetch("https://api.fitbit.com/oauth2/token", {
-			method: "POST",
-			headers: {
-				Authorization: `Basic ${basicAuth}`,
-				"Content-Type": "application/x-www-form-urlencoded",
-			},
-			body: new URLSearchParams({
-				grant_type: "refresh_token",
-				refresh_token: this.refreshToken,
-			}),
-		});
-
-		if (!res.ok) {
-			throw new Error(`Token refresh failed: ${res.status} ${await res.text()}`);
-		}
-
-		const tokens = (await res.json()) as FitbitTokenPair;
-		this.accessToken = tokens.access_token;
-		this.refreshToken = tokens.refresh_token;
-		this.expiresAt = Date.now() + tokens.expires_in * 1000;
-
-		await this.onTokenRefresh?.(tokens);
 	}
 
 	private async waitForRateLimit(): Promise<void> {

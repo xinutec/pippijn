@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { Config } from "../config.js";
 import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
+import { invalidateTokenCache } from "../fitbit/token-manager.js";
 import { requireAuth } from "../middleware/auth.js";
 import { consumeState, createState } from "../middleware/oauth-state.js";
 import type { FitbitTokenPair } from "../types.js";
@@ -95,22 +96,29 @@ export function fitbitOAuthRoutes(config: Config): Hono<AppEnv> {
 
 		const tokens = (await tokenRes.json()) as FitbitTokenPair;
 
+		const newExpiresAt = new Date(Date.now() + tokens.expires_in * 1000);
 		await db()
 			.insertInto("tokens")
 			.values({
 				user_id: pending.userId,
 				access_token: tokens.access_token,
 				refresh_token: tokens.refresh_token,
-				expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+				expires_at: newExpiresAt,
 				scopes: tokens.scope,
+				status: "active",
 			})
 			.onDuplicateKeyUpdate({
 				access_token: tokens.access_token,
 				refresh_token: tokens.refresh_token,
-				expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+				expires_at: newExpiresAt,
 				scopes: tokens.scope,
+				status: "active",
 			})
 			.execute();
+
+		// Drop the in-process cache so the next sync run reads the
+		// freshly stored tokens instead of any stale entry.
+		invalidateTokenCache(pending.userId);
 
 		return c.json({
 			success: true,

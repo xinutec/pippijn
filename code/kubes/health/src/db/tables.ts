@@ -10,6 +10,10 @@ export interface TokensTable {
 	refresh_token: string;
 	expires_at: Date;
 	scopes: string | null;
+	/** "active" or "needs_reauth". Mirrors nc_tokens.status — set when
+	 *  the Fitbit token manager catches a 4xx refresh response, reset
+	 *  on success or fresh /fitbit/callback. */
+	status: Generated<string>;
 	updated_at: Generated<Date>;
 }
 
