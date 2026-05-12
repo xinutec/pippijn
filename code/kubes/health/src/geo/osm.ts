@@ -12,7 +12,7 @@ import { db } from "../db/pool.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
-import { ensureCovered, queryPoints } from "./osm-local.js";
+import { ensureCovered, queryLines, queryPoints } from "./osm-local.js";
 import { overpassFetch, USER_AGENT } from "./osm-overpass.js";
 
 /**
@@ -601,33 +601,31 @@ export async function nearbyStations(lat: number, lon: number, radiusM = 200): P
  * relations → relation tags. Cached via the standard OSM cache.
  */
 export async function linesAtPoint(lat: number, lon: number, radiusM = 100): Promise<Set<string>> {
-	// Cache stores arrays — Set doesn't round-trip through JSON. Convert at
-	// the function boundary.
-	const arr = await withCache<string[]>(
-		`lines_r${radiusM}`,
-		lat,
-		lon,
-		async () => {
-			const query = `
-				[out:json][timeout:10];
-				(
-					node(around:${radiusM},${lat},${lon})[railway~"^(station|halt|stop|tram_stop)$"];
-					node(around:${radiusM},${lat},${lon})[public_transport~"^(station|stop_position|platform)$"];
-				);
-				rel(bn)[type=route];
-				out tags;
-			`;
-			const res = await overpassFetch(query);
-			if (!res.ok) {
-				console.warn(`Overpass lines returned ${res.status} for ${lat},${lon}`);
-				return { ok: false, status: res.status };
-			}
-			const data = (await res.json()) as { elements?: OverpassElement[] };
-			return { ok: true, value: [...extractLineNames(data)] };
-		},
-		[],
-	);
-	return new Set(arr);
+	// Local-mirror path: shares the `railway` coverage box that
+	// nearbyStations already populated for this area (single Overpass
+	// fetch covers BOTH stations and rail lines). Query osm_lines for
+	// rail-class LINESTRINGs whose geometry passes within radiusM of
+	// the point, dedupe by name.
+	//
+	// Old behaviour: Overpass queried nearby stations -> their route
+	// relations -> relation tags. The new path uses the way tags
+	// directly, which carry the same `name=Jubilee Line` etc. on
+	// individual track segments. Edge cases where a way has no name
+	// but its relation does are not currently handled — would require
+	// also mirroring route relations, which we can add if it bites.
+	await ensureCovered(lat, lon, radiusM, "railway");
+	const features = await queryLines(lat, lon, radiusM, "railway", [
+		"rail",
+		"subway",
+		"light_rail",
+		"tram",
+		"narrow_gauge",
+	]);
+	const names = new Set<string>();
+	for (const f of features) {
+		if (f.name) names.add(f.name);
+	}
+	return names;
 }
 
 /**
