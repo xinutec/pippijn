@@ -87,9 +87,9 @@ describe("classifyMotion", () => {
 });
 
 describe("decideRemoteConfig", () => {
-	// Produces an Owntracks configuration patch when the motion profile
-	// has changed from what was last pushed. The patch is a partial
-	// configuration — only fields we want to change are included.
+	// Every call returns a concrete profile + patch — the proxy pushes
+	// the full config on every fix. The phone applies it idempotently,
+	// so re-sending the same config is a no-op on the phone side.
 
 	it("returns the config for transit-fast when not yet set", () => {
 		const r = decideRemoteConfig(120, null);
@@ -107,22 +107,36 @@ describe("decideRemoteConfig", () => {
 		// Real-world: tube tunnel produces a fix with vel=0 or vel missing.
 		// We must not flip the phone back to Significant on a single weird
 		// reading — that loses Move-mode tracking for the rest of the run.
-		// De-escalation requires history evidence, not a single fix.
+		// De-escalation requires history evidence, not a single fix. The
+		// pushed config preserves the previous profile.
 		const r = decideRemoteConfig(0, "transit");
-		expect(r.profile).toBe("transit"); // keep lastProfile
-		expect(r.patch).toBeNull();
+		expect(r.profile).toBe("transit");
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
 	});
 
-	it("returns null patch when profile equals lastProfile (avoid spam)", () => {
-		expect(decideRemoteConfig(120, "transit-fast").patch).toBeNull();
-		expect(decideRemoteConfig(50, "transit").patch).toBeNull();
-		expect(decideRemoteConfig(0, "stationary").patch).toBeNull();
+	it("re-sends the same config when profile equals lastProfile (idempotent push)", () => {
+		// Always-push: every fix gets the current profile's config back,
+		// even when the decision is "no change". The phone treats a
+		// re-applied identical config as a no-op.
+		expect(decideRemoteConfig(120, "transit-fast").patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 10 });
+		expect(decideRemoteConfig(50, "transit").patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
+		expect(decideRemoteConfig(0, "stationary").patch).toEqual({ monitoring: 1 });
 	});
 
-	it("returns null patch for ambiguous speeds (no profile)", () => {
+	it("preserves lastProfile and pushes its config for ambiguous speeds", () => {
 		const r = decideRemoteConfig(20, "transit");
-		expect(r.profile).toBe("transit"); // keep lastProfile
-		expect(r.patch).toBeNull();
+		expect(r.profile).toBe("transit");
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
+	});
+
+	it("falls back to stationary on the very first fix with no signal", () => {
+		// First-ever request for a device: lastProfile is null and the
+		// decision cascade says "keep". DEFAULT_PROFILE = stationary
+		// matches the phone's factory-default mode, so the pushed config
+		// is a no-op on the phone but still arrives.
+		const r = decideRemoteConfig(0, null);
+		expect(r.profile).toBe("stationary");
+		expect(r.patch).toEqual({ monitoring: 1 });
 	});
 
 	it("transitions from fast to slow transit pushes the new interval", () => {
@@ -133,12 +147,9 @@ describe("decideRemoteConfig", () => {
 		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
 	});
 
-	it("type guards: patch is a Partial<OwntracksConfig>-like object", () => {
+	it("type guards: patch is always a concrete OwntracksConfig-like object", () => {
 		const r = decideRemoteConfig(120, null);
-		if (r.patch !== null) {
-			expect(typeof r.patch.monitoring).toBe("number");
-			expect(typeof r.patch.moveModeLocatorInterval).toBe("number");
-		}
+		expect(typeof r.patch.monitoring).toBe("number");
 	});
 
 	it("MotionProfile type narrows to a finite set", () => {
@@ -383,13 +394,15 @@ describe("decideRemoteConfig with history", () => {
 	it("pushes 'walking' patch when last profile was stationary", () => {
 		const r = decideRemoteConfig(0, "stationary", walkingHistory);
 		expect(r.profile).toBe("walking");
-		expect(r.patch).not.toBeNull();
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 30 });
 	});
 
-	it("does not re-push when already walking", () => {
+	it("re-pushes walking patch even when already walking (always-push)", () => {
+		// History still says walking; the proxy re-sends the walking
+		// config on every fix and the phone applies it idempotently.
 		const r = decideRemoteConfig(0, "walking", walkingHistory);
 		expect(r.profile).toBe("walking");
-		expect(r.patch).toBeNull();
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 30 });
 	});
 
 	it("prefers high single-fix speed over walking history (board train)", () => {
@@ -402,21 +415,24 @@ describe("decideRemoteConfig with history", () => {
 		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 10 });
 	});
 
-	it("does not push stationary without history evidence", () => {
-		// vel=0 with no history is too weak a signal to demote the phone
-		// from Move back to Significant. Wait for enough fixes to confirm.
+	it("resolves to factory-default stationary without history evidence", () => {
+		// vel=0 with no history and no prior profile: the always-push
+		// proxy still has to send a config. We resolve to the
+		// factory-default Significant mode, which is a no-op on the
+		// phone when it's already in Significant.
 		const r = decideRemoteConfig(0, null, []);
-		expect(r.patch).toBeNull();
+		expect(r.profile).toBe("stationary");
+		expect(r.patch).toEqual({ monitoring: 1 });
 	});
 
 	it("keeps transit mode under a single weird-zero fix when history shows transit speed", () => {
 		// Bug fix: tube tunnel produces a fix with vel=0 mid-run; the
 		// surrounding history is all 100 km/h. Must keep transit-fast,
-		// not demote to stationary.
+		// not demote to stationary. The transit-fast config is re-sent.
 		const transitHistory = chain({ lat0: 0, lon0: 0, dLat: 0.018, dLon: 0, t0: 0, dtSec: 60, n: 5 }); // ~120 km/h
 		const r = decideRemoteConfig(0, "transit-fast", transitHistory);
 		expect(r.profile).toBe("transit-fast");
-		expect(r.patch).toBeNull();
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 10 });
 	});
 
 	it("demotes to stationary only after >= 10 minutes at a long-stay location", () => {
@@ -446,13 +462,14 @@ describe("decideRemoteConfig with history", () => {
 		}));
 		const r = decideRemoteConfig(0, "transit", stationaryHistory /* default: atLongStayLocation false */);
 		expect(r.profile).toBe("transit");
-		expect(r.patch).toBeNull();
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
 	});
 
 	it("does not demote to stationary on a short low-speed run", () => {
 		// 5 fixes, low speed, but only a 4-minute span — too short to
 		// be confident the user actually stopped. Tube tunnels and stop
-		// lights look like this. Keep the previous profile.
+		// lights look like this. Keep the previous profile; its config
+		// gets re-sent.
 		const briefLowSpeed: FixRecord[] = [
 			{ ts: 0, lat: 51.5, lon: -0.1 },
 			{ ts: 60, lat: 51.5, lon: -0.1 },
@@ -462,7 +479,7 @@ describe("decideRemoteConfig with history", () => {
 		];
 		const r = decideRemoteConfig(0, "transit", briefLowSpeed);
 		expect(r.profile).toBe("transit");
-		expect(r.patch).toBeNull();
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
 	});
 
 	it("history with wander does not push walking nor demote prematurely", () => {
@@ -474,10 +491,11 @@ describe("decideRemoteConfig with history", () => {
 			{ ts: 360, lat: 0, lon: 0 },
 		];
 		// effective ~4 km/h but straightness 0 → no walking signal, but
-		// also not below 2 km/h so not stationary either. Keep lastProfile.
+		// also not below 2 km/h so not stationary either. Keep lastProfile,
+		// re-push its config.
 		const r = decideRemoteConfig(0, "transit", wanderHistory);
 		expect(r.profile).toBe("transit");
-		expect(r.patch).toBeNull();
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
 	});
 });
 
@@ -713,10 +731,12 @@ describe("decideTransition (cascade)", () => {
 	});
 });
 
-describe("decideRemoteConfig (anti-flap)", () => {
-	// Anti-flap window: don't push a second config change within
-	// ANTI_FLAP_WINDOW_SEC. High-confidence single-fix escalation
-	// (reported vel > 30) bypasses the window.
+describe("decideRemoteConfig (always-push)", () => {
+	// The proxy pushes a config command on every fix. There is no
+	// anti-flap window and no "did this change from last time" dedup —
+	// what would have been a "no-op" instead resolves to the
+	// current/last-decided profile's config and goes out anyway. The
+	// phone applies it idempotently.
 
 	const walkingHistory: FixRecord[] = [
 		{ ts: 0, lat: 0, lon: 0 },
@@ -725,34 +745,32 @@ describe("decideRemoteConfig (anti-flap)", () => {
 		{ ts: 270, lat: 0.0027, lon: 0 },
 	];
 
-	it("suppresses a marginal transition within the anti-flap window", () => {
-		// Walking history would push walking, but we pushed something
-		// 60s ago — wait.
-		const r = decideRemoteConfig(0, "transit", walkingHistory, { lastPushTs: 210, nowTs: 270 });
-		expect(r.patch).toBeNull();
-		expect(r.profile).toBe("transit"); // preserve lastProfile
-	});
-
-	it("allows a marginal transition after the window expires", () => {
-		const r = decideRemoteConfig(0, "transit", walkingHistory, { lastPushTs: 0, nowTs: 270 });
+	it("pushes the new profile's config when history says walking", () => {
+		const r = decideRemoteConfig(0, "transit", walkingHistory);
 		expect(r.profile).toBe("walking");
 		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 30 });
 	});
 
-	it("high-confidence escalation bypasses anti-flap", () => {
-		// User boards a train; reported vel=120. Even if we pushed walking
-		// 30s ago, this is too important to delay.
+	it("pushes transit-fast config on a high-speed escalation", () => {
 		const trainHistory: FixRecord[] = [...walkingHistory, { ts: 300, lat: 0.0036, lon: 0, vel: 120 }];
-		const r = decideRemoteConfig(0, "walking", trainHistory, { lastPushTs: 270, nowTs: 300 });
+		const r = decideRemoteConfig(0, "walking", trainHistory);
 		expect(r.profile).toBe("transit-fast");
 		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 10 });
 	});
 
-	it("no anti-flap suppression when lastPushTs is null", () => {
-		// First push for this device — no previous timestamp to throttle against.
-		const r = decideRemoteConfig(0, "transit", walkingHistory, { lastPushTs: null, nowTs: 270 });
-		expect(r.profile).toBe("walking");
-		expect(r.patch).not.toBeNull();
+	it("preserves and re-pushes lastProfile when the cascade says 'keep'", () => {
+		// History too thin to decide; lastProfile is transit. The proxy
+		// still has to send something — and it sends transit's config so
+		// the phone's mode is reaffirmed.
+		const r = decideRemoteConfig(0, "transit", [{ ts: 0, lat: 0, lon: 0 }]);
+		expect(r.profile).toBe("transit");
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
+	});
+
+	it("first-ever fix with null lastProfile resolves to stationary (factory default)", () => {
+		const r = decideRemoteConfig(0, null, []);
+		expect(r.profile).toBe("stationary");
+		expect(r.patch).toEqual({ monitoring: 1 });
 	});
 });
 
@@ -776,14 +794,15 @@ describe("decideRemoteConfig from Significant mode (office-walk case)", () => {
 	});
 
 	it("does not escalate on a scheduled-cadence Significant fix that didn't move", () => {
-		// 15-min scheduled tick, same location → not motion.
+		// 15-min scheduled tick, same location → not motion. Stay
+		// stationary; re-push the Significant config.
 		const history: FixRecord[] = [
 			{ ts: 0, lat: 51.5, lon: -0.1, monitoringMode: 1 },
 			{ ts: 900, lat: 51.5, lon: -0.1, monitoringMode: 1 },
 		];
 		const r = decideRemoteConfig(0, "stationary", history);
 		expect(r.profile).toBe("stationary");
-		expect(r.patch).toBeNull();
+		expect(r.patch).toEqual({ monitoring: 1 });
 	});
 
 	it("treats trigger='u' (user action) as motion intent from Significant", () => {

@@ -35,10 +35,12 @@
  *      low-speed history do we push the phone back to Significant.
  *      Single weird-zero fixes (tube tunnel, ping messages) get ignored.
  *
- * Pushes are also gated by a 2-minute anti-flap window so multiple
- * marginal signals can't oscillate the phone's mode. High-confidence
- * single-fix escalation (reported `vel` > 30 km/h) bypasses the window
- * — boarding a train shouldn't be delayed by our own throttling.
+ * Every fix's response carries a `setConfiguration` cmd with the
+ * current profile's config — the proxy is stateless from the phone's
+ * point of view, and the phone applies an idempotent patch each time.
+ * Bandwidth is negligible (~few hundred bytes per fix), the proxy
+ * doesn't need an in-memory anti-flap timer, and a transient state
+ * loss on either side recovers on the very next fix.
  *
  * # Owntracks monitoring modes
  *    0 = Manual    (no automatic reporting; user pushes a button)
@@ -101,12 +103,6 @@ const MIN_STATIONARY_DEMOTE_SEC = 600;
  *  15 minutes, and emits extras when motion is detected. Two fixes
  *  arriving < 5 minutes apart in Significant = real motion. */
 const SIGNIFICANT_MODE_MOTION_GAP_SEC = 300;
-
-/** Don't push a second remote-config command within this window after the
- *  previous push — prevents oscillation when multiple marginal signals
- *  disagree near a boundary. High-confidence single-fix escalations
- *  bypass this throttle (see {@link decideRemoteConfig}). */
-const ANTI_FLAP_WINDOW_SEC = 120;
 
 // ============================================================================
 // Types
@@ -472,24 +468,24 @@ const PROFILE_CONFIG: Record<Exclude<MotionProfile, null>, OwntracksConfigPatch>
 // ============================================================================
 
 export interface RemoteConfigOptions {
-	/** Unix-seconds timestamp of the last patch we pushed for this device. */
-	lastPushTs?: number | null;
-	/** Unix-seconds timestamp of the current fix being decided on. */
-	nowTs?: number;
 	/** Whether the current fix lies inside a focus_place the user
 	 *  historically stays at for hours. Gates Move→Significant
 	 *  demotion. Default false (no demote) when omitted. */
 	atLongStayLocation?: boolean;
 }
 
+/** Profile used when we have never decided anything for this device.
+ *  Matches the phone's factory-default monitoring mode (Significant)
+ *  so the first-ever fix's pushed config is a no-op on the phone. */
+const DEFAULT_PROFILE: Exclude<MotionProfile, null> = "stationary";
+
 /**
- * Top-level "should we push a config command" decision.
- *
- * Computes signals from the history, runs the predicate cascade, and
- * gates the resulting patch with an anti-flap window. The window
- * suppresses mode changes that would land within `ANTI_FLAP_WINDOW_SEC`
- * of the previous push — except for high-confidence single-fix
- * escalations (reported `vel` > 30 km/h), which always go through.
+ * Top-level decision. Always returns a concrete profile + patch — the
+ * proxy pushes the full config on every fix and lets the phone treat
+ * it as idempotent. There's no anti-flap, no per-device push-timestamp
+ * memory, no "did this change from last time" dedup. If the predicate
+ * cascade says "keep", we resolve to the last decided profile (or to
+ * `DEFAULT_PROFILE` on the very first fix) and push its config anyway.
  *
  * `speedKmh` is the single-fix velocity convenience argument used when
  * the caller has no history yet; with history, `computeSignals` derives
@@ -500,7 +496,7 @@ export function decideRemoteConfig(
 	lastProfile: MotionProfile,
 	history: FixRecord[] = [],
 	options: RemoteConfigOptions = {},
-): { profile: MotionProfile; patch: OwntracksConfigPatch | null } {
+): { profile: Exclude<MotionProfile, null>; patch: OwntracksConfigPatch } {
 	const signals: DecisionSignals =
 		history.length > 0
 			? computeSignals(history)
@@ -517,21 +513,10 @@ export function decideRemoteConfig(
 
 	const location: LocationContext = { atLongStayLocation: options.atLongStayLocation ?? false };
 	const next = decideTransition(signals, lastProfile, location);
-	if (next === "keep" || next === null) return { profile: lastProfile, patch: null };
-	if (next === lastProfile) return { profile: next, patch: null };
+	const resolved: Exclude<MotionProfile, null> =
+		next === "keep" || next === null ? (lastProfile ?? DEFAULT_PROFILE) : next;
 
-	const isHighConfidence = signals.reportedVelKmh > TRANSIT_KMH;
-	if (
-		!isHighConfidence &&
-		options.lastPushTs !== undefined &&
-		options.lastPushTs !== null &&
-		options.nowTs !== undefined &&
-		options.nowTs - options.lastPushTs < ANTI_FLAP_WINDOW_SEC
-	) {
-		return { profile: lastProfile, patch: null };
-	}
-
-	return { profile: next, patch: PROFILE_CONFIG[next] };
+	return { profile: resolved, patch: PROFILE_CONFIG[resolved] };
 }
 
 // ============================================================================
@@ -548,37 +533,28 @@ const MAX_STATE_KEYS = 32;
 /** Promote `key` to most-recently-used in every state map. JS Maps
  *  preserve insertion order, so we delete + re-insert each existing
  *  value to move it to the end. The caller will replace `historyByKey`
- *  with the freshly merged history; the other two maps are restored
- *  in place so the proxy doesn't forget its last-pushed profile or
- *  anti-flap timestamp between requests (which would re-push the same
- *  config on every fix — see the regression test). */
+ *  with the freshly merged history; `lastProfileByKey` is restored in
+ *  place so the proxy doesn't forget its last decided profile between
+ *  requests. */
 function touchStateKey(key: string): void {
 	const existingProfile = lastProfileByKey.get(key);
-	const existingPushTs = lastPushTsByKey.get(key);
 	historyByKey.delete(key);
 	lastProfileByKey.delete(key);
-	lastPushTsByKey.delete(key);
 
 	while (historyByKey.size >= MAX_STATE_KEYS) {
 		const oldest = historyByKey.keys().next().value;
 		if (oldest === undefined) break;
 		historyByKey.delete(oldest);
 		lastProfileByKey.delete(oldest);
-		lastPushTsByKey.delete(oldest);
 	}
 
-	// Restore the existing profile/pushTs values. historyByKey is
-	// repopulated by the caller (with the new merged history).
 	if (existingProfile !== undefined) lastProfileByKey.set(key, existingProfile);
-	if (existingPushTs !== undefined) lastPushTsByKey.set(key, existingPushTs);
 }
 
-/** Per (token,device) memory of the last-pushed motion profile. */
+/** Per (token,device) memory of the last decided motion profile. */
 const lastProfileByKey = new Map<string, MotionProfile>();
 /** Per-device fix history used by the decision pipeline. */
 const historyByKey = new Map<string, FixRecord[]>();
-/** Per-device timestamp of the last config push, for anti-flap. */
-const lastPushTsByKey = new Map<string, number>();
 
 // ============================================================================
 // Route
@@ -670,7 +646,6 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 			historyByKey.set(stateKey, history);
 
 			const prevProfile = lastProfileByKey.get(stateKey) ?? null;
-			const lastPushTs = lastPushTsByKey.get(stateKey) ?? null;
 
 			const signals: DecisionSignals =
 				history.length > 0
@@ -703,8 +678,6 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 			}
 
 			const { profile, patch } = decideRemoteConfig(maxVel, prevProfile, history, {
-				lastPushTs,
-				nowTs,
 				atLongStayLocation,
 			});
 
@@ -714,16 +687,12 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 			// displacement, hist = fix count, eff = history-effective speed,
 			// str = straightness, gap = seconds since previous fix, t = Owntracks
 			// trigger type, m = monitoring mode reported by phone, prev->next =
-			// profile transition, patch = the config command (or "no-op").
-			const patchStr = patch ? JSON.stringify(patch) : "no-op";
+			// profile transition, patch = the config command (always sent).
 			console.log(
-				`owntracks ${token.slice(0, 6)}/${device} vel=${signals.reportedVelKmh.toFixed(1)} cvel=${signals.computedVelKmh.toFixed(1)} hist=${history.length} eff=${signals.effectiveSpeedKmh.toFixed(1)}km/h str=${signals.straightness.toFixed(2)} gap=${signals.gapSinceLastFixSec}s t=${signals.trigger ?? "-"} m=${signals.monitoringMode ?? "-"} longStay=${atLongStayLocation ? "y" : "n"} ${prevProfile ?? "init"}->${profile ?? "keep"} ${patchStr}`,
+				`owntracks ${token.slice(0, 6)}/${device} vel=${signals.reportedVelKmh.toFixed(1)} cvel=${signals.computedVelKmh.toFixed(1)} hist=${history.length} eff=${signals.effectiveSpeedKmh.toFixed(1)}km/h str=${signals.straightness.toFixed(2)} gap=${signals.gapSinceLastFixSec}s t=${signals.trigger ?? "-"} m=${signals.monitoringMode ?? "-"} longStay=${atLongStayLocation ? "y" : "n"} ${prevProfile ?? "init"}->${profile} ${JSON.stringify(patch)}`,
 			);
 
-			if (patch !== null) {
-				lastProfileByKey.set(stateKey, profile);
-				lastPushTsByKey.set(stateKey, nowTs);
-			}
+			lastProfileByKey.set(stateKey, profile);
 
 			// Preserve PhoneTrack's response body (the "you are your own
 			// friend" location-echo Owntracks needs to render the user's marker
@@ -739,13 +708,11 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 				// Upstream returned non-JSON; nothing to pass through.
 			}
 
-			if (patch !== null) {
-				baseResponse.push({
-					_type: "cmd",
-					action: "setConfiguration",
-					configuration: { _type: "configuration", ...patch },
-				} satisfies OwntracksCommand);
-			}
+			baseResponse.push({
+				_type: "cmd",
+				action: "setConfiguration",
+				configuration: { _type: "configuration", ...patch },
+			} satisfies OwntracksCommand);
 			return c.json(baseResponse);
 		},
 	);

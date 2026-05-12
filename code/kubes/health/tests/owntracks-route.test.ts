@@ -114,30 +114,20 @@ describe("Owntracks route — auth gate", () => {
 	});
 });
 
-describe("Owntracks route — per-device state persistence across requests", () => {
-	// Regression: touchStateKey was deleting entries from lastProfileByKey
-	// and lastPushTsByKey to LRU-reorder them, but the caller only
-	// re-inserted historyByKey. Effect: every request reset the profile
-	// memory and the anti-flap timer, so the proxy re-pushed the same
-	// config command on every single fix instead of once per transition.
-	// Live evidence: after walking-mode was detected we saw repeated
-	// `init->walking` log lines (one per ~28 s fix) instead of
-	// `walking->walking no-op`.
+describe("Owntracks route — always-push", () => {
+	// The proxy attaches a setConfiguration cmd to every fix response.
+	// The phone applies it idempotently. There's no anti-flap timer
+	// and no "did this change from last time" dedup — bandwidth is
+	// negligible, and pushing every time means a transient state loss
+	// on either side recovers on the very next fix.
 
-	it("pushes a profile change at most once across a steady walking sequence", async () => {
+	it("attaches one cmd to every fix in a steady walking sequence", async () => {
 		const app = buildApp();
-		// Unique device-id so this test doesn't share module-level state
-		// with the other tests in this file.
-		const device = "touchstate-regression";
+		const device = "alwayspush-walking";
 		const url = `/owntracks/abc12345token1/${device}`;
 		const headers = { Authorization: "Basic dXNlcjpwYXNz", "Content-Type": "application/json" };
 		const baseTs = 1_700_000_000;
 
-		// Feed 6 fixes spaced 60s apart, 0.0009° north-bound (≈100m / fix).
-		// effective speed 6 km/h, straightness ~1, monitoring=2 → walking
-		// detection fires from fix 3 onward (span >= 120s). With the bug
-		// the proxy pushes a cmd on every fix from #3; with the fix it
-		// pushes exactly once on the transition and then no-ops.
 		const pushCounts: number[] = [];
 		for (let i = 0; i < 6; i++) {
 			const res = await app.request(url, {
@@ -156,14 +146,23 @@ describe("Owntracks route — per-device state persistence across requests", () 
 			pushCounts.push(body.filter((m) => m._type === "cmd").length);
 		}
 
-		// Walking should have been detected and pushed at least once.
-		const firstPushIdx = pushCounts.findIndex((c) => c > 0);
-		expect(firstPushIdx).toBeGreaterThanOrEqual(0);
+		// Exactly one cmd per fix, no more no less.
+		expect(pushCounts).toEqual([1, 1, 1, 1, 1, 1]);
+	});
 
-		// And after that single push, no further fix should re-push the
-		// same config — anti-flap suppresses, prevProfile equals desired.
-		const afterFirstPush = pushCounts.slice(firstPushIdx + 1);
-		expect(afterFirstPush.every((c) => c === 0)).toBe(true);
+	it("the very first fix already carries a cmd (factory-default stationary)", async () => {
+		const app = buildApp();
+		const device = "alwayspush-firstfix";
+		const res = await app.request(`/owntracks/abc12345token1/${device}`, {
+			method: "POST",
+			headers: { Authorization: "Basic dXNlcjpwYXNz", "Content-Type": "application/json" },
+			body: JSON.stringify({ _type: "location", lat: 51.5, lon: -0.1, tst: 1_700_000_000 }),
+		});
+		const body = (await res.json()) as Array<{ _type?: string; configuration?: { monitoring?: number } }>;
+		const cmds = body.filter((m) => m._type === "cmd");
+		expect(cmds).toHaveLength(1);
+		// No history, no lastProfile → resolves to stationary (monitoring=1).
+		expect(cmds[0].configuration?.monitoring).toBe(1);
 	});
 });
 
