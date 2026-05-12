@@ -12,6 +12,7 @@ import { db } from "../db/pool.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
+import { ensureCovered, queryFeatures } from "./osm-local.js";
 import { overpassFetch, USER_AGENT } from "./osm-overpass.js";
 
 /**
@@ -550,61 +551,41 @@ export function pickBestStation(stations: NearbyStation[]): NearbyStation | null
 }
 
 export async function nearbyStations(lat: number, lon: number, radiusM = 200): Promise<NearbyStation[]> {
-	return withCache<NearbyStation[]>(
-		`stations_r${radiusM}`,
-		lat,
-		lon,
-		async () => {
-			const query = `
-				[out:json][timeout:10];
-				(
-					node(around:${radiusM},${lat},${lon})[name][railway=station];
-					node(around:${radiusM},${lat},${lon})[name][railway=halt];
-					node(around:${radiusM},${lat},${lon})[name][railway=subway_entrance];
-					node(around:${radiusM},${lat},${lon})[name][public_transport=station];
-					way(around:${radiusM},${lat},${lon})[name][railway=station];
-					way(around:${radiusM},${lat},${lon})[name][public_transport=station];
-					relation(around:${radiusM},${lat},${lon})[name][public_transport=station];
-				);
-				out tags center;
-			`;
-			const res = await overpassFetch(query);
-			if (!res.ok) {
-				console.warn(`Overpass stations returned ${res.status} for ${lat},${lon}`);
-				return { ok: false, status: res.status };
-			}
-			const data = (await res.json()) as { elements?: OverpassElement[] };
-			const stations = new Map<string, NearbyStation>();
-			for (const el of data.elements ?? []) {
-				const tags = el.tags ?? {};
-				const name = tags.name;
-				if (!name) continue;
-				const elLat = el.lat ?? el.center?.lat;
-				const elLon = el.lon ?? el.center?.lon;
-				if (elLat === undefined || elLon === undefined) continue;
-				const distanceM = landmarkHaversine(lat, lon, elLat, elLon);
-				// Determine subtype: subway / rail / light_rail / tram / generic.
-				// Entrances get their own subtype ("subway_entrance") so the
-				// picker can deprioritise them — entrance nodes are labelled
-				// "A", "B", "C" in OSM and would otherwise beat the real
-				// station node by distance for nearby fixes.
-				let subtype = "rail";
-				if (tags.railway === "subway_entrance") subtype = "subway_entrance";
-				else if (tags.station === "subway") subtype = "subway";
-				else if (tags.station === "light_rail") subtype = "light_rail";
-				else if (tags.tram === "yes" || tags.railway === "tram_stop") subtype = "tram";
-				else if (tags.railway === "halt") subtype = "halt";
-				// Collapse multiple entries with same name (entrances of one station)
-				// by keeping the closest.
-				const existing = stations.get(name);
-				if (!existing || distanceM < existing.distanceM) {
-					stations.set(name, { name, subtype, distanceM });
-				}
-			}
-			return { ok: true, value: [...stations.values()].sort((a, b) => a.distanceM - b.distanceM) };
-		},
-		[],
-	);
+	// Local-mirror path: ensure the railway-feature bucket has coverage
+	// for this point, then run a spatial query against osm_features.
+	// Same returned shape as the previous Overpass-cache version —
+	// callers (annotateRailRuns, station-graph picker) don't change.
+	await ensureCovered(lat, lon, radiusM, "railway");
+	const features = await queryFeatures(lat, lon, radiusM, "railway", [
+		"station",
+		"subway_entrance",
+		"halt",
+		"stop",
+		"tram_stop",
+	]);
+
+	// Collapse multiple entries with the same name (entrances of one
+	// station) by keeping the closest. Subtype mapping mirrors the
+	// previous version exactly. Entrances get their own subtype so
+	// pickBestStation can deprioritise them — entrance nodes are
+	// labelled "A", "B", "C" in OSM and would otherwise beat the real
+	// station node by distance for nearby fixes.
+	const stations = new Map<string, NearbyStation>();
+	for (const f of features) {
+		const name = f.name;
+		if (!name) continue;
+		let subtype = "rail";
+		if (f.subtype === "subway_entrance") subtype = "subway_entrance";
+		else if (f.tags.station === "subway") subtype = "subway";
+		else if (f.tags.station === "light_rail") subtype = "light_rail";
+		else if (f.tags.tram === "yes" || f.subtype === "tram_stop") subtype = "tram";
+		else if (f.subtype === "halt") subtype = "halt";
+		const existing = stations.get(name);
+		if (!existing || f.distance_m < existing.distanceM) {
+			stations.set(name, { name, subtype, distanceM: f.distance_m });
+		}
+	}
+	return [...stations.values()].sort((a, b) => a.distanceM - b.distanceM);
 }
 
 /**
