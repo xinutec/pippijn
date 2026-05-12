@@ -24,7 +24,12 @@ const OVERPASS_TIMEOUT_MS = 20_000;
  *  conservative cap of 2 bounds the peak memory at ~2× the largest
  *  response — well within budget — with a small wall-time cost on
  *  cold-start that's invisible once the mirror is populated. */
-const OVERPASS_CONCURRENCY = 2;
+// Concurrency 1: full serialization. A single 50 MB Overpass response
+// peaks at ~200 MB during res.json() parsing (V8 stores raw string +
+// parsed tree). Two in flight at once OOMs a 512 MB pod. Wall-time
+// cost on cold-start is bounded; once the mirror is populated the
+// semaphore never blocks anything.
+const OVERPASS_CONCURRENCY = 1;
 let inFlight = 0;
 const queue: Array<() => void> = [];
 function acquire(): Promise<void> {
