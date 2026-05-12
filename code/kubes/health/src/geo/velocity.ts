@@ -813,19 +813,50 @@ export async function annotateRailRuns(
 			// transit-speed fixes gets us to the actual disembark-and-
 			// walk-near-station fix. Fall back to any fix if none qualify.
 			const slow = (p: FilteredPoint): boolean => p.speed_kmh < POST_TRANSIT_SPEED_KMH;
-			const before =
+			const slowBefore =
 				[...points].reverse().find((p) => p.ts <= startTs && slow(p)) ??
 				[...points].reverse().find((p) => p.ts <= startTs);
 			const after = points.find((p) => p.ts >= endTs && slow(p)) ?? points.find((p) => p.ts >= endTs);
-			if (!before || !after) return null;
+			if (!slowBefore || !after) return null;
+
+			// Boarding-station lookup with preceding-stationary preference.
+			// Walk back through stationary + walking segments only; stop
+			// at any other mode (e.g. a previous train, driving) so we
+			// don't claim the last journey's destination as this one's
+			// boarding station. The first stationary segment we hit
+			// whose location resolves to a real station wins — that's
+			// where the user actually was just before entering the tube
+			// system. Falls back to the slow-fix heuristic when no
+			// such stationary segment exists. The chosen location is
+			// also used for the line-intersection lookup below so the
+			// disambiguation is consistent with the chosen station.
 			let startStation: string | undefined;
+			let beforeLookup = { lat: slowBefore.lat, lon: slowBefore.lon };
 			let endStation: string | undefined;
 			try {
-				const [startStations, endStations] = await Promise.all([
-					stationsLookup(before.lat, before.lon),
+				for (let i = run.from - 1; i >= 0; i--) {
+					const seg = segments[i];
+					if (seg.mode === "stationary") {
+						const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+						if (segPoints.length > 0) {
+							const last = segPoints[segPoints.length - 1];
+							const stations = await stationsLookup(last.lat, last.lon);
+							const best = pickBestStation(stations);
+							if (best) {
+								startStation = best.name;
+								beforeLookup = { lat: last.lat, lon: last.lon };
+								break;
+							}
+						}
+						break; // stationary not near a station → fall through
+					}
+					if (seg.mode !== "walking") break;
+				}
+				const [startStationsSlow, endStations] = await Promise.all([
+					startStation ? Promise.resolve([]) : stationsLookup(slowBefore.lat, slowBefore.lon),
 					stationsLookup(after.lat, after.lon),
 				]);
-				startStation = pickBestStation(startStations)?.name;
+				if (!startStation) startStation = pickBestStation(startStationsSlow)?.name;
 				endStation = pickBestStation(endStations)?.name;
 			} catch {
 				return null;
@@ -844,7 +875,7 @@ export async function annotateRailRuns(
 			// fall through to the bare station-pair label.
 			try {
 				const [startLines, endLines] = await Promise.all([
-					linesLookup(before.lat, before.lon),
+					linesLookup(beforeLookup.lat, beforeLookup.lon),
 					linesLookup(after.lat, after.lon),
 				]);
 				const intersection = [...startLines].filter((l) => endLines.has(l));

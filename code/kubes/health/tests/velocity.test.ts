@@ -702,6 +702,118 @@ describe("annotateRailRuns", () => {
 		expect(out[0].startTs).toBe(1000);
 		expect(out[0].endTs).toBe(1500);
 	});
+
+	// --- Boarding-station inference from preceding stationary segment ---
+	// The Kings Cross → Wembley Park bug: today's commute had the user
+	// stationary at Work (next to Kings Cross), walking briefly through
+	// the station entrance, then disappearing into the tube tunnel. The
+	// "last slow fix before the run" lookup picked a noisy underground
+	// blip near Baker Street, so the annotation said "Baker Street →
+	// Wembley Park" instead of "Kings Cross → Wembley Park". The
+	// preceding stationary segment's location is a much stronger signal
+	// of where the user actually was.
+
+	const stationaryAt = (startTs: number, endTs: number): EnrichedSegment => ({
+		startTs,
+		endTs,
+		mode: "stationary",
+		confidence: 1,
+		confidenceMargin: Infinity,
+		avgSpeed: 0,
+		maxSpeed: 0,
+		linearity: 0,
+		pointCount: 5,
+	});
+
+	const walking = (startTs: number, endTs: number): EnrichedSegment => ({
+		startTs,
+		endTs,
+		mode: "walking",
+		confidence: 0.8,
+		confidenceMargin: 4,
+		avgSpeed: 4,
+		maxSpeed: 6,
+		linearity: 0.5,
+		pointCount: 5,
+	});
+
+	it("uses the preceding stationary segment's location for the boarding station", async () => {
+		// stationary → walking (TO the station) → train run. The slow
+		// fix immediately before the train segment is a noisy lock near
+		// Baker Street (mid-tunnel signal recovery) — the kind of fix
+		// the old "latest slow fix" lookup picks. The stationary
+		// segment's location at Kings Cross should win.
+		const segs = [stationaryAt(800, 1000), walking(1000, 1500), train(1500, 2000)];
+		const points = [
+			fix(900, 51.53, -0.125), // inside stationary, Kings Cross
+			fix(990, 51.53, -0.125), // last fix before walking starts, Kings Cross
+			fix(1400, 51.523, -0.158), // noisy slow fix mid-tunnel near Baker Street
+			fix(2100, 51.563, -0.279), // post-train, Wembley Park
+		];
+		const out = await annotateRailRuns(segs, points, lookup);
+		// The train segment is at index 2.
+		expect(out[2].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+	});
+
+	it("falls back to slow-fix lookup when there's no preceding stationary segment", async () => {
+		// User boards directly from a previous walk (no stationary
+		// before the train). Existing logic applies.
+		const segs = [walking(1000, 1500), train(1500, 2000)];
+		const points = [
+			fix(1400, 51.523, -0.158), // slow fix near Baker Street
+			fix(2100, 51.563, -0.279), // Wembley Park
+		];
+		const out = await annotateRailRuns(segs, points, lookup);
+		expect(out[1].wayName).toBe("Baker Street → Wembley Park");
+	});
+
+	it("falls back to slow-fix lookup when the preceding stationary is not near any station", async () => {
+		// Stationary at home (not a station). Walk to the station,
+		// board. The home location doesn't resolve to a station —
+		// don't claim it as the boarding station; fall back to slow-fix
+		// lookup which would catch where the user actually entered.
+		// Custom lookup returns empty for the home location (mirrors
+		// real nearbyStations behaviour for non-station coords).
+		const lookupWithEmpty = async (lat: number, lon: number) => {
+			if (Math.abs(lat - 51.6) < 0.01 && Math.abs(lon - 0.0) < 0.01) return [];
+			return [{ name: stationAt(lat, lon), subtype: "subway", distanceM: 50 }];
+		};
+		const segs = [stationaryAt(800, 1000), walking(1000, 1500), train(1500, 2000)];
+		const points = [
+			fix(900, 51.6, 0.0), // stationary at home (no station nearby)
+			fix(1400, 51.523, -0.158), // slow fix near Baker Street
+			fix(2100, 51.563, -0.279), // Wembley Park
+		];
+		const out = await annotateRailRuns(segs, points, lookupWithEmpty);
+		expect(out[2].wayName).toBe("Baker Street → Wembley Park");
+	});
+
+	it("does not walk back across a previous train segment when picking boarding", async () => {
+		// Previous train → stationary at Kings Cross (interchange) →
+		// walking → new train. The most-recent stationary is the
+		// interchange at Kings Cross; that's what we want. The earlier
+		// train segment is fine — we stop walking back at any non-
+		// stationary, non-walking segment, so the previous-train's
+		// destination doesn't accidentally become the new train's
+		// boarding station.
+		const segs = [
+			train(0, 500),
+			stationaryAt(500, 700), // interchange at Kings Cross
+			walking(700, 1000),
+			train(1000, 1500),
+		];
+		const points = [
+			fix(50, 51.5, -0.1),
+			fix(600, 51.53, -0.125), // inside interchange stationary, Kings Cross
+			fix(900, 51.52, -0.13), // walking
+			fix(1600, 51.563, -0.279), // Wembley Park
+		];
+		const out = await annotateRailRuns(segs, points, lookup);
+		// The new train run starts at segs[3]. After collapse the new
+		// train run's annotation should reference Kings Cross.
+		const lastTrain = out[out.length - 1];
+		expect(lastTrain.wayName).toBe("Kings Cross St Pancras → Wembley Park");
+	});
 });
 
 describe("shouldUseClusterAmenity", () => {
