@@ -511,14 +511,20 @@ export function decideRemoteConfig(
  *  re-promoted every time we touch it. */
 const MAX_STATE_KEYS = 32;
 
-/** Promote `key` to most-recently-used and evict the oldest entry from
- *  every state map in lockstep. JS Maps preserve insertion order, so
- *  delete-then-set moves the key to the end. */
+/** Promote `key` to most-recently-used in every state map. JS Maps
+ *  preserve insertion order, so we delete + re-insert each existing
+ *  value to move it to the end. The caller will replace `historyByKey`
+ *  with the freshly merged history; the other two maps are restored
+ *  in place so the proxy doesn't forget its last-pushed profile or
+ *  anti-flap timestamp between requests (which would re-push the same
+ *  config on every fix — see the regression test). */
 function touchStateKey(key: string): void {
-	if (historyByKey.has(key)) historyByKey.delete(key);
-	if (lastProfileByKey.has(key)) lastProfileByKey.delete(key);
-	if (lastPushTsByKey.has(key)) lastPushTsByKey.delete(key);
-	// Caller re-inserts via .set after we've made room below.
+	const existingProfile = lastProfileByKey.get(key);
+	const existingPushTs = lastPushTsByKey.get(key);
+	historyByKey.delete(key);
+	lastProfileByKey.delete(key);
+	lastPushTsByKey.delete(key);
+
 	while (historyByKey.size >= MAX_STATE_KEYS) {
 		const oldest = historyByKey.keys().next().value;
 		if (oldest === undefined) break;
@@ -526,6 +532,11 @@ function touchStateKey(key: string): void {
 		lastProfileByKey.delete(oldest);
 		lastPushTsByKey.delete(oldest);
 	}
+
+	// Restore the existing profile/pushTs values. historyByKey is
+	// repopulated by the caller (with the new merged history).
+	if (existingProfile !== undefined) lastProfileByKey.set(key, existingProfile);
+	if (existingPushTs !== undefined) lastPushTsByKey.set(key, existingPushTs);
 }
 
 /** Per (token,device) memory of the last-pushed motion profile. */

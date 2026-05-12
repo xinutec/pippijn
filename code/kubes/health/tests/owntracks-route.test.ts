@@ -104,6 +104,59 @@ describe("Owntracks route — auth gate", () => {
 	});
 });
 
+describe("Owntracks route — per-device state persistence across requests", () => {
+	// Regression: touchStateKey was deleting entries from lastProfileByKey
+	// and lastPushTsByKey to LRU-reorder them, but the caller only
+	// re-inserted historyByKey. Effect: every request reset the profile
+	// memory and the anti-flap timer, so the proxy re-pushed the same
+	// config command on every single fix instead of once per transition.
+	// Live evidence: after walking-mode was detected we saw repeated
+	// `init->walking` log lines (one per ~28 s fix) instead of
+	// `walking->walking no-op`.
+
+	it("pushes a profile change at most once across a steady walking sequence", async () => {
+		const app = buildApp();
+		// Unique device-id so this test doesn't share module-level state
+		// with the other tests in this file.
+		const device = "touchstate-regression";
+		const url = `/owntracks/abc12345token1/${device}`;
+		const headers = { Authorization: "Basic dXNlcjpwYXNz", "Content-Type": "application/json" };
+		const baseTs = 1_700_000_000;
+
+		// Feed 6 fixes spaced 60s apart, 0.0009° north-bound (≈100m / fix).
+		// effective speed 6 km/h, straightness ~1, monitoring=2 → walking
+		// detection fires from fix 3 onward (span >= 120s). With the bug
+		// the proxy pushes a cmd on every fix from #3; with the fix it
+		// pushes exactly once on the transition and then no-ops.
+		const pushCounts: number[] = [];
+		for (let i = 0; i < 6; i++) {
+			const res = await app.request(url, {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					_type: "location",
+					lat: 51.5 + i * 0.0009,
+					lon: -0.1,
+					tst: baseTs + i * 60,
+					vel: 5,
+					m: 2,
+				}),
+			});
+			const body = (await res.json()) as Array<{ _type?: string }>;
+			pushCounts.push(body.filter((m) => m._type === "cmd").length);
+		}
+
+		// Walking should have been detected and pushed at least once.
+		const firstPushIdx = pushCounts.findIndex((c) => c > 0);
+		expect(firstPushIdx).toBeGreaterThanOrEqual(0);
+
+		// And after that single push, no further fix should re-push the
+		// same config — anti-flap suppresses, prevProfile equals desired.
+		const afterFirstPush = pushCounts.slice(firstPushIdx + 1);
+		expect(afterFirstPush.every((c) => c === 0)).toBe(true);
+	});
+});
+
 describe("Owntracks route — body size limit", () => {
 	it("rejects payloads larger than 32 KB with 413", async () => {
 		const app = buildApp();
