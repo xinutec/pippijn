@@ -1,5 +1,9 @@
-import { db } from "../db/pool.js";
 import { NextcloudClient } from "./client.js";
+import { getValidTokens } from "./token-manager.js";
+
+// Re-export for callers that catch these specifically. The actual class
+// definitions live in `token-manager.ts` where the throwers live.
+export { NextcloudNotLinkedError, NextcloudReauthRequiredError } from "./token-manager.js";
 
 export interface NextcloudConfig {
 	nextcloud: {
@@ -7,16 +11,6 @@ export interface NextcloudConfig {
 		clientId: string;
 		clientSecret: string;
 	};
-}
-
-/** Thrown when the user has no `nc_tokens` row, i.e. they have not yet
- *  linked a Nextcloud account. Callers can catch this specifically to
- *  degrade gracefully (e.g. return an empty timeline instead of HTTP 400). */
-export class NextcloudNotLinkedError extends Error {
-	constructor() {
-		super("Nextcloud not linked");
-		this.name = "NextcloudNotLinkedError";
-	}
 }
 
 export interface RawTrackPoint {
@@ -40,36 +34,11 @@ export interface PhoneTrackContext {
 }
 
 export async function openPhoneTrack(config: NextcloudConfig, userId: string): Promise<PhoneTrackContext> {
-	const ncToken = await db()
-		.selectFrom("nc_tokens")
-		.select(["access_token", "refresh_token", "expires_at"])
-		.where("user_id", "=", userId)
-		.executeTakeFirst();
-
-	if (!ncToken) {
-		throw new NextcloudNotLinkedError();
-	}
-
-	const client = new NextcloudClient({
-		accessToken: ncToken.access_token,
-		refreshToken: ncToken.refresh_token,
-		expiresAt: new Date(ncToken.expires_at).getTime(),
-		baseUrl: config.nextcloud.baseUrl,
-		clientId: config.nextcloud.clientId,
-		clientSecret: config.nextcloud.clientSecret,
-		onTokenRefresh: async (accessToken, refreshToken, expiresIn) => {
-			await db()
-				.updateTable("nc_tokens")
-				.set({
-					access_token: accessToken,
-					refresh_token: refreshToken,
-					expires_at: new Date(Date.now() + expiresIn * 1000),
-				})
-				.where("user_id", "=", userId)
-				.execute();
-		},
-	});
-
+	// Pre-flight: validates tokens exist + are not in `needs_reauth`
+	// state, refreshes if expired. All concurrent callers share one
+	// refresh via the per-user mutex in the token manager.
+	await getValidTokens(userId, config.nextcloud);
+	const client = new NextcloudClient(userId, config.nextcloud);
 	const sessions = await client.get<PhoneTrackContext["sessions"]>("/index.php/apps/phonetrack/sessions");
 	return { client, sessions };
 }

@@ -6,8 +6,9 @@ import { isValidTimezone } from "../geo/timezone.js";
 import { computeVelocity } from "../geo/velocity.js";
 import { requireAuth } from "../middleware/auth.js";
 import { NextcloudClient } from "../nextcloud/client.js";
-import { fetchTrackPoints, NextcloudNotLinkedError } from "../nextcloud/phonetrack.js";
+import { fetchTrackPoints, NextcloudNotLinkedError, NextcloudReauthRequiredError } from "../nextcloud/phonetrack.js";
 import { buildPhoneTrackFilterValues, computePhoneTrackDatemin } from "../nextcloud/phonetrack-prefs.js";
+import { getConnectionStatus } from "../nextcloud/token-manager.js";
 
 /** Subset of the full Config that the API routes actually need. Narrowing
  *  the type here keeps test stubs minimal and surfaces dependency drift
@@ -46,15 +47,19 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 
 	app.get("/me", async (c) => {
 		const { userId, displayName } = c.get("session");
-		const [fitbit, nextcloud] = await Promise.all([
+		const [fitbit, ncStatus] = await Promise.all([
 			db().selectFrom("tokens").select("user_id").where("user_id", "=", userId).executeTakeFirst(),
-			db().selectFrom("nc_tokens").select("user_id").where("user_id", "=", userId).executeTakeFirst(),
+			getConnectionStatus(userId),
 		]);
 		return c.json({
 			userId,
 			displayName,
 			fitbitLinked: !!fitbit,
-			nextcloudLinked: !!nextcloud,
+			nextcloudLinked: ncStatus !== "not_linked", // legacy boolean kept for compatibility
+			connections: {
+				nextcloud: { status: ncStatus },
+				fitbit: { status: fitbit ? "active" : "not_linked" },
+			},
 		});
 	});
 
@@ -214,11 +219,12 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			const points = await fetchTrackPoints(config, uid, date, nextDay(date));
 			return c.json(points);
 		} catch (e) {
-			// Match /velocity: unlinked Nextcloud → empty list with 200 so
-			// the frontend can surface the link CTA via /api/me.
-			if (e instanceof NextcloudNotLinkedError) {
-				return c.json([]);
-			}
+			// Unlinked Nextcloud → empty list (200) so the frontend can
+			// surface the link CTA via /api/me. Reauth required → 409
+			// with a structured error code so the interceptor can fire
+			// the global banner.
+			if (e instanceof NextcloudNotLinkedError) return c.json([]);
+			if (e instanceof NextcloudReauthRequiredError) return c.json({ error: "nextcloud_reauth_required" }, 409);
 			console.error(`/api/locations failed for user=${uid} date=${date}:`, e);
 			return c.json({ error: "locations fetch failed" }, 400);
 		}
@@ -232,12 +238,12 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			const result = await computeVelocity(config, uid, date, tz);
 			return c.json(result);
 		} catch (e) {
-			// Graceful degradation: a user who has not yet linked Nextcloud
-			// gets an empty timeline (HTTP 200) rather than 400. The frontend
-			// can prompt them to link via /api/me.nextcloudLinked.
-			if (e instanceof NextcloudNotLinkedError) {
-				return c.json({ points: [], segments: [] });
-			}
+			// Graceful degradation: unlinked → empty timeline (200).
+			// Reauth required → 409 with structured error so the SPA
+			// can render the reconnect banner instead of silently
+			// rendering "No timeline data available".
+			if (e instanceof NextcloudNotLinkedError) return c.json({ points: [], segments: [] });
+			if (e instanceof NextcloudReauthRequiredError) return c.json({ error: "nextcloud_reauth_required" }, 409);
 			console.error(`/api/velocity failed for user=${uid} date=${date} tz=${tz}:`, e);
 			return c.json({ error: "velocity computation failed" }, 400);
 		}
@@ -253,39 +259,16 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 		const uid = c.get("session").userId;
 		const tz = tzParam.parse(c.req.query("tz")) ?? "UTC";
 
-		const tok = await db()
-			.selectFrom("nc_tokens")
-			.select(["access_token", "refresh_token", "expires_at"])
-			.where("user_id", "=", uid)
-			.executeTakeFirst();
-		if (!tok) return c.json({ error: "Nextcloud not linked" }, 400);
-
 		const datemin = computePhoneTrackDatemin(new Date(), tz);
 		const values = buildPhoneTrackFilterValues(datemin);
 
 		try {
-			const nc = new NextcloudClient({
-				accessToken: tok.access_token,
-				refreshToken: tok.refresh_token,
-				expiresAt: new Date(tok.expires_at).getTime(),
-				baseUrl: config.nextcloud.baseUrl,
-				clientId: config.nextcloud.clientId,
-				clientSecret: config.nextcloud.clientSecret,
-				onTokenRefresh: async (accessToken, refreshToken, expiresIn) => {
-					await db()
-						.updateTable("nc_tokens")
-						.set({
-							access_token: accessToken,
-							refresh_token: refreshToken,
-							expires_at: new Date(Date.now() + expiresIn * 1000),
-						})
-						.where("user_id", "=", uid)
-						.execute();
-				},
-			});
+			const nc = new NextcloudClient(uid, config.nextcloud);
 			await nc.put("/index.php/apps/phonetrack/saveOptionValues", { values });
 			return c.json({ ok: true, datemin });
 		} catch (e) {
+			if (e instanceof NextcloudNotLinkedError) return c.json({ error: "nextcloud_not_linked" }, 412);
+			if (e instanceof NextcloudReauthRequiredError) return c.json({ error: "nextcloud_reauth_required" }, 409);
 			console.error(`/api/phonetrack/sync-filter failed for user=${uid}:`, e);
 			return c.json({ error: "phonetrack sync-filter failed" }, 502);
 		}

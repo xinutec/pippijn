@@ -257,6 +257,15 @@ const MIGRATIONS: readonly string[] = [
 	// converges on the venue the user is actually at.
 	`ALTER TABLE focus_places ADD COLUMN IF NOT EXISTS amenity_label VARCHAR(128) NULL`,
 
+	// v26: Nextcloud connection status. Tracks whether the stored
+	// refresh token is still valid. Set to 'needs_reauth' when the
+	// token manager catches a 4xx from Nextcloud's token endpoint
+	// (refresh token rejected or rate-limited); reset to 'active' on
+	// next successful refresh or fresh /auth/callback. /api/me reads
+	// this so the UI can render a "Reconnect Nextcloud" banner without
+	// triggering side-effects.
+	`ALTER TABLE nc_tokens ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`,
+
 	// Future migrations go here.
 ];
 

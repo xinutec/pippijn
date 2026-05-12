@@ -166,6 +166,11 @@ export interface NcTokensTable {
 	access_token: string;
 	refresh_token: string;
 	expires_at: Date;
+	/** "active" or "needs_reauth". Set to "needs_reauth" when a refresh
+	 *  attempt is rejected with a 4xx (refresh token invalid or
+	 *  rate-limited); reset to "active" on successful refresh or fresh
+	 *  OAuth callback. /api/me surfaces this for the UI banner. */
+	status: Generated<string>;
 	updated_at: Generated<Date>;
 }
 

@@ -5,6 +5,7 @@ import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
 import { consumeState, createState } from "../middleware/oauth-state.js";
 import { clearSessionCookie, createSession, setSessionCookie } from "../middleware/session.js";
+import { invalidateTokenCache } from "../nextcloud/token-manager.js";
 import type { UserSession } from "../types.js";
 
 const ncTokenSchema = z.object({
@@ -27,7 +28,12 @@ export function nextcloudOAuthRoutes(config: Config): Hono<AppEnv> {
 	const nc = config.nextcloud;
 
 	app.get("/login", (c) => {
-		const state = createState();
+		// Optional return_to lets a banner-driven reconnect from
+		// /your-day?date=... land back there instead of the home page.
+		// Stored in the pending OAuth state map and validated at callback
+		// time before use.
+		const returnTo = c.req.query("return_to");
+		const state = createState({ returnTo });
 		const url = new URL(`${nc.baseUrl}/index.php/apps/oauth2/authorize`);
 		url.searchParams.set("client_id", nc.clientId);
 		url.searchParams.set("response_type", "code");
@@ -86,25 +92,40 @@ export function nextcloudOAuthRoutes(config: Config): Hono<AppEnv> {
 			displayName: userData.ocs.data.displayname,
 		};
 
-		// Store Nextcloud OAuth tokens for PhoneTrack API access
+		// Store Nextcloud OAuth tokens for PhoneTrack API access. The
+		// `status` column is reset to "active" so a previously-flagged
+		// reauth state clears on a fresh successful link.
+		const newExpiresAt = new Date(Date.now() + tokens.expires_in * 1000);
 		await db()
 			.insertInto("nc_tokens")
 			.values({
 				user_id: user.userId,
 				access_token: tokens.access_token,
 				refresh_token: tokens.refresh_token,
-				expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+				expires_at: newExpiresAt,
+				status: "active",
 			})
 			.onDuplicateKeyUpdate({
 				access_token: tokens.access_token,
 				refresh_token: tokens.refresh_token,
-				expires_at: new Date(Date.now() + tokens.expires_in * 1000),
+				expires_at: newExpiresAt,
+				status: "active",
 			})
 			.execute();
 
+		// Drop the in-process cache so the next API call reads the
+		// freshly stored tokens instead of any stale entry.
+		invalidateTokenCache(user.userId);
+
 		const signedId = await createSession(config.sessionSecret, user);
 		setSessionCookie(c, signedId);
-		return c.redirect("/");
+		// Honor optional return_to stored in the pending OAuth state by
+		// `/login` so reconnecting from /your-day lands back there.
+		// Validated against an internal-path allowlist to prevent open
+		// redirects even though the value originated from our own UI.
+		const returnTo = pending.returnTo;
+		const safeReturnTo = returnTo && /^\/[a-zA-Z0-9/_?=&%-]*$/.test(returnTo) ? returnTo : "/";
+		return c.redirect(safeReturnTo);
 	});
 
 	app.post("/logout", async (c) => {
