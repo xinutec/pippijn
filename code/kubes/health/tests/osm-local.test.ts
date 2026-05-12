@@ -18,7 +18,9 @@ import {
 	type CoverageRow,
 	fetchBboxAround,
 	isPointCovered,
+	type ParsedFeature,
 	parseOverpassElement,
+	streamOverpassElements,
 } from "../src/geo/osm-local.js";
 
 describe("isPointCovered", () => {
@@ -217,5 +219,126 @@ describe("buildOverpassQuery", () => {
 
 	it("rejects unknown feature_types up front", () => {
 		expect(() => buildOverpassQuery("not_a_thing", bbox)).toThrow();
+	});
+});
+
+describe("streamOverpassElements", () => {
+	// Streaming JSON parse for Overpass responses. Avoids buffering the
+	// whole `{ "version": ..., "elements": [ ... ] }` payload in heap —
+	// elements arrive one at a time, get parsed + bucketed (points vs
+	// lines), and flushed to the caller's onBatch in fixed-size groups.
+	// This is what keeps the local-OSM-mirror cold-start under the pod
+	// memory limit at 10km bboxes; the old `await res.json()` path peaked
+	// at ~3× raw response size.
+
+	function bodyOf(json: unknown): Response {
+		return new Response(JSON.stringify(json), {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		});
+	}
+
+	const stationNode = {
+		type: "node",
+		id: 100,
+		lat: 51.5,
+		lon: -0.1,
+		tags: { railway: "station", name: "King's Cross" },
+	};
+
+	const railWay = {
+		type: "way",
+		id: 200,
+		tags: { railway: "subway", name: "Victoria Line" },
+		geometry: [
+			{ lat: 51.5, lon: -0.1 },
+			{ lat: 51.6, lon: -0.2 },
+		],
+	};
+
+	const motorwayWay = {
+		type: "way",
+		id: 300,
+		tags: { highway: "motorway", name: "M25" },
+		geometry: [
+			{ lat: 51.0, lon: -0.5 },
+			{ lat: 51.1, lon: -0.4 },
+		],
+	};
+
+	it("emits a single batch with all elements when fewer than batchSize", async () => {
+		const body = bodyOf({ version: 0.6, elements: [stationNode, railWay] });
+		const batches: Array<{ points: ParsedFeature[]; lines: ParsedFeature[] }> = [];
+		const { count } = await streamOverpassElements(body, async (points, lines) => {
+			batches.push({ points: [...points], lines: [...lines] });
+		});
+		expect(count).toBe(2);
+		expect(batches).toHaveLength(1);
+		expect(batches[0].points.map((f) => f.osm_id)).toEqual([100]);
+		expect(batches[0].lines.map((f) => f.osm_id)).toEqual([200]);
+	});
+
+	it("splits across multiple batches when input exceeds batchSize", async () => {
+		// 5 elements with batchSize 2 → batches of [2, 2, 1]. Sizes count
+		// total elements (points + lines), not per-bucket.
+		const elements = [stationNode, railWay, motorwayWay, stationNode, railWay];
+		const body = bodyOf({ version: 0.6, elements });
+		const batches: Array<{ size: number }> = [];
+		await streamOverpassElements(
+			body,
+			async (points, lines) => {
+				batches.push({ size: points.length + lines.length });
+			},
+			2,
+		);
+		expect(batches.map((b) => b.size)).toEqual([2, 2, 1]);
+	});
+
+	it("calls onBatch zero times when elements array is empty", async () => {
+		const body = bodyOf({ version: 0.6, elements: [] });
+		let calls = 0;
+		const { count } = await streamOverpassElements(body, async () => {
+			calls++;
+		});
+		expect(calls).toBe(0);
+		expect(count).toBe(0);
+	});
+
+	it("filters out untaggable elements (no rule match)", async () => {
+		// `population` is not in FEATURE_TYPE_RULES; parseOverpassElement
+		// returns null. The streamer must skip those — they don't count
+		// toward batches or the returned `count`.
+		const untaggable = { type: "node", id: 999, lat: 0, lon: 0, tags: { population: "100" } };
+		const body = bodyOf({ version: 0.6, elements: [untaggable, stationNode] });
+		const batches: Array<{ points: ParsedFeature[]; lines: ParsedFeature[] }> = [];
+		const { count } = await streamOverpassElements(body, async (points, lines) => {
+			batches.push({ points: [...points], lines: [...lines] });
+		});
+		expect(count).toBe(1);
+		expect(batches[0].points.map((f) => f.osm_id)).toEqual([100]);
+	});
+
+	it("propagates errors from malformed JSON", async () => {
+		const body = new Response("{not valid json", { status: 200 });
+		await expect(streamOverpassElements(body, async () => {})).rejects.toThrow();
+	});
+
+	it("ignores fields outside `elements` so we don't buffer the whole payload", async () => {
+		// Overpass responses include `version`, `generator`, `osm3s`
+		// metadata before the `elements` array. Our streamer should walk
+		// past those without trying to keep them. The visible behaviour
+		// is just: parse succeeds and returns only elements.
+		const body = bodyOf({
+			version: 0.6,
+			generator: "Overpass API 0.7.62",
+			osm3s: { timestamp_osm_base: "2024-01-01T00:00:00Z" },
+			elements: [stationNode],
+		});
+		const batches: ParsedFeature[][] = [];
+		await streamOverpassElements(body, async (points) => {
+			batches.push([...points]);
+		});
+		expect(batches[0]).toHaveLength(1);
+		expect(batches[0][0].osm_id).toBe(100);
 	});
 });

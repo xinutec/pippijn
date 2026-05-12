@@ -18,18 +18,14 @@ const OVERPASS_URLS = ["https://overpass-api.de/api/interpreter", "https://overp
 const OVERPASS_TIMEOUT_MS = 20_000;
 
 /** Maximum number of concurrent Overpass fetches across the whole
- *  process. The local-mirror cold-start fans out 4 fetches × N
- *  velocity segments in parallel, each loading 5-50 MB JSON. Even
- *  at a 512 MB pod limit, ~5 concurrent landmark responses OOM. A
- *  conservative cap of 2 bounds the peak memory at ~2× the largest
- *  response — well within budget — with a small wall-time cost on
- *  cold-start that's invisible once the mirror is populated. */
-// Concurrency 1: full serialization. A single 50 MB Overpass response
-// peaks at ~200 MB during res.json() parsing (V8 stores raw string +
-// parsed tree). Two in flight at once OOMs a 512 MB pod. Wall-time
-// cost on cold-start is bounded; once the mirror is populated the
-// semaphore never blocks anything.
-const OVERPASS_CONCURRENCY = 1;
+ *  process. With the streaming JSON parser in osm-local each fetch
+ *  peaks at ~5-10 MB regardless of response size (elements get
+ *  flushed in 500-feature batches; the byte buffer is small), so two
+ *  in flight at once is comfortably under the 512 MB pod limit. We
+ *  cap at 2 anyway — Overpass's public mirrors rate-limit aggressive
+ *  clients and serialising a bit on our side is friendlier than
+ *  triggering 429s mid-pipeline. */
+const OVERPASS_CONCURRENCY = 2;
 let inFlight = 0;
 const queue: Array<() => void> = [];
 function acquire(): Promise<void> {

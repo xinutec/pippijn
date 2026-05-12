@@ -53,7 +53,12 @@
  * features. That path keeps the existing `osm_cache` table.
  */
 
+import { Readable } from "node:stream";
 import { sql } from "kysely";
+import chain from "stream-chain";
+import parser from "stream-json";
+import pick from "stream-json/filters/pick.js";
+import streamArray from "stream-json/streamers/stream-array.js";
 import { db } from "../db/pool.js";
 import { overpassFetch } from "./osm-overpass.js";
 
@@ -106,12 +111,14 @@ export function isPointCovered(lat: number, lon: number, radiusM: number, covera
  * cardinal direction. 5 km half-width = 10 km box ≈ 100 km² — small
  * enough to keep Overpass payloads modest, big enough that one fetch
  * covers a whole neighbourhood and you don't keep re-fetching every
- * few hundred metres of travel.
+ * few hundred metres of travel. Safe with streaming JSON parse: a
+ * 50 MB response peaks at ~5-10 MB in heap because elements get
+ * buffered in fixed-size batches, not the whole tree at once.
  */
 export function fetchBboxAround(
 	lat: number,
 	lon: number,
-	halfWidthM = 1000,
+	halfWidthM = 5000,
 ): { minLat: number; maxLat: number; minLon: number; maxLon: number } {
 	const dLat = halfWidthM / METERS_PER_DEG_LAT;
 	const dLon = halfWidthM / metersPerDegLon(lat);
@@ -246,6 +253,71 @@ export function buildOverpassQuery(
 	return `[out:json][timeout:25];\n(\n${stanzas}\n);\nout tags geom;`;
 }
 
+/**
+ * Stream-parse an Overpass response. Reads `response.body` as bytes,
+ * picks out the `elements` array, and emits each element through the
+ * caller's `onBatch` callback in fixed-size groups. The whole point
+ * is to never hold the entire response (often 5-50 MB raw JSON) in
+ * heap at once — `await res.json()` would peak at ~3× raw size during
+ * V8's parse, which is what previously OOM'd the 512 MB pod on dense
+ * urban landmark + highway fetches.
+ *
+ * Elements are bucketed into `points` (POINT WKT) and `lines`
+ * (LINESTRING WKT) inside this function so the caller can route them
+ * to their respective tables without re-scanning. `batchSize` counts
+ * total features (points + lines), so a 500-element batch is the same
+ * size whether it's all points or all lines or a mix.
+ *
+ * Returns the count of features that survived `parseOverpassElement`
+ * filtering — i.e. elements that had a tag we care about and valid
+ * geometry. Elements with no relevant tags or missing coords are
+ * silently skipped (they don't count toward batches or the total).
+ */
+export async function streamOverpassElements(
+	response: Response,
+	onBatch: (points: ParsedFeature[], lines: ParsedFeature[]) => Promise<void>,
+	batchSize = 500,
+): Promise<{ count: number }> {
+	if (!response.body) throw new Error("streamOverpassElements: response has no body");
+	const nodeStream = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]);
+	// stream-chain composes the pipeline as a single Duplex with
+	// proper error forwarding between stages. A parse error in any
+	// stage propagates to the consumer's `for await` loop as a
+	// rejection — vanilla `.pipe()` would let it surface as an
+	// uncaught 'error' event instead.
+	const pipeline = chain([
+		nodeStream,
+		parser(),
+		pick({ filter: "elements" }),
+		streamArray(),
+	]);
+
+	let points: ParsedFeature[] = [];
+	let lines: ParsedFeature[] = [];
+	let count = 0;
+
+	for await (const item of pipeline) {
+		// stream-json's StreamArray emits `{ key, value }` per array element.
+		const parsed = parseOverpassElement((item as { value: Parameters<typeof parseOverpassElement>[0] }).value);
+		if (!parsed) continue;
+		count++;
+		if (parsed.geom_wkt.startsWith("POINT(")) points.push(parsed);
+		else if (parsed.geom_wkt.startsWith("LINESTRING(")) lines.push(parsed);
+
+		if (points.length + lines.length >= batchSize) {
+			await onBatch(points, lines);
+			points = [];
+			lines = [];
+		}
+	}
+
+	if (points.length + lines.length > 0) {
+		await onBatch(points, lines);
+	}
+
+	return { count };
+}
+
 // ============================================================================
 // DB-touching layer
 // ============================================================================
@@ -275,8 +347,10 @@ async function readCoverage(featureType: string): Promise<CoverageRow[]> {
 }
 
 /** Run an Overpass fetch for one feature_type over a bbox, parse the
- *  response, upsert features, and record the coverage row. Caller is
- *  responsible for deciding when to call this — see `ensureCovered`. */
+ *  response, upsert features, and record the coverage row. Streaming
+ *  parse keeps peak heap bounded regardless of response size — see
+ *  `streamOverpassElements`. Caller is responsible for deciding when
+ *  to call this — see `ensureCovered`. */
 async function fetchAndStore(
 	featureType: string,
 	bbox: { minLat: number; maxLat: number; minLon: number; maxLon: number },
@@ -284,27 +358,20 @@ async function fetchAndStore(
 	const t0 = Date.now();
 	const query = buildOverpassQuery(featureType, bbox);
 	const res = await overpassFetch(query);
-	const fetchMs = Date.now() - t0;
+	const fetchStartMs = Date.now() - t0;
 	if (!res.ok) {
 		console.warn(`osm-local fetch for ${featureType} bbox ${JSON.stringify(bbox)} returned ${res.status}`);
 		return;
 	}
-	const data = (await res.json()) as { elements?: OverpassElement[] };
-	const elements = data.elements ?? [];
 
-	const features: ParsedFeature[] = [];
-	for (const el of elements) {
-		const parsed = parseOverpassElement(el);
-		if (parsed) features.push(parsed);
-	}
-	// Split by geometry type — points and lines live in separate
-	// tables so MariaDB's POINT-POINT-only ST_Distance_Sphere never
-	// gets called on a LINESTRING. Each row goes to one table based
-	// on its WKT prefix.
-	const points = features.filter((f) => f.geom_wkt.startsWith("POINT("));
-	const lines = features.filter((f) => f.geom_wkt.startsWith("LINESTRING("));
-	await upsertFeatures("osm_points", points);
-	await upsertFeatures("osm_lines", lines);
+	let pointsTotal = 0;
+	let linesTotal = 0;
+	const { count } = await streamOverpassElements(res, async (points, lines) => {
+		pointsTotal += points.length;
+		linesTotal += lines.length;
+		await upsertFeatures("osm_points", points);
+		await upsertFeatures("osm_lines", lines);
+	});
 
 	await db()
 		.insertInto("osm_coverage")
@@ -319,7 +386,7 @@ async function fetchAndStore(
 
 	const totalMs = Date.now() - t0;
 	console.log(
-		`osm-local fetched ${featureType} bbox=${bbox.minLat.toFixed(3)},${bbox.minLon.toFixed(3)}→${bbox.maxLat.toFixed(3)},${bbox.maxLon.toFixed(3)} elements=${elements.length} points=${points.length} lines=${lines.length} fetch=${fetchMs}ms total=${totalMs}ms`,
+		`osm-local fetched ${featureType} bbox=${bbox.minLat.toFixed(3)},${bbox.minLon.toFixed(3)}→${bbox.maxLat.toFixed(3)},${bbox.maxLon.toFixed(3)} elements=${count} points=${pointsTotal} lines=${linesTotal} ttfb=${fetchStartMs}ms total=${totalMs}ms`,
 	);
 }
 
