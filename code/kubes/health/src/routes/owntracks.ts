@@ -31,6 +31,7 @@
 import { Hono } from "hono";
 import type { Config } from "../config.js";
 import type { AppEnv } from "../env.js";
+import { haversineMeters } from "../geo/place-snap.js";
 
 export type MonitoringMode = 0 | 1 | 2;
 
@@ -44,19 +45,98 @@ export interface OwntracksConfigPatch {
 	locatorDisplacement?: number; // metres of movement to log a fix
 }
 
-/** A coarse motion regime derived from a single velocity reading. */
-export type MotionProfile = "transit-fast" | "transit" | "stationary" | null;
+/** A coarse motion regime. `walking` is detected from a multi-fix history
+ *  rather than a single velocity reading (single-fix velocity in the walking
+ *  band is indistinguishable from stationary GPS jitter). */
+export type MotionProfile = "transit-fast" | "transit" | "walking" | "stationary" | null;
 
 /**
- * Classify a velocity reading into a motion regime. Returns null for
- * the ambiguous mid-range (5-30 km/h) where the right profile depends
- * on context we don't have here (walking vs cycling vs slow drive).
+ * Classify a single velocity reading into a motion regime. Returns null for
+ * the ambiguous mid-range (5-30 km/h) where the right profile depends on
+ * context we don't have from one fix (walking vs cycling vs slow drive). The
+ * walking-band lower limit (sub-5 km/h) maps to "stationary" here on
+ * purpose — use `classifyFromHistory` to disambiguate walking from drift.
  */
 export function classifyMotion(speedKmh: number): MotionProfile {
 	if (speedKmh > 80) return "transit-fast";
 	if (speedKmh > 30) return "transit";
 	if (speedKmh < 5) return "stationary";
 	return null;
+}
+
+/** A single GPS fix retained in the per-device history ring. Lat/lon/ts is
+ *  the minimum needed for the path-length + straightness calculations. */
+export interface FixRecord {
+	ts: number; // unix seconds
+	lat: number;
+	lon: number;
+}
+
+const MIN_WALKING_FIXES = 3;
+const WALKING_MIN_KMH = 2;
+const WALKING_MAX_KMH = 8;
+const WALKING_MIN_STRAIGHTNESS = 0.5;
+/** How far back the walking detector looks. Long enough to gather enough
+ *  fixes from Owntracks "Significant" mode (which can wait a minute or two
+ *  between fixes), short enough that yesterday's walk doesn't leak in. */
+export const HISTORY_MAX_AGE_SEC = 600;
+
+/** Drop fixes older than `nowSec - maxAgeSec`. Inclusive at the boundary so
+ *  a fix exactly at the cutoff is kept (no off-by-one drop). */
+export function pruneFixHistory(history: FixRecord[], maxAgeSec: number, nowSec: number): FixRecord[] {
+	const cutoff = nowSec - maxAgeSec;
+	return history.filter((f) => f.ts >= cutoff);
+}
+
+function pathDistanceM(history: FixRecord[]): number {
+	let d = 0;
+	for (let i = 1; i < history.length; i++) {
+		const a = history[i - 1];
+		const b = history[i];
+		d += haversineMeters(a.lat, a.lon, b.lat, b.lon);
+	}
+	return d;
+}
+
+function netDisplacementM(history: FixRecord[]): number {
+	if (history.length < 2) return 0;
+	const first = history[0];
+	const last = history[history.length - 1];
+	return haversineMeters(first.lat, first.lon, last.lat, last.lon);
+}
+
+/** Effective speed across the whole window. Distinguishes a real walk
+ *  ("path / elapsed time" stays at 3-6 km/h) from stationary GPS jitter
+ *  ("path / elapsed time" stays near zero because the bouncing cancels
+ *  out over time). */
+export function effectiveSpeedKmh(history: FixRecord[]): number {
+	if (history.length < 2) return 0;
+	const dtSec = history[history.length - 1].ts - history[0].ts;
+	if (dtSec <= 0) return 0;
+	return (pathDistanceM(history) / dtSec) * 3.6;
+}
+
+/** Net displacement / total path length, 0..1. A directed walk yields >0.5
+ *  ("I'm going somewhere"); a random wander yields near 0 (the path bounces
+ *  back on itself, net displacement small). */
+export function straightnessRatio(history: FixRecord[]): number {
+	if (history.length < 2) return 0;
+	const path = pathDistanceM(history);
+	if (path === 0) return 0;
+	return netDisplacementM(history) / path;
+}
+
+/** Returns "walking" if the history shows directional motion at walking
+ *  pace, null otherwise. Caller prunes the history to the desired time
+ *  window before calling. The classifier is deliberately conservative:
+ *  better to under-report walking (and stay in Significant mode) than to
+ *  flip the phone into Move mode on stationary noise. */
+export function classifyFromHistory(history: FixRecord[]): MotionProfile {
+	if (history.length < MIN_WALKING_FIXES) return null;
+	const v = effectiveSpeedKmh(history);
+	if (v < WALKING_MIN_KMH || v > WALKING_MAX_KMH) return null;
+	if (straightnessRatio(history) < WALKING_MIN_STRAIGHTNESS) return null;
+	return "walking";
 }
 
 /** Owntracks settings for each motion regime. Tuned for the trade-off
@@ -67,31 +147,61 @@ export function classifyMotion(speedKmh: number): MotionProfile {
  *    meaningful for station-graph annotation on tube/rail.
  *  - transit: regular driving. 15s is dense enough to capture turns
  *    without burning battery on a long motorway run.
+ *  - walking: pedestrian. 30s gives ~25m fix spacing at 3 km/h —
+ *    dense enough to draw a clean trail, much lighter on the battery
+ *    than the transit intervals.
  *  - stationary: drop to Significant mode. Owntracks does its own
  *    motion detection there; interval/displacement only apply in Move
  *    mode anyway. */
 const PROFILE_CONFIG: Record<Exclude<MotionProfile, null>, OwntracksConfigPatch> = {
 	"transit-fast": { monitoring: 2, moveModeLocatorInterval: 10 },
 	transit: { monitoring: 2, moveModeLocatorInterval: 15 },
+	walking: { monitoring: 2, moveModeLocatorInterval: 30 },
 	stationary: { monitoring: 1 },
 };
+
+function patchFor(
+	desired: Exclude<MotionProfile, null>,
+	lastProfile: MotionProfile,
+): { profile: MotionProfile; patch: OwntracksConfigPatch | null } {
+	if (desired === lastProfile) return { profile: desired, patch: null };
+	return { profile: desired, patch: PROFILE_CONFIG[desired] };
+}
 
 /**
  * Decide whether to push a config patch in response to this fix.
  *
- * Returns the new motion profile and an optional patch to apply. The
- * patch is null when no command should be sent — either the speed is
- * ambiguous, or the desired profile equals what we last pushed (avoid
+ * Priority order:
+ *   1. Single-fix transit speeds (>30 km/h) — instant reaction when
+ *      boarding a train / starting a drive. The history would lag here.
+ *   2. Walking signal from the recent fix history — overrides the
+ *      stationary fallback so a 4 km/h walk doesn't read as stationary.
+ *   3. Single-fix stationary (<5 km/h) — when history has no walking
+ *      signal, trust the low-speed reading.
+ *   4. Otherwise (mid-range ambiguous speed, no history signal) — keep
+ *      the last profile.
+ *
+ * The patch is null when no command should be sent — either nothing
+ * changes or the desired profile equals what we last pushed (avoid
  * spamming the same config on every fix).
  */
 export function decideRemoteConfig(
 	speedKmh: number,
 	lastProfile: MotionProfile,
+	history: FixRecord[] = [],
 ): { profile: MotionProfile; patch: OwntracksConfigPatch | null } {
-	const desired = classifyMotion(speedKmh);
-	if (desired === null) return { profile: lastProfile, patch: null };
-	if (desired === lastProfile) return { profile: desired, patch: null };
-	return { profile: desired, patch: PROFILE_CONFIG[desired] };
+	const singleFix = classifyMotion(speedKmh);
+	if (singleFix === "transit-fast" || singleFix === "transit") {
+		return patchFor(singleFix, lastProfile);
+	}
+	const fromHistory = classifyFromHistory(history);
+	if (fromHistory !== null) {
+		return patchFor(fromHistory, lastProfile);
+	}
+	if (singleFix !== null) {
+		return patchFor(singleFix, lastProfile);
+	}
+	return { profile: lastProfile, patch: null };
 }
 
 /** Per (token,device) memory of the last-pushed motion profile. Lost on
@@ -99,6 +209,9 @@ export function decideRemoteConfig(
  *  warrants. Keyed by both so a user with multiple devices gets independent
  *  state. */
 const lastProfileByKey = new Map<string, MotionProfile>();
+
+/** Per (token,device) recent-fix history used by the walking detector. */
+const historyByKey = new Map<string, FixRecord[]>();
 
 /** Owntracks location-message shape (subset of fields we care about). */
 interface OwntracksLocation {
@@ -167,13 +280,28 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 		if (upstreamRes === null) return c.json({ error: "upstream unreachable" }, 502);
 		if (!upstreamRes.ok) return c.json({ error: "upstream rejected" }, upstreamRes.status as 400 | 502);
 
-		// Decide remote-config command based on this fix's velocity.
-		// Owntracks payloads can be a single message or an array; we look
-		// at the highest velocity reported in the batch.
+		// Decide remote-config command based on this fix's velocity plus
+		// the recent-fix history. Owntracks payloads can be a single
+		// message or an array; we use the max velocity from the batch as
+		// the single-fix signal, and append every location-bearing message
+		// to the per-device history so the walking detector has multiple
+		// fixes to look at.
 		const messages = Array.isArray(payload) ? payload : [payload];
 		const maxVel = messages.reduce((m, msg) => (msg.vel !== undefined && msg.vel > m ? msg.vel : m), 0);
 		const stateKey = `${token}/${device}`;
-		const { profile, patch } = decideRemoteConfig(maxVel, lastProfileByKey.get(stateKey) ?? null);
+
+		const newFixes: FixRecord[] = [];
+		for (const msg of messages) {
+			if (msg.lat !== undefined && msg.lon !== undefined && msg.tst !== undefined) {
+				newFixes.push({ ts: msg.tst, lat: msg.lat, lon: msg.lon });
+			}
+		}
+		const latestTs = newFixes.length > 0 ? newFixes[newFixes.length - 1].ts : Math.floor(Date.now() / 1000);
+		const merged = [...(historyByKey.get(stateKey) ?? []), ...newFixes];
+		const history = pruneFixHistory(merged, HISTORY_MAX_AGE_SEC, latestTs);
+		historyByKey.set(stateKey, history);
+
+		const { profile, patch } = decideRemoteConfig(maxVel, lastProfileByKey.get(stateKey) ?? null, history);
 
 		// Preserve PhoneTrack's response body. PhoneTrack returns a JSON
 		// array containing a "you are your own friend" location-echo
