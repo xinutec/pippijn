@@ -362,9 +362,13 @@ export async function ensureCovered(lat: number, lon: number, radiusM: number, f
 	const coverage = await readCoverage(featureType);
 	const cutoffMs = Date.now() - COVERAGE_FRESH_DAYS * 86400_000;
 	const fresh = coverage.filter((c) => !c.fetched_at || c.fetched_at.getTime() > cutoffMs);
-	if (isPointCovered(lat, lon, radiusM, fresh)) return;
+	const covered = isPointCovered(lat, lon, radiusM, fresh);
+	console.log(`ensureCovered ${featureType} lat=${lat.toFixed(4)} lon=${lon.toFixed(4)} r=${radiusM} rows=${coverage.length} fresh=${fresh.length} covered=${covered}`);
+	if (covered) return;
 	const bbox = fetchBboxAround(lat, lon);
+	console.log(`ensureCovered fetching bbox ${JSON.stringify(bbox)} for ${featureType}`);
 	await fetchAndStore(featureType, bbox);
+	console.log(`ensureCovered fetched and stored for ${featureType}`);
 }
 
 export interface LocalFeatureResult {
