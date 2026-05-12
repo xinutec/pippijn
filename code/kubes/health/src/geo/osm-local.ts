@@ -281,8 +281,10 @@ async function fetchAndStore(
 	featureType: string,
 	bbox: { minLat: number; maxLat: number; minLon: number; maxLon: number },
 ): Promise<void> {
+	const t0 = Date.now();
 	const query = buildOverpassQuery(featureType, bbox);
 	const res = await overpassFetch(query);
+	const fetchMs = Date.now() - t0;
 	if (!res.ok) {
 		console.warn(`osm-local fetch for ${featureType} bbox ${JSON.stringify(bbox)} returned ${res.status}`);
 		return;
@@ -314,6 +316,11 @@ async function fetchAndStore(
 			feature_type: featureType,
 		})
 		.execute();
+
+	const totalMs = Date.now() - t0;
+	console.log(
+		`osm-local fetched ${featureType} bbox=${bbox.minLat.toFixed(3)},${bbox.minLon.toFixed(3)}→${bbox.maxLat.toFixed(3)},${bbox.maxLon.toFixed(3)} elements=${elements.length} points=${points.length} lines=${lines.length} fetch=${fetchMs}ms total=${totalMs}ms`,
+	);
 }
 
 /** Bulk-upsert a batch of features into one of the geometry tables.
@@ -350,21 +357,47 @@ async function upsertFeatures(table: "osm_points" | "osm_lines", features: Parse
  * Stale coverage (older than `COVERAGE_FRESH_DAYS`) is treated as
  * uncovered and re-fetched lazily on next query.
  */
+/** In-flight fetch dedup, keyed by `featureType + bbox`. Multiple
+ *  ensureCovered callers for the same featureType + bbox share one
+ *  fetch instead of each firing their own. Without this, the
+ *  velocity pipeline processes many segments in parallel and each
+ *  segment's first-bucket lookup independently triggers an Overpass
+ *  call → memory pressure + thundering herd. */
+const inFlightFetches = new Map<string, Promise<void>>();
+
 export async function ensureCovered(lat: number, lon: number, radiusM: number, featureType: string): Promise<void> {
 	const coverage = await readCoverage(featureType);
 	const cutoffMs = Date.now() - COVERAGE_FRESH_DAYS * 86400_000;
 	const fresh = coverage.filter((c) => !c.fetched_at || c.fetched_at.getTime() > cutoffMs);
 	if (isPointCovered(lat, lon, radiusM, fresh)) return;
 	const bbox = fetchBboxAround(lat, lon);
+
+	// Dedup: key includes the bbox so distant lookups in the same
+	// featureType don't block each other. The bbox is determined by
+	// the centre point + fixed half-width, so two callers near the
+	// same point produce the same key.
+	const key = `${featureType}:${bbox.minLat.toFixed(3)},${bbox.minLon.toFixed(3)}`;
+	const existing = inFlightFetches.get(key);
+	if (existing) {
+		try {
+			await existing;
+		} catch {
+			/* outer handler already logged */
+		}
+		return;
+	}
+
+	const promise = fetchAndStore(featureType, bbox).finally(() => inFlightFetches.delete(key));
+	inFlightFetches.set(key, promise);
+
 	// Soft-fail the fetch: if Overpass times out or rejects, log and
 	// continue. The query against local osm_points/osm_lines will then
 	// just return whatever's already there (often empty for this new
-	// area). This matches the negative-cache behaviour of the old
-	// withCache path — a failed Overpass call shouldn't break the
-	// whole dashboard request. A later request that hits this same
-	// area will retry the fetch (we didn't record a coverage row).
+	// area). Matches the negative-cache behaviour of the old withCache
+	// path. A later request retries because we didn't record a
+	// coverage row.
 	try {
-		await fetchAndStore(featureType, bbox);
+		await promise;
 	} catch (e) {
 		console.warn(`ensureCovered ${featureType} fetch failed at ${lat.toFixed(4)},${lon.toFixed(4)}:`, e);
 	}

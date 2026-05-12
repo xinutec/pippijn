@@ -660,14 +660,17 @@ export async function nearbyWays(lat: number, lon: number, radiusM = 50): Promis
 	// OSM tags airports as both ways (runways, taxiways) and nodes
 	// (aerodrome markers, terminals).
 	//
-	// Cold-miss in a new area: 4 Overpass calls (one per bucket) in
-	// parallel. Steady-state: 4 indexed SQL queries, no network.
-	await Promise.all([
-		ensureCovered(lat, lon, radiusM, "highway"),
-		ensureCovered(lat, lon, radiusM, "railway"),
-		ensureCovered(lat, lon, radiusM, "waterway"),
-		ensureCovered(lat, lon, radiusM, "aeroway"),
-	]);
+	// Cold-miss in a new area: 4 Overpass calls (one per bucket).
+	// Serial rather than parallel — each bucket's response can be
+	// 5-50 MB JSON in dense urban bboxes (especially highway and
+	// landmark). Four in flight at once OOM'd a 256 MB pod. Serial
+	// keeps the memory peak at ~1× response, with the same total
+	// wall time on cold-miss (each Overpass mirror is the bottleneck,
+	// not the local node). Steady-state: 4 indexed SQL queries below.
+	await ensureCovered(lat, lon, radiusM, "highway");
+	await ensureCovered(lat, lon, radiusM, "railway");
+	await ensureCovered(lat, lon, radiusM, "waterway");
+	await ensureCovered(lat, lon, radiusM, "aeroway");
 	const [highways, railways, waterways, aerowayLines, aerowayPoints] = await Promise.all([
 		queryLines(lat, lon, radiusM, "highway"),
 		queryLines(lat, lon, radiusM, "railway"),
