@@ -80,10 +80,14 @@ describe("decideRemoteConfig", () => {
 		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
 	});
 
-	it("returns the config for stationary when leaving transit", () => {
+	it("does NOT demote from transit to stationary on a single vel=0 fix (bug fix)", () => {
+		// Real-world: tube tunnel produces a fix with vel=0 or vel missing.
+		// We must not flip the phone back to Significant on a single weird
+		// reading — that loses Move-mode tracking for the rest of the run.
+		// De-escalation requires history evidence, not a single fix.
 		const r = decideRemoteConfig(0, "transit");
-		expect(r.profile).toBe("stationary");
-		expect(r.patch).toEqual({ monitoring: 1 });
+		expect(r.profile).toBe("transit"); // keep lastProfile
+		expect(r.patch).toBeNull();
 	});
 
 	it("returns null patch when profile equals lastProfile (avoid spam)", () => {
@@ -373,14 +377,39 @@ describe("decideRemoteConfig with history", () => {
 		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 10 });
 	});
 
-	it("falls back to stationary when history is empty and speed is low", () => {
-		// Original behavior preserved when there's no history yet.
+	it("does not push stationary without history evidence", () => {
+		// vel=0 with no history is too weak a signal to demote the phone
+		// from Move back to Significant. Wait for enough fixes to confirm.
 		const r = decideRemoteConfig(0, null, []);
+		expect(r.patch).toBeNull();
+	});
+
+	it("keeps transit mode under a single weird-zero fix when history shows transit speed", () => {
+		// Bug fix: tube tunnel produces a fix with vel=0 mid-run; the
+		// surrounding history is all 100 km/h. Must keep transit-fast,
+		// not demote to stationary.
+		const transitHistory = chain({ lat0: 0, lon0: 0, dLat: 0.018, dLon: 0, t0: 0, dtSec: 60, n: 5 }); // ~120 km/h
+		const r = decideRemoteConfig(0, "transit-fast", transitHistory);
+		expect(r.profile).toBe("transit-fast");
+		expect(r.patch).toBeNull();
+	});
+
+	it("demotes to stationary only after sustained low-speed history", () => {
+		// 5 fixes, all nearly the same point, over 5 minutes. Effective
+		// speed is well under 2 km/h. This is real evidence of stopping.
+		const stationaryHistory: FixRecord[] = [
+			{ ts: 0, lat: 51.5, lon: -0.1 },
+			{ ts: 60, lat: 51.5, lon: -0.1 },
+			{ ts: 120, lat: 51.50001, lon: -0.1 },
+			{ ts: 180, lat: 51.5, lon: -0.10001 },
+			{ ts: 240, lat: 51.5, lon: -0.1 },
+		];
+		const r = decideRemoteConfig(0, "transit", stationaryHistory);
 		expect(r.profile).toBe("stationary");
 		expect(r.patch).toEqual({ monitoring: 1 });
 	});
 
-	it("history with wander does not override stationary fallback", () => {
+	it("history with wander does not push walking nor demote prematurely", () => {
 		const wanderHistory: FixRecord[] = [
 			{ ts: 0, lat: 0, lon: 0 },
 			{ ts: 90, lat: 0.0009, lon: 0 },
@@ -388,7 +417,10 @@ describe("decideRemoteConfig with history", () => {
 			{ ts: 270, lat: 0, lon: 0.0009 },
 			{ ts: 360, lat: 0, lon: 0 },
 		];
-		const r = decideRemoteConfig(0, null, wanderHistory);
-		expect(r.profile).toBe("stationary");
+		// effective ~4 km/h but straightness 0 → no walking signal, but
+		// also not below 2 km/h so not stationary either. Keep lastProfile.
+		const r = decideRemoteConfig(0, "transit", wanderHistory);
+		expect(r.profile).toBe("transit");
+		expect(r.patch).toBeNull();
 	});
 });

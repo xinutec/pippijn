@@ -169,39 +169,58 @@ function patchFor(
 }
 
 /**
+ * Decide a motion profile from the current fix's velocity and the recent
+ * fix history. Asymmetric handling on purpose:
+ *
+ *   - **Escalation is fast.** A single high-velocity fix (>30 km/h) is
+ *     enough to flip the phone into Move mode — we don't want to wait
+ *     for history when the user has just boarded a train.
+ *   - **De-escalation is slow.** A single weird vel=0 fix (tube tunnel,
+ *     "manual" Owntracks message) MUST NOT demote the phone back to
+ *     Significant mode mid-trip. Demotion requires history evidence:
+ *     at least 3 fixes, all showing sustained low-speed motion.
+ *
+ * Returns null when there's no confident decision — caller keeps the
+ * last profile.
+ */
+export function decideProfile(speedKmh: number, history: FixRecord[]): MotionProfile {
+	// Fast escalation: trust single-fix high speed.
+	if (speedKmh > 80) return "transit-fast";
+	if (speedKmh > 30) return "transit";
+
+	// Below the transit threshold, demand multi-fix evidence. A lone
+	// vel=0 fix in the middle of a tube ride must not flip us back to
+	// Significant — that loses Move-mode tracking for the rest of the run.
+	if (history.length < MIN_WALKING_FIXES) return null;
+
+	const eff = effectiveSpeedKmh(history);
+	if (eff > 80) return "transit-fast"; // history says transit-fast, sustain it
+	if (eff > 30) return "transit";
+
+	if (eff >= WALKING_MIN_KMH && eff <= WALKING_MAX_KMH) {
+		if (straightnessRatio(history) >= WALKING_MIN_STRAIGHTNESS) return "walking";
+	}
+
+	if (eff < WALKING_MIN_KMH) return "stationary";
+
+	return null;
+}
+
+/**
  * Decide whether to push a config patch in response to this fix.
  *
- * Priority order:
- *   1. Single-fix transit speeds (>30 km/h) — instant reaction when
- *      boarding a train / starting a drive. The history would lag here.
- *   2. Walking signal from the recent fix history — overrides the
- *      stationary fallback so a 4 km/h walk doesn't read as stationary.
- *   3. Single-fix stationary (<5 km/h) — when history has no walking
- *      signal, trust the low-speed reading.
- *   4. Otherwise (mid-range ambiguous speed, no history signal) — keep
- *      the last profile.
- *
- * The patch is null when no command should be sent — either nothing
- * changes or the desired profile equals what we last pushed (avoid
- * spamming the same config on every fix).
+ * Wraps {@link decideProfile} to suppress the patch when the desired
+ * profile equals what we last pushed (avoid spamming the same config on
+ * every fix).
  */
 export function decideRemoteConfig(
 	speedKmh: number,
 	lastProfile: MotionProfile,
 	history: FixRecord[] = [],
 ): { profile: MotionProfile; patch: OwntracksConfigPatch | null } {
-	const singleFix = classifyMotion(speedKmh);
-	if (singleFix === "transit-fast" || singleFix === "transit") {
-		return patchFor(singleFix, lastProfile);
-	}
-	const fromHistory = classifyFromHistory(history);
-	if (fromHistory !== null) {
-		return patchFor(fromHistory, lastProfile);
-	}
-	if (singleFix !== null) {
-		return patchFor(singleFix, lastProfile);
-	}
-	return { profile: lastProfile, patch: null };
+	const desired = decideProfile(speedKmh, history);
+	if (desired === null) return { profile: lastProfile, patch: null };
+	return patchFor(desired, lastProfile);
 }
 
 /** Per (token,device) memory of the last-pushed motion profile. Lost on
@@ -301,7 +320,23 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 		const history = pruneFixHistory(merged, HISTORY_MAX_AGE_SEC, latestTs);
 		historyByKey.set(stateKey, history);
 
-		const { profile, patch } = decideRemoteConfig(maxVel, lastProfileByKey.get(stateKey) ?? null, history);
+		const prevProfile = lastProfileByKey.get(stateKey) ?? null;
+		const { profile, patch } = decideRemoteConfig(maxVel, prevProfile, history);
+
+		// One-line decision log — makes proxy behaviour debuggable from
+		// `kubectl logs` without instrumenting the phone. Fields:
+		// vel = single-fix velocity (max across batch),
+		// hist = fix count in window,
+		// eff = effective speed across window (km/h),
+		// str = straightness ratio over window,
+		// prev/next = profile transition,
+		// patch = the config command we're sending back (or "no-op").
+		const eff = history.length >= 2 ? effectiveSpeedKmh(history) : 0;
+		const str = history.length >= 2 ? straightnessRatio(history) : 0;
+		const patchStr = patch ? JSON.stringify(patch) : "no-op";
+		console.log(
+			`owntracks ${token.slice(0, 6)}/${device} vel=${maxVel.toFixed(1)} hist=${history.length} eff=${eff.toFixed(1)}km/h str=${str.toFixed(2)} ${prevProfile ?? "init"}->${profile ?? "keep"} ${patchStr}`,
+		);
 
 		// Preserve PhoneTrack's response body. PhoneTrack returns a JSON
 		// array containing a "you are your own friend" location-echo
