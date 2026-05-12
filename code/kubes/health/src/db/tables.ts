@@ -199,18 +199,32 @@ export interface OsmCoverageTable {
 	fetched_at: Generated<Date>;
 }
 
-/** Mirrored OSM feature. `geom` is GEOMETRY so it can hold POINT
- *  (stations) or LINESTRING (ways) — `ST_Distance_Sphere` works on
- *  both. Kysely sees `geom` as `string` (WKT in / out) because the
- *  MariaDB driver returns geometry as text. */
-export interface OsmFeaturesTable {
+/** Mirrored OSM point features (stations, individual landmarks).
+ *  Separate from `osm_lines` because `ST_Distance_Sphere` is
+ *  POINT-POINT only in MariaDB — mixing geometry types in one table
+ *  trips the optimizer into calling it on lines. */
+export interface OsmPointsTable {
 	osm_id: number;
 	osm_type: string;
 	feature_type: string;
 	subtype: string | null;
 	name: string | null;
 	tags_json: string | null;
-	geom: string; // WKT, e.g. "POINT(-0.126 51.533)"
+	geom: string; // WKT POINT
+}
+
+/** Mirrored OSM line features (roads, rail lines, waterways). For
+ *  distance queries we use ST_Distance (planar, in degrees) and
+ *  convert to metres in JS — a sub-percent approximation at the
+ *  city-scale distances we care about. */
+export interface OsmLinesTable {
+	osm_id: number;
+	osm_type: string;
+	feature_type: string;
+	subtype: string | null;
+	name: string | null;
+	tags_json: string | null;
+	geom: string; // WKT LINESTRING
 }
 
 export interface ModeBiometricsTable {
@@ -269,7 +283,8 @@ export interface Database {
 	nc_tokens: NcTokensTable;
 	osm_cache: OsmCacheTable;
 	osm_coverage: OsmCoverageTable;
-	osm_features: OsmFeaturesTable;
+	osm_points: OsmPointsTable;
+	osm_lines: OsmLinesTable;
 	focus_places: FocusPlacesTable;
 	mode_biometrics: ModeBiometricsTable;
 	schema_migrations: SchemaMigrationsTable;

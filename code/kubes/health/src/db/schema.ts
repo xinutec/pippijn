@@ -319,6 +319,50 @@ const MIGRATIONS: readonly string[] = [
     INDEX idx_feature_type (feature_type)
   )`,
 
+	// v29: Drop osm_features and split points and lines. MariaDB's
+	// ST_Distance_Sphere supports POINT-POINT only; calling it on a
+	// LINESTRING throws ER_GIS_UNSUPPORTED_ARGUMENT. The unified
+	// `osm_features` table held both, and the optimizer occasionally
+	// reached LINESTRING rows during the distance computation even
+	// with a `subtype IN (...)` filter — producing the crash we saw
+	// once nearbyStations was switched to the local mirror.
+	//
+	// Cleaner shape: separate tables per geometry type. Each table
+	// has its own spatial index. nearbyStations queries osm_points;
+	// linesAtPoint / nearbyWays query osm_lines. ST_Distance_Sphere
+	// is only ever called on POINT-POINT (for both stations and the
+	// query point). For point-to-line distance we use ST_Distance
+	// with a degree-to-metre conversion done in JS (small-radius
+	// approximation; sub-percent error at city-scale distances).
+	`DROP TABLE IF EXISTS osm_features`,
+	`CREATE TABLE IF NOT EXISTS osm_points (
+    osm_id BIGINT NOT NULL,
+    osm_type VARCHAR(16) NOT NULL,
+    feature_type VARCHAR(32) NOT NULL,
+    subtype VARCHAR(64),
+    name VARCHAR(255),
+    tags_json JSON,
+    geom POINT NOT NULL,
+    PRIMARY KEY (osm_type, osm_id),
+    SPATIAL INDEX idx_geom (geom),
+    INDEX idx_feature_type (feature_type)
+  )`,
+	`CREATE TABLE IF NOT EXISTS osm_lines (
+    osm_id BIGINT NOT NULL,
+    osm_type VARCHAR(16) NOT NULL,
+    feature_type VARCHAR(32) NOT NULL,
+    subtype VARCHAR(64),
+    name VARCHAR(255),
+    tags_json JSON,
+    geom LINESTRING NOT NULL,
+    PRIMARY KEY (osm_type, osm_id),
+    SPATIAL INDEX idx_geom (geom),
+    INDEX idx_feature_type (feature_type)
+  )`,
+	// Coverage will need re-fetching after this split — drop the
+	// existing rows (no production data of value yet).
+	`DELETE FROM osm_coverage`,
+
 	// Future migrations go here.
 ];
 

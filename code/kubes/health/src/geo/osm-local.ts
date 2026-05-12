@@ -295,48 +295,14 @@ async function fetchAndStore(
 		const parsed = parseOverpassElement(el);
 		if (parsed) features.push(parsed);
 	}
-	if (features.length === 0) {
-		// Empty area is a valid result — record the coverage row so we
-		// don't refetch this empty box on every query.
-		await db()
-			.insertInto("osm_coverage")
-			.values({
-				min_lat: bbox.minLat,
-				max_lat: bbox.maxLat,
-				min_lon: bbox.minLon,
-				max_lon: bbox.maxLon,
-				feature_type: featureType,
-			})
-			.execute();
-		return;
-	}
-
-	// Upsert features in batches. ST_GeomFromText interprets the WKT
-	// string with the SRID we pass; we store geometry with SRID 4326
-	// (WGS84) to match the spatial index declaration.
-	const BATCH = 500;
-	for (let i = 0; i < features.length; i += BATCH) {
-		const slice = features.slice(i, i + BATCH);
-		// Build a parametrised multi-row INSERT ... ON DUPLICATE KEY UPDATE.
-		// Kysely's insertInto + onDuplicateKeyUpdate handles the upsert,
-		// but it doesn't expose ST_GeomFromText directly — we build the
-		// VALUES list with raw SQL fragments per row.
-		const valuesList = slice
-			.map(
-				(f) =>
-					sql`(${f.osm_id}, ${f.osm_type}, ${f.feature_type}, ${f.subtype}, ${f.name}, ${JSON.stringify(f.tags)}, ST_GeomFromText(${f.geom_wkt}, 4326))`,
-			)
-			.reduce((acc, frag, i) => (i === 0 ? frag : sql`${acc}, ${frag}`));
-		await sql`
-			INSERT INTO osm_features (osm_id, osm_type, feature_type, subtype, name, tags_json, geom)
-			VALUES ${valuesList}
-			ON DUPLICATE KEY UPDATE
-				subtype = VALUES(subtype),
-				name = VALUES(name),
-				tags_json = VALUES(tags_json),
-				geom = VALUES(geom)
-		`.execute(db());
-	}
+	// Split by geometry type — points and lines live in separate
+	// tables so MariaDB's POINT-POINT-only ST_Distance_Sphere never
+	// gets called on a LINESTRING. Each row goes to one table based
+	// on its WKT prefix.
+	const points = features.filter((f) => f.geom_wkt.startsWith("POINT("));
+	const lines = features.filter((f) => f.geom_wkt.startsWith("LINESTRING("));
+	await upsertFeatures("osm_points", points);
+	await upsertFeatures("osm_lines", lines);
 
 	await db()
 		.insertInto("osm_coverage")
@@ -348,6 +314,32 @@ async function fetchAndStore(
 			feature_type: featureType,
 		})
 		.execute();
+}
+
+/** Bulk-upsert a batch of features into one of the geometry tables.
+ *  Kysely doesn't expose `ST_GeomFromText` so we build the VALUES
+ *  list with raw SQL fragments. */
+async function upsertFeatures(table: "osm_points" | "osm_lines", features: ParsedFeature[]): Promise<void> {
+	if (features.length === 0) return;
+	const BATCH = 500;
+	for (let i = 0; i < features.length; i += BATCH) {
+		const slice = features.slice(i, i + BATCH);
+		const valuesList = slice
+			.map(
+				(f) =>
+					sql`(${f.osm_id}, ${f.osm_type}, ${f.feature_type}, ${f.subtype}, ${f.name}, ${JSON.stringify(f.tags)}, ST_GeomFromText(${f.geom_wkt}, 4326))`,
+			)
+			.reduce((acc, frag, i) => (i === 0 ? frag : sql`${acc}, ${frag}`));
+		await sql`
+			INSERT INTO ${sql.raw(table)} (osm_id, osm_type, feature_type, subtype, name, tags_json, geom)
+			VALUES ${valuesList}
+			ON DUPLICATE KEY UPDATE
+				subtype = VALUES(subtype),
+				name = VALUES(name),
+				tags_json = VALUES(tags_json),
+				geom = VALUES(geom)
+		`.execute(db());
+	}
 }
 
 /**
@@ -362,13 +354,9 @@ export async function ensureCovered(lat: number, lon: number, radiusM: number, f
 	const coverage = await readCoverage(featureType);
 	const cutoffMs = Date.now() - COVERAGE_FRESH_DAYS * 86400_000;
 	const fresh = coverage.filter((c) => !c.fetched_at || c.fetched_at.getTime() > cutoffMs);
-	const covered = isPointCovered(lat, lon, radiusM, fresh);
-	console.log(`ensureCovered ${featureType} lat=${lat.toFixed(4)} lon=${lon.toFixed(4)} r=${radiusM} rows=${coverage.length} fresh=${fresh.length} covered=${covered}`);
-	if (covered) return;
+	if (isPointCovered(lat, lon, radiusM, fresh)) return;
 	const bbox = fetchBboxAround(lat, lon);
-	console.log(`ensureCovered fetching bbox ${JSON.stringify(bbox)} for ${featureType}`);
 	await fetchAndStore(featureType, bbox);
-	console.log(`ensureCovered fetched and stored for ${featureType}`);
 }
 
 export interface LocalFeatureResult {
@@ -381,24 +369,22 @@ export interface LocalFeatureResult {
 }
 
 /**
- * Run the spatial query against `osm_features`. Returns matches
- * within `radiusM` ordered by distance, optionally filtered by an
- * allow-list of subtype values.
+ * Run a POINT spatial query against `osm_points`. Returns matches
+ * within `radiusM` (great-circle metres) ordered by distance,
+ * optionally filtered by an allow-list of subtype values. Used for
+ * station-like queries — anywhere we want the closest physical
+ * point of interest.
  */
-export async function queryFeatures(
+export async function queryPoints(
 	lat: number,
 	lon: number,
 	radiusM: number,
 	featureType: string,
 	subtypes?: string[],
 ): Promise<LocalFeatureResult[]> {
-	// ST_Distance_Sphere takes (point, point) for the great-circle
-	// distance in metres. For linestrings the function returns the
-	// nearest-point distance, which is exactly the "how far am I from
-	// the road" we want.
 	const point = sql`ST_GeomFromText(${`POINT(${lon} ${lat})`}, 4326)`;
 	let q = db()
-		.selectFrom("osm_features")
+		.selectFrom("osm_points")
 		.select([
 			"osm_id",
 			"osm_type",
@@ -422,6 +408,59 @@ export async function queryFeatures(
 		subtype: r.subtype,
 		name: r.name,
 		distance_m: Number(r.distance_m),
+		tags: (r.tags_json ? JSON.parse(r.tags_json) : {}) as Record<string, string>,
+	}));
+}
+
+/**
+ * Run a LINESTRING spatial query against `osm_lines`. MariaDB's
+ * `ST_Distance_Sphere` is POINT-POINT only, so for line distance we
+ * use `ST_Distance` (planar, in degrees) with a degree-to-metre
+ * conversion in JS. The error is sub-percent at city-scale
+ * distances, which is the only regime we use these distances for.
+ *
+ * Used by `nearbyWays` (roads, rail lines, waterways) and
+ * `linesAtPoint` (rail line names within radius).
+ */
+export async function queryLines(
+	lat: number,
+	lon: number,
+	radiusM: number,
+	featureType: string,
+	subtypes?: string[],
+): Promise<LocalFeatureResult[]> {
+	const point = sql`ST_GeomFromText(${`POINT(${lon} ${lat})`}, 4326)`;
+	// Convert radius-metres to a degree budget for the SQL filter.
+	// We use the smaller of the two scale factors so the degree
+	// circle fully contains the metre circle. Conversion back to
+	// metres uses the same scale.
+	const mPerDeg = Math.min(METERS_PER_DEG_LAT, metersPerDegLon(lat));
+	const dDeg = radiusM / mPerDeg;
+	let q = db()
+		.selectFrom("osm_lines")
+		.select([
+			"osm_id",
+			"osm_type",
+			"subtype",
+			"name",
+			"tags_json",
+			sql<number>`ST_Distance(geom, ${point})`.as("distance_deg"),
+		])
+		.where("feature_type", "=", featureType)
+		.where(sql<boolean>`ST_Distance(geom, ${point}) < ${dDeg}`);
+	if (subtypes && subtypes.length > 0) {
+		q = q.where("subtype", "in", subtypes);
+	}
+	const rows = await q
+		.orderBy("distance_deg" as never)
+		.limit(50)
+		.execute();
+	return rows.map((r) => ({
+		osm_id: Number(r.osm_id),
+		osm_type: r.osm_type,
+		subtype: r.subtype,
+		name: r.name,
+		distance_m: Number(r.distance_deg) * mPerDeg,
 		tags: (r.tags_json ? JSON.parse(r.tags_json) : {}) as Record<string, string>,
 	}));
 }

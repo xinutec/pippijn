@@ -12,7 +12,7 @@ import { db } from "../db/pool.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
-import { ensureCovered, queryFeatures } from "./osm-local.js";
+import { ensureCovered, queryPoints } from "./osm-local.js";
 import { overpassFetch, USER_AGENT } from "./osm-overpass.js";
 
 /**
@@ -551,17 +551,13 @@ export function pickBestStation(stations: NearbyStation[]): NearbyStation | null
 }
 
 export async function nearbyStations(lat: number, lon: number, radiusM = 200): Promise<NearbyStation[]> {
-	// TEMP DEBUG: remove after we've validated the local mirror in prod.
-	console.log(`>>> nearbyStations ENTER lat=${lat.toFixed(4)} lon=${lon.toFixed(4)} r=${radiusM}`);
-	const t0 = Date.now();
-	try {
-		await ensureCovered(lat, lon, radiusM, "railway");
-		console.log(`nearbyStations(${lat.toFixed(4)},${lon.toFixed(4)},r=${radiusM}) ensureCovered=${Date.now() - t0}ms`);
-	} catch (e) {
-		console.warn(`nearbyStations ensureCovered THREW for ${lat.toFixed(4)},${lon.toFixed(4)}:`, e);
-		return [];
-	}
-	const features = await queryFeatures(lat, lon, radiusM, "railway", [
+	// Local-mirror path: ensure the railway-feature bucket has coverage
+	// for this point, then run a POINT-only spatial query against
+	// osm_points. Stations are stored separately from line features
+	// (osm_lines) because MariaDB's ST_Distance_Sphere is POINT-POINT
+	// only — mixing types in one table tripped the optimizer.
+	await ensureCovered(lat, lon, radiusM, "railway");
+	const features = await queryPoints(lat, lon, radiusM, "railway", [
 		"station",
 		"subway_entrance",
 		"halt",

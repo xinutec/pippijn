@@ -852,16 +852,13 @@ export async function annotateRailRuns(
 					}
 					if (seg.mode !== "walking") break;
 				}
-				console.log(`>>> annotateRailRuns reaching Promise.all startStation=${startStation} after.lat=${after.lat.toFixed(4)} after.lon=${after.lon.toFixed(4)}`);
 				const [startStationsSlow, endStations] = await Promise.all([
 					startStation ? Promise.resolve([]) : stationsLookup(slowBefore.lat, slowBefore.lon),
 					stationsLookup(after.lat, after.lon),
 				]);
-				console.log(`>>> annotateRailRuns Promise.all resolved slowResults=${startStationsSlow.length} endResults=${endStations.length}`);
 				if (!startStation) startStation = pickBestStation(startStationsSlow)?.name;
 				endStation = pickBestStation(endStations)?.name;
-			} catch (e) {
-				console.warn(`>>> annotateRailRuns runLabels catch:`, e);
+			} catch {
 				return null;
 			}
 			if (!startStation || !endStation) return null;
