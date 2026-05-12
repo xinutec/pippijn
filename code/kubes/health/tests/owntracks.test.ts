@@ -394,19 +394,33 @@ describe("decideRemoteConfig with history", () => {
 		expect(r.patch).toBeNull();
 	});
 
-	it("demotes to stationary only after sustained low-speed history", () => {
-		// 5 fixes, all nearly the same point, over 5 minutes. Effective
-		// speed is well under 2 km/h. This is real evidence of stopping.
-		const stationaryHistory: FixRecord[] = [
+	it("demotes to stationary only after >= 10 minutes of sustained low-speed history", () => {
+		// 11 fixes spanning 600s, all near the same point. Real evidence
+		// of stopping (cafe, office) — push monitoring=1.
+		const stationaryHistory: FixRecord[] = Array.from({ length: 11 }, (_, i) => ({
+			ts: i * 60,
+			lat: 51.5 + (i % 2) * 0.00001,
+			lon: -0.1 - (i % 2) * 0.00001,
+		}));
+		const r = decideRemoteConfig(0, "transit", stationaryHistory);
+		expect(r.profile).toBe("stationary");
+		expect(r.patch).toEqual({ monitoring: 1 });
+	});
+
+	it("does not demote to stationary on a short low-speed run", () => {
+		// 5 fixes, low speed, but only a 4-minute span — too short to
+		// be confident the user actually stopped. Tube tunnels and stop
+		// lights look like this. Keep the previous profile.
+		const briefLowSpeed: FixRecord[] = [
 			{ ts: 0, lat: 51.5, lon: -0.1 },
 			{ ts: 60, lat: 51.5, lon: -0.1 },
 			{ ts: 120, lat: 51.50001, lon: -0.1 },
 			{ ts: 180, lat: 51.5, lon: -0.10001 },
 			{ ts: 240, lat: 51.5, lon: -0.1 },
 		];
-		const r = decideRemoteConfig(0, "transit", stationaryHistory);
-		expect(r.profile).toBe("stationary");
-		expect(r.patch).toEqual({ monitoring: 1 });
+		const r = decideRemoteConfig(0, "transit", briefLowSpeed);
+		expect(r.profile).toBe("transit");
+		expect(r.patch).toBeNull();
 	});
 
 	it("history with wander does not push walking nor demote prematurely", () => {

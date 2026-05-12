@@ -80,6 +80,19 @@ const WALKING_MIN_STRAIGHTNESS = 0.5;
  *  fixes from Owntracks "Significant" mode (which can wait a minute or two
  *  between fixes), short enough that yesterday's walk doesn't leak in. */
 export const HISTORY_MAX_AGE_SEC = 600;
+/** Minimum history span before we'll demote the phone to Significant
+ *  ("energy saving") mode. Demotion is expensive — the phone keeps the
+ *  GPS warm in Move mode but reports sparsely in Significant — so we want
+ *  to be confident the user has really stopped before flipping. 10 min
+ *  of sustained low-speed history is a safe threshold: cafe stops, office
+ *  arrivals, etc. naturally clear it; tube tunnels and stop-light pauses
+ *  don't. */
+const MIN_STATIONARY_DEMOTE_SEC = 600;
+
+function historySpansSec(history: FixRecord[]): number {
+	if (history.length < 2) return 0;
+	return history[history.length - 1].ts - history[0].ts;
+}
 
 /** Drop fixes older than `nowSec - maxAgeSec`. Inclusive at the boundary so
  *  a fix exactly at the cutoff is kept (no off-by-one drop). */
@@ -201,7 +214,15 @@ export function decideProfile(speedKmh: number, history: FixRecord[]): MotionPro
 		if (straightnessRatio(history) >= WALKING_MIN_STRAIGHTNESS) return "walking";
 	}
 
-	if (eff < WALKING_MIN_KMH) return "stationary";
+	// Stationary demotion is the most expensive transition (phone gives up
+	// the warm GPS and drops to Significant). Require sustained evidence —
+	// a 10-min window of consistently-low effective speed — before pushing
+	// it. Short low-speed runs (3 fixes at a stop light, brief tube-tunnel
+	// signal loss with vel=0) get ignored.
+	if (eff < WALKING_MIN_KMH) {
+		if (historySpansSec(history) >= MIN_STATIONARY_DEMOTE_SEC) return "stationary";
+		return null;
+	}
 
 	return null;
 }
