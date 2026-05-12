@@ -552,6 +552,7 @@ export function pickBestStation(stations: NearbyStation[]): NearbyStation | null
 
 export async function nearbyStations(lat: number, lon: number, radiusM = 200): Promise<NearbyStation[]> {
 	// TEMP DEBUG: remove after we've validated the local mirror in prod.
+	console.log(`>>> nearbyStations ENTER lat=${lat.toFixed(4)} lon=${lon.toFixed(4)} r=${radiusM}`);
 	const t0 = Date.now();
 	try {
 		await ensureCovered(lat, lon, radiusM, "railway");
