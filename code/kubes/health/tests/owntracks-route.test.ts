@@ -15,6 +15,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config.js";
 import { owntracksRoutes } from "../src/routes/owntracks.js";
 
+// The route reads focus_places to gate the long-stay demote. We don't
+// have a real DB in this test, so stub the loader to return no focus
+// places — which is the "transient location everywhere" default and
+// keeps these tests focused on the auth gate / body limit / state
+// persistence concerns that they were originally written for.
+vi.mock("../src/routes/owntracks-focus-cache.js", () => ({
+	getFocusPlacesForGating: async () => [],
+	_resetFocusCache: () => {},
+}));
+
 const CONFIG: Config = {
 	port: 3000,
 	db: { host: "x", port: 3306, user: "x", password: "x", database: "x" },

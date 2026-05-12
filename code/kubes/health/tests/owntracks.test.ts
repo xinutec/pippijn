@@ -419,17 +419,34 @@ describe("decideRemoteConfig with history", () => {
 		expect(r.patch).toBeNull();
 	});
 
-	it("demotes to stationary only after >= 10 minutes of sustained low-speed history", () => {
+	it("demotes to stationary only after >= 10 minutes at a long-stay location", () => {
 		// 11 fixes spanning 600s, all near the same point. Real evidence
-		// of stopping (cafe, office) — push monitoring=1.
+		// of stopping. Demote also requires the location gate
+		// (atLongStayLocation: true) — see tests/long-stay-gate.test.ts
+		// for the gate's coverage. At a non-long-stay location (e.g. a
+		// supermarket) we deliberately don't demote.
 		const stationaryHistory: FixRecord[] = Array.from({ length: 11 }, (_, i) => ({
 			ts: i * 60,
 			lat: 51.5 + (i % 2) * 0.00001,
 			lon: -0.1 - (i % 2) * 0.00001,
 		}));
-		const r = decideRemoteConfig(0, "transit", stationaryHistory);
+		const r = decideRemoteConfig(0, "transit", stationaryHistory, { atLongStayLocation: true });
 		expect(r.profile).toBe("stationary");
 		expect(r.patch).toEqual({ monitoring: 1 });
+	});
+
+	it("does NOT demote at a transient location even with long stationary history", () => {
+		// 30-min Lidl visit equivalent — long stationary history but no
+		// long-stay focus place. Stay in Move mode so the walking
+		// detector can refire as soon as the user starts walking.
+		const stationaryHistory: FixRecord[] = Array.from({ length: 11 }, (_, i) => ({
+			ts: i * 60,
+			lat: 51.5,
+			lon: -0.1,
+		}));
+		const r = decideRemoteConfig(0, "transit", stationaryHistory /* default: atLongStayLocation false */);
+		expect(r.profile).toBe("transit");
+		expect(r.patch).toBeNull();
 	});
 
 	it("does not demote to stationary on a short low-speed run", () => {
@@ -640,18 +657,28 @@ describe("refineInMove", () => {
 
 describe("demoteAfterStop", () => {
 	// Predicate 4: only after 10 minutes of sustained low-speed history
-	// do we push the phone back to Significant.
+	// AT A LONG-STAY LOCATION do we push the phone back to Significant.
+	// See tests/long-stay-gate.test.ts for the location-gate coverage;
+	// these tests assume the gate has already said "yes, long-stay" and
+	// verify the time/speed thresholds.
+	const atHome = { atLongStayLocation: true };
 
 	it("returns null when history span < 10 minutes", () => {
-		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0, historySpanSec: 540 }))).toBeNull();
+		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0, historySpanSec: 540 }), atHome)).toBeNull();
 	});
 
 	it("returns null when effective speed is still in the walking band", () => {
-		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 3, historySpanSec: 700 }))).toBeNull();
+		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 3, historySpanSec: 700 }), atHome)).toBeNull();
 	});
 
-	it("returns stationary after 10 min of sub-walking-band speed", () => {
-		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0.5, historySpanSec: 700 }))).toBe("stationary");
+	it("returns stationary after 10 min of sub-walking-band speed at a long-stay location", () => {
+		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0.5, historySpanSec: 700 }), atHome)).toBe("stationary");
+	});
+
+	it("returns null without an explicit long-stay context (conservative default)", () => {
+		// Callers that don't pass the location context get the safe
+		// "don't demote anywhere" behaviour.
+		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0.5, historySpanSec: 700 }))).toBeNull();
 	});
 });
 

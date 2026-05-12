@@ -61,6 +61,8 @@ import { bodyLimit } from "hono/body-limit";
 import type { Config } from "../config.js";
 import type { AppEnv } from "../env.js";
 import { haversineMeters } from "../geo/place-snap.js";
+import { getFocusPlacesForGating } from "./owntracks-focus-cache.js";
+import { isLongStayLocation } from "./owntracks-long-stay.js";
 
 /** Owntracks payloads are tiny — a typical batched fix is well under
  *  1 KB. Cap at 32 KB so a misconfigured client (or a hostile probe)
@@ -382,12 +384,35 @@ export function refineInMove(signals: DecisionSignals): MotionProfile {
 	return null;
 }
 
+/** Context the long-stay gate needs to decide whether demotion is
+ *  appropriate at the current location. See `isLongStayLocation` in
+ *  `owntracks-long-stay.ts` for how the boolean is derived. */
+export interface LocationContext {
+	/** True when the current fix lies inside a focus_place where the
+	 *  user historically stays for hours. Demotion to Significant is
+	 *  gated on this so a 30-minute supermarket browse doesn't lose
+	 *  Move-mode tracking right before the user walks out. */
+	atLongStayLocation: boolean;
+}
+
+const DEFAULT_LOCATION_CONTEXT: LocationContext = { atLongStayLocation: false };
+
 /**
- * Predicate 4: demote to Significant only after the full 10-minute window
- * shows sustained low-speed motion. Short low-speed runs (3 fixes at a
- * stop light, brief tunnel signal loss) get ignored.
+ * Predicate 4: demote to Significant only when (a) we have 10+ minutes
+ * of sustained low-speed history AND (b) we're at a location where the
+ * user historically lingers. Without (b), a 30-min Lidl visit would
+ * flip the phone to Significant just as the user is about to walk out.
+ *
+ * Without an explicit location context (legacy callers, tests that
+ * don't care about geography), default is `atLongStayLocation: false`
+ * — never demote. That's the safe direction: worst case is slightly
+ * more battery used than necessary.
  */
-export function demoteAfterStop(signals: DecisionSignals): MotionProfile {
+export function demoteAfterStop(
+	signals: DecisionSignals,
+	location: LocationContext = DEFAULT_LOCATION_CONTEXT,
+): MotionProfile {
+	if (!location.atLongStayLocation) return null;
 	if (signals.historySpanSec < MIN_STATIONARY_DEMOTE_SEC) return null;
 	if (signals.effectiveSpeedKmh >= WALKING_MIN_KMH) return null;
 	return "stationary";
@@ -415,7 +440,11 @@ export type Transition = MotionProfile | "keep";
  * "keep" propagates back to the caller as "no patch, preserve last
  * profile."
  */
-export function decideTransition(signals: DecisionSignals, prevProfile: MotionProfile): Transition {
+export function decideTransition(
+	signals: DecisionSignals,
+	prevProfile: MotionProfile,
+	location: LocationContext = DEFAULT_LOCATION_CONTEXT,
+): Transition {
 	const fast = escalateOnHighSpeed(signals);
 	if (fast !== null) return fast;
 
@@ -423,7 +452,7 @@ export function decideTransition(signals: DecisionSignals, prevProfile: MotionPr
 		return escalateFromSignificant(signals) ?? "keep";
 	}
 
-	return refineInMove(signals) ?? demoteAfterStop(signals) ?? "keep";
+	return refineInMove(signals) ?? demoteAfterStop(signals, location) ?? "keep";
 }
 
 // ============================================================================
@@ -447,6 +476,10 @@ export interface RemoteConfigOptions {
 	lastPushTs?: number | null;
 	/** Unix-seconds timestamp of the current fix being decided on. */
 	nowTs?: number;
+	/** Whether the current fix lies inside a focus_place the user
+	 *  historically stays at for hours. Gates Move→Significant
+	 *  demotion. Default false (no demote) when omitted. */
+	atLongStayLocation?: boolean;
 }
 
 /**
@@ -482,7 +515,8 @@ export function decideRemoteConfig(
 					monitoringMode: null,
 				};
 
-	const next = decideTransition(signals, lastProfile);
+	const location: LocationContext = { atLongStayLocation: options.atLongStayLocation ?? false };
+	const next = decideTransition(signals, lastProfile, location);
 	if (next === "keep" || next === null) return { profile: lastProfile, patch: null };
 	if (next === lastProfile) return { profile: next, patch: null };
 
@@ -653,7 +687,26 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 						};
 
 			const maxVel = signals.reportedVelKmh;
-			const { profile, patch } = decideRemoteConfig(maxVel, prevProfile, history, { lastPushTs, nowTs });
+
+			// Long-stay location gate: only demote to Significant at
+			// places the user historically lingers (home, work). At a
+			// supermarket or cafe we keep Move mode active so we don't
+			// lose tracking right when the user walks out. The proxy's
+			// "device" path-param is the user_id by Owntracks-config
+			// convention; for multi-user setups this would need a
+			// token→user mapping table.
+			let atLongStayLocation = false;
+			if (history.length > 0) {
+				const latestFix = history[history.length - 1];
+				const focusPlaces = await getFocusPlacesForGating(device);
+				atLongStayLocation = isLongStayLocation(latestFix.lat, latestFix.lon, focusPlaces);
+			}
+
+			const { profile, patch } = decideRemoteConfig(maxVel, prevProfile, history, {
+				lastPushTs,
+				nowTs,
+				atLongStayLocation,
+			});
 
 			// One-line decision log per Owntracks POST — makes proxy behaviour
 			// debuggable from `kubectl logs` without instrumenting the phone.
@@ -664,7 +717,7 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 			// profile transition, patch = the config command (or "no-op").
 			const patchStr = patch ? JSON.stringify(patch) : "no-op";
 			console.log(
-				`owntracks ${token.slice(0, 6)}/${device} vel=${signals.reportedVelKmh.toFixed(1)} cvel=${signals.computedVelKmh.toFixed(1)} hist=${history.length} eff=${signals.effectiveSpeedKmh.toFixed(1)}km/h str=${signals.straightness.toFixed(2)} gap=${signals.gapSinceLastFixSec}s t=${signals.trigger ?? "-"} m=${signals.monitoringMode ?? "-"} ${prevProfile ?? "init"}->${profile ?? "keep"} ${patchStr}`,
+				`owntracks ${token.slice(0, 6)}/${device} vel=${signals.reportedVelKmh.toFixed(1)} cvel=${signals.computedVelKmh.toFixed(1)} hist=${history.length} eff=${signals.effectiveSpeedKmh.toFixed(1)}km/h str=${signals.straightness.toFixed(2)} gap=${signals.gapSinceLastFixSec}s t=${signals.trigger ?? "-"} m=${signals.monitoringMode ?? "-"} longStay=${atLongStayLocation ? "y" : "n"} ${prevProfile ?? "init"}->${profile ?? "keep"} ${patchStr}`,
 			);
 
 			if (patch !== null) {
