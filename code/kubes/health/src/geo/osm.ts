@@ -551,22 +551,19 @@ export function pickBestStation(stations: NearbyStation[]): NearbyStation | null
 }
 
 export async function nearbyStations(lat: number, lon: number, radiusM = 200): Promise<NearbyStation[]> {
-	// TEMP DEBUG
-	console.log(`nearbyStations(${lat.toFixed(4)}, ${lon.toFixed(4)}, r=${radiusM})`);
 	// Local-mirror path: ensure the railway-feature bucket has coverage
 	// for this point, then run a POINT-only spatial query against
 	// osm_points. Stations are stored separately from line features
 	// (osm_lines) because MariaDB's ST_Distance_Sphere is POINT-POINT
 	// only — mixing types in one table tripped the optimizer.
 	await ensureCovered(lat, lon, radiusM, "railway");
-	let features: Awaited<ReturnType<typeof queryPoints>>;
-	try {
-		features = await queryPoints(lat, lon, radiusM, "railway", ["station", "subway_entrance", "halt", "stop", "tram_stop"]);
-	} catch (e) {
-		console.warn(`nearbyStations queryPoints threw at ${lat},${lon}:`, e);
-		throw e;
-	}
-	console.log(`nearbyStations(${lat.toFixed(4)},${lon.toFixed(4)}) features=${features.length}`);
+	const features = await queryPoints(lat, lon, radiusM, "railway", [
+		"station",
+		"subway_entrance",
+		"halt",
+		"stop",
+		"tram_stop",
+	]);
 
 	// Collapse multiple entries with the same name (entrances of one
 	// station) by keeping the closest. Subtype mapping mirrors the

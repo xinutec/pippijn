@@ -408,7 +408,12 @@ export async function queryPoints(
 		subtype: r.subtype,
 		name: r.name,
 		distance_m: Number(r.distance_m),
-		tags: (r.tags_json ? JSON.parse(r.tags_json) : {}) as Record<string, string>,
+		// MariaDB's JSON column type may return either a string (legacy
+		// driver) or a parsed object (driver auto-parses). Handle both.
+		tags: (r.tags_json ? (typeof r.tags_json === "string" ? JSON.parse(r.tags_json) : r.tags_json) : {}) as Record<
+			string,
+			string
+		>,
 	}));
 }
 
@@ -461,6 +466,11 @@ export async function queryLines(
 		subtype: r.subtype,
 		name: r.name,
 		distance_m: Number(r.distance_deg) * mPerDeg,
-		tags: (r.tags_json ? JSON.parse(r.tags_json) : {}) as Record<string, string>,
+		// MariaDB's JSON column type may return either a string (legacy
+		// driver) or a parsed object (driver auto-parses). Handle both.
+		tags: (r.tags_json ? (typeof r.tags_json === "string" ? JSON.parse(r.tags_json) : r.tags_json) : {}) as Record<
+			string,
+			string
+		>,
 	}));
 }
