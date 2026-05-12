@@ -356,7 +356,18 @@ export async function ensureCovered(lat: number, lon: number, radiusM: number, f
 	const fresh = coverage.filter((c) => !c.fetched_at || c.fetched_at.getTime() > cutoffMs);
 	if (isPointCovered(lat, lon, radiusM, fresh)) return;
 	const bbox = fetchBboxAround(lat, lon);
-	await fetchAndStore(featureType, bbox);
+	// Soft-fail the fetch: if Overpass times out or rejects, log and
+	// continue. The query against local osm_points/osm_lines will then
+	// just return whatever's already there (often empty for this new
+	// area). This matches the negative-cache behaviour of the old
+	// withCache path — a failed Overpass call shouldn't break the
+	// whole dashboard request. A later request that hits this same
+	// area will retry the fetch (we didn't record a coverage row).
+	try {
+		await fetchAndStore(featureType, bbox);
+	} catch (e) {
+		console.warn(`ensureCovered ${featureType} fetch failed at ${lat.toFixed(4)},${lon.toFixed(4)}:`, e);
+	}
 }
 
 export interface LocalFeatureResult {

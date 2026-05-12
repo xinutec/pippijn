@@ -10,7 +10,12 @@ export const USER_AGENT = "health.xinutec.org (pippijn@xinutec.org)";
 
 const OVERPASS_URLS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
 
-const OVERPASS_TIMEOUT_MS = 4000;
+// 4s was fine for point-radius queries (small responses); the local
+// mirror's 10 km bbox queries — especially landmark + highway in dense
+// urban areas — can legitimately take 10+ seconds. 20s keeps us under
+// the Overpass server-side `[timeout:25]` while leaving headroom for
+// a hung connection to abort and fall through to the mirror.
+const OVERPASS_TIMEOUT_MS = 20_000;
 
 /**
  * POST a single Overpass query body to each mirror in turn until one
