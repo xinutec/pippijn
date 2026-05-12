@@ -186,6 +186,33 @@ export interface OsmCacheTable {
 	cached_at: Generated<Date>;
 }
 
+/** A bounding box we've already fetched for one feature type. Queries
+ *  that fall inside any of these are served from osm_features below
+ *  without touching Overpass. Boxes grow lazily as the user travels. */
+export interface OsmCoverageTable {
+	id: Generated<number>;
+	min_lat: number;
+	max_lat: number;
+	min_lon: number;
+	max_lon: number;
+	feature_type: string;
+	fetched_at: Generated<Date>;
+}
+
+/** Mirrored OSM feature. `geom` is GEOMETRY so it can hold POINT
+ *  (stations) or LINESTRING (ways) — `ST_Distance_Sphere` works on
+ *  both. Kysely sees `geom` as `string` (WKT in / out) because the
+ *  MariaDB driver returns geometry as text. */
+export interface OsmFeaturesTable {
+	osm_id: number;
+	osm_type: string;
+	feature_type: string;
+	subtype: string | null;
+	name: string | null;
+	tags_json: string | null;
+	geom: string; // WKT, e.g. "POINT(-0.126 51.533)"
+}
+
 export interface ModeBiometricsTable {
 	user_id: string;
 	mode: string;
@@ -241,6 +268,8 @@ export interface Database {
 	sessions: SessionsTable;
 	nc_tokens: NcTokensTable;
 	osm_cache: OsmCacheTable;
+	osm_coverage: OsmCoverageTable;
+	osm_features: OsmFeaturesTable;
 	focus_places: FocusPlacesTable;
 	mode_biometrics: ModeBiometricsTable;
 	schema_migrations: SchemaMigrationsTable;

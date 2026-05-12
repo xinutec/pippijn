@@ -273,6 +273,47 @@ const MIGRATIONS: readonly string[] = [
 	// fix it before it bites.
 	`ALTER TABLE tokens ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active'`,
 
+	// v28a: Local OSM mirror — coverage table. Each row records a
+	// bounding box for which we've fetched OSM features of a given
+	// type. Subsequent queries inside this box read from osm_features
+	// (below) instead of hitting Overpass. Boxes grow lazily as the
+	// user travels into uncovered areas. Overlap is fine — features
+	// upsert by osm_id, no duplicates. Refresh is lazy too: any
+	// query against a box with old fetched_at triggers a refetch.
+	`CREATE TABLE IF NOT EXISTS osm_coverage (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    min_lat DECIMAL(9,6) NOT NULL,
+    max_lat DECIMAL(9,6) NOT NULL,
+    min_lon DECIMAL(9,6) NOT NULL,
+    max_lon DECIMAL(9,6) NOT NULL,
+    feature_type VARCHAR(32) NOT NULL,
+    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_bbox (feature_type, min_lat, max_lat, min_lon, max_lon)
+  )`,
+
+	// v28b: Local OSM mirror — features table. One row per OSM
+	// node/way we care about. Geometry is GEOMETRY (not POINT) so the
+	// same column holds POINT for station nodes and LINESTRING for
+	// road/rail ways. ST_Distance_Sphere works for both — for a
+	// LINESTRING it returns the distance to the nearest point on the
+	// line, which is exactly what "is this road near here" means.
+	// PRIMARY KEY (osm_type, osm_id) dedupes when overlapping coverage
+	// boxes return the same feature. feature_type is the high-level
+	// bucket (station, highway, railway, aeroway, landmark); subtype
+	// is the OSM tag value (subway, motorway, etc.).
+	`CREATE TABLE IF NOT EXISTS osm_features (
+    osm_id BIGINT NOT NULL,
+    osm_type VARCHAR(16) NOT NULL,
+    feature_type VARCHAR(32) NOT NULL,
+    subtype VARCHAR(64),
+    name VARCHAR(255),
+    tags_json JSON,
+    geom GEOMETRY NOT NULL SRID 4326,
+    PRIMARY KEY (osm_type, osm_id),
+    SPATIAL INDEX idx_geom (geom),
+    INDEX idx_feature_type (feature_type)
+  )`,
+
 	// Future migrations go here.
 ];
 
