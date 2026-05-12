@@ -554,6 +554,26 @@ describe("escalateFromSignificant", () => {
 		expect(escalateFromSignificant(signals({ trigger: "u" }))).toBe("transit");
 	});
 
+	it("returns null when monitoringMode says phone is in Move (gate is now internal)", () => {
+		// Bug: the function is exported with a name that promises a
+		// Significant→Move transition, but the actual gate happens at
+		// the caller. Direct callers (and tests) can pass any
+		// monitoringMode value. Fix: the function should also gate on
+		// `signals.monitoringMode` and return null when the phone
+		// reports it is already in Move mode.
+		const s = signals({ monitoringMode: 2, gapSinceLastFixSec: 60, trigger: "u", computedVelKmh: 5 });
+		expect(escalateFromSignificant(s)).toBeNull();
+	});
+
+	it("still escalates when monitoringMode is null (unknown) and motion evidence is present", () => {
+		// Older Owntracks builds may not include the `m` field. Without
+		// evidence to the contrary, treat the phone as in Significant
+		// (status quo behaviour preserved). Catches over-strict gating
+		// that would regress for users on older clients.
+		const s = signals({ monitoringMode: null, gapSinceLastFixSec: 60 });
+		expect(escalateFromSignificant(s)).toBe("transit");
+	});
+
 	it("escalates on a closely-spaced fix (< 5 min gap)", () => {
 		// Significant mode normally schedules a fix every ~15 min;
 		// extras come from the phone's motion sensor. Treat short gap

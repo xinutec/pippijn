@@ -332,8 +332,15 @@ export function escalateOnHighSpeed(signals: DecisionSignals): MotionProfile {
  * fired), or visible displacement above walking pace. If history is rich
  * enough to refine, picks the precise profile; otherwise pushes a
  * conservative transit profile to get Move mode going.
+ *
+ * Self-gates on `signals.monitoringMode`: returns null when the phone
+ * explicitly reports `m=2` (already in Move) so direct callers can't
+ * accidentally over-fire. The cascade in `decideTransition` runs this
+ * predicate only inside the Significant branch, but the predicate is
+ * exported and a misleading contract here would invite regressions.
  */
 export function escalateFromSignificant(signals: DecisionSignals): MotionProfile {
+	if (signals.monitoringMode === 2) return null;
 	const speed = Math.max(signals.reportedVelKmh, signals.computedVelKmh);
 	const motionEvidence =
 		signals.trigger === "u" ||

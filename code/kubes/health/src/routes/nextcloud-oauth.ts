@@ -4,6 +4,7 @@ import type { Config } from "../config.js";
 import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
 import { consumeState, createState } from "../middleware/oauth-state.js";
+import { validateReturnTo } from "../middleware/return-to.js";
 import { clearSessionCookie, createSession, setSessionCookie } from "../middleware/session.js";
 import { invalidateTokenCache } from "../nextcloud/token-manager.js";
 import type { UserSession } from "../types.js";
@@ -121,11 +122,10 @@ export function nextcloudOAuthRoutes(config: Config): Hono<AppEnv> {
 		setSessionCookie(c, signedId);
 		// Honor optional return_to stored in the pending OAuth state by
 		// `/login` so reconnecting from /your-day lands back there.
-		// Validated against an internal-path allowlist to prevent open
-		// redirects even though the value originated from our own UI.
-		const returnTo = pending.returnTo;
-		const safeReturnTo = returnTo && /^\/[a-zA-Z0-9/_?=&%-]*$/.test(returnTo) ? returnTo : "/";
-		return c.redirect(safeReturnTo);
+		// `validateReturnTo` rejects protocol-relative URLs (//evil.com)
+		// and any non-internal path; falls back to `/` on anything
+		// unrecognised. See src/middleware/return-to.ts for the rules.
+		return c.redirect(validateReturnTo(pending.returnTo));
 	});
 
 	app.post("/logout", async (c) => {
