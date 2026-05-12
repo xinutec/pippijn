@@ -111,7 +111,7 @@ export function isPointCovered(lat: number, lon: number, radiusM: number, covera
 export function fetchBboxAround(
 	lat: number,
 	lon: number,
-	halfWidthM = 5000,
+	halfWidthM = 1000,
 ): { minLat: number; maxLat: number; minLon: number; maxLon: number } {
 	const dLat = halfWidthM / METERS_PER_DEG_LAT;
 	const dLon = halfWidthM / metersPerDegLon(lat);

@@ -70,7 +70,7 @@ describe("isPointCovered", () => {
 });
 
 describe("fetchBboxAround", () => {
-	it("centres a 10km box on the query point", () => {
+	it("centres a 2km box on the query point (default half-width 1000m)", () => {
 		const b = fetchBboxAround(51.5, -0.1);
 		expect(b.minLat).toBeLessThan(51.5);
 		expect(b.maxLat).toBeGreaterThan(51.5);
