@@ -2,13 +2,36 @@ import { describe, expect, it } from "vitest";
 import {
 	classifyFromHistory,
 	classifyMotion,
+	computeSignals,
+	type DecisionSignals,
 	decideRemoteConfig,
+	decideTransition,
+	demoteAfterStop,
 	effectiveSpeedKmh,
+	escalateFromSignificant,
+	escalateOnHighSpeed,
 	type FixRecord,
 	type MotionProfile,
 	pruneFixHistory,
+	refineInMove,
 	straightnessRatio,
 } from "../src/routes/owntracks.js";
+
+/** Build a DecisionSignals with all fields defaulted to "no signal";
+ *  overrides set only what each test cares about. */
+function signals(overrides: Partial<DecisionSignals> = {}): DecisionSignals {
+	return {
+		reportedVelKmh: 0,
+		computedVelKmh: 0,
+		gapSinceLastFixSec: 0,
+		effectiveSpeedKmh: 0,
+		straightness: 0,
+		historySpanSec: 0,
+		trigger: null,
+		monitoringMode: null,
+		...overrides,
+	};
+}
 
 /** Build a chain of fixes starting at (lat0, lon0), stepping `dLat`/`dLon`
  *  degrees per fix, with `dtSec` seconds between fixes. The first fix is at
@@ -371,8 +394,10 @@ describe("decideRemoteConfig with history", () => {
 
 	it("prefers high single-fix speed over walking history (board train)", () => {
 		// History says walking, but the latest fix is a 120 km/h train.
-		// The single-fix transit signal is faster — trust it.
-		const r = decideRemoteConfig(120, "walking", walkingHistory);
+		// The new code reads vel from the latest fix in history; the
+		// route handler builds the history with the incoming vel.
+		const boardingHistory: FixRecord[] = [...walkingHistory, { ts: 450, lat: 0.0045, lon: 0, vel: 120 }];
+		const r = decideRemoteConfig(0, "walking", boardingHistory);
 		expect(r.profile).toBe("transit-fast");
 		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 10 });
 	});
@@ -436,5 +461,290 @@ describe("decideRemoteConfig with history", () => {
 		const r = decideRemoteConfig(0, "transit", wanderHistory);
 		expect(r.profile).toBe("transit");
 		expect(r.patch).toBeNull();
+	});
+});
+
+describe("computeSignals", () => {
+	// Reduces a fix history into the named signals consumed by the
+	// decision predicates. Each numeric signal is well-defined for sparse
+	// histories — predicates check historySpanSec / fix count to know
+	// when a signal is meaningful.
+
+	it("returns empty signals for empty history", () => {
+		const s = computeSignals([]);
+		expect(s.reportedVelKmh).toBe(0);
+		expect(s.computedVelKmh).toBe(0);
+		expect(s.gapSinceLastFixSec).toBe(0);
+		expect(s.historySpanSec).toBe(0);
+		expect(s.trigger).toBeNull();
+		expect(s.monitoringMode).toBeNull();
+	});
+
+	it("reads reported vel / trigger / monitoring from the latest fix", () => {
+		const s = computeSignals([{ ts: 1000, lat: 0, lon: 0, vel: 42, trigger: "u", monitoringMode: 1 }]);
+		expect(s.reportedVelKmh).toBe(42);
+		expect(s.trigger).toBe("u");
+		expect(s.monitoringMode).toBe(1);
+		expect(s.computedVelKmh).toBe(0); // no previous fix
+	});
+
+	it("computes velocity from displacement between the last two fixes", () => {
+		// 100m in 60s → 6 km/h
+		const s = computeSignals([
+			{ ts: 0, lat: 0, lon: 0 },
+			{ ts: 60, lat: 0.0009, lon: 0 },
+		]);
+		expect(s.computedVelKmh).toBeCloseTo(6, 0);
+		expect(s.gapSinceLastFixSec).toBe(60);
+	});
+
+	it("treats vel=null in the latest fix as 0", () => {
+		// Real-world: PhoneTrack-stored fixes routinely have speed: null.
+		// computeSignals must not propagate null arithmetic.
+		const s = computeSignals([
+			{ ts: 0, lat: 51.5, lon: -0.1, vel: null },
+			{ ts: 60, lat: 51.5, lon: -0.1, vel: null },
+		]);
+		expect(s.reportedVelKmh).toBe(0);
+		expect(Number.isNaN(s.reportedVelKmh)).toBe(false);
+	});
+});
+
+describe("escalateOnHighSpeed", () => {
+	// Predicate 1: single-fix or computed velocity above the transit
+	// threshold instantly escalates, regardless of history.
+
+	it("escalates to transit-fast when reported vel is high", () => {
+		expect(escalateOnHighSpeed(signals({ reportedVelKmh: 100 }))).toBe("transit-fast");
+	});
+
+	it("escalates to transit-fast when computed vel is high (vel missing)", () => {
+		// Bug fix: previously we relied on reported vel only, so a fast
+		// train fix with vel=null/0 was missed. Computed-from-displacement
+		// catches it.
+		expect(escalateOnHighSpeed(signals({ reportedVelKmh: 0, computedVelKmh: 100 }))).toBe("transit-fast");
+	});
+
+	it("uses the max of reported and computed", () => {
+		expect(escalateOnHighSpeed(signals({ reportedVelKmh: 50, computedVelKmh: 100 }))).toBe("transit-fast");
+		expect(escalateOnHighSpeed(signals({ reportedVelKmh: 100, computedVelKmh: 50 }))).toBe("transit-fast");
+	});
+
+	it("escalates to transit at moderate speed", () => {
+		expect(escalateOnHighSpeed(signals({ reportedVelKmh: 50 }))).toBe("transit");
+	});
+
+	it("returns null below the transit threshold", () => {
+		expect(escalateOnHighSpeed(signals({ reportedVelKmh: 25 }))).toBeNull();
+		expect(escalateOnHighSpeed(signals({ reportedVelKmh: 0 }))).toBeNull();
+	});
+});
+
+describe("escalateFromSignificant", () => {
+	// Predicate 2: when the phone is in Significant mode, motion evidence
+	// pushes us into a Move-mode profile. Three sources of motion
+	// evidence; any one is sufficient.
+
+	it("returns null without any motion evidence", () => {
+		expect(escalateFromSignificant(signals())).toBeNull();
+	});
+
+	it("escalates on userAction trigger (t='u')", () => {
+		// User manually fired "Report Location Now" — engagement signal.
+		expect(escalateFromSignificant(signals({ trigger: "u" }))).toBe("transit");
+	});
+
+	it("escalates on a closely-spaced fix (< 5 min gap)", () => {
+		// Significant mode normally schedules a fix every ~15 min;
+		// extras come from the phone's motion sensor. Treat short gap
+		// as evidence the user is moving.
+		expect(escalateFromSignificant(signals({ gapSinceLastFixSec: 120 }))).toBe("transit");
+	});
+
+	it("does not escalate on a normal scheduled-cadence gap", () => {
+		// 15 min apart = scheduled tick, no motion evidence.
+		expect(escalateFromSignificant(signals({ gapSinceLastFixSec: 900 }))).toBeNull();
+	});
+
+	it("escalates on displacement-based velocity above walking floor", () => {
+		// Phone reported vel=0 but it moved 200m in 5 min → 2.4 km/h.
+		// That's real walking-band motion. Escalate.
+		expect(escalateFromSignificant(signals({ computedVelKmh: 2.4, gapSinceLastFixSec: 300 }))).toBe("transit");
+	});
+
+	it("refines to walking when history supports it", () => {
+		// Motion evidence present (gap=120) AND history shows a walk
+		// (effective ~4 km/h, straightness 0.9, span > 2 min). Push
+		// walking directly rather than transit-then-walking-on-next-fix.
+		const s = signals({
+			gapSinceLastFixSec: 120,
+			effectiveSpeedKmh: 4,
+			straightness: 0.9,
+			historySpanSec: 270,
+		});
+		expect(escalateFromSignificant(s)).toBe("walking");
+	});
+
+	it("falls back to transit when motion evidence is present but history is too thin", () => {
+		// First Significant-mode escape — gap signal triggered but we
+		// don't yet have a full 2 min of history to refine.
+		const s = signals({ gapSinceLastFixSec: 120, historySpanSec: 60 });
+		expect(escalateFromSignificant(s)).toBe("transit");
+	});
+});
+
+describe("refineInMove", () => {
+	// Predicate 3: in Move mode, pick the precise profile from
+	// effective speed + straightness.
+
+	it("returns null when history span is too short", () => {
+		expect(refineInMove(signals({ effectiveSpeedKmh: 100, historySpanSec: 60 }))).toBeNull();
+	});
+
+	it("picks transit-fast for sustained high effective speed", () => {
+		expect(refineInMove(signals({ effectiveSpeedKmh: 100, historySpanSec: 200 }))).toBe("transit-fast");
+	});
+
+	it("picks transit for moderate effective speed", () => {
+		expect(refineInMove(signals({ effectiveSpeedKmh: 50, historySpanSec: 200 }))).toBe("transit");
+	});
+
+	it("picks walking for walking-band speed + directional straightness", () => {
+		expect(refineInMove(signals({ effectiveSpeedKmh: 4, straightness: 0.9, historySpanSec: 200 }))).toBe("walking");
+	});
+
+	it("returns null for walking-band speed with low straightness (wander)", () => {
+		expect(refineInMove(signals({ effectiveSpeedKmh: 4, straightness: 0.2, historySpanSec: 200 }))).toBeNull();
+	});
+});
+
+describe("demoteAfterStop", () => {
+	// Predicate 4: only after 10 minutes of sustained low-speed history
+	// do we push the phone back to Significant.
+
+	it("returns null when history span < 10 minutes", () => {
+		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0, historySpanSec: 540 }))).toBeNull();
+	});
+
+	it("returns null when effective speed is still in the walking band", () => {
+		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 3, historySpanSec: 700 }))).toBeNull();
+	});
+
+	it("returns stationary after 10 min of sub-walking-band speed", () => {
+		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0.5, historySpanSec: 700 }))).toBe("stationary");
+	});
+});
+
+describe("decideTransition (cascade)", () => {
+	// Top-level predicate ordering: high-speed escalation > Significant
+	// escalation > Move refinement > demote.
+
+	it("high speed wins even from Move state", () => {
+		const s = signals({ reportedVelKmh: 100, monitoringMode: 2, historySpanSec: 700 });
+		expect(decideTransition(s, "walking")).toBe("transit-fast");
+	});
+
+	it("Significant escalation runs only when monitoringMode = 1 (or unknown + last was stationary)", () => {
+		const s = signals({ gapSinceLastFixSec: 120, monitoringMode: 1 });
+		expect(decideTransition(s, "stationary")).toBe("transit");
+
+		// Same signal but phone is in Move — escalation skipped, refinement
+		// path takes over (no history → keep).
+		const s2 = signals({ gapSinceLastFixSec: 120, monitoringMode: 2 });
+		expect(decideTransition(s2, "transit")).toBe("keep");
+	});
+
+	it("trusts the m field over prevProfile", () => {
+		// prevProfile says "walking" (Move) but phone reports m=1 (Significant)
+		// — phone is authoritative. Significant path applies.
+		const s = signals({ monitoringMode: 1, gapSinceLastFixSec: 120 });
+		expect(decideTransition(s, "walking")).toBe("transit");
+	});
+
+	it("returns 'keep' when no predicate fires", () => {
+		expect(decideTransition(signals(), null)).toBe("keep");
+	});
+});
+
+describe("decideRemoteConfig (anti-flap)", () => {
+	// Anti-flap window: don't push a second config change within
+	// ANTI_FLAP_WINDOW_SEC. High-confidence single-fix escalation
+	// (reported vel > 30) bypasses the window.
+
+	const walkingHistory: FixRecord[] = [
+		{ ts: 0, lat: 0, lon: 0 },
+		{ ts: 90, lat: 0.0009, lon: 0 },
+		{ ts: 180, lat: 0.0018, lon: 0 },
+		{ ts: 270, lat: 0.0027, lon: 0 },
+	];
+
+	it("suppresses a marginal transition within the anti-flap window", () => {
+		// Walking history would push walking, but we pushed something
+		// 60s ago — wait.
+		const r = decideRemoteConfig(0, "transit", walkingHistory, { lastPushTs: 210, nowTs: 270 });
+		expect(r.patch).toBeNull();
+		expect(r.profile).toBe("transit"); // preserve lastProfile
+	});
+
+	it("allows a marginal transition after the window expires", () => {
+		const r = decideRemoteConfig(0, "transit", walkingHistory, { lastPushTs: 0, nowTs: 270 });
+		expect(r.profile).toBe("walking");
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 30 });
+	});
+
+	it("high-confidence escalation bypasses anti-flap", () => {
+		// User boards a train; reported vel=120. Even if we pushed walking
+		// 30s ago, this is too important to delay.
+		const trainHistory: FixRecord[] = [...walkingHistory, { ts: 300, lat: 0.0036, lon: 0, vel: 120 }];
+		const r = decideRemoteConfig(0, "walking", trainHistory, { lastPushTs: 270, nowTs: 300 });
+		expect(r.profile).toBe("transit-fast");
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 10 });
+	});
+
+	it("no anti-flap suppression when lastPushTs is null", () => {
+		// First push for this device — no previous timestamp to throttle against.
+		const r = decideRemoteConfig(0, "transit", walkingHistory, { lastPushTs: null, nowTs: 270 });
+		expect(r.profile).toBe("walking");
+		expect(r.patch).not.toBeNull();
+	});
+});
+
+describe("decideRemoteConfig from Significant mode (office-walk case)", () => {
+	// The "walking from Significant" gap we identified — phone in
+	// Significant mode, user starts walking, motion sensor fires extra
+	// fixes. Should escalate from a single fast-gap signal.
+
+	it("escalates on first closely-spaced Significant fix (too thin to refine)", () => {
+		// Phone in Significant; new fix arrives 1 min later (much faster
+		// than the 15-min scheduled cadence). History span < 2 min so we
+		// can't yet refine to walking — fall back to generic transit so
+		// the phone enters Move mode and subsequent fixes can refine.
+		const history: FixRecord[] = [
+			{ ts: 0, lat: 51.5, lon: -0.1, monitoringMode: 1 },
+			{ ts: 60, lat: 51.501, lon: -0.1, monitoringMode: 1 }, // 110m in 1 min
+		];
+		const r = decideRemoteConfig(0, "stationary", history);
+		expect(r.profile).toBe("transit");
+		expect(r.patch).toEqual({ monitoring: 2, moveModeLocatorInterval: 15 });
+	});
+
+	it("does not escalate on a scheduled-cadence Significant fix that didn't move", () => {
+		// 15-min scheduled tick, same location → not motion.
+		const history: FixRecord[] = [
+			{ ts: 0, lat: 51.5, lon: -0.1, monitoringMode: 1 },
+			{ ts: 900, lat: 51.5, lon: -0.1, monitoringMode: 1 },
+		];
+		const r = decideRemoteConfig(0, "stationary", history);
+		expect(r.profile).toBe("stationary");
+		expect(r.patch).toBeNull();
+	});
+
+	it("treats trigger='u' (user action) as motion intent from Significant", () => {
+		const history: FixRecord[] = [
+			{ ts: 0, lat: 51.5, lon: -0.1, monitoringMode: 1 },
+			{ ts: 900, lat: 51.5, lon: -0.1, monitoringMode: 1, trigger: "u" },
+		];
+		const r = decideRemoteConfig(0, "stationary", history);
+		expect(r.profile).toBe("transit");
 	});
 });
