@@ -879,9 +879,25 @@ export async function annotateRailRuns(
 		const run = runs[runIdx];
 		const label = runLabels[runIdx];
 		if (run.toExclusive - run.from === 1 && run.absorbedStationary.length === 0) {
-			// Single segment — no collapse needed. Just annotate.
+			// Single-segment rail run. Annotate with the station label
+			// AND upgrade the mode to "train" — a station-pair label
+			// only gets produced when BOTH endpoints resolve to real
+			// stations (line 833), which is strong rail evidence. The
+			// classifier may have called this "driving" because the
+			// GPS surface fixes look road-shaped (high linearity,
+			// vehicle-speed), but the station-pair annotation outranks
+			// that. Without the upgrade we end up with a segment that's
+			// internally contradictory: mode=driving + wayName like
+			// "Baker Street → Wembley Park".
 			const s = { ...segments[run.from] };
-			if (label) s.wayName = label;
+			if (label) {
+				s.wayName = label;
+				if (s.mode !== "train") {
+					s.mode = "train";
+					s.refinedMode = "train";
+					s.refinedReason = `station-pair upgrade${s.refinedReason ? ` (was: ${s.refinedReason})` : ""}`;
+				}
+			}
 			out.push(s);
 			i = run.toExclusive;
 			continue;

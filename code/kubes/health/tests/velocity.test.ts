@@ -451,6 +451,37 @@ describe("annotateRailRuns", () => {
 		expect(out[0].wayName).toBe("M25"); // unchanged
 	});
 
+	it("upgrades a single inferred-gap driving segment to train when both endpoints resolve to stations", async () => {
+		// Today's bug: the Baker Street → Wembley Park tube ride shows up
+		// in the timeline as a single "driving" segment annotated with
+		// the station pair. The annotation is correct but the mode is
+		// wrong — internally contradictory, and downstream code (UI
+		// icons, stats) treats it as a car drive. annotateRailRuns
+		// already produces the wayName label; it should also flip the
+		// mode to "train" when the label is produced (because we have
+		// high-confidence rail evidence: BOTH endpoints are real
+		// stations and the segment is rail-like by GPS shape).
+		const segs = [inferredVehicleGap(1000, 1500)];
+		const points = [fix(900, 51.523, -0.158), fix(1600, 51.563, -0.279)];
+		const out = await annotateRailRuns(segs, points, lookup);
+		expect(out[0].wayName).toBe("Baker Street → Wembley Park");
+		expect(out[0].mode).toBe("train");
+		expect(out[0].refinedMode).toBe("train");
+	});
+
+	it("upgrades a single high-linearity driving segment without label only if station lookup produces a pair", async () => {
+		// Negative control: when annotateRailRuns *fails* to find a
+		// station pair (e.g. user wasn't actually near a station), the
+		// mode stays as the input — we should not upgrade on weak
+		// evidence. The high linearity alone isn't enough.
+		const seg = inferredVehicleGap(1000, 1500);
+		const points = [fix(900, 51.5, -0.1), fix(1600, 51.6, -0.2)];
+		const noStations = async () => [];
+		const out = await annotateRailRuns([seg], points, noStations);
+		expect(out[0].mode).toBe("driving"); // unchanged
+		expect(out[0].wayName).toBeUndefined();
+	});
+
 	it("tags the collapsed run with a refinedReason describing the merge", async () => {
 		// Multi-segment runs collapse, so the per-segment refinedReason of
 		// individual inferred-gap segments is gone. The merged segment
