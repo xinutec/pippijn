@@ -551,11 +551,15 @@ export function pickBestStation(stations: NearbyStation[]): NearbyStation | null
 }
 
 export async function nearbyStations(lat: number, lon: number, radiusM = 200): Promise<NearbyStation[]> {
-	// Local-mirror path: ensure the railway-feature bucket has coverage
-	// for this point, then run a spatial query against osm_features.
-	// Same returned shape as the previous Overpass-cache version —
-	// callers (annotateRailRuns, station-graph picker) don't change.
-	await ensureCovered(lat, lon, radiusM, "railway");
+	// TEMP DEBUG: remove after we've validated the local mirror in prod.
+	const t0 = Date.now();
+	try {
+		await ensureCovered(lat, lon, radiusM, "railway");
+		console.log(`nearbyStations(${lat.toFixed(4)},${lon.toFixed(4)},r=${radiusM}) ensureCovered=${Date.now() - t0}ms`);
+	} catch (e) {
+		console.warn(`nearbyStations ensureCovered THREW for ${lat.toFixed(4)},${lon.toFixed(4)}:`, e);
+		return [];
+	}
 	const features = await queryFeatures(lat, lon, radiusM, "railway", [
 		"station",
 		"subway_entrance",
