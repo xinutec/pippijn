@@ -13,7 +13,7 @@ import { db } from "../db/pool.js";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
 import { ensureCovered, queryLines, queryPoints } from "./osm-local.js";
-import { overpassFetch, USER_AGENT } from "./osm-overpass.js";
+import { USER_AGENT } from "./osm-overpass.js";
 
 /**
  * Overpass endpoints, tried in order. The main server overpass-api.de is
@@ -449,57 +449,37 @@ export function extractLineNames(data: {
  * residential building adjacent to the actual landmark.
  */
 export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): Promise<NearbyLandmark[]> {
-	const result = await withCache<NearbyLandmark[]>(
-		`landmarks_r${radiusM}`,
-		lat,
-		lon,
-		async () => {
-			const query = `
-				[out:json][timeout:10];
-				(
-					node(around:${radiusM},${lat},${lon})[name][amenity];
-					node(around:${radiusM},${lat},${lon})[name][tourism];
-					node(around:${radiusM},${lat},${lon})[name][leisure];
-					node(around:${radiusM},${lat},${lon})[name][shop];
-					way(around:${radiusM},${lat},${lon})[name][amenity];
-					way(around:${radiusM},${lat},${lon})[name][tourism];
-					way(around:${radiusM},${lat},${lon})[name][leisure];
-					way(around:${radiusM},${lat},${lon})[name][shop];
-					way(around:${radiusM},${lat},${lon})[name][place];
-					way(around:${radiusM},${lat},${lon})[name][highway=pedestrian];
-					relation(around:${radiusM},${lat},${lon})[name][place];
-				);
-				out tags center;
-			`;
-			const res = await overpassFetch(query);
-			if (!res.ok) {
-				console.warn(`Overpass landmarks returned ${res.status} for ${lat},${lon}`);
-				return { ok: false, status: res.status };
-			}
-
-			const data = (await res.json()) as { elements?: OverpassElement[] };
-			const landmarks: NearbyLandmark[] = [];
-			for (const el of data.elements ?? []) {
-				const tags = el.tags ?? {};
-				const name = tags.name;
-				if (!name) continue;
-				const elLat = el.lat ?? el.center?.lat;
-				const elLon = el.lon ?? el.center?.lon;
-				if (elLat === undefined || elLon === undefined) continue;
-				const distanceM = landmarkHaversine(lat, lon, elLat, elLon);
-				for (const k of ["amenity", "tourism", "leisure", "shop", "place"] as const) {
-					if (tags[k]) landmarks.push({ name, type: k, subtype: tags[k], distanceM });
-				}
-				if (tags.highway === "pedestrian") {
-					landmarks.push({ name, type: "highway", subtype: "pedestrian", distanceM });
-				}
-			}
-			landmarks.sort((a, b) => a.distanceM - b.distanceM);
-			return { ok: true, value: landmarks };
-		},
-		[],
-	);
-	return filterLandmarks(result);
+	// Local-mirror path: landmarks live in the "landmark" feature_type
+	// bucket which spans amenity / shop / tourism / leisure. Both
+	// tables are queried because OSM has venue POIs (node) and
+	// building outlines (way). Distance for ways comes from
+	// ST_Distance (planar, converted to metres in JS) since
+	// ST_Distance_Sphere is POINT-POINT only.
+	await ensureCovered(lat, lon, radiusM, "landmark");
+	const [points, lines] = await Promise.all([
+		queryPoints(lat, lon, radiusM, "landmark"),
+		queryLines(lat, lon, radiusM, "landmark"),
+	]);
+	const landmarks: NearbyLandmark[] = [];
+	for (const f of [...points, ...lines]) {
+		const name = f.name;
+		if (!name) continue;
+		// Tag-priority order matches the original Overpass-cache version:
+		// amenity > tourism > leisure > shop > place. Each tag spawns its
+		// own NearbyLandmark entry so the picker can score them
+		// independently; an element tagged BOTH `amenity=cafe` and
+		// `tourism=attraction` (rare but happens) appears twice and the
+		// picker resolves precedence via LANDMARK_PRIORITY.
+		const tags = f.tags;
+		for (const k of ["amenity", "tourism", "leisure", "shop", "place"] as const) {
+			if (tags[k]) landmarks.push({ name, type: k, subtype: tags[k], distanceM: f.distance_m });
+		}
+		if (tags.highway === "pedestrian") {
+			landmarks.push({ name, type: "highway", subtype: "pedestrian", distanceM: f.distance_m });
+		}
+	}
+	landmarks.sort((a, b) => a.distanceM - b.distanceM);
+	return filterLandmarks(landmarks);
 }
 
 /**
@@ -673,41 +653,35 @@ export interface NearbyWay {
  * Used to determine if a moving segment is likely a car, train, etc.
  */
 export async function nearbyWays(lat: number, lon: number, radiusM = 50): Promise<NearbyWay[]> {
-	return withCache<NearbyWay[]>(
-		`overpass_r${radiusM}`,
-		lat,
-		lon,
-		async () => {
-			const query = `
-				[out:json][timeout:10];
-				(
-					way(around:${radiusM},${lat},${lon})[highway];
-					way(around:${radiusM},${lat},${lon})[railway];
-					way(around:${radiusM},${lat},${lon})[waterway];
-					way(around:${radiusM},${lat},${lon})[aeroway];
-				);
-				out tags;
-			`;
-			const res = await overpassFetch(query);
-			if (!res.ok) {
-				console.warn(`Overpass returned ${res.status} for ${lat},${lon}`);
-				return { ok: false, status: res.status };
-			}
-
-			const data = (await res.json()) as { elements?: Array<{ tags?: Record<string, string> }> };
-			const ways: NearbyWay[] = [];
-			for (const el of data.elements ?? []) {
-				const tags = el.tags ?? {};
-				for (const type of ["highway", "railway", "waterway", "aeroway"]) {
-					if (tags[type]) {
-						ways.push({ type, subtype: tags[type], name: tags.name || tags.ref });
-					}
-				}
-			}
-			return { ok: true, value: ways };
-		},
-		[],
-	);
+	// Local-mirror path: ensure all four feature_type buckets have
+	// coverage for this point, then run a spatial query against the
+	// appropriate table for each. Highway/railway/waterway are line
+	// features (osm_lines); aeroway is queried in both tables because
+	// OSM tags airports as both ways (runways, taxiways) and nodes
+	// (aerodrome markers, terminals).
+	//
+	// Cold-miss in a new area: 4 Overpass calls (one per bucket) in
+	// parallel. Steady-state: 4 indexed SQL queries, no network.
+	await Promise.all([
+		ensureCovered(lat, lon, radiusM, "highway"),
+		ensureCovered(lat, lon, radiusM, "railway"),
+		ensureCovered(lat, lon, radiusM, "waterway"),
+		ensureCovered(lat, lon, radiusM, "aeroway"),
+	]);
+	const [highways, railways, waterways, aerowayLines, aerowayPoints] = await Promise.all([
+		queryLines(lat, lon, radiusM, "highway"),
+		queryLines(lat, lon, radiusM, "railway"),
+		queryLines(lat, lon, radiusM, "waterway"),
+		queryLines(lat, lon, radiusM, "aeroway"),
+		queryPoints(lat, lon, radiusM, "aeroway"),
+	]);
+	const ways: NearbyWay[] = [];
+	for (const f of highways) ways.push({ type: "highway", subtype: f.subtype ?? "", name: f.name ?? undefined });
+	for (const f of railways) ways.push({ type: "railway", subtype: f.subtype ?? "", name: f.name ?? undefined });
+	for (const f of waterways) ways.push({ type: "waterway", subtype: f.subtype ?? "", name: f.name ?? undefined });
+	for (const f of aerowayLines) ways.push({ type: "aeroway", subtype: f.subtype ?? "", name: f.name ?? undefined });
+	for (const f of aerowayPoints) ways.push({ type: "aeroway", subtype: f.subtype ?? "", name: f.name ?? undefined });
+	return ways;
 }
 
 /**
