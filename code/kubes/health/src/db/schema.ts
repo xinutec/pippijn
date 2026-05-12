@@ -301,6 +301,11 @@ const MIGRATIONS: readonly string[] = [
 	// boxes return the same feature. feature_type is the high-level
 	// bucket (station, highway, railway, aeroway, landmark); subtype
 	// is the OSM tag value (subway, motorway, etc.).
+	// `geom GEOMETRY NOT NULL` — no column-level SRID attribute (MariaDB
+	// 11.x rejects the `SRID 4326` clause syntax). The SRID is set
+	// per-row at insert time via `ST_GeomFromText(wkt, 4326)`; the
+	// SPATIAL INDEX and `ST_Distance_Sphere` both work without a
+	// column-level SRID constraint.
 	`CREATE TABLE IF NOT EXISTS osm_features (
     osm_id BIGINT NOT NULL,
     osm_type VARCHAR(16) NOT NULL,
@@ -308,7 +313,7 @@ const MIGRATIONS: readonly string[] = [
     subtype VARCHAR(64),
     name VARCHAR(255),
     tags_json JSON,
-    geom GEOMETRY NOT NULL SRID 4326,
+    geom GEOMETRY NOT NULL,
     PRIMARY KEY (osm_type, osm_id),
     SPATIAL INDEX idx_geom (geom),
     INDEX idx_feature_type (feature_type)
