@@ -9,6 +9,9 @@ at health.xinutec.org).
 ```
 docs/
 ├── README.md                  ← you are here
+├── ideas.md                   Small future-considerations: heuristic
+│                              refinements and UX tweaks that aren't
+│                              substantial enough for a full proposal
 ├── design/                    System-as-shipped: current architecture
 │   ├── overview.md              Top-level architecture diagram + module map
 │   └── timezone.md              Per-row tz handling rules and rationale
