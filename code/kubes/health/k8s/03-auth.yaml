@@ -70,6 +70,14 @@ spec:
                 secretKeyRef:
                   name: health-secret
                   key: OWNTRACKS_ALLOWED_TOKENS
+            # Phase 1 cutover of the classification pipeline. When set,
+            # refineMode dispatches to the factor-scorer path (candidate
+            # generator + speed-emission/osm-distance/mode-coherence
+            # factor stack) instead of the legacy rule cascade. The
+            # cascade remains intact behind the flag flip — unset this
+            # env var to revert without a code change.
+            - name: USE_FACTOR_SCORER
+              value: "1"
           resources:
             requests:
               cpu: 10m
