@@ -47,13 +47,28 @@ describe("nextDateString", () => {
 });
 
 describe("derivePlaceForSleep", () => {
-	it("finds the place of a stationary segment containing the sleep start", () => {
+	it("finds the place of a stationary segment overlapping the sleep window", () => {
 		const segs = [stationary(0, 1000, "Home"), stationary(1000, 2000, "Work")];
 		const window = { startTs: 200, endTs: 800 };
 		expect(derivePlaceForSleep(window, segs)).toBe("Home");
 	});
 
-	it("returns null when the sleep start falls inside a moving segment", () => {
+	it("handles morning sleep: window starts before any segment but wake-up overlaps", () => {
+		// Real case: today's "morning sleep" event has startTs the
+		// previous evening. The first stationary segment in today's
+		// data covers the wake-up endpoint of the sleep window.
+		const segs = [stationary(800, 2000, "Home")];
+		const window = { startTs: 100, endTs: 1500 }; // starts before segment, ends inside it
+		expect(derivePlaceForSleep(window, segs)).toBe("Home");
+	});
+
+	it("handles evening sleep: window starts inside a segment, ends after it", () => {
+		const segs = [stationary(0, 1500, "Home")];
+		const window = { startTs: 1000, endTs: 3000 }; // starts inside, ends after the segment
+		expect(derivePlaceForSleep(window, segs)).toBe("Home");
+	});
+
+	it("returns null when sleep is entirely inside moving segments (overnight train)", () => {
 		const segs: EnrichedSegment[] = [
 			{
 				startTs: 0,
@@ -71,13 +86,13 @@ describe("derivePlaceForSleep", () => {
 		expect(derivePlaceForSleep(window, segs)).toBeNull();
 	});
 
-	it("returns null when no stationary segment contains the sleep start", () => {
-		const segs = [stationary(0, 100, "Home")]; // ends before sleep starts
+	it("returns null when no stationary segment overlaps the sleep window", () => {
+		const segs = [stationary(0, 100, "Home")]; // ends well before sleep window
 		const window = { startTs: 200, endTs: 800 };
 		expect(derivePlaceForSleep(window, segs)).toBeNull();
 	});
 
-	it("returns null when the containing segment has no place tag", () => {
+	it("returns null when the overlapping stationary segment has no place tag", () => {
 		const segs = [stationary(0, 1000)]; // no place
 		const window = { startTs: 200, endTs: 800 };
 		expect(derivePlaceForSleep(window, segs)).toBeNull();

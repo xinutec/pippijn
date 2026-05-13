@@ -33,26 +33,33 @@ export interface RawSleepWindow {
 }
 
 /** Look at segments and return the place a stationary segment is
- *  tagged with, if any such segment contains the sleep's start
- *  timestamp. Returns null when:
- *    - the sleep started inside a moving segment (overnight train)
- *    - the containing stationary segment has no place tag
- *    - no segment contains the sleep start
+ *  tagged with, if any such segment overlaps the sleep window.
+ *  Returns null when:
+ *    - the sleep occurred entirely inside moving segments
+ *      (overnight train), or
+ *    - no overlapping stationary segment has a place tag.
  *
- *  Pure function — the segments pipeline produces the candidate
- *  segments; this helper only consults them. */
+ *  Why overlap (not just "contains start"): the morning sleep
+ *  event's `startTs` lies the previous evening, outside today's
+ *  segment range. The wake-up endpoint, however, is inside today's
+ *  first stationary segment. Checking overlap covers both directions
+ *  (morning sleep from yesterday's bed; evening sleep into
+ *  tomorrow's bed) without separate code paths.
+ *
+ *  Pure function — the segments pipeline produces the candidates;
+ *  this helper only consults them. */
 export function derivePlaceForSleep(
-	window: { startTs: number },
+	window: { startTs: number; endTs: number },
 	segments: readonly EnrichedSegment[],
 ): string | null {
-	const containing = segments.find(
+	const overlapping = segments.find(
 		(s) =>
-			s.startTs <= window.startTs &&
 			s.endTs > window.startTs &&
+			s.startTs < window.endTs &&
 			(s.refinedMode ?? s.mode) === "stationary" &&
 			s.place !== undefined,
 	);
-	return containing?.place ?? null;
+	return overlapping?.place ?? null;
 }
 
 /**
