@@ -1,0 +1,532 @@
+apiVersion: grizzly.grafana.com/v1alpha1
+kind: Dashboard
+metadata:
+    folder: integration---linux-node
+    name: QIA3UR57z
+spec:
+    annotations:
+        list:
+            - builtIn: 1
+              datasource:
+                type: datasource
+                uid: grafana
+              enable: true
+              hide: true
+              iconColor: rgba(0, 211, 255, 1)
+              name: Annotations & Alerts
+              target:
+                limit: 100
+                matchAny: false
+                tags: []
+                type: dashboard
+              type: dashboard
+    description: Public view on Picade metrics
+    editable: true
+    fiscalYearStartMonth: 0
+    gnetId: 15202
+    graphTooltip: 0
+    links: []
+    liveNow: false
+    panels:
+        - datasource:
+            type: prometheus
+            uid: grafanacloud-prom
+          fieldConfig:
+            defaults:
+                color:
+                    mode: palette-classic
+                custom:
+                    axisBorderShow: false
+                    axisCenteredZero: false
+                    axisColorMode: text
+                    axisLabel: ""
+                    axisPlacement: auto
+                    barAlignment: 0
+                    drawStyle: line
+                    fillOpacity: 0
+                    gradientMode: none
+                    hideFrom:
+                        legend: false
+                        tooltip: false
+                        viz: false
+                    insertNulls: false
+                    lineInterpolation: smooth
+                    lineWidth: 1
+                    pointSize: 5
+                    scaleDistribution:
+                        type: linear
+                    showPoints: never
+                    spanNulls: false
+                    stacking:
+                        group: A
+                        mode: none
+                    thresholdsStyle:
+                        mode: line
+                mappings: []
+                max: 100
+                min: 0
+                thresholds:
+                    mode: absolute
+                    steps:
+                        - color: green
+                          value: null
+                unit: percent
+            overrides: []
+          gridPos:
+            h: 8
+            w: 12
+            x: 0
+            "y": 0
+          id: 3
+          options:
+            legend:
+                calcs:
+                    - last
+                    - mean
+                    - max
+                displayMode: table
+                placement: right
+                showLegend: true
+            tooltip:
+                mode: multi
+                sort: none
+          targets:
+            - datasource:
+                type: prometheus
+                uid: grafanacloud-prom
+              editorMode: code
+              exemplar: false
+              expr: "(((count by (agent_hostname) (count(node_cpu_seconds_total) by (cpu, agent_hostname))) \n- \navg by (agent_hostname) (sum by (agent_hostname, mode)(irate(node_cpu_seconds_total{mode='idle'}[$__rate_interval])))) * 100) \n/ \ncount by(agent_hostname) (count(node_cpu_seconds_total) by (cpu, agent_hostname))"
+              instant: false
+              interval: ""
+              intervalFactor: 1
+              legendFormat: '{{agent_hostname}}'
+              range: true
+              refId: A
+          title: CPU Usage
+          type: timeseries
+        - datasource:
+            type: prometheus
+            uid: grafanacloud-prom
+          fieldConfig:
+            defaults:
+                color:
+                    mode: palette-classic
+                custom:
+                    axisBorderShow: false
+                    axisCenteredZero: false
+                    axisColorMode: text
+                    axisLabel: ""
+                    axisPlacement: auto
+                    barAlignment: 0
+                    drawStyle: line
+                    fillOpacity: 0
+                    gradientMode: none
+                    hideFrom:
+                        legend: false
+                        tooltip: false
+                        viz: false
+                    insertNulls: false
+                    lineInterpolation: smooth
+                    lineWidth: 1
+                    pointSize: 5
+                    scaleDistribution:
+                        type: linear
+                    showPoints: auto
+                    spanNulls: false
+                    stacking:
+                        group: A
+                        mode: none
+                    thresholdsStyle:
+                        mode: line
+                mappings: []
+                max: 85
+                min: 30
+                thresholds:
+                    mode: absolute
+                    steps:
+                        - color: green
+                          value: null
+                        - color: red
+                          value: 70
+                unit: celsius
+            overrides: []
+          gridPos:
+            h: 8
+            w: 12
+            x: 12
+            "y": 0
+          id: 2
+          options:
+            legend:
+                calcs:
+                    - last
+                    - mean
+                    - max
+                displayMode: table
+                placement: right
+                showLegend: true
+            tooltip:
+                mode: multi
+                sort: none
+          targets:
+            - datasource:
+                type: prometheus
+                uid: grafanacloud-prom
+              disableTextWrap: false
+              editorMode: builder
+              exemplar: false
+              expr: avg by(agent_hostname) (node_hwmon_temp_celsius)
+              fullMetaSearch: false
+              includeNullMetadata: true
+              instant: false
+              interval: ""
+              intervalFactor: 2
+              legendFormat: '{{agent_hostname}}'
+              range: true
+              refId: A
+              useBackend: false
+          title: Temperature
+          type: timeseries
+        - datasource:
+            type: prometheus
+            uid: grafanacloud-prom
+          fieldConfig:
+            defaults:
+                color:
+                    mode: palette-classic
+                custom:
+                    axisBorderShow: false
+                    axisCenteredZero: false
+                    axisColorMode: text
+                    axisLabel: ""
+                    axisPlacement: auto
+                    barAlignment: 0
+                    drawStyle: line
+                    fillOpacity: 30
+                    gradientMode: opacity
+                    hideFrom:
+                        legend: false
+                        tooltip: false
+                        viz: false
+                    insertNulls: false
+                    lineInterpolation: smooth
+                    lineWidth: 1
+                    pointSize: 5
+                    scaleDistribution:
+                        type: linear
+                    showPoints: never
+                    spanNulls: false
+                    stacking:
+                        group: A
+                        mode: none
+                    thresholdsStyle:
+                        mode: line
+                mappings: []
+                max: 100
+                min: 0
+                thresholds:
+                    mode: absolute
+                    steps:
+                        - color: green
+                          value: null
+                unit: percent
+            overrides: []
+          gridPos:
+            h: 8
+            w: 12
+            x: 0
+            "y": 8
+          id: 4
+          options:
+            legend:
+                calcs:
+                    - last
+                    - mean
+                    - max
+                displayMode: table
+                placement: right
+                showLegend: true
+            tooltip:
+                mode: multi
+                sort: none
+          targets:
+            - datasource:
+                type: prometheus
+                uid: grafanacloud-prom
+              editorMode: code
+              exemplar: false
+              expr: |-
+                100 -
+                (
+                  avg by (agent_hostname) (node_memory_MemAvailable_bytes) /
+                  avg by (agent_hostname) (node_memory_MemTotal_bytes)
+                * 100
+                )
+              instant: false
+              interval: ""
+              intervalFactor: 1
+              legendFormat: '{{agent_hostname}}'
+              range: true
+              refId: A
+          title: Memory Usage
+          type: timeseries
+        - datasource:
+            type: prometheus
+            uid: grafanacloud-prom
+          fieldConfig:
+            defaults:
+                color:
+                    mode: palette-classic
+                custom:
+                    axisBorderShow: false
+                    axisCenteredZero: false
+                    axisColorMode: text
+                    axisLabel: ""
+                    axisPlacement: auto
+                    barAlignment: 0
+                    drawStyle: line
+                    fillOpacity: 0
+                    gradientMode: none
+                    hideFrom:
+                        legend: false
+                        tooltip: false
+                        viz: false
+                    insertNulls: false
+                    lineInterpolation: smooth
+                    lineWidth: 1
+                    pointSize: 5
+                    scaleDistribution:
+                        type: linear
+                    showPoints: never
+                    spanNulls: false
+                    stacking:
+                        group: A
+                        mode: none
+                    thresholdsStyle:
+                        mode: line
+                mappings: []
+                min: 0
+                thresholds:
+                    mode: absolute
+                    steps:
+                        - color: green
+                          value: null
+                unit: percent
+            overrides: []
+          gridPos:
+            h: 8
+            w: 12
+            x: 12
+            "y": 8
+          id: 5
+          options:
+            legend:
+                calcs:
+                    - last
+                    - mean
+                    - max
+                displayMode: table
+                placement: right
+                showLegend: true
+            tooltip:
+                mode: multi
+                sort: none
+          targets:
+            - datasource:
+                type: prometheus
+                uid: grafanacloud-prom
+              editorMode: code
+              exemplar: false
+              expr: topk(25,irate(node_disk_io_time_seconds_total{device=~"mmcblk\\d+"}[$__rate_interval]))
+              instant: false
+              interval: ""
+              intervalFactor: 1
+              legendFormat: '{{agent_hostname}}'
+              range: true
+              refId: A
+          title: Disk IO
+          type: timeseries
+        - datasource:
+            type: prometheus
+            uid: grafanacloud-prom
+          description: ""
+          fieldConfig:
+            defaults:
+                color:
+                    mode: palette-classic
+                custom:
+                    axisBorderShow: false
+                    axisCenteredZero: true
+                    axisColorMode: text
+                    axisLabel: out(-) | in(+)
+                    axisPlacement: auto
+                    barAlignment: 0
+                    drawStyle: line
+                    fillOpacity: 30
+                    gradientMode: opacity
+                    hideFrom:
+                        legend: false
+                        tooltip: false
+                        viz: false
+                    insertNulls: false
+                    lineInterpolation: smooth
+                    lineWidth: 1
+                    pointSize: 5
+                    scaleDistribution:
+                        type: linear
+                    showPoints: never
+                    spanNulls: false
+                    stacking:
+                        group: A
+                        mode: normal
+                    thresholdsStyle:
+                        mode: line
+                mappings: []
+                thresholds:
+                    mode: absolute
+                    steps:
+                        - color: green
+                          value: null
+                unit: Bps
+            overrides:
+                - matcher:
+                    id: byRegexp
+                    options: /send/
+                  properties:
+                    - id: custom.transform
+                      value: negative-Y
+          gridPos:
+            h: 8
+            w: 12
+            x: 0
+            "y": 16
+          id: 7
+          options:
+            legend:
+                calcs:
+                    - last
+                    - mean
+                    - max
+                displayMode: table
+                placement: right
+                showLegend: true
+            tooltip:
+                mode: multi
+                sort: none
+          targets:
+            - datasource:
+                type: prometheus
+                uid: grafanacloud-prom
+              editorMode: code
+              exemplar: false
+              expr: irate(node_network_receive_bytes_total{device="wlan0"}[$__rate_interval])
+              instant: false
+              interval: ""
+              intervalFactor: 3
+              legendFormat: '{{agent_hostname}}: recv'
+              range: true
+              refId: A
+            - datasource:
+                type: prometheus
+                uid: grafanacloud-prom
+              editorMode: code
+              exemplar: false
+              expr: irate(node_network_transmit_bytes_total{device="wlan0"}[$__rate_interval])
+              hide: false
+              instant: false
+              interval: ""
+              intervalFactor: 3
+              legendFormat: '{{agent_hostname}}: send'
+              range: true
+              refId: B
+          title: Network Traffic
+          type: timeseries
+        - datasource:
+            type: prometheus
+            uid: grafanacloud-prom
+          fieldConfig:
+            defaults:
+                color:
+                    mode: palette-classic
+                custom:
+                    axisBorderShow: false
+                    axisCenteredZero: false
+                    axisColorMode: text
+                    axisLabel: ""
+                    axisPlacement: auto
+                    barAlignment: 0
+                    drawStyle: line
+                    fillOpacity: 30
+                    gradientMode: opacity
+                    hideFrom:
+                        legend: false
+                        tooltip: false
+                        viz: false
+                    insertNulls: false
+                    lineInterpolation: smooth
+                    lineWidth: 1
+                    pointSize: 5
+                    scaleDistribution:
+                        type: linear
+                    showPoints: never
+                    spanNulls: false
+                    stacking:
+                        group: A
+                        mode: none
+                    thresholdsStyle:
+                        mode: line
+                mappings: []
+                max: 100
+                min: 0
+                thresholds:
+                    mode: absolute
+                    steps:
+                        - color: green
+                          value: null
+                unit: percent
+            overrides: []
+          gridPos:
+            h: 8
+            w: 12
+            x: 12
+            "y": 16
+          id: 6
+          options:
+            legend:
+                calcs:
+                    - last
+                displayMode: table
+                placement: right
+                showLegend: true
+            tooltip:
+                mode: multi
+                sort: none
+          targets:
+            - datasource:
+                type: prometheus
+                uid: grafanacloud-prom
+              editorMode: code
+              exemplar: false
+              expr: topk(25,100 - node_filesystem_avail_bytes{fstype!~"(nfs4|tmpfs|)", mountpoint!~"(.*/kubelet/.*|/nix/store|/run/keys|/home|)"}/node_filesystem_size_bytes{fstype!~"(nfs4|tmpfs|)", mountpoint!=""}*100)
+              instant: false
+              interval: ""
+              intervalFactor: 3
+              legendFormat: '{{agent_hostname}}: {{mountpoint}}'
+              range: true
+              refId: A
+          title: Disk Usage
+          type: timeseries
+    refresh: 1m
+    schemaVersion: 39
+    tags: []
+    templating:
+        list: []
+    time:
+        from: now-1h
+        to: now
+    timepicker: {}
+    timezone: ""
+    title: Picade Monitoring
+    uid: QIA3UR57z
+    weekStart: ""
