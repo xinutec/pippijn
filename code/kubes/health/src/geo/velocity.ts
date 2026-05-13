@@ -756,9 +756,96 @@ const POST_TRANSIT_SPEED_KMH = 15;
  *  train" and resolves the alight station to whatever the train is
  *  currently passing. Below 5 km/h the user is genuinely walking or
  *  standing on a platform and the location is the actual disembark.
- *  (Real 2026-05-12 morning case: Met line through Euston Square at
- *  7.5 km/h was being labelled as the alight station.) */
+ *  See the failure-class for "decelerating train through a non-
+ *  disembark station." */
 const POST_TRANSIT_ALIGHT_SPEED_KMH = 5;
+
+/** How far back in time to scan for a platform-train-platform fix
+ *  pattern that suggests the velocity classifier closed the train
+ *  segment's startTs too late. 15 minutes accommodates a multi-
+ *  station tube ride whose initial portion got classified as walking
+ *  because the per-station platform stops dominated the window
+ *  median. */
+const PLATFORM_PATTERN_WALKBACK_S = 900;
+/** Speeds at or below this are platform-or-boarding pace. */
+const PLATFORM_SLOW_KMH = 8;
+/** Speeds at or above this are clearly train-in-motion. */
+const PLATFORM_TRAIN_KMH = 30;
+/** Maximum time gap between consecutive slow fixes that we still
+ *  consider part of the same boarding-platform chain. A user walking
+ *  to a different station has a slow-fix gap of several minutes (or
+ *  no fix at all because the phone went to power-save). Inside a
+ *  station / on a platform / on a stopping-train sequence, the gap
+ *  rarely exceeds ~3 minutes between recorded fixes. */
+const PLATFORM_MAX_GAP_S = 180;
+/** Maximum geographic spread of a "platform cluster" of slow fixes.
+ *  Inside one station, fixes cluster within ~50m. Allowing 150m
+ *  permits a short walk between adjacent platforms during a transfer
+ *  while still rejecting a walking trail across multiple blocks. */
+const PLATFORM_MAX_SPREAD_M = 150;
+
+/**
+ * Detect a platform-train-platform pattern in the fixes preceding
+ * a rail run's classifier-given startTs, and return the earliest
+ * slow fix that's part of that pattern. This is the *actual*
+ * boarding fix — annotateRailRuns uses it as `slowBefore` to look
+ * up the boarding station.
+ *
+ * Returns null when no train-speed fix appears in the lookback
+ * window (so the classifier-given startTs is trustworthy) or when
+ * no slow fix is connected to the train-pattern.
+ *
+ * Pure helper for unit testing — no DB calls, no async.
+ */
+export function findBoardingPlatformFix(points: FilteredPoint[], startTs: number): FilteredPoint | null {
+	const windowStart = startTs - PLATFORM_PATTERN_WALKBACK_S;
+	const windowFixes = points
+		.filter((p) => p.ts >= windowStart && p.ts <= startTs)
+		.sort((a, b) => a.ts - b.ts);
+	if (windowFixes.length === 0) return null;
+
+	// Find the earliest train-speed fix in the window. If none, the
+	// classifier's startTs is already at-or-before the first train
+	// signal we have — no platform extension to do.
+	let firstFastIdx = -1;
+	for (let i = 0; i < windowFixes.length; i++) {
+		if (windowFixes[i].speed_kmh >= PLATFORM_TRAIN_KMH) {
+			firstFastIdx = i;
+			break;
+		}
+	}
+	if (firstFastIdx === -1) return null;
+
+	// Walk backward from firstFast, including each preceding slow
+	// fix into a "platform chain" as long as:
+	//   - it's slow (< PLATFORM_SLOW_KMH)
+	//   - time gap to the previous chain member is <= PLATFORM_MAX_GAP_S
+	//   - it stays within PLATFORM_MAX_SPREAD_M of the chain's centroid
+	//     (rules out a walking trail that approaches the station from
+	//     several blocks away)
+	let earliestIdx = -1;
+	let centroidLat = 0;
+	let centroidLon = 0;
+	let chainSize = 0;
+	let prevChainTs = windowFixes[firstFastIdx].ts;
+	for (let i = firstFastIdx - 1; i >= 0; i--) {
+		const p = windowFixes[i];
+		if (p.speed_kmh >= PLATFORM_SLOW_KMH) break;
+		if (prevChainTs - p.ts > PLATFORM_MAX_GAP_S) break;
+		if (chainSize > 0) {
+			const cLat = centroidLat / chainSize;
+			const cLon = centroidLon / chainSize;
+			if (haversineMeters(p.lat, p.lon, cLat, cLon) > PLATFORM_MAX_SPREAD_M) break;
+		}
+		centroidLat += p.lat;
+		centroidLon += p.lon;
+		chainSize++;
+		earliestIdx = i;
+		prevChainTs = p.ts;
+	}
+
+	return earliestIdx >= 0 ? windowFixes[earliestIdx] : null;
+}
 
 export async function annotateRailRuns(
 	segments: EnrichedSegment[],
@@ -831,7 +918,17 @@ export async function annotateRailRuns(
 			// transit-speed fixes gets us to the actual disembark-and-
 			// walk-near-station fix. Fall back to any fix if none qualify.
 			const slow = (p: FilteredPoint): boolean => p.speed_kmh < POST_TRANSIT_SPEED_KMH;
+			// First check whether the classifier's startTs is too late.
+			// When the per-window scorer averages over a stop-and-go
+			// platform sequence, the early part of a multi-station
+			// tube ride can land in the preceding "walking" segment.
+			// findBoardingPlatformFix walks back through the
+			// platform-train-platform fix pattern and returns the true
+			// boarding fix; if no such pattern exists, slowBefore
+			// falls through to the prior latest-slow-fix lookup.
+			const platformBoardingFix = findBoardingPlatformFix(points, startTs);
 			const slowBefore =
+				platformBoardingFix ??
 				[...points].reverse().find((p) => p.ts <= startTs && slow(p)) ??
 				[...points].reverse().find((p) => p.ts <= startTs);
 			// Alight lookup: two reasons we need to be picky about which

@@ -875,6 +875,60 @@ describe("annotateRailRuns", () => {
 		expect(out[2].wayName).toBe("Marylebone → Wembley Stadium");
 	});
 
+	it("extends boarding lookup backward through platform-train-platform fix patterns", async () => {
+		// Bug pattern: the velocity classifier closes the train segment's
+		// startTs too late, because windows-averaged over a stop-and-go
+		// platform sequence look like "ambiguous walking" rather than
+		// "train." The actual boarding fix lies several minutes before
+		// the classifier's startTs, but slowBefore (which picks the
+		// latest slow fix at-or-before startTs) lands at an intermediate
+		// platform mid-ride. The result is the wrong boarding station.
+		//
+		// Synthetic platform-pattern: alternating slow/fast fixes over
+		// ~8 minutes, starting at station A. The classifier-perceived
+		// startTs lands at the last platform (station C), but the true
+		// boarding was at station A.
+		const fixWithSpeed = (ts: number, lat: number, lon: number, speedKmh: number): FilteredPoint => ({
+			ts,
+			lat,
+			lon,
+			speed_kmh: speedKmh,
+			bearing: 0,
+		});
+		const stations = async (lat: number, lon: number) => {
+			if (Math.abs(lat - 51.53) < 0.005 && Math.abs(lon - -0.125) < 0.005)
+				return [{ name: "Station A", subtype: "subway", distanceM: 50 }];
+			if (Math.abs(lat - 51.525) < 0.005 && Math.abs(lon - -0.135) < 0.005)
+				return [{ name: "Station B", subtype: "subway", distanceM: 50 }];
+			if (Math.abs(lat - 51.524) < 0.005 && Math.abs(lon - -0.144) < 0.005)
+				return [{ name: "Station C", subtype: "subway", distanceM: 50 }];
+			if (Math.abs(lat - 51.563) < 0.005 && Math.abs(lon - -0.279) < 0.005)
+				return [{ name: "Station Z", subtype: "subway", distanceM: 50 }];
+			return [];
+		};
+		// Classifier sees the train run as starting at ts=1500.
+		const segs = [train(1500, 2000), walking(2001, 2100)];
+		// But the actual platform-pattern starts at ts=1000 at Station A.
+		const points: FilteredPoint[] = [
+			fixWithSpeed(1000, 51.53, -0.125, 0.7), // BOARDING: Station A platform
+			fixWithSpeed(1050, 51.53, -0.125, 7.7), // entering train at A
+			fixWithSpeed(1150, 51.525, -0.135, 57.8), // mid-ride A→B
+			fixWithSpeed(1200, 51.525, -0.135, 4.2), // platform at Station B (intermediate)
+			fixWithSpeed(1300, 51.524, -0.144, 86.1), // mid-ride B→C
+			fixWithSpeed(1400, 51.524, -0.144, 4.3), // platform at Station C (intermediate)
+			fixWithSpeed(1500, 51.524, -0.144, 0.5), // last platform fix at start of train segment
+			fixWithSpeed(2100, 51.563, -0.279, 0.5), // disembark at Station Z
+		];
+		const out = await annotateRailRuns(segs, points, stations);
+		// Without the fix: slowBefore lands at one of the mid-train
+		// platform fixes (ts=1400 or 1500 at Station C coords) and
+		// boarding resolves to "Station C → Station Z" — wrong.
+		// With the fix: backward walk through the platform pattern
+		// finds the earliest slow fix (ts=1000) and boarding resolves
+		// to "Station A → Station Z".
+		expect(out[0].wayName).toBe("Station A → Station Z");
+	});
+
 	it("does not walk back across a previous train segment when picking boarding", async () => {
 		// Previous train → stationary at Kings Cross (interchange) →
 		// walking → new train. The most-recent stationary is the
