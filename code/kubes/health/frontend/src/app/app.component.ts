@@ -54,42 +54,71 @@ export class AppComponent implements OnInit, AfterViewInit {
   constructor(readonly health: HealthService) {
     // Diagnostic: stream dayLoading state changes to the pod logs so
     // we can correlate them with the ResizeObserver events below.
-    // Remove this effect when the layout-instability investigation
-    // wraps up; the clientLog endpoint itself stays.
+    // Also retry the observer install on every signal change — the
+    // tab-group only enters the DOM once `loading()` flips false,
+    // which is after the constructor and even ngAfterViewInit run.
     effect(() => {
       const loading = this.dayLoading();
       void this.health.clientLog("day-loading-change", { loading });
+      this.tryInstallObservers();
+    });
+    effect(() => {
+      // Cheap re-trigger: any change to top-level signals retries.
+      void this.loading();
+      void this.fitbitLinked();
+      void this.authenticated();
+      this.tryInstallObservers();
     });
   }
 
-  /** Install ResizeObservers on the day-nav and tab-content elements,
-   *  posting every size change to /api/client-log. Lets us see from
-   *  the backend exactly when and to what dimensions the day-nav and
-   *  its flex parent change during dayLoading transitions —
-   *  diagnosing the residual "row grows during load" symptom that
-   *  CSS-only fixes haven't fully resolved. Remove the install once
-   *  the cause is identified. */
   ngAfterViewInit(): void {
-    // Defer one tick so Angular finishes painting the initial view
-    // before we look for the elements.
+    this.tryInstallObservers();
+  }
+
+  private observersInstalled = false;
+
+  /** Lazy-install ResizeObservers on .day-nav / .tab-content /
+   *  .day-label once those elements exist in the DOM. The elements
+   *  live inside the mat-tab-group, which only renders after the
+   *  initial `loading()` flips to false. We retry on every signal
+   *  change until installation succeeds, then mark
+   *  `observersInstalled` so retries become no-ops.
+   *
+   *  Each ResizeObserver posts dimensions to /api/client-log so the
+   *  layout-instability investigation can be driven from pod logs
+   *  rather than a browser inspector. Remove the install once the
+   *  cause is identified; the endpoint + helper stay. */
+  private tryInstallObservers(): void {
+    if (this.observersInstalled) return;
+    // Defer to a microtask so Angular has finished the current
+    // change-detection cycle and the freshly-rendered DOM is
+    // queryable.
     queueMicrotask(() => {
+      if (this.observersInstalled) return;
       const root = this.host.nativeElement;
-      const observe = (selector: string, tag: string): void => {
+      const targets: Array<[string, string]> = [
+        [".day-nav", "day-nav"],
+        [".tab-content", "tab-content"],
+        [".day-label", "day-label"],
+      ];
+      const elements: Array<[HTMLElement, string]> = [];
+      for (const [selector, tag] of targets) {
         const el = root.querySelector(selector) as HTMLElement | null;
-        if (!el) return;
-        const ro = new ResizeObserver(() => {
+        if (!el) return; // wait for next retry
+        elements.push([el, tag]);
+      }
+      for (const [el, tag] of elements) {
+        new ResizeObserver(() => {
           const r = el.getBoundingClientRect();
           void this.health.clientLog(`${tag}-resize`, {
             w: Math.round(r.width),
             h: Math.round(r.height),
             ts: Date.now(),
           });
-        });
-        ro.observe(el);
-      };
-      observe(".day-nav", "day-nav");
-      observe(".tab-content", "tab-content");
-      observe(".day-label", "day-label");
+        }).observe(el);
+      }
+      this.observersInstalled = true;
+      void this.health.clientLog("observers-installed", {});
     });
   }
 
