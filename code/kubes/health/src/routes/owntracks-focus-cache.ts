@@ -43,7 +43,10 @@ export async function getFocusPlacesForGating(userId: string): Promise<FocusPlac
 		centroidLon: r.centroid_lon,
 		// avgDwellSec = total / visits. Guard against visit_count = 0
 		// (shouldn't happen in well-formed rows, but easy to guard).
-		avgDwellSec: r.visit_count > 0 ? r.total_dwell_sec / r.visit_count : 0,
+		// total_dwell_sec is BIGINT (returns as bigint after the
+		// bigIntAsNumber:false flip). Seconds fit in Number safely,
+		// so coerce so we can divide by visit_count (INT/number).
+		avgDwellSec: r.visit_count > 0 ? Number(r.total_dwell_sec) / r.visit_count : 0,
 		sleepHours: r.sleep_hours ?? 0,
 	}));
 

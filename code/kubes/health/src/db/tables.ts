@@ -74,7 +74,11 @@ export interface SleepTable {
 	date: string;
 	start_time: string;
 	end_time: string;
-	duration_ms: number | null;
+	/** Sleep duration in ms. Schema is BIGINT (returned as bigint
+	 *  after bigIntAsNumber:false flip). Never used in arithmetic
+	 *  on the backend — purely passed through to JSON output where
+	 *  BigInt.prototype.toJSON stringifies it. */
+	duration_ms: bigint | null;
 	efficiency: number | null;
 	minutes_asleep: number | null;
 	minutes_awake: number | null;
@@ -208,7 +212,12 @@ export interface OsmCoverageTable {
  *  POINT-POINT only in MariaDB — mixing geometry types in one table
  *  trips the optimizer into calling it on lines. */
 export interface OsmPointsTable {
-	osm_id: number;
+	/** OSM IDs are BIGINT in the schema and exceed 2^53 in recent
+	 *  data, so they return as bigint at runtime. Callers that need
+	 *  the value as a JS number should `Number(...)` at the boundary
+	 *  (precision is not preserved for very large ids — only do this
+	 *  if you intend to treat the id as opaque). */
+	osm_id: bigint;
 	osm_type: string;
 	feature_type: string;
 	subtype: string | null;
@@ -222,7 +231,12 @@ export interface OsmPointsTable {
  *  convert to metres in JS — a sub-percent approximation at the
  *  city-scale distances we care about. */
 export interface OsmLinesTable {
-	osm_id: number;
+	/** OSM IDs are BIGINT in the schema and exceed 2^53 in recent
+	 *  data, so they return as bigint at runtime. Callers that need
+	 *  the value as a JS number should `Number(...)` at the boundary
+	 *  (precision is not preserved for very large ids — only do this
+	 *  if you intend to treat the id as opaque). */
+	osm_id: bigint;
 	osm_type: string;
 	feature_type: string;
 	subtype: string | null;
@@ -253,7 +267,10 @@ export interface FocusPlacesTable {
 	centroid_lat: number;
 	centroid_lon: number;
 	radius_m: number;
-	total_dwell_sec: number;
+	/** BIGINT in the schema — returns as bigint with bigIntAsNumber:false.
+	 *  Sized in seconds, so it fits in Number safely; consumers that need
+	 *  to do arithmetic should `Number(total_dwell_sec)` at the boundary. */
+	total_dwell_sec: bigint;
 	visit_count: number;
 	unique_days: number;
 	first_seen_ts: number;
