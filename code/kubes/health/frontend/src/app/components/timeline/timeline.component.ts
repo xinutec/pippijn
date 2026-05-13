@@ -93,7 +93,15 @@ export class TimelineComponent {
 
     if (state.mode === "sleeping") {
       primary = state.place ?? "Asleep";
-      secondary = `${durationLabel} sleeping`;
+      // Wall-clock span first, then the Fitbit "actually asleep" time
+      // in parentheses. The two diverge by however long the user was
+      // awake in bed — useful context that the bare duration hides.
+      if (state.minutesAsleep !== undefined && state.minutesAsleep > 0) {
+        const asleepLabel = this.formatDuration(state.minutesAsleep * 60);
+        secondary = `${durationLabel} in bed (${asleepLabel} asleep)`;
+      } else {
+        secondary = `${durationLabel} sleeping`;
+      }
     } else if (state.mode === "stationary") {
       primary = state.place ?? "Stopped";
       secondary = `${durationLabel} stationary`;

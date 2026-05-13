@@ -59,6 +59,11 @@ export interface DayState {
 	 *  from the underlying segment's displayTz, or from the sleep
 	 *  window's tz for synthesized sleeping intervals. */
 	tz?: string;
+	/** For sleeping states only: minutes the user was actually asleep
+	 *  (Fitbit's minutes_asleep). Differs from the wall-clock span
+	 *  endTs-startTs by the time spent awake in bed. The UI renders
+	 *  "8h 45m in bed (7h 18m asleep)" when set. */
+	minutesAsleep?: number;
 }
 
 /** Public entry: convert segments + sleep windows into the day's
@@ -126,6 +131,7 @@ function stateForInterval(
 		if (sleep.place === null) return null; // overnight in transit, no place → can't synthesize
 		const out: DayState = { startTs: start, endTs: end, mode: "sleeping", place: sleep.place };
 		if (sleep.tz) out.tz = sleep.tz;
+		if (sleep.minutesAsleep > 0) out.minutesAsleep = sleep.minutesAsleep;
 		return out;
 	}
 
@@ -144,6 +150,7 @@ function stateForInterval(
 			const out: DayState = { startTs: start, endTs: end, mode: "sleeping", place: segment.place };
 			if (segment.displayTz) out.tz = segment.displayTz;
 			else if (sleep.tz) out.tz = sleep.tz;
+			if (sleep.minutesAsleep > 0) out.minutesAsleep = sleep.minutesAsleep;
 			return out;
 		}
 		// Stationary at a different place (user awake at the desk
@@ -184,5 +191,12 @@ function mergeAdjacent(states: readonly DayState[]): DayState[] {
 }
 
 function sameState(a: DayState, b: DayState): boolean {
-	return a.mode === b.mode && a.place === b.place && a.wayName === b.wayName && a.asleep === b.asleep && a.tz === b.tz;
+	return (
+		a.mode === b.mode &&
+		a.place === b.place &&
+		a.wayName === b.wayName &&
+		a.asleep === b.asleep &&
+		a.tz === b.tz &&
+		a.minutesAsleep === b.minutesAsleep
+	);
 }

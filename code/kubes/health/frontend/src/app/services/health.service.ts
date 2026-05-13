@@ -94,6 +94,10 @@ export interface DayState {
    *  synthesized sleeping intervals that have no overlapping
    *  segment. */
   tz?: string;
+  /** For sleeping states only: minutes the user was actually asleep
+   *  (Fitbit minutes_asleep). Differs from the wall-clock span by
+   *  the time spent awake in bed. */
+  minutesAsleep?: number;
 }
 
 export interface VelocityData {

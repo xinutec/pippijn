@@ -258,6 +258,30 @@ describe("segmentsToDayStates — full sleep window beyond segment coverage", ()
 		expect(states[0]).toMatchObject({ mode: "sleeping", place: "Home", tz: "Europe/London" });
 	});
 
+	it("propagates Fitbit minutesAsleep onto sleeping states (synthesized + rewritten)", () => {
+		// Sleep window with 7h 18m of actual sleep across an 8h 45m bed
+		// span. The window straddles the first GPS fix: pre-fix half
+		// is synthesized from the window alone, post-fix half is a
+		// stationary-at-Home segment rewritten to sleeping. Both halves
+		// should carry the same minutesAsleep; merge folds them.
+		const sleep: SleepWindow = {
+			startTs: 0,
+			endTs: 31_500,
+			place: "Home",
+			minutesAsleep: 438,
+			tz: "Europe/London",
+		};
+		const segs = [stationary(20_000, 40_000, "Home")];
+		const states = segmentsToDayStates(segs, [sleep]);
+		const sleeping = states.find((s) => s.mode === "sleeping");
+		expect(sleeping).toBeDefined();
+		expect(sleeping?.minutesAsleep).toBe(438);
+		// The synthesized + rewritten halves should have merged into one
+		// continuous sleeping state spanning the full window.
+		expect(sleeping?.startTs).toBe(0);
+		expect(sleeping?.endTs).toBe(31_500);
+	});
+
 	it("does not synthesize sleeping for an in-transit (place=null) gap", () => {
 		// Overnight train sleep with no location fixes after the
 		// train segment ended: we have no idea where you slept the

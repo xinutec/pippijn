@@ -106,7 +106,13 @@ for (const s of states) {
 	if (s.place) ctx = ` @ ${s.place}`;
 	else if (s.wayName) ctx = ` on ${s.wayName}`;
 	if (s.asleep) ctx += " · asleep";
-	console.log(`  ${fmt(s.startTs)}-${fmt(s.endTs)} (${dur.toString().padStart(3)}m) ${s.mode.padEnd(11)}${ctx}`);
+	// For sleeping states, show wall-clock minutes "in bed" and the
+	// Fitbit minutes_asleep "actual" — same split the dashboard does.
+	const durLabel =
+		s.mode === "sleeping" && s.minutesAsleep !== undefined && s.minutesAsleep > 0
+			? `${dur.toString().padStart(3)}m / ${s.minutesAsleep.toString().padStart(3)}m asleep`
+			: `${dur.toString().padStart(3)}m`;
+	console.log(`  ${fmt(s.startTs)}-${fmt(s.endTs)} (${durLabel}) ${s.mode.padEnd(11)}${ctx}`);
 }
 
 console.log(`\n=== Points (sampled every ~2 min) ===`);
