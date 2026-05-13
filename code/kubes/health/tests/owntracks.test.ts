@@ -674,29 +674,77 @@ describe("refineInMove", () => {
 });
 
 describe("demoteAfterStop", () => {
-	// Predicate 4: only after 10 minutes of sustained low-speed history
-	// AT A LONG-STAY LOCATION do we push the phone back to Significant.
-	// See tests/long-stay-gate.test.ts for the location-gate coverage;
-	// these tests assume the gate has already said "yes, long-stay" and
-	// verify the time/speed thresholds.
+	// Predicate 4: after enough sustained low-speed history AT A
+	// LONG-STAY LOCATION we push the phone back to Significant. See
+	// tests/long-stay-gate.test.ts for the location-gate coverage;
+	// these tests assume the gate has already said "yes, long-stay"
+	// and verify the time/speed thresholds.
 	const atHome = { atLongStayLocation: true };
 
-	it("returns null when history span < 10 minutes", () => {
-		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0, historySpanSec: 540 }), atHome)).toBeNull();
+	it("returns null on a short history (just escalated, nothing to act on yet)", () => {
+		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0, historySpanSec: 60 }), atHome)).toBeNull();
 	});
 
 	it("returns null when effective speed is still in the walking band", () => {
-		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 3, historySpanSec: 700 }), atHome)).toBeNull();
-	});
-
-	it("returns stationary after 10 min of sub-walking-band speed at a long-stay location", () => {
-		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0.5, historySpanSec: 700 }), atHome)).toBe("stationary");
+		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 3, historySpanSec: 580 }), atHome)).toBeNull();
 	});
 
 	it("returns null without an explicit long-stay context (conservative default)", () => {
 		// Callers that don't pass the location context get the safe
 		// "don't demote anywhere" behaviour.
-		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0.5, historySpanSec: 700 }))).toBeNull();
+		expect(demoteAfterStop(signals({ effectiveSpeedKmh: 0.5, historySpanSec: 580 }))).toBeNull();
+	});
+
+	// Realistic scenario: phone is in Move mode, sitting at home, and
+	// over time the proxy accumulates a full HISTORY_MAX_AGE_SEC of
+	// effectively-zero-speed fixes. The cascade should demote back to
+	// Significant. This is the spec-level behaviour the user asked
+	// about: "after a few minutes, we should get out of Move again."
+	//
+	// Implementation gotcha: the history is BOUNDED by
+	// HISTORY_MAX_AGE_SEC=600 via pruneFixHistory, so any threshold
+	// MIN_STATIONARY_DEMOTE_SEC >= 600 is unreachable in practice.
+	// Tests below construct a realistic pruned history that achieves
+	// the maximum possible span (slightly under 600s) and assert
+	// demotion fires.
+	describe("realistic pruned-history scenarios", () => {
+		// Build 60 stationary fixes spaced 10s apart, then prune as
+		// the route would on every POST. Mirrors steady-state Move
+		// mode at home.
+		function makeStationaryHistory(): FixRecord[] {
+			const fixes: FixRecord[] = [];
+			const baseTs = 1_700_000_000;
+			for (let i = 0; i < 60; i++) {
+				fixes.push({ ts: baseTs + i * 10, lat: 51.5, lon: -0.1, vel: 0 });
+			}
+			// nowSec = ts of the latest fix. Pruning keeps fixes
+			// whose ts >= nowSec - HISTORY_MAX_AGE_SEC.
+			const nowSec = fixes[fixes.length - 1].ts;
+			return pruneFixHistory(fixes, 600, nowSec);
+		}
+
+		it("demotes after ~10 minutes of stationary fixes at home", () => {
+			const history = makeStationaryHistory();
+			const sigs = computeSignals(history);
+			// Sanity check the test setup itself: history span should
+			// be close to (but bounded by) the 600s pruning window.
+			expect(sigs.historySpanSec).toBeGreaterThan(540);
+			expect(sigs.historySpanSec).toBeLessThanOrEqual(600);
+			expect(sigs.effectiveSpeedKmh).toBeLessThan(2);
+			// The predicate-level assertion. Fails on current code
+			// because MIN_STATIONARY_DEMOTE_SEC = HISTORY_MAX_AGE_SEC
+			// makes the threshold unreachable.
+			expect(demoteAfterStop(sigs, atHome)).toBe("stationary");
+		});
+
+		it("end-to-end cascade: Move→Significant fires for the steady-at-home case", () => {
+			const history = makeStationaryHistory();
+			const sigs = computeSignals(history);
+			// Phone is in Move mode (monitoringMode: 2) and previously
+			// the proxy decided 'transit'. With sustained slow speed
+			// at home, decideTransition should drop to 'stationary'.
+			expect(decideTransition({ ...sigs, monitoringMode: 2 }, "transit", atHome)).toBe("stationary");
+		});
 	});
 });
 

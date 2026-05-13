@@ -93,11 +93,20 @@ export const HISTORY_MAX_AGE_SEC = 600;
  *  wait for ~2 minutes of trajectory first. */
 const MIN_HISTORY_SPAN_FOR_REFINE_SEC = 120;
 
-/** Minimum history span before we'll demote to Significant. Demotion is
- *  the most expensive transition (phone gives up the warm GPS), so we
- *  require 10 minutes of sustained low-speed evidence — cafe stops,
- *  office arrivals, evenings at home — before flipping. */
-const MIN_STATIONARY_DEMOTE_SEC = 600;
+/** Minimum history span before we'll demote to Significant. Demotion
+ *  is the most expensive transition (phone gives up the warm GPS), so
+ *  we require ~9 minutes of sustained low-speed evidence — cafe
+ *  stops, office arrivals, evenings at home — before flipping.
+ *
+ *  MUST be strictly less than HISTORY_MAX_AGE_SEC: the pruner caps
+ *  the history at HISTORY_MAX_AGE_SEC, so a threshold equal to (or
+ *  greater than) that value is unreachable in practice — the span
+ *  can never quite reach the prune ceiling because the oldest
+ *  surviving fix has a timestamp >= now − HISTORY_MAX_AGE_SEC, and
+ *  realistic fix timing leaves the oldest a few seconds into the
+ *  window rather than at the boundary. Set 60s below the ceiling so
+ *  the threshold is comfortably reachable. */
+const MIN_STATIONARY_DEMOTE_SEC = 540;
 
 /** Gap threshold for the "phone's motion sensor fired" inference: in
  *  Significant mode, Owntracks Android schedules a fix roughly every
