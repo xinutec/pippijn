@@ -1,4 +1,4 @@
-import { AfterViewInit, Component, ElementRef, OnInit, effect, inject, signal } from "@angular/core";
+import { Component, OnInit, inject, signal } from "@angular/core";
 import { ActivatedRoute, Router } from "@angular/router";
 import { MatToolbarModule } from "@angular/material/toolbar";
 import { MatButtonModule } from "@angular/material/button";
@@ -32,7 +32,7 @@ import { formatDateInTz, browserTimezone, todayLocal } from "./time-utils";
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
 })
-export class AppComponent implements OnInit, AfterViewInit {
+export class AppComponent implements OnInit {
   readonly view = signal<"today" | "trends">("today");
   readonly selectedDate = signal(todayLocal());
   readonly activity = signal<ActivityDay[]>([]);
@@ -49,97 +49,8 @@ export class AppComponent implements OnInit, AfterViewInit {
 
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  private readonly host = inject(ElementRef<HTMLElement>);
 
-  constructor(readonly health: HealthService) {
-    // Diagnostic: stream dayLoading state changes to the pod logs so
-    // we can correlate them with the ResizeObserver events below.
-    // Also retry the observer install on every signal change — the
-    // tab-group only enters the DOM once `loading()` flips false,
-    // which is after the constructor and even ngAfterViewInit run.
-    effect(() => {
-      const loading = this.dayLoading();
-      void this.health.clientLog("day-loading-change", { loading });
-      this.tryInstallObservers();
-    });
-    effect(() => {
-      // Cheap re-trigger: any change to top-level signals retries.
-      void this.loading();
-      void this.fitbitLinked();
-      void this.authenticated();
-      this.tryInstallObservers();
-    });
-  }
-
-  ngAfterViewInit(): void {
-    this.tryInstallObservers();
-  }
-
-  private observersInstalled = false;
-
-  /** Lazy-install ResizeObservers on .day-nav / .tab-content /
-   *  .day-label once those elements exist in the DOM. The elements
-   *  live inside the mat-tab-group, which only renders after the
-   *  initial `loading()` flips to false. We retry on every signal
-   *  change until installation succeeds, then mark
-   *  `observersInstalled` so retries become no-ops.
-   *
-   *  Each ResizeObserver posts dimensions to /api/client-log so the
-   *  layout-instability investigation can be driven from pod logs
-   *  rather than a browser inspector. Remove the install once the
-   *  cause is identified; the endpoint + helper stay. */
-  private tryInstallObservers(): void {
-    if (this.observersInstalled) return;
-    // Defer to a microtask so Angular has finished the current
-    // change-detection cycle and the freshly-rendered DOM is
-    // queryable.
-    queueMicrotask(() => {
-      if (this.observersInstalled) return;
-      const root = this.host.nativeElement;
-      const targets: Array<[string, string]> = [
-        [".day-nav", "day-nav"],
-        [".tab-content", "tab-content"],
-        [".day-label", "day-label"],
-      ];
-      const elements: Array<[HTMLElement, string]> = [];
-      for (const [selector, tag] of targets) {
-        const el = root.querySelector(selector) as HTMLElement | null;
-        if (!el) return; // wait for next retry
-        elements.push([el, tag]);
-      }
-      for (const [el, tag] of elements) {
-        new ResizeObserver(() => {
-          const r = el.getBoundingClientRect();
-          const payload: Record<string, unknown> = {
-            w: Math.round(r.width),
-            h: Math.round(r.height),
-            ts: Date.now(),
-          };
-          // For the day-label specifically, also dump innerHTML and
-          // a few computed styles so we can see WHY the height grows
-          // during dayLoading. innerHTML is capped because we don't
-          // need huge payloads on stdout. Bracket notation because
-          // Angular's production build enforces TS4111
-          // (noPropertyAccessFromIndexSignature) on Record types.
-          if (tag === "day-label") {
-            const cs = window.getComputedStyle(el);
-            payload["text"] = el.textContent?.slice(0, 100) ?? "";
-            payload["html"] = el.innerHTML.slice(0, 200);
-            payload["display"] = cs.display;
-            payload["lineHeight"] = cs.lineHeight;
-            payload["padding"] = cs.padding;
-            payload["flexDirection"] = cs.flexDirection;
-            payload["fontSize"] = cs.fontSize;
-            payload["whiteSpace"] = cs.whiteSpace;
-            payload["childCount"] = el.children.length;
-          }
-          void this.health.clientLog(`${tag}-resize`, payload);
-        }).observe(el);
-      }
-      this.observersInstalled = true;
-      void this.health.clientLog("observers-installed", {});
-    });
-  }
+  constructor(readonly health: HealthService) {}
 
   /** Validate a ?date=YYYY-MM-DD query parameter. Rejects malformed
    *  strings and future dates (the timeline doesn't render future days). */
