@@ -258,6 +258,33 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 		return c.json(rows);
 	});
 
+	app.post("/client-log", async (c) => {
+		// Diagnostic logging endpoint: front-end posts a small JSON
+		// blob, we write it to pod stdout where `kubectl logs` (or a
+		// human reviewing the deployment logs) can read it. Keeps a
+		// human in the loop for debugging UX issues that can't be
+		// observed remotely.
+		//
+		// Auth-gated via the route group's requireAuth middleware so
+		// random clients can't pollute the log stream. Body is capped
+		// to a few KB to bound damage from a buggy or hostile client.
+		const uid = c.get("session").userId;
+		let body: unknown;
+		try {
+			body = await c.req.json();
+		} catch {
+			return c.json({ error: "invalid json" }, 400);
+		}
+		if (!body || typeof body !== "object") {
+			return c.json({ error: "expected object" }, 400);
+		}
+		const event = String((body as { event?: unknown }).event ?? "").slice(0, 100);
+		const data = (body as { data?: unknown }).data;
+		const dataStr = data === undefined ? "" : JSON.stringify(data).slice(0, 4000);
+		console.log(`[client/${uid}] ${event}${dataStr ? ` ${dataStr}` : ""}`);
+		return c.body(null, 204);
+	});
+
 	app.post("/phonetrack/sync-filter", async (c) => {
 		const uid = c.get("session").userId;
 		const tz = tzParam.parse(c.req.query("tz")) ?? "UTC";

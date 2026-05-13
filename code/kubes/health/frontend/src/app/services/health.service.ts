@@ -211,4 +211,21 @@ export class HealthService {
       // Non-fatal — the dashboard works regardless.
     }
   }
+
+  /** Diagnostic logging: post `event` + arbitrary `data` to the
+   *  backend, which writes it to pod stdout. Lets us observe
+   *  client-side behaviour from `kubectl logs` for issues that
+   *  can't be reproduced without the user's device. Best-effort;
+   *  network failures are swallowed so this never breaks the UI. */
+  async clientLog(event: string, data?: Record<string, unknown>): Promise<void> {
+    try {
+      await this.fetch("/api/client-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event, data }),
+      });
+    } catch {
+      // Best-effort — never let logging break the dashboard.
+    }
+  }
 }

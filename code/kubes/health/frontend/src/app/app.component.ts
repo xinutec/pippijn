@@ -1,4 +1,4 @@
-import { Component, signal, OnInit, inject } from "@angular/core";
+import { AfterViewInit, Component, ElementRef, OnInit, effect, inject, signal } from "@angular/core";
 import { ActivatedRoute, Router } from "@angular/router";
 import { MatToolbarModule } from "@angular/material/toolbar";
 import { MatButtonModule } from "@angular/material/button";
@@ -32,7 +32,7 @@ import { formatDateInTz, browserTimezone, todayLocal } from "./time-utils";
   templateUrl: './app.component.html',
   styleUrl: './app.component.scss',
 })
-export class AppComponent implements OnInit {
+export class AppComponent implements OnInit, AfterViewInit {
   readonly view = signal<"today" | "trends">("today");
   readonly selectedDate = signal(todayLocal());
   readonly activity = signal<ActivityDay[]>([]);
@@ -49,8 +49,49 @@ export class AppComponent implements OnInit {
 
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly host = inject(ElementRef<HTMLElement>);
 
-  constructor(readonly health: HealthService) {}
+  constructor(readonly health: HealthService) {
+    // Diagnostic: stream dayLoading state changes to the pod logs so
+    // we can correlate them with the ResizeObserver events below.
+    // Remove this effect when the layout-instability investigation
+    // wraps up; the clientLog endpoint itself stays.
+    effect(() => {
+      const loading = this.dayLoading();
+      void this.health.clientLog("day-loading-change", { loading });
+    });
+  }
+
+  /** Install ResizeObservers on the day-nav and tab-content elements,
+   *  posting every size change to /api/client-log. Lets us see from
+   *  the backend exactly when and to what dimensions the day-nav and
+   *  its flex parent change during dayLoading transitions —
+   *  diagnosing the residual "row grows during load" symptom that
+   *  CSS-only fixes haven't fully resolved. Remove the install once
+   *  the cause is identified. */
+  ngAfterViewInit(): void {
+    // Defer one tick so Angular finishes painting the initial view
+    // before we look for the elements.
+    queueMicrotask(() => {
+      const root = this.host.nativeElement;
+      const observe = (selector: string, tag: string): void => {
+        const el = root.querySelector(selector) as HTMLElement | null;
+        if (!el) return;
+        const ro = new ResizeObserver(() => {
+          const r = el.getBoundingClientRect();
+          void this.health.clientLog(`${tag}-resize`, {
+            w: Math.round(r.width),
+            h: Math.round(r.height),
+            ts: Date.now(),
+          });
+        });
+        ro.observe(el);
+      };
+      observe(".day-nav", "day-nav");
+      observe(".tab-content", "tab-content");
+      observe(".day-label", "day-label");
+    });
+  }
 
   /** Validate a ?date=YYYY-MM-DD query parameter. Rejects malformed
    *  strings and future dates (the timeline doesn't render future days). */
