@@ -1,9 +1,9 @@
 /**
  * Phase 3 historical backfill for the per-row tz column.
  *
- * Walks all rows in `steps_intraday`, `heart_rate_intraday`, and
- * `sleep_stages` where `tz IS NULL`, infers each row's recording tz from
- * PhoneTrack GPS history, and updates the row.
+ * Walks all rows in `steps_intraday`, `heart_rate_intraday`,
+ * `sleep_stages`, and `sleep` where `tz IS NULL`, infers each row's
+ * recording tz from PhoneTrack GPS history, and updates the row.
  *
  * Inference is **per-day majority** (not per-row nearest-fix), because the
  * watch's tz at a moment lags the user's geographic location — on a travel
@@ -126,6 +126,16 @@ async function findNullRange(userId: string): Promise<{ min: string; max: string
 		db()
 			.selectFrom("sleep_stages")
 			.select((eb) => [eb.fn.min("ts").as("min"), eb.fn.max("ts").as("max")])
+			.where("user_id", "=", userId)
+			.where("tz", "is", null)
+			.executeTakeFirst(),
+		// sleep is date-keyed, not ts-keyed; the date column holds
+		// Fitbit's dateOfSleep (the wake-up day's date). Cast to a
+		// pseudo-ts range so we can include it in the same MIN/MAX
+		// reduction as the other tables.
+		db()
+			.selectFrom("sleep")
+			.select((eb) => [eb.fn.min("date").as("min"), eb.fn.max("date").as("max")])
 			.where("user_id", "=", userId)
 			.where("tz", "is", null)
 			.executeTakeFirst(),
@@ -258,6 +268,21 @@ async function backfillUser(userId: string): Promise<void> {
 					console.log(`[${userId}] ${table}: tagged ${perTableUpdated} rows with ${tz}`);
 					totalUpdated += perTableUpdated;
 				}
+			}
+			// sleep is date-keyed (the `date` column is Fitbit's
+			// dateOfSleep / wake-up-day). Update via that column rather
+			// than a ts range.
+			let sleepUpdated = 0;
+			for (const date of datesForTz) {
+				const result = (await conn.query(
+					`UPDATE sleep SET tz = ? WHERE user_id = ? AND tz IS NULL AND date = ?`,
+					[tz, userId, date],
+				)) as { affectedRows: number };
+				sleepUpdated += result.affectedRows ?? 0;
+			}
+			if (sleepUpdated > 0) {
+				console.log(`[${userId}] sleep: tagged ${sleepUpdated} rows with ${tz}`);
+				totalUpdated += sleepUpdated;
 			}
 		}
 	});

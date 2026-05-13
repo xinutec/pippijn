@@ -81,6 +81,7 @@ export interface SleepTable {
 	minutes_rem: number | null;
 	minutes_wake: number | null;
 	is_main_sleep: boolean | null;
+	tz: string | null; // IANA tz of start_time/end_time wall-clocks; see docs/design/timezone.md
 }
 
 export interface SleepStagesTable {

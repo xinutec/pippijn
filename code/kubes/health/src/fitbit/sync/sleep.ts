@@ -2,27 +2,73 @@ import type * as mariadb from "mariadb";
 import { NULL_TZ_SOURCE, type TzSource } from "../../geo/fitbit-tz.js";
 import type { FitbitClient } from "../client.js";
 
-interface SleepResponse {
-	sleep: Array<{
-		logId: number;
-		dateOfSleep: string;
-		startTime: string;
-		endTime: string;
-		duration: number;
-		efficiency: number;
-		minutesAsleep: number;
-		minutesAwake: number;
-		isMainSleep: boolean;
-		levels?: {
-			summary: {
-				deep?: { minutes: number };
-				light?: { minutes: number };
-				rem?: { minutes: number };
-				wake?: { minutes: number };
-			};
-			data: Array<{ dateTime: string; level: string; seconds: number }>;
+export interface FitbitSleepLog {
+	logId: number;
+	dateOfSleep: string;
+	startTime: string;
+	endTime: string;
+	duration: number;
+	efficiency: number;
+	minutesAsleep: number;
+	minutesAwake: number;
+	isMainSleep: boolean;
+	levels?: {
+		summary: {
+			deep?: { minutes: number };
+			light?: { minutes: number };
+			rem?: { minutes: number };
+			wake?: { minutes: number };
 		};
-	}>;
+		data: Array<{ dateTime: string; level: string; seconds: number }>;
+	};
+}
+
+interface SleepResponse {
+	sleep: FitbitSleepLog[];
+}
+
+/**
+ * Pure parser: turn a Fitbit sleep log into the value tuple for the
+ * `INSERT INTO sleep` statement, including the row's tz.
+ *
+ * The `tz` is derived from the user's TzSource using `dateOfSleep`
+ * and the time portion of `startTime`. This matches the per-row tz
+ * convention in `docs/design/timezone.md` and the pattern in
+ * `parseSleepStages` (line 48 below): the tz a wall-clock was
+ * recorded in is what makes the wall-clock interpretable later.
+ *
+ * Existing consumers that read `start_time`/`end_time` as local
+ * DATETIMEs continue to work — those fields are passed through
+ * unchanged. Tz-aware consumers can convert when they need a UTC
+ * timestamp.
+ */
+export function parseSleepLog(
+	log: FitbitSleepLog,
+	userId: string,
+	tzSource: TzSource = NULL_TZ_SOURCE,
+): [string, number, string, string, string, number, number, number, number, number | null, number | null, number | null, number | null, boolean, string | null] {
+	// startTime shape: "2026-05-12T00:06:00.000". Same split as
+	// parseSleepStages: date | time | (milliseconds dropped).
+	const [, startTimeRaw] = log.startTime.split("T");
+	const startTimeOnly = (startTimeRaw ?? "").split(".")[0];
+	const tz = tzSource.forWallClock(log.dateOfSleep, startTimeOnly);
+	return [
+		userId,
+		log.logId,
+		log.dateOfSleep,
+		log.startTime,
+		log.endTime,
+		log.duration,
+		log.efficiency,
+		log.minutesAsleep,
+		log.minutesAwake,
+		log.levels?.summary.deep?.minutes ?? null,
+		log.levels?.summary.light?.minutes ?? null,
+		log.levels?.summary.rem?.minutes ?? null,
+		log.levels?.summary.wake?.minutes ?? null,
+		log.isMainSleep,
+		tz,
+	];
 }
 
 /**
@@ -62,30 +108,16 @@ export async function syncSleep(
 	for (const log of sleep) {
 		await conn.query(
 			`INSERT INTO sleep (user_id, log_id, date, start_time, end_time, duration_ms, efficiency,
-         minutes_asleep, minutes_awake, minutes_deep, minutes_light, minutes_rem, minutes_wake, is_main_sleep)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         minutes_asleep, minutes_awake, minutes_deep, minutes_light, minutes_rem, minutes_wake,
+         is_main_sleep, tz)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE start_time=VALUES(start_time), end_time=VALUES(end_time),
          duration_ms=VALUES(duration_ms), efficiency=VALUES(efficiency),
          minutes_asleep=VALUES(minutes_asleep), minutes_awake=VALUES(minutes_awake),
          minutes_deep=VALUES(minutes_deep), minutes_light=VALUES(minutes_light),
          minutes_rem=VALUES(minutes_rem), minutes_wake=VALUES(minutes_wake),
-         is_main_sleep=VALUES(is_main_sleep)`,
-			[
-				userId,
-				log.logId,
-				log.dateOfSleep,
-				log.startTime,
-				log.endTime,
-				log.duration,
-				log.efficiency,
-				log.minutesAsleep,
-				log.minutesAwake,
-				log.levels?.summary.deep?.minutes ?? null,
-				log.levels?.summary.light?.minutes ?? null,
-				log.levels?.summary.rem?.minutes ?? null,
-				log.levels?.summary.wake?.minutes ?? null,
-				log.isMainSleep,
-			],
+         is_main_sleep=VALUES(is_main_sleep), tz=COALESCE(tz, VALUES(tz))`,
+			parseSleepLog(log, userId, tzSource),
 		);
 
 		if (log.levels?.data && log.levels.data.length > 0) {

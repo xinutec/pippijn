@@ -72,12 +72,10 @@ In scope (read by the velocity pipeline today):
 - `steps_intraday`
 - `heart_rate_intraday`
 - `sleep_stages`
+- `sleep` (added in migration v30 — `start_time`/`end_time` are
+  device-local DATETIMEs; the new `tz` column disambiguates).
 
 Deferred — explicitly listed so future work knows the gap:
-- `sleep.start_time`, `sleep.end_time`, `sleep.dateOfSleep` — no current
-  read consumer needs accurate cross-midnight handling. A night that
-  begins in Amsterdam tz and ends in London tz will mislabel its date.
-  Revisit when the sleep dashboard needs it.
 - `spo2_intraday.ts`
 - `daily_activity` — date-only, no intraday wall-clock.
 - `devices.last_sync_time`
@@ -87,10 +85,10 @@ Deferred — explicitly listed so future work knows the gap:
 Three forward-sync functions write rows with wall-clock timestamps
 that need per-row tz:
 
-- `syncSleep` (`sync.ts:215`) — for the `sleep_stages` insert only.
-  The parent `sleep` table (`start_time`, `end_time`, `dateOfSleep`)
-  is in the deferred-scope list above and does **not** receive
-  per-row tz in this pass.
+- `syncSleep` (`sync.ts:215`) — populates the `tz` column on both
+  the parent `sleep` row (via `parseSleepLog`) and the per-stage
+  `sleep_stages` rows (via `parseSleepStages`). Both derive `tz`
+  from the user's TzSource at the sleep start's wall-clock.
 - `syncHeartRateIntraday` (`sync.ts:220-221`) — writes
   `heart_rate_intraday`.
 - `syncStepsIntraday` (`sync.ts:223-224`) — writes `steps_intraday`.

@@ -363,6 +363,17 @@ const MIGRATIONS: readonly string[] = [
 	// existing rows (no production data of value yet).
 	`DELETE FROM osm_coverage`,
 
+	// v30: Sleep summary table joins the per-row tz convention. The
+	// `sleep` table stored Fitbit's local-time DATETIMEs without a tz
+	// column, so consumers couldn't tell whether to interpret
+	// start_time/end_time as UTC or local. (Sibling tables
+	// heart_rate_intraday and steps_intraday store UTC + tz;
+	// sleep_stages already stored local + tz. The sleep summary was
+	// the gap.) Backfill of existing rows is a one-off CLI run; the
+	// migration only adds the column. New ingestion populates it
+	// from the user's TzSource.
+	`ALTER TABLE sleep ADD COLUMN IF NOT EXISTS tz VARCHAR(64) NULL`,
+
 	// Future migrations go here.
 ];
 
