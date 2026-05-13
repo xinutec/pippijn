@@ -118,18 +118,20 @@ export class AppComponent implements OnInit, AfterViewInit {
           // For the day-label specifically, also dump innerHTML and
           // a few computed styles so we can see WHY the height grows
           // during dayLoading. innerHTML is capped because we don't
-          // need huge payloads on stdout.
+          // need huge payloads on stdout. Bracket notation because
+          // Angular's production build enforces TS4111
+          // (noPropertyAccessFromIndexSignature) on Record types.
           if (tag === "day-label") {
             const cs = window.getComputedStyle(el);
-            payload.text = el.textContent?.slice(0, 100) ?? "";
-            payload.html = el.innerHTML.slice(0, 200);
-            payload.display = cs.display;
-            payload.lineHeight = cs.lineHeight;
-            payload.padding = cs.padding;
-            payload.flexDirection = cs.flexDirection;
-            payload.fontSize = cs.fontSize;
-            payload.whiteSpace = cs.whiteSpace;
-            payload.childCount = el.children.length;
+            payload["text"] = el.textContent?.slice(0, 100) ?? "";
+            payload["html"] = el.innerHTML.slice(0, 200);
+            payload["display"] = cs.display;
+            payload["lineHeight"] = cs.lineHeight;
+            payload["padding"] = cs.padding;
+            payload["flexDirection"] = cs.flexDirection;
+            payload["fontSize"] = cs.fontSize;
+            payload["whiteSpace"] = cs.whiteSpace;
+            payload["childCount"] = el.children.length;
           }
           void this.health.clientLog(`${tag}-resize`, payload);
         }).observe(el);
