@@ -8,6 +8,8 @@ import { sql } from "kysely";
 import tzLookup from "tz-lookup";
 import { db } from "../db/pool.js";
 import { getSyncState } from "../db/sync-state.js";
+import { type DayState, segmentsToDayStates } from "../sleep/day-state.js";
+import { enrichSleepWindows, loadDaySleepWindows } from "../sleep/load.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
 import {
@@ -277,6 +279,13 @@ export interface EnrichedSegment extends TrackSegment {
 export interface VelocityResult {
 	points: FilteredPoint[];
 	segments: EnrichedSegment[];
+	/** Non-overlapping day state sequence — bottom layer of the
+	 *  three-altitude data model. Derived from `segments` plus the
+	 *  user's main sleep windows. Sleep at a stationary place is
+	 *  the `sleeping` mode; sleep while moving is an `asleep:true`
+	 *  attribute on the moving state. Adjacent same-state runs
+	 *  merge. See `src/sleep/day-state.ts`. */
+	states: DayState[];
 }
 
 export async function computeVelocity(
@@ -344,7 +353,13 @@ export async function computeVelocity(
 	const segments = timeSync("segments", () => classifySegments(points, stayPoints));
 
 	if (options.enrich === false) {
-		return { points, segments };
+		// Non-enriched path: no OSM, no biometrics, no sleep — caller
+		// requested raw segments only. `states` is still produced for
+		// shape consistency; without enrichment it just trivially
+		// reflects the raw segment sequence (sleep windows = empty,
+		// no rewrite).
+		const states = segmentsToDayStates(segments as EnrichedSegment[], []);
+		return { points, segments, states };
 	}
 
 	const N_SAMPLES = 5;
@@ -573,7 +588,17 @@ export async function computeVelocity(
 		.join(" ");
 	console.log(`velocity ${date} user=${userId}: total=${total}ms ${summary} segments=${withBiometrics.length}`);
 
-	return { points, segments: withBiometrics };
+	// Day-state composition (bottom layer of the three-altitude model):
+	// load the main sleep windows that bracket this day, derive each
+	// window's place from the surrounding stationary segments, and
+	// compose the non-overlapping state sequence. Sleep at a stationary
+	// place rewrites the mode to "sleeping"; sleep while moving sets
+	// `asleep: true` as an attribute. See `src/sleep/day-state.ts`.
+	const rawSleep = await loadDaySleepWindows(userId, date);
+	const sleepWindows = enrichSleepWindows(rawSleep, withBiometrics);
+	const states = timeSync("dayStates", () => segmentsToDayStates(withBiometrics, sleepWindows));
+
+	return { points, segments: withBiometrics, states };
 }
 
 /**

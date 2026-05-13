@@ -40,6 +40,7 @@ import { z } from "zod";
 import { initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import { computeVelocity, type EnrichedSegment } from "../geo/velocity.js";
+import type { DayState } from "../sleep/day-state.js";
 
 const config = z
 	.object({
@@ -116,7 +117,7 @@ await withConnection(migrate);
 
 console.log(`Capturing ${date} for ${userId} (${tz}) → ${target}\n`);
 
-const { points, segments } = await computeVelocity(config, userId, date, tz);
+const { points, segments, states } = await computeVelocity(config, userId, date, tz);
 
 const fixture: Fixture = {
 	captured_at: new Date().toISOString(),
@@ -132,6 +133,7 @@ const fixture: Fixture = {
 		bearing: p.bearing,
 	})),
 	segments: segments.map(stripVolatileFields),
+	states,
 	ground_truth: null,
 };
 
@@ -165,6 +167,7 @@ interface Fixture {
 	display_tz: string;
 	points: FixturePoint[];
 	segments: Omit<EnrichedSegment, never>[];
+	states: DayState[];
 	ground_truth: GroundTruth | null;
 }
 

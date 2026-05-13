@@ -58,7 +58,7 @@ await withConnection(migrate);
 
 console.log(`Analyzing ${date} for user ${userId}${tz ? ` (${tz})` : ""}\n`);
 
-const { points, segments } = await computeVelocity(config, userId, date, tz);
+const { points, segments, states } = await computeVelocity(config, userId, date, tz);
 
 console.log(`Filtered points: ${points.length}`);
 console.log(`\n=== Segments (${segments.length}) ===`);
@@ -93,6 +93,20 @@ for (const s of segments) {
 		if (b.stepsTotal !== null) parts.push(`${b.stepsTotal} steps`);
 		console.log(`              ${parts.join("  ")}`);
 	}
+}
+
+// DayState rendering — the non-overlapping state sequence with sleep
+// folded in as a first-class mode. This is what the "your day" UI
+// should eventually consume; printed here alongside segments so the
+// CLI mirrors the UI affordance (see CLI-mirrors-UI feedback memory).
+console.log(`\n=== States (${states.length}) ===`);
+for (const s of states) {
+	const dur = Math.round((s.endTs - s.startTs) / 60);
+	let ctx = "";
+	if (s.place) ctx = ` @ ${s.place}`;
+	else if (s.wayName) ctx = ` on ${s.wayName}`;
+	if (s.asleep) ctx += " · asleep";
+	console.log(`  ${fmt(s.startTs)}-${fmt(s.endTs)} (${dur.toString().padStart(3)}m) ${s.mode.padEnd(11)}${ctx}`);
 }
 
 console.log(`\n=== Points (sampled every ~2 min) ===`);
