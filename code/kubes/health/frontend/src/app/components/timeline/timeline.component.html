@@ -15,6 +15,9 @@
             <div class="entry" [class.mode-stationary]="r.entry.mode === 'stationary'">
               <div class="time">
                 <span class="start">{{ r.entry.startLabel }}</span>
+                @if (r.entry.startDayOffset) {
+                  <span class="day-offset">{{ r.entry.startDayOffset }}</span>
+                }
               </div>
               <div class="rail">
                 <mat-icon class="dot">{{ r.entry.icon }}</mat-icon>

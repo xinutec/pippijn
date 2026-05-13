@@ -5,6 +5,11 @@ import type { DayState, TrackSegment, VelocityData } from "../../services/health
 
 interface TimelineEntry {
   startLabel: string;
+  /** Day-offset annotation (e.g. "−1d", "+1d") when the state's
+   *  start falls on a different calendar day than referenceDate;
+   *  empty otherwise. Rendered on its own line below startLabel so
+   *  the time column doesn't have to widen for overlong labels. */
+  startDayOffset: string;
   endLabel: string;
   durationLabel: string;
   mode: string;
@@ -84,8 +89,9 @@ export class TimelineComponent {
   private stateToEntry(state: DayState, segments: TrackSegment[]): TimelineEntry {
     const icon = MODE_ICONS[state.mode] ?? "place";
     const tz = state.tz ?? this.displayTzForState(state, segments);
-    const startLabel = this.formatTimeWithDayOffset(state.startTs, tz);
-    const endLabel = this.formatTimeWithDayOffset(state.endTs, tz);
+    const startLabel = this.formatTime(state.startTs, tz);
+    const startDayOffset = this.dayOffsetLabel(state.startTs, tz);
+    const endLabel = this.formatTime(state.endTs, tz);
     const durationLabel = this.formatDuration(state.endTs - state.startTs);
 
     let primary: string;
@@ -115,7 +121,7 @@ export class TimelineComponent {
       secondary = parts.join(" · ");
     }
 
-    return { startLabel, endLabel, durationLabel, mode: state.mode, icon, primary, secondary };
+    return { startLabel, startDayOffset, endLabel, durationLabel, mode: state.mode, icon, primary, secondary };
   }
 
   private displayTzForState(state: DayState, segments: TrackSegment[]): string | undefined {
@@ -163,23 +169,22 @@ export class TimelineComponent {
       }
     }
 
-    return { startLabel, endLabel, durationLabel, mode, icon, primary, secondary };
+    return { startLabel, startDayOffset: "", endLabel, durationLabel, mode, icon, primary, secondary };
   }
 
-  /** Format a wall-clock label with a day-offset suffix when the
-   *  instant falls on a different calendar day than `referenceDate`.
-   *  Used for sleep states that begin the previous evening or end
-   *  the next morning — the user wants the timeline to show when
-   *  they fell asleep, even if that was "yesterday's" clock. */
-  private formatTimeWithDayOffset(unixTs: number, tz?: string): string {
-    const base = this.formatTime(unixTs, tz);
+  /** "−1d", "+1d", "+2d" etc. when the instant falls on a different
+   *  calendar day than `referenceDate`; empty string otherwise.
+   *  Rendered on a separate line below the time so the column width
+   *  stays narrow (a "23:43 (−1d)" suffix would otherwise overflow
+   *  the right-aligned 56px time column to the left). */
+  private dayOffsetLabel(unixTs: number, tz?: string): string {
     const ref = this.referenceDate();
-    if (!ref) return base;
+    if (!ref) return "";
     const dateStr = this.formatDate(unixTs, tz);
     const offset = this.dayOffset(ref, dateStr);
-    if (offset === 0) return base;
+    if (offset === 0) return "";
     const sign = offset > 0 ? "+" : "−";
-    return `${base} (${sign}${Math.abs(offset)}d)`;
+    return `${sign}${Math.abs(offset)}d`;
   }
 
   private formatDate(unixTs: number, tz?: string): string {

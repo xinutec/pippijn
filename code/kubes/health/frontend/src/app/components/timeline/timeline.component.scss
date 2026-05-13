@@ -33,6 +33,15 @@
     color: rgba(255, 255, 255, 0.7);
     font-variant-numeric: tabular-nums;
   }
+
+  /* Day offset (e.g. "−1d") sits below the time on its own line so
+   * the right-aligned 56px column doesn't have to widen and shift
+   * everything else right. */
+  .day-offset {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.45);
+    line-height: 1.2;
+  }
 }
 
 .rail {
