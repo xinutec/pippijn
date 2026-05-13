@@ -91,3 +91,30 @@ export interface FactorScore {
  *  — if a factor needs DB or network data, the data should be
  *  pre-fetched and stuffed into `FactorContext` by the consumer. */
 export type Factor = (candidate: ModeCandidate, ctx: FactorContext) => FactorScore | null;
+
+/** A ModeCandidate that has been run through the factor stack. The
+ *  `factors` array carries every factor that contributed (non-null
+ *  returns); `totalScore` is their sum. Forward-load-bearing for the
+ *  Phase 3 explanation UI — the panel reads this exact shape. */
+export interface ScoredCandidate extends ModeCandidate {
+	factors: FactorScore[];
+	totalScore: number;
+}
+
+/** Aggregator output. The `best` is the highest-total scored
+ *  candidate; `alternatives` is the remaining candidates sorted
+ *  descending by total score. `margin` is `best.totalScore -
+ *  alternatives[0].totalScore` (or +Infinity if no alternatives) —
+ *  used by downstream confidence reporting and by the (eventual)
+ *  uncertainty-aware UI badge.
+ *
+ *  Distinct from the legacy `ModeRefinement` in `osm.ts` (mode +
+ *  confidence + reason + wayName) which `refineMode` currently
+ *  returns. The cutover described in
+ *  `docs/proposals/2026-05-scored-classification.md` Phase 1 has
+ *  refineMode return this shape instead. */
+export interface ScoredRefinement {
+	best: ScoredCandidate;
+	alternatives: ScoredCandidate[];
+	margin: number;
+}
