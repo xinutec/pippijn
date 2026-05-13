@@ -30,12 +30,6 @@
    * (longest weekday + month + day-of-month) so the chevrons stay
    * put for every label. */
   width: 180px;
-  /* flex-shrink:0 keeps the 180px width even while mat-tab-group
-   * is animating its content-area resize during day-loading
-   * transitions — otherwise the label briefly squeezes below
-   * 180px, the text wraps onto 3 lines, the row grows taller and
-   * the centred chevrons appear to drop. */
-  flex-shrink: 0;
   text-align: center;
   &.loading { opacity: 0.5; }
 }
