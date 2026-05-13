@@ -827,6 +827,9 @@ export async function annotateRailRuns(
 				[...points].reverse().find((p) => p.ts <= startTs);
 			const after = points.find((p) => p.ts >= endTs && slow(p)) ?? points.find((p) => p.ts >= endTs);
 			if (!slowBefore || !after) return null;
+			console.log(
+				`[rail-run-debug] startTs=${new Date(startTs * 1000).toISOString()} endTs=${new Date(endTs * 1000).toISOString()} slowBefore=(${slowBefore.lat.toFixed(5)},${slowBefore.lon.toFixed(5)})@${new Date(slowBefore.ts * 1000).toISOString()} after=(${after.lat.toFixed(5)},${after.lon.toFixed(5)})@${new Date(after.ts * 1000).toISOString()}`,
+			);
 
 			// Boarding-station lookup with preceding-stationary preference,
 			// gated by a walking-pace sanity check.
