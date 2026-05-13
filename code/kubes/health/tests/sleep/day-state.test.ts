@@ -215,3 +215,78 @@ describe("segmentsToDayStates — non-overlapping invariant", () => {
 		}
 	});
 });
+
+describe("segmentsToDayStates — full sleep window beyond segment coverage", () => {
+	const sleepAtHome = (startTs: number, endTs: number): SleepWindow => ({
+		startTs,
+		endTs,
+		place: "Home",
+		minutesAsleep: 480,
+		tz: "Europe/London",
+	});
+
+	it("synthesizes sleeping state for the morning gap before the first segment", () => {
+		// Morning sleep 00:06 → 08:51. First location fix is at 07:47
+		// (also at Home). The full sleep window should appear as one
+		// sleeping state, not just the slice after 07:47.
+		const segs = [stationary(7 * 3600, 12 * 3600, "Home")];
+		const sleep = sleepAtHome(0 * 3600 + 360, 8 * 3600 + 3060);
+		const states = segmentsToDayStates(segs, [sleep]);
+		expect(states.map((s) => ({ s: s.startTs, e: s.endTs, mode: s.mode, place: s.place }))).toEqual([
+			{ s: 360, e: 8 * 3600 + 3060, mode: "sleeping", place: "Home" },
+			{ s: 8 * 3600 + 3060, e: 12 * 3600, mode: "stationary", place: "Home" },
+		]);
+	});
+
+	it("synthesizes sleeping state for the evening gap after the last segment", () => {
+		// Evening sleep 23:43 today → 08:51 tomorrow. Last segment
+		// ends at 23:30. The sleep state should cover 23:43 to 08:51
+		// next day; the +1d marker is the frontend's responsibility.
+		const segs = [stationary(20 * 3600, 23 * 3600 + 1800, "Home")];
+		const sleep = sleepAtHome(23 * 3600 + 2580, 32 * 3600 + 3060);
+		const states = segmentsToDayStates(segs, [sleep]);
+		expect(states.map((s) => ({ s: s.startTs, e: s.endTs, mode: s.mode, place: s.place }))).toEqual([
+			{ s: 20 * 3600, e: 23 * 3600 + 1800, mode: "stationary", place: "Home" },
+			{ s: 23 * 3600 + 2580, e: 32 * 3600 + 3060, mode: "sleeping", place: "Home" },
+		]);
+	});
+
+	it("propagates the sleep window tz onto a synthesized sleeping state", () => {
+		const sleep = sleepAtHome(0, 1000);
+		const states = segmentsToDayStates([], [sleep]);
+		expect(states).toHaveLength(1);
+		expect(states[0]).toMatchObject({ mode: "sleeping", place: "Home", tz: "Europe/London" });
+	});
+
+	it("does not synthesize sleeping for an in-transit (place=null) gap", () => {
+		// Overnight train sleep with no location fixes after the
+		// train segment ended: we have no idea where you slept the
+		// remaining hours, so don't fabricate a place.
+		const sleep: SleepWindow = {
+			startTs: 1000,
+			endTs: 3000,
+			place: null,
+			minutesAsleep: 33,
+			tz: "Europe/London",
+		};
+		const segs = [train(1000, 2000, "Night Train")];
+		const states = segmentsToDayStates(segs, [sleep]);
+		// Only the train segment shows up (with asleep=true); the
+		// 2000-3000 gap is dropped.
+		expect(states).toHaveLength(1);
+		expect(states[0]).toMatchObject({ startTs: 1000, endTs: 2000, mode: "train", asleep: true });
+	});
+
+	it("merges synthesized sleeping with a downstream stationary-at-home sleeping segment", () => {
+		// Morning case where the sleep window starts before the first
+		// fix at 07:47 and the first segment is stationary at Home
+		// during the remaining sleep. The synthesized gap and the
+		// rewritten segment should merge into one sleeping state.
+		const segs = [stationary(7 * 3600 + 2820, 12 * 3600, "Home")];
+		const sleep = sleepAtHome(0, 8 * 3600 + 3060);
+		const states = segmentsToDayStates(segs, [sleep]);
+		expect(states).toHaveLength(2);
+		expect(states[0]).toMatchObject({ startTs: 0, endTs: 8 * 3600 + 3060, mode: "sleeping", place: "Home" });
+		expect(states[1]).toMatchObject({ startTs: 8 * 3600 + 3060, endTs: 12 * 3600, mode: "stationary" });
+	});
+});

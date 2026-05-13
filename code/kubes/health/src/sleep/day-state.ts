@@ -6,23 +6,20 @@
  * `sleeping` is one mode. Attributes qualify the state (e.g.
  * `asleep` on a moving state means sleeping-while-in-transit).
  * Spans bigger than one state (city, journey, day-part) live in a
- * separate "overlay" layer outside this module — see the
- * three-altitude design discussion in conversation 2026-05-13.
+ * separate "overlay" layer outside this module.
  *
- * Conversion rules from EnrichedSegment[] + SleepWindow[]:
+ * Sleep is rendered for the FULL Fitbit window — not clipped to
+ * the segments that happen to overlap. Concretely: morning sleep
+ * that began at 23:43 yesterday with first GPS fix at 07:47 today
+ * is shown as a single sleeping state from 23:43 yesterday to the
+ * wake-up timestamp. The "your day" narrative tells me when I fell
+ * asleep, not just the slice between fixes.
  *
- *   - For each sleep window, identify the *sleep place* (the place
- *     attribute of stationary segments overlapping the window).
- *     `sleep.place` carries it from the caller; null means
- *     sleep-on-the-move and no place-rewrite happens.
- *   - A stationary segment at the sleep place, overlapping the
- *     window, gets the overlapping portion rewritten to mode
- *     "sleeping". The segment may split into pre-sleep,
- *     sleeping, and post-wake parts.
- *   - A non-stationary segment overlapping the window stays as
- *     its original mode, with an `asleep: true` attribute set on
- *     the overlapping portion. Splits at sleep boundaries.
- *   - Adjacent same-mode-same-place runs merge after rewriting.
+ * Algorithm: boundary sweep. Collect every distinct boundary
+ * timestamp from segments and sleep windows, then for each
+ * sub-interval pick the state from the (at most one) overlapping
+ * segment and the (at most one) overlapping sleep window. Synthetic
+ * sleeping states fill sleep-window gaps that no segment covers.
  *
  * The converter is pure: no DB access, no side effects.
  */
@@ -36,8 +33,10 @@ export interface SleepWindow {
 	endTs: number;
 	/** Place name (e.g. "Home", "Hotel X"). Used to decide whether
 	 *  to rewrite an overlapping stationary segment to sleeping
-	 *  mode. Null means the sleep occurred while moving (overnight
-	 *  train, plane) — no place to match against. */
+	 *  mode AND to label the synthesized sleeping state when no
+	 *  segment covers the gap. Null means the sleep occurred while
+	 *  moving (overnight train, plane) — no place to match, no
+	 *  synthesis. */
 	place: string | null;
 	minutesAsleep: number;
 	tz: string | null;
@@ -56,94 +55,115 @@ export interface DayState {
 	 *  itself is "sleeping" this attribute is omitted — would be
 	 *  redundant. */
 	asleep?: boolean;
+	/** IANA tz the state's timestamps should render in. Sourced
+	 *  from the underlying segment's displayTz, or from the sleep
+	 *  window's tz for synthesized sleeping intervals. */
+	tz?: string;
 }
 
 /** Public entry: convert segments + sleep windows into the day's
  *  non-overlapping state sequence. Adjacent same-state runs are
  *  merged. */
 export function segmentsToDayStates(segments: readonly EnrichedSegment[], sleepWindows: readonly SleepWindow[]): DayState[] {
-	// 1. Convert each segment to a DayState, possibly splitting/
-	//    rewriting it where it overlaps a sleep window.
-	const split: DayState[] = [];
-	for (const seg of segments) {
-		split.push(...splitSegmentBySleep(seg, sleepWindows));
-	}
+	const boundaries = collectBoundaries(segments, sleepWindows);
+	if (boundaries.length < 2) return [];
 
-	// 2. Merge adjacent same-state runs. Same-state means:
-	//    same mode, same place, same wayName, same asleep attribute.
-	return mergeAdjacent(split);
+	const states: DayState[] = [];
+	for (let i = 0; i < boundaries.length - 1; i++) {
+		const start = boundaries[i];
+		const end = boundaries[i + 1];
+		const mid = start + (end - start) / 2;
+		const seg = findCovering(segments, mid);
+		const sleep = findCoveringSleep(sleepWindows, mid);
+		const state = stateForInterval(start, end, seg, sleep);
+		if (state) states.push(state);
+	}
+	return mergeAdjacent(states);
 }
 
-function splitSegmentBySleep(seg: EnrichedSegment, sleeps: readonly SleepWindow[]): DayState[] {
-	const mode = (seg.refinedMode ?? seg.mode) as DayStateMode;
+function collectBoundaries(segments: readonly EnrichedSegment[], sleepWindows: readonly SleepWindow[]): number[] {
+	const set = new Set<number>();
+	for (const s of segments) {
+		set.add(s.startTs);
+		set.add(s.endTs);
+	}
+	for (const w of sleepWindows) {
+		set.add(w.startTs);
+		set.add(w.endTs);
+	}
+	return [...set].sort((a, b) => a - b);
+}
 
-	// Filter sleep windows to those that meaningfully apply to this
-	// segment. A sleep window is relevant when it overlaps in time
-	// AND triggers either a rewrite (stationary at sleep place) or
-	// the asleep attribute (any moving mode). Stationary at a place
-	// that isn't the sleep place is left untouched.
-	const overlaps = sleeps
-		.filter((s) => s.endTs > seg.startTs && s.startTs < seg.endTs)
-		.filter((s) => isRelevantToSegment(mode, seg.place, s))
-		.sort((a, b) => a.startTs - b.startTs);
-	if (overlaps.length === 0) {
-		return [segmentToBaseState(seg)];
+function findCovering(segments: readonly EnrichedSegment[], ts: number): EnrichedSegment | undefined {
+	return segments.find((s) => s.startTs <= ts && ts < s.endTs);
+}
+
+function findCoveringSleep(sleepWindows: readonly SleepWindow[], ts: number): SleepWindow | undefined {
+	return sleepWindows.find((w) => w.startTs <= ts && ts < w.endTs);
+}
+
+function stateForInterval(
+	start: number,
+	end: number,
+	seg: EnrichedSegment | undefined,
+	sleep: SleepWindow | undefined,
+): DayState | null {
+	// No segment, no sleep — nothing to say about this interval.
+	// Happens when sleep windows leave gaps between today's morning
+	// and evening sleep (the awake hours that have no segments — but
+	// those are usually filled, so this is only the very-edge case
+	// of "no data at all").
+	if (!seg && !sleep) return null;
+
+	// Sleep window covers a stretch with no GPS coverage: emit a
+	// synthesized sleeping state at the sleep place. This is what
+	// makes the morning-sleep-before-first-fix and evening-sleep-
+	// after-last-fix narratives appear in the timeline.
+	if (!seg && sleep) {
+		if (sleep.place === null) return null; // overnight in transit, no place → can't synthesize
+		const out: DayState = { startTs: start, endTs: end, mode: "sleeping", place: sleep.place };
+		if (sleep.tz) out.tz = sleep.tz;
+		return out;
 	}
 
-	const out: DayState[] = [];
-	let cursor = seg.startTs;
-	for (const sleep of overlaps) {
-		const overlapStart = Math.max(cursor, sleep.startTs);
-		const overlapEnd = Math.min(seg.endTs, sleep.endTs);
-		// Pre-overlap region (if any)
-		if (cursor < overlapStart) {
-			out.push(makeState(seg, cursor, overlapStart, mode, false));
+	// From here on, seg is defined (TypeScript narrowing).
+	const segment = seg as EnrichedSegment;
+	const segMode = (segment.refinedMode ?? segment.mode) as DayStateMode;
+
+	if (!sleep) {
+		return makeStateFromSegment(segment, start, end, segMode, false);
+	}
+
+	// Sleep window overlaps this segment-covered interval.
+	if (segMode === "stationary") {
+		// Stationary at sleep place → sleeping mode.
+		if (sleep.place !== null && segment.place === sleep.place) {
+			const out: DayState = { startTs: start, endTs: end, mode: "sleeping", place: segment.place };
+			if (segment.displayTz) out.tz = segment.displayTz;
+			else if (sleep.tz) out.tz = sleep.tz;
+			return out;
 		}
-		// The overlapping region: rewrite to sleeping if stationary
-		// at sleep place; otherwise set asleep=true on the same mode.
-		const rewriteToSleeping = mode === "stationary" && sleep.place !== null && seg.place === sleep.place;
-		if (rewriteToSleeping) {
-			out.push({
-				startTs: overlapStart,
-				endTs: overlapEnd,
-				mode: "sleeping",
-				place: seg.place,
-			});
-		} else {
-			out.push(makeState(seg, overlapStart, overlapEnd, mode, true));
-		}
-		cursor = overlapEnd;
+		// Stationary at a different place (user awake at the desk
+		// while Fitbit thinks they're asleep): defer to GPS.
+		return makeStateFromSegment(segment, start, end, segMode, false);
 	}
-	// Post-overlap remainder
-	if (cursor < seg.endTs) {
-		out.push(makeState(seg, cursor, seg.endTs, mode, false));
-	}
-	return out;
+
+	// Moving + sleep window → keep mode, add asleep attribute.
+	return makeStateFromSegment(segment, start, end, segMode, true);
 }
 
-/** A sleep window is "relevant" to a segment iff applying it would
- *  change the segment's state representation. Stationary at the
- *  wrong place (user awake at work while their main sleep was at
- *  home) is left untouched — no split, no attribute. */
-function isRelevantToSegment(mode: DayStateMode, segmentPlace: string | undefined, sleep: SleepWindow): boolean {
-	if (mode === "stationary") {
-		return sleep.place !== null && segmentPlace === sleep.place;
-	}
-	// Moving modes always carry the asleep attribute when overlapping
-	// — sleeping-on-a-train is a real story we want to surface.
-	return true;
-}
-
-function segmentToBaseState(seg: EnrichedSegment): DayState {
-	const mode = (seg.refinedMode ?? seg.mode) as DayStateMode;
-	return makeState(seg, seg.startTs, seg.endTs, mode, false);
-}
-
-function makeState(seg: EnrichedSegment, startTs: number, endTs: number, mode: DayStateMode, asleep: boolean): DayState {
+function makeStateFromSegment(
+	seg: EnrichedSegment,
+	startTs: number,
+	endTs: number,
+	mode: DayStateMode,
+	asleep: boolean,
+): DayState {
 	const state: DayState = { startTs, endTs, mode };
 	if (seg.place !== undefined) state.place = seg.place;
 	if (seg.wayName !== undefined) state.wayName = seg.wayName;
 	if (asleep && mode !== "sleeping") state.asleep = true;
+	if (seg.displayTz) state.tz = seg.displayTz;
 	return state;
 }
 
@@ -161,5 +181,5 @@ function mergeAdjacent(states: readonly DayState[]): DayState[] {
 }
 
 function sameState(a: DayState, b: DayState): boolean {
-	return a.mode === b.mode && a.place === b.place && a.wayName === b.wayName && a.asleep === b.asleep;
+	return a.mode === b.mode && a.place === b.place && a.wayName === b.wayName && a.asleep === b.asleep && a.tz === b.tz;
 }

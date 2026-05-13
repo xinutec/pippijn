@@ -75,9 +75,31 @@ export interface TrackSegment {
   displayTz?: string;
 }
 
+export interface DayState {
+  startTs: number;
+  endTs: number;
+  mode: "sleeping" | "stationary" | "walking" | "cycling" | "driving" | "train" | "plane";
+  /** Human-readable place (stationary / sleeping). */
+  place?: string;
+  /** Human-readable way (moving — road, line, station-pair). */
+  wayName?: string;
+  /** True iff user was asleep during a moving state (sleeping on a
+   *  train, etc.). Omitted on mode=sleeping where it'd be redundant. */
+  asleep?: boolean;
+  /** IANA tz to render this state's timestamps in. Populated from
+   *  the underlying segment, or from the sleep window's tz for
+   *  synthesized sleeping intervals that have no overlapping
+   *  segment. */
+  tz?: string;
+}
+
 export interface VelocityData {
   points: VelocityPoint[];
   segments: TrackSegment[];
+  /** Non-overlapping state sequence — the "your day" narrative.
+   *  Bottom layer of the three-altitude data model; sleep is folded
+   *  in as a first-class mode. See src/sleep/day-state.ts. */
+  states?: DayState[];
 }
 
 export interface UserInfo {

@@ -245,7 +245,7 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			// Reauth required → 409 with structured error so the SPA
 			// can render the reconnect banner instead of silently
 			// rendering "No timeline data available".
-			if (e instanceof NextcloudNotLinkedError) return c.json({ points: [], segments: [] });
+			if (e instanceof NextcloudNotLinkedError) return c.json({ points: [], segments: [], states: [] });
 			if (e instanceof NextcloudReauthRequiredError) return c.json({ error: "nextcloud_reauth_required" }, 409);
 			console.error(`/api/velocity failed for user=${uid} date=${date} tz=${tz}:`, e);
 			return c.json({ error: "velocity computation failed" }, 400);

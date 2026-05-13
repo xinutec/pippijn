@@ -66,7 +66,7 @@
               <app-speed-chart [data]="velocity()" />
             </div>
             <div class="section">
-              <app-timeline [data]="velocity()" />
+              <app-timeline [data]="velocity()" [referenceDate]="selectedDate()" />
             </div>
           }
         </div>
