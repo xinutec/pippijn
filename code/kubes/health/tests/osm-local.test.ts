@@ -15,7 +15,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildOverpassQuery,
+	COVERAGE_FRESH_DAYS,
 	type CoverageRow,
+	decideCoverage,
 	fetchBboxAround,
 	isPointCovered,
 	type ParsedFeature,
@@ -68,6 +70,69 @@ describe("isPointCovered", () => {
 		// At lat 51.5, 400m radius needs ~0.0058° of longitude. The
 		// 0.0036°-wide box doesn't cover it.
 		expect(isPointCovered(51.5, 0.0, 400, tightBox)).toBe(false);
+	});
+});
+
+describe("decideCoverage", () => {
+	// The cache-vs-fetch policy: given a query point + existing
+	// coverage rows + the current time, return whether we can serve
+	// from the local mirror or need to fetch from Overpass. Wraps
+	// isPointCovered with a freshness filter — stale rows
+	// (older than COVERAGE_FRESH_DAYS) don't count.
+	const NOW = new Date("2026-05-13T12:00:00Z").getTime();
+	const FRESH = new Date(NOW - 10 * 86400_000); // 10 days ago
+	const STALE = new Date(NOW - (COVERAGE_FRESH_DAYS + 10) * 86400_000); // 190 days ago
+
+	const inLondon = { lat: 51.5, lon: -0.1, radiusM: 400 };
+
+	function row(fetched_at: Date | undefined): CoverageRow {
+		return { min_lat: 51.0, max_lat: 52.0, min_lon: -1.0, max_lon: 0.5, fetched_at };
+	}
+
+	it("returns 'needs-fetch' when coverage is empty", () => {
+		expect(decideCoverage(inLondon, [], NOW)).toBe("needs-fetch");
+	});
+
+	it("returns 'covered' when a fresh row contains the search circle", () => {
+		expect(decideCoverage(inLondon, [row(FRESH)], NOW)).toBe("covered");
+	});
+
+	it("returns 'needs-fetch' when the only containing row is stale (older than 180 days)", () => {
+		expect(decideCoverage(inLondon, [row(STALE)], NOW)).toBe("needs-fetch");
+	});
+
+	it("treats a row with no fetched_at as fresh (legacy rows from before tracking)", () => {
+		// Older rows might predate the fetched_at column; we should
+		// trust them rather than refetch the world. Mirrors the
+		// `!c.fetched_at || c.fetched_at > cutoff` logic in
+		// ensureCovered.
+		expect(decideCoverage(inLondon, [row(undefined)], NOW)).toBe("covered");
+	});
+
+	it("picks the fresh row out of a mixed list", () => {
+		// One stale row that happens to cover, plus one fresh row
+		// that also covers → covered (we have a fresh one).
+		expect(decideCoverage(inLondon, [row(STALE), row(FRESH)], NOW)).toBe("covered");
+	});
+
+	it("does NOT consider stale rows even if they alone would cover", () => {
+		// The only containment comes from a stale row → must re-fetch.
+		const farRow: CoverageRow = {
+			min_lat: 60.0,
+			max_lat: 61.0,
+			min_lon: 0.0,
+			max_lon: 1.0,
+			fetched_at: FRESH,
+		}; // fresh but doesn't cover
+		expect(decideCoverage(inLondon, [row(STALE), farRow], NOW)).toBe("needs-fetch");
+	});
+
+	it("returns 'covered' for a row right at the freshness boundary (today + 0)", () => {
+		// fetched_at exactly cutoff: treated as fresh (inclusive).
+		// Implementation uses strict `>`; boundary is "stale". Add
+		// 1ms to make it definitively fresh.
+		const boundaryFresh = new Date(NOW - COVERAGE_FRESH_DAYS * 86400_000 + 1);
+		expect(decideCoverage(inLondon, [row(boundaryFresh)], NOW)).toBe("covered");
 	});
 });
 

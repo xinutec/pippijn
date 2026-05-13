@@ -321,8 +321,28 @@ export async function streamOverpassElements(
  *  6 months is conservative — OSM features for stations and major
  *  roads change slowly. New venues are the main churn but they get
  *  picked up the first time the user queries near them after the TTL
- *  expires. */
-const COVERAGE_FRESH_DAYS = 180;
+ *  expires.
+ *
+ *  Exported so tests can derive boundary fixtures from the same
+ *  source-of-truth constant. */
+export const COVERAGE_FRESH_DAYS = 180;
+
+/** Decide whether the local mirror can serve a query for this point,
+ *  or whether we need to fetch fresh OSM data via Overpass. Pure
+ *  function — `ensureCovered` wraps the IO around it. Stale coverage
+ *  rows (older than `COVERAGE_FRESH_DAYS`) are excluded from the
+ *  containment check, so a stale row that happens to cover a region
+ *  doesn't suppress a refresh. Rows with no `fetched_at` are treated
+ *  as fresh (legacy data from before tracking). */
+export function decideCoverage(
+	point: { lat: number; lon: number; radiusM: number },
+	coverage: readonly CoverageRow[],
+	nowMs: number,
+): "covered" | "needs-fetch" {
+	const cutoffMs = nowMs - COVERAGE_FRESH_DAYS * 86400_000;
+	const fresh = coverage.filter((c) => !c.fetched_at || c.fetched_at.getTime() > cutoffMs);
+	return isPointCovered(point.lat, point.lon, point.radiusM, fresh) ? "covered" : "needs-fetch";
+}
 
 /** Read all coverage rows for one feature_type. Cheap (~tens of rows
  *  across a personal user's whole travel history). */
@@ -429,9 +449,7 @@ const inFlightFetches = new Map<string, Promise<void>>();
 
 export async function ensureCovered(lat: number, lon: number, radiusM: number, featureType: string): Promise<void> {
 	const coverage = await readCoverage(featureType);
-	const cutoffMs = Date.now() - COVERAGE_FRESH_DAYS * 86400_000;
-	const fresh = coverage.filter((c) => !c.fetched_at || c.fetched_at.getTime() > cutoffMs);
-	if (isPointCovered(lat, lon, radiusM, fresh)) return;
+	if (decideCoverage({ lat, lon, radiusM }, coverage, Date.now()) === "covered") return;
 	const bbox = fetchBboxAround(lat, lon);
 
 	// Dedup: key includes the bbox so distant lookups in the same
