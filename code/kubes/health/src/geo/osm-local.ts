@@ -499,15 +499,29 @@ export interface LocalFeatureResult {
  * station-like queries — anywhere we want the closest physical
  * point of interest.
  */
-export async function queryPoints(
+/** Build the Kysely query for `queryPoints`. Exported for tests
+ *  that compile the SQL and assert it uses the spatial index;
+ *  callers in production go through `queryPoints` below. */
+export function buildPointsQuery(
+	k: typeof db extends () => infer K ? K : never,
 	lat: number,
 	lon: number,
 	radiusM: number,
 	featureType: string,
 	subtypes?: string[],
-): Promise<LocalFeatureResult[]> {
+) {
 	const point = sql`ST_GeomFromText(${`POINT(${lon} ${lat})`}, 4326)`;
-	let q = db()
+	// Convert radius to degrees for the MBR pre-filter. MBR
+	// operators on the spatial index expect a geometry as the
+	// second argument, so we buffer the point to a circle of
+	// roughly the right size. ST_Buffer takes a length in the SRS
+	// of the input — for SRID 4326 that's degrees, hence the
+	// conversion. Use the smaller of the two scale factors so the
+	// degree-circle fully contains the metre-circle (no missed
+	// candidates).
+	const mPerDeg = Math.min(METERS_PER_DEG_LAT, metersPerDegLon(lat));
+	const dDeg = radiusM / mPerDeg;
+	let q = k
 		.selectFrom("osm_points")
 		.select([
 			"osm_id",
@@ -518,14 +532,25 @@ export async function queryPoints(
 			sql<number>`ST_Distance_Sphere(geom, ${point})`.as("distance_m"),
 		])
 		.where("feature_type", "=", featureType)
+		// MBR pre-filter first — index-accelerated, drops from 5k
+		// rows to a few candidates. The exact distance check after
+		// keeps the great-circle accuracy.
+		.where(sql<boolean>`MBRIntersects(geom, ST_Buffer(${point}, ${dDeg}))`)
 		.where(sql<boolean>`ST_Distance_Sphere(geom, ${point}) < ${radiusM}`);
 	if (subtypes && subtypes.length > 0) {
 		q = q.where("subtype", "in", subtypes);
 	}
-	const rows = await q
-		.orderBy("distance_m" as never)
-		.limit(50)
-		.execute();
+	return q.orderBy("distance_m" as never).limit(50);
+}
+
+export async function queryPoints(
+	lat: number,
+	lon: number,
+	radiusM: number,
+	featureType: string,
+	subtypes?: string[],
+): Promise<LocalFeatureResult[]> {
+	const rows = await buildPointsQuery(db(), lat, lon, radiusM, featureType, subtypes).execute();
 	return rows.map((r) => ({
 		osm_id: Number(r.osm_id),
 		osm_type: r.osm_type,
@@ -551,13 +576,16 @@ export async function queryPoints(
  * Used by `nearbyWays` (roads, rail lines, waterways) and
  * `linesAtPoint` (rail line names within radius).
  */
-export async function queryLines(
+/** Build the Kysely query for `queryLines`. Exported for tests
+ *  that compile the SQL and assert it uses the spatial index. */
+export function buildLinesQuery(
+	k: typeof db extends () => infer K ? K : never,
 	lat: number,
 	lon: number,
 	radiusM: number,
 	featureType: string,
 	subtypes?: string[],
-): Promise<LocalFeatureResult[]> {
+) {
 	const point = sql`ST_GeomFromText(${`POINT(${lon} ${lat})`}, 4326)`;
 	// Convert radius-metres to a degree budget for the SQL filter.
 	// We use the smaller of the two scale factors so the degree
@@ -565,7 +593,7 @@ export async function queryLines(
 	// metres uses the same scale.
 	const mPerDeg = Math.min(METERS_PER_DEG_LAT, metersPerDegLon(lat));
 	const dDeg = radiusM / mPerDeg;
-	let q = db()
+	let q = k
 		.selectFrom("osm_lines")
 		.select([
 			"osm_id",
@@ -576,14 +604,28 @@ export async function queryLines(
 			sql<number>`ST_Distance(geom, ${point})`.as("distance_deg"),
 		])
 		.where("feature_type", "=", featureType)
+		// MBR pre-filter — without this, ST_Distance is computed
+		// per row and the optimiser falls back to a 240k-row scan
+		// via idx_feature_type (verified via EXPLAIN on 2026-05-13).
+		// MBRIntersects uses the SPATIAL index and drops the
+		// candidate set to a few rows before the distance check.
+		.where(sql<boolean>`MBRIntersects(geom, ST_Buffer(${point}, ${dDeg}))`)
 		.where(sql<boolean>`ST_Distance(geom, ${point}) < ${dDeg}`);
 	if (subtypes && subtypes.length > 0) {
 		q = q.where("subtype", "in", subtypes);
 	}
-	const rows = await q
-		.orderBy("distance_deg" as never)
-		.limit(50)
-		.execute();
+	return q.orderBy("distance_deg" as never).limit(50);
+}
+
+export async function queryLines(
+	lat: number,
+	lon: number,
+	radiusM: number,
+	featureType: string,
+	subtypes?: string[],
+): Promise<LocalFeatureResult[]> {
+	const mPerDeg = Math.min(METERS_PER_DEG_LAT, metersPerDegLon(lat));
+	const rows = await buildLinesQuery(db(), lat, lon, radiusM, featureType, subtypes).execute();
 	return rows.map((r) => ({
 		osm_id: Number(r.osm_id),
 		osm_type: r.osm_type,
