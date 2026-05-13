@@ -3,10 +3,26 @@
  * Nominatim path) and `osm-local.ts` (spatially-indexed mirror).
  *
  * Two mirrors, each with a hard timeout so a hung connection-refused
- * doesn't sit for minutes blocking the velocity pipeline.
+ * doesn't sit for minutes blocking the velocity pipeline. Plus a
+ * circuit breaker (see `osm-overpass-breaker.ts`) — when the public
+ * mirrors start rate-limiting we'd otherwise eat 20s of timeout on
+ * every queued request; the breaker turns that into a fail-fast.
  */
 
+import { isOverpassBreakerOpen, recordOverpassFailure, recordOverpassSuccess } from "./osm-overpass-breaker.js";
+
 export const USER_AGENT = "health.xinutec.org (pippijn@xinutec.org)";
+
+/** Thrown by `overpassFetch` when the circuit breaker is open.
+ *  Callers (`ensureCovered` and its friends) catch it and treat it
+ *  like any other transient Overpass failure — log + skip enrichment
+ *  for this request — but the distinct class makes intent clear. */
+export class OverpassBreakerOpenError extends Error {
+	constructor() {
+		super("Overpass circuit breaker is open — skipping fetch");
+		this.name = "OverpassBreakerOpenError";
+	}
+}
 
 const OVERPASS_URLS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
 
@@ -54,6 +70,12 @@ function release(): void {
  * skip, or surface the error.
  */
 export async function overpassFetch(body: string): Promise<Response> {
+	// Fail-fast when the breaker is open: skip the 20s timeout dance
+	// on calls that are highly likely to fail anyway. Caller treats
+	// this like any other Overpass failure.
+	if (isOverpassBreakerOpen()) {
+		throw new OverpassBreakerOpenError();
+	}
 	await acquire();
 	try {
 		let lastErr: unknown;
@@ -67,7 +89,10 @@ export async function overpassFetch(body: string): Promise<Response> {
 					body,
 					signal: controller.signal,
 				});
-				if (res.ok) return res;
+				if (res.ok) {
+					recordOverpassSuccess();
+					return res;
+				}
 				// Non-OK: only fall through on transient (5xx) or
 				// rate-limited (429). 4xx that aren't 429 are permanent
 				// (bad query); don't waste mirrors on those.
@@ -79,6 +104,10 @@ export async function overpassFetch(body: string): Promise<Response> {
 				clearTimeout(timer);
 			}
 		}
+		// All mirrors exhausted without a 2xx — count this as one
+		// failure for the breaker. Subsequent calls will short-circuit
+		// once we cross the threshold.
+		recordOverpassFailure();
 		throw lastErr ?? new Error("All Overpass mirrors failed");
 	} finally {
 		release();
