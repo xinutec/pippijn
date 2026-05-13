@@ -47,28 +47,42 @@
             </button>
           </div>
 
-          @if (dayLoading()) {
-            <div class="day-loading">
-              <mat-spinner diameter="32"></mat-spinner>
+          <!--
+            The cards render unconditionally — `dayLoading()` only
+            toggles a `stale` class that fades the body, and a
+            sibling overlay paints a spinner on top. The overlay
+            is OUTSIDE .day-body because CSS opacity cascades to
+            children: if the overlay nested inside the faded body
+            it would also be faded to 35%. Keeping the DOM stable
+            across day switches stops mat-tab-body-wrapper from
+            reflowing, which is what was making the day-nav row
+            drift vertically.
+          -->
+          <div class="day-body-wrap">
+            <div class="day-body" [class.stale]="dayLoading()">
+              <app-summary-cards
+                [latestActivity]="latestActivity()"
+                [latestSleep]="latestSleep()"
+              />
+              <div class="section">
+                <app-hypnogram [stages]="sleepStages()" />
+              </div>
+              <div class="section">
+                <app-intraday-hr [points]="intradayHr()" />
+              </div>
+              <div class="section">
+                <app-speed-chart [data]="velocity()" />
+              </div>
+              <div class="section">
+                <app-timeline [data]="velocity()" [referenceDate]="selectedDate()" />
+              </div>
             </div>
-          } @else {
-            <app-summary-cards
-              [latestActivity]="latestActivity()"
-              [latestSleep]="latestSleep()"
-            />
-            <div class="section">
-              <app-hypnogram [stages]="sleepStages()" />
-            </div>
-            <div class="section">
-              <app-intraday-hr [points]="intradayHr()" />
-            </div>
-            <div class="section">
-              <app-speed-chart [data]="velocity()" />
-            </div>
-            <div class="section">
-              <app-timeline [data]="velocity()" [referenceDate]="selectedDate()" />
-            </div>
-          }
+            @if (dayLoading()) {
+              <div class="day-body-overlay" aria-hidden="true">
+                <mat-spinner diameter="32"></mat-spinner>
+              </div>
+            }
+          </div>
         </div>
       </mat-tab>
       <mat-tab label="Trends">

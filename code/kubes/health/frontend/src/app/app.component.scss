@@ -39,10 +39,34 @@
   text-align: center;
   &.loading { opacity: 0.5; }
 }
-.day-loading {
+/* Wraps the cards/charts/timeline for the currently-selected day,
+ * plus the loading overlay. Position relative so the overlay can
+ * absolute-position against it. */
+.day-body-wrap {
+  position: relative;
+}
+/* The body is the actual content tree (cards, charts, timeline).
+ * The stale modifier fades it while new data loads — the cards
+ * keep rendering the previous day's data underneath, which is a
+ * softer transition than a full spinner, and (more importantly)
+ * keeps the DOM tree's height constant so nothing above shifts. */
+.day-body {
+  transition: opacity 150ms;
+  &.stale {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+}
+/* Sibling of .day-body so the .stale opacity doesn't cascade into
+ * the spinner. Absolutely positioned over the faded body. */
+.day-body-overlay {
+  position: absolute;
+  inset: 0;
   display: flex;
   justify-content: center;
-  padding: 40px;
+  align-items: flex-start;
+  padding-top: 80px;
+  pointer-events: none;
 }
 .prompt {
   text-align: center;
