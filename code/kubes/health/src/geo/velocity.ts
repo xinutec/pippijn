@@ -750,6 +750,15 @@ const RAIL_RUN_STATION_RADIUS_M = 400;
  *  we want the first fix where the user has actually disembarked and is
  *  walking or stopped. Walking pace is ~5 km/h, generous buffer at 15. */
 const POST_TRANSIT_SPEED_KMH = 15;
+/** Tighter threshold for the alighting lookup. A train decelerating
+ *  through a station can sit at 5-15 km/h — the looser
+ *  `POST_TRANSIT_SPEED_KMH` accepts those as "the user is off the
+ *  train" and resolves the alight station to whatever the train is
+ *  currently passing. Below 5 km/h the user is genuinely walking or
+ *  standing on a platform and the location is the actual disembark.
+ *  (Real 2026-05-12 morning case: Met line through Euston Square at
+ *  7.5 km/h was being labelled as the alight station.) */
+const POST_TRANSIT_ALIGHT_SPEED_KMH = 5;
 
 export async function annotateRailRuns(
 	segments: EnrichedSegment[],
@@ -825,19 +834,27 @@ export async function annotateRailRuns(
 			const slowBefore =
 				[...points].reverse().find((p) => p.ts <= startTs && slow(p)) ??
 				[...points].reverse().find((p) => p.ts <= startTs);
-			// Strict `>` (not `>=`): the fix AT endTs is still inside the
-			// train segment. The Met line decelerating into a non-
-			// disembark station (e.g. Great Portland Street en route to
-			// Kings Cross on 2026-05-12) produces a sub-15 km/h fix
-			// that the classifier keeps inside the train segment. With
-			// `>=` that fix won the `after` lookup and the alight
-			// station was resolved to whatever was nearest mid-train
-			// rather than to the user's actual disembark fix.
-			const after = points.find((p) => p.ts > endTs && slow(p)) ?? points.find((p) => p.ts > endTs);
+			// Alight lookup: two reasons we need to be picky about which
+			// post-train fix we use.
+			//   1. Strict `>` (not `>=`): the fix AT endTs is still
+			//      inside the train segment — the classifier closes a
+			//      train segment on the first slow-enough fix, but that
+			//      fix is mid-ride. `>=` picks it; `>` doesn't.
+			//   2. Tighter speed threshold: between endTs and the actual
+			//      disembark, a decelerating train through a non-
+			//      disembark station can land a fix at 5-15 km/h. The
+			//      looser POST_TRANSIT threshold accepts those and the
+			//      alight resolves to "wherever the train is currently
+			//      passing" — Euston Square on the 2026-05-12 morning
+			//      trip when the user actually got off at Kings Cross.
+			//      Fall back to the looser threshold if no fix below 5
+			//      exists, then to any fix as final fallback.
+			const alightFix =
+				points.find((p) => p.ts > endTs && p.speed_kmh < POST_TRANSIT_ALIGHT_SPEED_KMH) ??
+				points.find((p) => p.ts > endTs && slow(p)) ??
+				points.find((p) => p.ts > endTs);
+			const after = alightFix;
 			if (!slowBefore || !after) return null;
-			console.log(
-				`[rail-debug] endTs=${new Date(endTs * 1000).toISOString()} after=(${after.lat.toFixed(5)},${after.lon.toFixed(5)})spd=${after.speed_kmh}@${new Date(after.ts * 1000).toISOString()}`,
-			);
 
 			// Boarding-station lookup with preceding-stationary preference,
 			// gated by a walking-pace sanity check.

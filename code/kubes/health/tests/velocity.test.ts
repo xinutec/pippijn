@@ -790,14 +790,13 @@ describe("annotateRailRuns", () => {
 
 	it("ignores a slow mid-train fix at endTs when picking the alighting station", async () => {
 		// Real case from 2026-05-12 morning: the Met line decelerated
-		// approaching a non-disembark station (Great Portland Street /
-		// Regent's Park area) just as the velocity classifier's
-		// detection window closed. The last fix in the train segment
-		// landed at platform speed near Regent's Park, and the old
-		// `p.ts >= endTs && slow(p)` rule picked THAT fix as `after`
-		// → "Regent's Park" instead of the actual disembark at King's
-		// Cross. With strict `p.ts > endTs`, we skip the segment's
-		// own last fix and pick the first post-train walking fix.
+		// approaching a non-disembark station just as the velocity
+		// classifier's detection window closed. The last fix in the
+		// train segment landed at platform speed near that station, and
+		// the old `p.ts >= endTs && slow(p)` rule picked THAT fix as
+		// `after` → wrong alight station. Strict `p.ts > endTs` skips
+		// the segment's own last fix and picks the first post-train
+		// walking fix.
 		const customStations = async (lat: number, lon: number) => {
 			if (Math.abs(lat - 51.563) < 0.005 && Math.abs(lon - -0.279) < 0.005)
 				return [{ name: "Wembley Park", subtype: "subway", distanceM: 50 }];
@@ -812,6 +811,34 @@ describe("annotateRailRuns", () => {
 			{ ts: 1000, lat: 51.563, lon: -0.279, speed_kmh: 0, bearing: 0 },
 			{ ts: 1500, lat: 51.524, lon: -0.144, speed_kmh: 1, bearing: 0 }, // slow mid-train near Regent's Park
 			{ ts: 1700, lat: 51.53, lon: -0.124, speed_kmh: 0, bearing: 0 }, // walking at Kings Cross
+		];
+		const out = await annotateRailRuns(segs, points, customStations);
+		expect(out[0].wayName).toBe("Wembley Park → Kings Cross St Pancras");
+	});
+
+	it("skips a decelerating-train fix at a non-disembark station after endTs", async () => {
+		// 2026-05-12 morning: between endTs (13:46:33) and the actual
+		// disembark fix at Kings Cross (13:50), there's an intermediate
+		// fix at 13:48:23 at Euston Square coords with speed 7.5 km/h —
+		// the train decelerating through Euston Square en route to KX.
+		// A 15 km/h `slow` threshold treats that as post-train and picks
+		// "Euston Square" as alighting. A tighter 5 km/h threshold
+		// distinguishes a decelerating train (5-15 km/h) from a user
+		// walking or standing (< 5 km/h).
+		const customStations = async (lat: number, lon: number) => {
+			if (Math.abs(lat - 51.563) < 0.005 && Math.abs(lon - -0.279) < 0.005)
+				return [{ name: "Wembley Park", subtype: "subway", distanceM: 50 }];
+			if (Math.abs(lat - 51.526) < 0.005 && Math.abs(lon - -0.135) < 0.005)
+				return [{ name: "Euston Square", subtype: "subway", distanceM: 50 }];
+			if (Math.abs(lat - 51.53) < 0.005 && Math.abs(lon - -0.124) < 0.005)
+				return [{ name: "Kings Cross St Pancras", subtype: "subway", distanceM: 50 }];
+			return [];
+		};
+		const segs = [train(1000, 1500), walking(1501, 1900)];
+		const points: FilteredPoint[] = [
+			{ ts: 1000, lat: 51.563, lon: -0.279, speed_kmh: 0, bearing: 0 },
+			{ ts: 1600, lat: 51.526, lon: -0.135, speed_kmh: 7.5, bearing: 0 }, // decelerating train through Euston Sq
+			{ ts: 1700, lat: 51.53, lon: -0.124, speed_kmh: 1, bearing: 0 }, // disembarked at Kings Cross
 		];
 		const out = await annotateRailRuns(segs, points, customStations);
 		expect(out[0].wayName).toBe("Wembley Park → Kings Cross St Pancras");
