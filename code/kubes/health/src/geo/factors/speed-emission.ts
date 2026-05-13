@@ -28,17 +28,71 @@ import { scoreWindow } from "../segments.js";
 import type { Factor } from "./types.js";
 
 export const speedEmission: Factor = (candidate, ctx) => {
-	if (!ctx.windowFeatures) return null;
-	const scores = scoreWindow(ctx.windowFeatures);
-	const match = scores.find((s) => s.mode === candidate.mode);
-	if (!match) return null; // unknown mode — should not happen with TransportMode-typed candidates
-	const score = match.score > 0 ? Math.log(match.score) : Number.NEGATIVE_INFINITY;
-	return {
-		name: "speed-emission",
-		score,
-		rationale: rationaleFor(candidate.mode, ctx.windowFeatures.medianSpeed, score),
-	};
+	// Preferred path: full WindowFeatures available (from segments
+	// pipeline). Use the rich Gaussian range-score per mode.
+	if (ctx.windowFeatures) {
+		const scores = scoreWindow(ctx.windowFeatures);
+		const match = scores.find((s) => s.mode === candidate.mode);
+		if (!match) return null;
+		const score = match.score > 0 ? Math.log(match.score) : Number.NEGATIVE_INFINITY;
+		return {
+			name: "speed-emission",
+			score,
+			rationale: rationaleFor(candidate.mode, ctx.windowFeatures.medianSpeed, score),
+		};
+	}
+	// Fallback path: only `speedKmh` is available (e.g. refineMode
+	// called with a segment-aggregated speed; WindowFeatures lives
+	// upstream). Coarser per-mode rules — enough to discriminate
+	// walking-pace from vehicular and to keep walking from winning
+	// on a fast urban segment.
+	if (ctx.speedKmh !== undefined) {
+		const score = scoreFromSpeedOnly(candidate.mode, ctx.speedKmh);
+		if (score === null) return null;
+		return {
+			name: "speed-emission",
+			score,
+			rationale: `(speed-only) ${candidate.mode} at ${ctx.speedKmh.toFixed(1)} km/h`,
+		};
+	}
+	return null;
 };
+
+/** Coarser per-mode log-likelihood from speed alone. Values are
+ *  tuned so the factor produces roughly the same per-mode ranking
+ *  as scoreWindow on synthetic features at the same median speed,
+ *  but linearity / heading-change / bounding-radius signals are
+ *  absent. Mid-range scores (~0 nats) reflect "neutral — speed
+ *  alone is consistent with this mode"; large negatives are clear
+ *  exclusions (walking at 60 km/h, train at 5 km/h). */
+function scoreFromSpeedOnly(mode: string, kmh: number): number | null {
+	switch (mode) {
+		case "stationary":
+			return kmh < 2 ? 0.5 : kmh < 8 ? -0.5 : -2.5;
+		case "walking":
+			if (kmh > 15) return -3.0;
+			if (kmh >= 2 && kmh <= 8) return 0.5;
+			return -0.5;
+		case "cycling":
+			if (kmh >= 10 && kmh <= 28) return 0.5;
+			if (kmh > 40) return -2.0;
+			return -0.5;
+		case "driving":
+			if (kmh > 25) return 0.8;
+			if (kmh < 5) return -1.5;
+			return 0;
+		case "train":
+			if (kmh > 40) return 1.0;
+			if (kmh < 10) return -2.0;
+			return 0;
+		case "plane":
+			if (kmh > 200) return 1.5;
+			if (kmh < 80) return -3.0;
+			return 0;
+		default:
+			return null;
+	}
+}
 
 function rationaleFor(mode: string, medianSpeedKmh: number, score: number): string {
 	if (score === Number.NEGATIVE_INFINITY) {

@@ -9,6 +9,14 @@
  */
 
 import { db } from "../db/pool.js";
+import { scoreCandidates } from "./factors/aggregator.js";
+import { useFactorScorer } from "./factors/feature-flag.js";
+import { modeCoherence } from "./factors/mode-coherence.js";
+import { osmDistance } from "./factors/osm-distance.js";
+import { generateRefineModeCandidates } from "./factors/refine-mode-candidates.js";
+import { speedEmission } from "./factors/speed-emission.js";
+import type { ScoredRefinement } from "./factors/types.js";
+import type { TransportMode } from "./segments.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
@@ -695,6 +703,11 @@ export interface ModeRefinement {
 	confidence: "low" | "medium" | "high";
 	reason: string;
 	wayName?: string;
+	/** Forward-load-bearing field for the Phase 3 explanation UI.
+	 *  Populated when `USE_FACTOR_SCORER=1` is set in the env;
+	 *  carries the per-candidate factor breakdown the panel renders.
+	 *  Undefined under the legacy rule-cascade path. */
+	factorBreakdown?: ScoredRefinement;
 }
 
 /** Highway subtypes that cars can't be on. Used by `pickBestHighway`
@@ -717,6 +730,59 @@ function pickBestHighway(highways: NearbyWay[], speedKmh: number): NearbyWay {
 }
 
 export function refineMode(originalMode: string, speedKmh: number, ways: NearbyWay[]): ModeRefinement {
+	if (useFactorScorer()) {
+		return refineModeViaFactors(originalMode, speedKmh, ways);
+	}
+	return refineModeLegacyCascade(originalMode, speedKmh, ways);
+}
+
+/**
+ * Factor-scorer path. Wraps the candidate generator + aggregator
+ * and converts the resulting ScoredRefinement back to the legacy
+ * ModeRefinement return shape (so downstream consumers don't need
+ * to change yet).
+ *
+ * Uses three factors:
+ *   - speed-emission (in speedKmh-only mode — refineMode's segment-
+ *     level speed is enough to keep walking from winning at urban
+ *     speeds without requiring the upstream WindowFeatures).
+ *   - osm-distance (per-candidate way distance).
+ *   - mode-coherence (mode × way-subtype compatibility).
+ *
+ * biometric-ll is the natural fourth factor but requires plumbing
+ * biometric obs through refineMode's call site (currently doesn't
+ * know about HR/cadence). Follow-up.
+ */
+function refineModeViaFactors(originalMode: string, speedKmh: number, ways: NearbyWay[]): ModeRefinement {
+	const candidates = generateRefineModeCandidates(originalMode as TransportMode, ways);
+	const ranked = scoreCandidates(candidates, { speedKmh }, [speedEmission, osmDistance, modeCoherence]);
+	return {
+		mode: ranked.best.mode,
+		wayName: ranked.best.wayName,
+		confidence: confidenceFromMargin(ranked.margin),
+		reason: reasonFromBest(ranked),
+		factorBreakdown: ranked,
+	};
+}
+
+function confidenceFromMargin(margin: number): "low" | "medium" | "high" {
+	if (margin > 2) return "high";
+	if (margin > 0.5) return "medium";
+	return "low";
+}
+
+function reasonFromBest(ranked: ScoredRefinement): string {
+	const factors = ranked.best.factors.map((f) => f.name).join("+");
+	if (ranked.best.wayName && ranked.best.waySubtype) {
+		return `factor-scored on ${ranked.best.waySubtype} via ${factors}`;
+	}
+	if (ranked.best.wayName) {
+		return `factor-scored on ${ranked.best.wayName} via ${factors}`;
+	}
+	return `factor-scored fallback (${ranked.best.mode}) via ${factors || "no factors"}`;
+}
+
+function refineModeLegacyCascade(originalMode: string, speedKmh: number, ways: NearbyWay[]): ModeRefinement {
 	const railways = ways.filter((w) => w.type === "railway");
 	const highways = ways.filter((w) => w.type === "highway");
 	const aeroways = ways.filter((w) => w.type === "aeroway");

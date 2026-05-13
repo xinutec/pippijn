@@ -59,9 +59,15 @@ export interface ModeCandidate {
  *  inputs are missing. */
 export interface FactorContext {
 	/** Per-window scoring features (the inputs to the existing
-	 *  Gaussian range-score in segments.ts). Required by the
-	 *  speed-emission factor. */
+	 *  Gaussian range-score in segments.ts). Preferred input for
+	 *  the speed-emission factor when available. */
 	windowFeatures?: WindowFeatures;
+	/** Aggregate segment speed in km/h. Fallback for speed-emission
+	 *  when WindowFeatures isn't available — e.g. when refineMode
+	 *  is called with just (originalMode, speedKmh, ways) and the
+	 *  full feature set is upstream. Coarser than WindowFeatures but
+	 *  enough to discriminate walking from vehicular modes. */
+	speedKmh?: number;
 	/** Aggregated per-segment biometric observation (hr/cadence/speed).
 	 *  Required by the biometric-ll factor. */
 	biometricObs?: MinuteObservation;

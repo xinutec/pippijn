@@ -116,9 +116,33 @@ describe("speedEmission factor", () => {
 		expect(r!.score).toBeLessThan(5);
 	});
 
-	it("returns null when no windowFeatures are in the context", () => {
+	it("returns null when neither windowFeatures nor speedKmh are in the context", () => {
 		const r = speedEmission(driving, {} as FactorContext);
 		expect(r).toBeNull();
+	});
+
+	it("falls back to speedKmh-only scoring when WindowFeatures is absent", () => {
+		// At 60 km/h with no full features, driving should still score
+		// positively and walking should score negatively.
+		const fastCtx: FactorContext = { speedKmh: 60 };
+		const d = speedEmission(driving, fastCtx);
+		const w = speedEmission(walking, fastCtx);
+		expect(d).not.toBeNull();
+		expect(w).not.toBeNull();
+		// biome-ignore lint/style/noNonNullAssertion: the asserts above guard
+		expect(d!.score).toBeGreaterThan(w!.score);
+		// biome-ignore lint/style/noNonNullAssertion: the asserts above guard
+		expect(d!.rationale).toContain("speed-only");
+	});
+
+	it("speedKmh-only path discriminates walking at walking pace", () => {
+		const slowCtx: FactorContext = { speedKmh: 4 };
+		const w = speedEmission(walking, slowCtx);
+		const d = speedEmission(driving, slowCtx);
+		expect(w).not.toBeNull();
+		expect(d).not.toBeNull();
+		// biome-ignore lint/style/noNonNullAssertion: the asserts above guard
+		expect(w!.score).toBeGreaterThan(d!.score);
 	});
 
 	it("populates name and rationale fields", () => {
