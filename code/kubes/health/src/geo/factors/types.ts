@@ -43,6 +43,14 @@ export interface ModeCandidate {
 	 *  factor; null/undefined means "no distance to score against"
 	 *  and the factor returns null. */
 	wayDistanceM?: number;
+	/** OSM way subtype the candidate is attached to, in OSM's
+	 *  vocabulary: highway subtype ("motorway", "primary",
+	 *  "footway", "cycleway", ...), railway subtype ("rail",
+	 *  "subway", "light_rail", "tram", ...), waterway subtype
+	 *  ("river", "canal", ...), aeroway subtype ("runway",
+	 *  "taxiway", "aerodrome", ...). Read by the mode-coherence
+	 *  factor for mode↔way-class consistency. */
+	waySubtype?: string;
 }
 
 /** Everything a factor might want to consult. Each field is optional
