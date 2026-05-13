@@ -40,7 +40,7 @@ function activity(date: string, steps = 5000): ActivityDay {
 function mainSleep(date: string, minutes = 489): SleepLog {
 	return {
 		user_id: "test",
-		log_id: 1,
+		log_id: "1",
 		date,
 		start_time: `${date}T22:00:00`,
 		end_time: `${date}T06:00:00`,
@@ -124,7 +124,7 @@ describe("AppComponent.loadData — date matching", () => {
 
 	it("ignores nap sleep records (is_main_sleep=false)", async () => {
 		const today = "2026-05-10";
-		const nap: SleepLog = { ...mainSleep(today, 30), log_id: 2, is_main_sleep: false } as SleepLog;
+		const nap: SleepLog = { ...mainSleep(today, 30), log_id: "2", is_main_sleep: false } as SleepLog;
 		TestBed.overrideProvider(HealthService, {
 			useValue: makeHealthMock({
 				activity: [],

@@ -20,7 +20,7 @@ export interface ActivityDay {
 
 export interface SleepLog {
 	user_id: string;
-	log_id: number;
+	log_id: bigint;
 	date: string;
 	start_time: string;
 	end_time: string;

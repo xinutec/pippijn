@@ -48,7 +48,7 @@ describe("SummaryCardsComponent", () => {
 		const fixture = TestBed.createComponent(SummaryCardsComponent);
 		fixture.componentRef.setInput("latestActivity", null);
 		fixture.componentRef.setInput("latestSleep", {
-			log_id: 1,
+			log_id: "1",
 			date: "2026-05-10",
 			start_time: "",
 			end_time: "",

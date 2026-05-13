@@ -3,7 +3,10 @@ import { NULL_TZ_SOURCE, type TzSource } from "../../geo/fitbit-tz.js";
 import type { FitbitClient } from "../client.js";
 
 export interface FitbitSleepLog {
-	logId: number;
+	/** Fitbit's 64-bit sleep log id. Parsed as bigint by the Fitbit
+	 *  client's BigInt-aware JSON parser (see parseFitbitJson) so
+	 *  values > 2^53 don't get rounded. */
+	logId: bigint;
 	dateOfSleep: string;
 	startTime: string;
 	endTime: string;
@@ -46,7 +49,7 @@ export function parseSleepLog(
 	log: FitbitSleepLog,
 	userId: string,
 	tzSource: TzSource = NULL_TZ_SOURCE,
-): [string, number, string, string, string, number, number, number, number, number | null, number | null, number | null, number | null, boolean, string | null] {
+): [string, bigint, string, string, string, number, number, number, number, number | null, number | null, number | null, number | null, boolean, string | null] {
 	// startTime shape: "2026-05-12T00:06:00.000". Same split as
 	// parseSleepStages: date | time | (milliseconds dropped).
 	const [, startTimeRaw] = log.startTime.split("T");
@@ -83,9 +86,9 @@ export function parseSleepLog(
 export function parseSleepStages(
 	stages: Array<{ dateTime: string; level: string; seconds: number }>,
 	userId: string,
-	sleepLogId: number,
+	sleepLogId: bigint,
 	tzSource: TzSource = NULL_TZ_SOURCE,
-): Array<[string, number, string, string, number, string | null]> {
+): Array<[string, bigint, string, string, number, string | null]> {
 	return stages.map((stage) => {
 		// `dateTime` shape: "2026-05-10T22:48:30.000" (no Z suffix from Fitbit).
 		// Split into date + time for the TzSource lookup.

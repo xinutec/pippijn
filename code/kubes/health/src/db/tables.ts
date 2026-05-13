@@ -68,7 +68,9 @@ export interface HeartRateZonesTable {
 
 export interface SleepTable {
 	user_id: string;
-	log_id: number;
+	/** Fitbit sleep log id. 64-bit; stored as native bigint so values
+	 *  > 2^53 don't get rounded. See src/db/pool.ts (bigIntAsNumber). */
+	log_id: bigint;
 	date: string;
 	start_time: string;
 	end_time: string;
@@ -86,7 +88,8 @@ export interface SleepTable {
 
 export interface SleepStagesTable {
 	user_id: string;
-	sleep_log_id: number;
+	/** FK to sleep.log_id. bigint to preserve full 64-bit precision. */
+	sleep_log_id: bigint;
 	ts: string;
 	stage: string;
 	duration_seconds: number;

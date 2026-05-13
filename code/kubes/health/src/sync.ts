@@ -1,3 +1,7 @@
+// Side-effect import: makes BigInt JSON-serialisable (Fitbit sleep
+// log IDs are now bigint). Must be the first thing this process
+// pulls in.
+import "./bigint-json.js";
 import {
 	backfillStreamDay,
 	type IntradayStream,

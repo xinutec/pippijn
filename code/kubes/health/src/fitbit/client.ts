@@ -40,12 +40,12 @@ export class FitbitClient {
 			return this.get<T>(path, retries + 1);
 		}
 
+		const text = await res.text();
 		if (!res.ok) {
-			const body = await res.text();
-			throw new Error(`Fitbit API ${path}: ${res.status} ${body}`);
+			throw new Error(`Fitbit API ${path}: ${res.status} ${text}`);
 		}
 
-		return res.json() as Promise<T>;
+		return parseFitbitJson(text) as T;
 	}
 
 	private async waitForRateLimit(): Promise<void> {
@@ -65,4 +65,26 @@ export class FitbitClient {
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * JSON.parse that preserves precision on Fitbit's 64-bit `logId` values.
+ *
+ * Fitbit sleep log IDs are BIGINTs (~7e18), which exceed JS Number
+ * precision (2^53 ≈ 9e15). Plain JSON.parse silently rounds them and
+ * the same id then serialises differently in different mariadb
+ * driver code paths, leaving sleep.log_id and sleep_stages.sleep_log_id
+ * with non-equal values for the same logical record (and breaking
+ * the /api/sleep/stages join).
+ *
+ * Approach: textually quote `"logId":<digits>` before parsing, then
+ * use a reviver to promote the quoted strings to native BigInt.
+ * Other numeric fields are untouched. The regex is unambiguous in
+ * JSON because object keys are quoted strings.
+ */
+export function parseFitbitJson(text: string): unknown {
+	const preserved = text.replace(/"logId":\s*(\d+)/g, '"logId":"$1"');
+	return JSON.parse(preserved, (key, value) =>
+		key === "logId" && typeof value === "string" ? BigInt(value) : value,
+	);
 }

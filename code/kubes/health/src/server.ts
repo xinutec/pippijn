@@ -1,3 +1,8 @@
+// Side-effect import: makes BigInt JSON-serialisable. DB columns
+// like sleep.log_id come back as native bigint, which c.json would
+// otherwise crash on. Must be imported before anything that emits
+// JSON.
+import "./bigint-json.js";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";

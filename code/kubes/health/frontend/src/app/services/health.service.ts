@@ -15,7 +15,10 @@ export interface ActivityDay {
 }
 
 export interface SleepLog {
-  log_id: number;
+  /** Fitbit's 64-bit sleep log id. Serialised as a string on the
+   *  wire because JSON can't carry bigint natively (backend stores
+   *  it as bigint and BigInt.prototype.toJSON stringifies it). */
+  log_id: string;
   date: string;
   start_time: string;
   end_time: string;

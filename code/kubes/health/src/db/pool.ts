@@ -15,7 +15,13 @@ export function initPool(config: Config["db"]): mariadb.Pool {
 		password: config.password,
 		database: config.database,
 		connectionLimit: 5,
-		bigIntAsNumber: true,
+		// BIGINT columns round-trip as native bigint, not Number.
+		// Fitbit's sleep log IDs are 64-bit (>2^53), so Number would
+		// lose precision and — worse — the driver's encoders for
+		// query() vs batch() round JS Numbers differently, leaving
+		// the same logical id stored as two different BIGINTs in
+		// sleep vs sleep_stages. Native bigint avoids both issues.
+		bigIntAsNumber: false,
 	});
 
 	kyselyInstance = new Kysely<Database>({

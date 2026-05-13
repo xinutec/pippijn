@@ -155,8 +155,8 @@ describe("API: user isolation", () => {
 
 	it("sleep: bob sees only his data", async () => {
 		setMockResult("sleep", [
-			{ user_id: "alice", log_id: 1, date: "2026-05-01" },
-			{ user_id: "bob", log_id: 2, date: "2026-05-01" },
+			{ user_id: "alice", log_id: 1n, date: "2026-05-01" },
+			{ user_id: "bob", log_id: 2n, date: "2026-05-01" },
 		]);
 
 		const app = createApp(BOB);
