@@ -5,3 +5,4 @@
 /code/dns/*.tfstate.backup filter=git-crypt diff=git-crypt
 /code/dns/*.tfvars filter=git-crypt diff=git-crypt
 /code/kubes/health/k8s/secret.sh filter=git-crypt diff=git-crypt
+/.config/grafana/* filter=git-crypt diff=git-crypt
