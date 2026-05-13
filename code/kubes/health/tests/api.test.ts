@@ -154,6 +154,10 @@ describe("API: user isolation", () => {
 	});
 
 	it("sleep: bob sees only his data", async () => {
+		// log_id is FitbitSleepLogId at the type level, but the mock
+		// returns whatever shape the test gives. The DB layer is
+		// bypassed by setMockResult so we don't need the brand here —
+		// the API endpoint just JSON-serialises whatever it gets.
 		setMockResult("sleep", [
 			{ user_id: "alice", log_id: 1n, date: "2026-05-01" },
 			{ user_id: "bob", log_id: 2n, date: "2026-05-01" },

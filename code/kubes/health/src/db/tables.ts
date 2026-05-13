@@ -1,4 +1,5 @@
 import type { Generated } from "kysely";
+import type { FitbitSleepLogId } from "./branded.js";
 
 // Each interface maps exactly to a MariaDB table.
 // Column names match the SQL schema in schema.ts.
@@ -68,9 +69,9 @@ export interface HeartRateZonesTable {
 
 export interface SleepTable {
 	user_id: string;
-	/** Fitbit sleep log id. 64-bit; stored as native bigint so values
-	 *  > 2^53 don't get rounded. See src/db/pool.ts (bigIntAsNumber). */
-	log_id: bigint;
+	/** Fitbit sleep log id. Branded bigint so it can't be silently
+	 *  coerced to Number (which would round). See branded.ts. */
+	log_id: FitbitSleepLogId;
 	date: string;
 	start_time: string;
 	end_time: string;
@@ -92,8 +93,8 @@ export interface SleepTable {
 
 export interface SleepStagesTable {
 	user_id: string;
-	/** FK to sleep.log_id. bigint to preserve full 64-bit precision. */
-	sleep_log_id: bigint;
+	/** FK to sleep.log_id; same branded type. */
+	sleep_log_id: FitbitSleepLogId;
 	ts: string;
 	stage: string;
 	duration_seconds: number;

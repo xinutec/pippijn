@@ -20,7 +20,7 @@ export interface ActivityDay {
 
 export interface SleepLog {
 	user_id: string;
-	log_id: bigint;
+	log_id: import("./db/branded.js").FitbitSleepLogId;
 	date: string;
 	start_time: string;
 	end_time: string;

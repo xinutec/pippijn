@@ -13,11 +13,12 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { asFitbitSleepLogId } from "../src/db/branded.js";
 import { parseSleepLog, type FitbitSleepLog } from "../src/fitbit/sync/sleep.js";
 import type { TzSource } from "../src/geo/fitbit-tz.js";
 
 const sleepLog = (overrides: Partial<FitbitSleepLog> = {}): FitbitSleepLog => ({
-	logId: 12345n,
+	logId: asFitbitSleepLogId(12345n),
 	dateOfSleep: "2026-05-12",
 	startTime: "2026-05-12T00:06:00.000",
 	endTime: "2026-05-12T08:51:00.000",

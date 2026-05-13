@@ -10,9 +10,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "check:schema-types": "node scripts/check-schema-types.mjs",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "verify": "npm run typecheck && npm run format && npm run lint && npm test",
+    "verify": "npm run typecheck && npm run check:schema-types && npm run format && npm run lint && npm test",
     "analyze": "node dist/cli/analyze-day.js"
   },
   "dependencies": {

@@ -6,6 +6,7 @@
  * per-process concern, not a per-user one.
  */
 
+import { asFitbitSleepLogId } from "../db/branded.js";
 import { type FitbitOAuthConfig, getValidTokens } from "./token-manager.js";
 
 export class FitbitClient {
@@ -85,6 +86,6 @@ function sleep(ms: number): Promise<void> {
 export function parseFitbitJson(text: string): unknown {
 	const preserved = text.replace(/"logId":\s*(\d+)/g, '"logId":"$1"');
 	return JSON.parse(preserved, (key, value) =>
-		key === "logId" && typeof value === "string" ? BigInt(value) : value,
+		key === "logId" && typeof value === "string" ? asFitbitSleepLogId(BigInt(value)) : value,
 	);
 }
