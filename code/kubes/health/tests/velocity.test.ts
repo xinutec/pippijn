@@ -584,6 +584,54 @@ describe("annotateRailRuns", () => {
 		place,
 	});
 
+	it("ignores the boundary fix at seg.endTs when picking the preceding stationary's location", async () => {
+		// Sunday 2026-05-10 bug: a stationary segment from a Eurostar
+		// arrival at Kings Cross has endTs == next train's startTs. The
+		// fix at that shared boundary ts is the FIRST fix of the next
+		// train segment — already mid-ride at 46 km/h, at the wrong
+		// location (Euston Square, 700 m away). The old filter
+		// `p.ts >= seg.startTs && p.ts <= seg.endTs` picked that fix as
+		// the stationary's "last fix", so:
+		//
+		//   - stationaryCandidate.lat/lon = Euston Square fix
+		//   - stationsLookup → Euston Square (31 m, closest)
+		//   - apparentKmh from "Euston Square" candidate to slowBefore
+		//     at Kings Cross: 700 m / clamped-1s dt = 2520 km/h » 15 km/h
+		//   - algorithm decides "slowBefore is mid-tunnel noise, trust
+		//     stationaryCandidate" → boarding station = Euston Square
+		//
+		// Result: "Euston Square → Wembley Park" — completely wrong;
+		// the user actually boarded at Kings Cross. Fix: `p.ts < seg.endTs`
+		// because endTs is the next segment's start, not this one's last
+		// fix. The boundary fix belongs to the next segment.
+		const stationary: EnrichedSegment = {
+			startTs: 1000,
+			endTs: 1200,
+			mode: "stationary",
+			confidence: 0.7,
+			confidenceMargin: 5,
+			avgSpeed: 0.5,
+			maxSpeed: 2,
+			linearity: 0.3,
+			pointCount: 5,
+		};
+		const segs = [stationary, train(1200, 1500)];
+		const points = [
+			fix(1050, 51.53, -0.125), // truly stationary inside Kings Cross
+			fix(1100, 51.53, -0.125), // ditto
+			fix(1200, 51.523, -0.158), // BOUNDARY: shared with train.startTs;
+			//                            classifier put this into stationary
+			//                            but it's mid-ride at Baker Street.
+			fix(1600, 51.563, -0.279), // Wembley Park — after train
+		];
+		const out = await annotateRailRuns(segs, points, lookup);
+		// The train (segment index 1) should be labelled Kings Cross →
+		// Wembley Park. With the bug, it would be Baker Street → Wembley
+		// Park because the boundary fix at ts=1200 was treated as the
+		// stationary's last fix.
+		expect(out[1].wayName).toBe("Kings Cross St Pancras → Wembley Park");
+	});
+
 	it("collapses train + short-stationary + train into one continuous train segment", async () => {
 		// A brief train pause (signal stop, station dwell — not a transfer)
 		// shouldn't appear in the timeline. The 2-minute stationary fix is

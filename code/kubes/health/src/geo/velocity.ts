@@ -1001,7 +1001,14 @@ export async function annotateRailRuns(
 				for (let i = run.from - 1; i >= 0; i--) {
 					const seg = segments[i];
 					if (seg.mode === "stationary") {
-						const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+						// Strict `<` on the upper bound: seg.endTs equals the
+						// next segment's startTs (the segment classifier puts
+						// adjacent segments back-to-back). The fix at that
+						// boundary is the FIRST fix of the next segment, not
+						// the last of this one. Including it picked up the
+						// 46 km/h Euston-Square fix as the "last stationary
+						// fix" on 2026-05-10's Kings-Cross → Wembley ride.
+						const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts < seg.endTs);
 						if (segPoints.length > 0) {
 							const last = segPoints[segPoints.length - 1];
 							const stations = await stationsLookup(last.lat, last.lon);
