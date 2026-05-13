@@ -788,6 +788,35 @@ describe("annotateRailRuns", () => {
 		expect(out[2].wayName).toBe("Baker Street → Wembley Park");
 	});
 
+	it("ignores a slow mid-train fix at endTs when picking the alighting station", async () => {
+		// Real case from 2026-05-12 morning: the Met line decelerated
+		// approaching a non-disembark station (Great Portland Street /
+		// Regent's Park area) just as the velocity classifier's
+		// detection window closed. The last fix in the train segment
+		// landed at platform speed near Regent's Park, and the old
+		// `p.ts >= endTs && slow(p)` rule picked THAT fix as `after`
+		// → "Regent's Park" instead of the actual disembark at King's
+		// Cross. With strict `p.ts > endTs`, we skip the segment's
+		// own last fix and pick the first post-train walking fix.
+		const customStations = async (lat: number, lon: number) => {
+			if (Math.abs(lat - 51.563) < 0.005 && Math.abs(lon - -0.279) < 0.005)
+				return [{ name: "Wembley Park", subtype: "subway", distanceM: 50 }];
+			if (Math.abs(lat - 51.524) < 0.005 && Math.abs(lon - -0.144) < 0.005)
+				return [{ name: "Regent's Park", subtype: "subway", distanceM: 200 }];
+			if (Math.abs(lat - 51.53) < 0.005 && Math.abs(lon - -0.124) < 0.005)
+				return [{ name: "Kings Cross St Pancras", subtype: "subway", distanceM: 50 }];
+			return [];
+		};
+		const segs = [train(1000, 1500), walking(1501, 1900)];
+		const points: FilteredPoint[] = [
+			{ ts: 1000, lat: 51.563, lon: -0.279, speed_kmh: 0, bearing: 0 },
+			{ ts: 1500, lat: 51.524, lon: -0.144, speed_kmh: 1, bearing: 0 }, // slow mid-train near Regent's Park
+			{ ts: 1700, lat: 51.53, lon: -0.124, speed_kmh: 0, bearing: 0 }, // walking at Kings Cross
+		];
+		const out = await annotateRailRuns(segs, points, customStations);
+		expect(out[0].wayName).toBe("Wembley Park → Kings Cross St Pancras");
+	});
+
 	it("uses slowBefore's station when the user walked a realistic distance from stationary", async () => {
 		// Real case from 2026-05-12 17:48: 26-min stationary at Work
 		// (near Kings Cross St Pancras), then a 15-min walk west to
@@ -815,7 +844,7 @@ describe("annotateRailRuns", () => {
 			fix(3000, 51.53, -0.125), // last fix in stationary — KX area
 			fix(3360, 51.531, -0.125), // walking, still near KX
 			fix(3840, 51.524, -0.144), // late walking, Marylebone area (becomes slowBefore)
-			fix(4500, 51.554, -0.25), // post-train, Wembley Stadium
+			fix(4600, 51.554, -0.25), // post-train, Wembley Stadium (ts > train endTs)
 		];
 		const out = await annotateRailRuns(segs, points, customStations);
 		expect(out[2].wayName).toBe("Marylebone → Wembley Stadium");

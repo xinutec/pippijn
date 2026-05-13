@@ -825,11 +825,16 @@ export async function annotateRailRuns(
 			const slowBefore =
 				[...points].reverse().find((p) => p.ts <= startTs && slow(p)) ??
 				[...points].reverse().find((p) => p.ts <= startTs);
-			const after = points.find((p) => p.ts >= endTs && slow(p)) ?? points.find((p) => p.ts >= endTs);
+			// Strict `>` (not `>=`): the fix AT endTs is still inside the
+			// train segment. The Met line decelerating into a non-
+			// disembark station (e.g. Great Portland Street en route to
+			// Kings Cross on 2026-05-12) produces a sub-15 km/h fix
+			// that the classifier keeps inside the train segment. With
+			// `>=` that fix won the `after` lookup and the alight
+			// station was resolved to whatever was nearest mid-train
+			// rather than to the user's actual disembark fix.
+			const after = points.find((p) => p.ts > endTs && slow(p)) ?? points.find((p) => p.ts > endTs);
 			if (!slowBefore || !after) return null;
-			console.log(
-				`[rail-run-debug] startTs=${new Date(startTs * 1000).toISOString()} endTs=${new Date(endTs * 1000).toISOString()} slowBefore=(${slowBefore.lat.toFixed(5)},${slowBefore.lon.toFixed(5)})@${new Date(slowBefore.ts * 1000).toISOString()} after=(${after.lat.toFixed(5)},${after.lon.toFixed(5)})@${new Date(after.ts * 1000).toISOString()}`,
-			);
 
 			// Boarding-station lookup with preceding-stationary preference,
 			// gated by a walking-pace sanity check.
