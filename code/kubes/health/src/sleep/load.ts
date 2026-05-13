@@ -69,11 +69,7 @@ export function derivePlaceForSleep(
 		// otherwise. Math.max with 0 collapses both before-window and
 		// after-window cases.
 		const gap =
-			s.startTs > window.endTs
-				? s.startTs - window.endTs
-				: window.startTs > s.endTs
-					? window.startTs - s.endTs
-					: 0;
+			s.startTs > window.endTs ? s.startTs - window.endTs : window.startTs > s.endTs ? window.startTs - s.endTs : 0;
 		if (gap > PLACE_FALLBACK_MAX_GAP_SEC) continue;
 		if (!best || gap < best.gap) best = { place: s.place, gap };
 	}

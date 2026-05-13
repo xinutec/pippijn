@@ -1,15 +1,12 @@
 import { NextcloudClient } from "./client.js";
-import { getValidTokens } from "./token-manager.js";
+import { getCredentials } from "./credentials.js";
 
-// Re-export for callers that catch these specifically. The actual class
-// definitions live in `token-manager.ts` where the throwers live.
-export { NextcloudNotLinkedError, NextcloudReauthRequiredError } from "./token-manager.js";
+// Re-export for callers that catch these specifically.
+export { NextcloudNotLinkedError, NextcloudReauthRequiredError } from "./credentials.js";
 
 export interface NextcloudConfig {
 	nextcloud: {
 		baseUrl: string;
-		clientId: string;
-		clientSecret: string;
 	};
 }
 
@@ -34,10 +31,11 @@ export interface PhoneTrackContext {
 }
 
 export async function openPhoneTrack(config: NextcloudConfig, userId: string): Promise<PhoneTrackContext> {
-	// Pre-flight: validates tokens exist + are not in `needs_reauth`
-	// state, refreshes if expired. All concurrent callers share one
-	// refresh via the per-user mutex in the token manager.
-	await getValidTokens(userId, config.nextcloud);
+	// Pre-flight: confirm app password exists and isn't flagged
+	// needs_reauth. Surfaces NextcloudNotLinkedError /
+	// NextcloudReauthRequiredError up to the route handler before
+	// we waste a sessions-list call.
+	await getCredentials(userId);
 	const client = new NextcloudClient(userId, config.nextcloud);
 	const sessions = await client.get<PhoneTrackContext["sessions"]>("/index.php/apps/phonetrack/sessions");
 	return { client, sessions };

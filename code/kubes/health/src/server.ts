@@ -94,7 +94,10 @@ app.get("/health", async (c) => {
 	});
 });
 
-// OAuth routes
+// OAuth routes. Fitbit uses OAuth for both identity + API access.
+// Nextcloud uses OAuth for identity-only (just /login + /auth/callback
+// → session cookie); the long-lived app password for API access is
+// obtained via Login Flow v2 in the /api/nextcloud/connect/* routes.
 app.route("/", nextcloudOAuthRoutes(config));
 app.route("/", fitbitOAuthRoutes(config));
 

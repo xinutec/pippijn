@@ -416,6 +416,22 @@ const MIGRATIONS: readonly string[] = [
    WHERE s.log_id <> dup.keep_id`,
 	`ALTER TABLE sleep ADD UNIQUE INDEX IF NOT EXISTS uniq_sleep_user_start_main (user_id, start_time, is_main_sleep)`,
 
+	// v32: Nextcloud app-password credentials store. Replaces the
+	// OAuth refresh-token dance that kept flipping nc_tokens to
+	// needs_reauth (cross-pod refresh race against NC's single-use
+	// refresh tokens). App passwords are long-lived: no expiry, no
+	// refresh, just HTTP Basic Auth on every request. Migration only
+	// adds the table; existing nc_tokens rows are left for the cleanup
+	// commit that retires the OAuth code.
+	`CREATE TABLE IF NOT EXISTS nc_credentials (
+    user_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    login_name VARCHAR(255) NOT NULL,
+    app_password TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  )`,
+
 	// Future migrations go here.
 ];
 

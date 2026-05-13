@@ -10,8 +10,6 @@ const VALID_ENV = {
 	DB_NAME: "health",
 	FITBIT_CLIENT_ID: "abc123",
 	FITBIT_CLIENT_SECRET: "secret123",
-	NC_CLIENT_ID: "nc-id",
-	NC_CLIENT_SECRET: "nc-secret",
 	SESSION_SECRET: "at-least-sixteen-chars",
 };
 
@@ -36,7 +34,7 @@ describe("loadConfig", () => {
 		expect(config.port).toBe(3000);
 		expect(config.db.user).toBe("health");
 		expect(config.fitbit.clientId).toBe("abc123");
-		expect(config.nextcloud.clientId).toBe("nc-id");
+		expect(config.nextcloud.baseUrl).toBe("https://dash.xinutec.org");
 		expect(config.sessionSecret).toBe("at-least-sixteen-chars");
 	});
 

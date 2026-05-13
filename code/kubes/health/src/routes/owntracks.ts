@@ -592,7 +592,7 @@ const seedAttempted = new Set<string>();
  * pipeline runs with whatever fixes Owntracks sends next.
  */
 async function seedHistoryFromPhoneTrack(
-	config: { nextcloud: { baseUrl: string; clientId: string; clientSecret: string } },
+	config: { nextcloud: { baseUrl: string } },
 	userId: string,
 	nowSec: number,
 ): Promise<FixRecord[]> {

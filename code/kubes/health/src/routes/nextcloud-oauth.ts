@@ -1,18 +1,35 @@
+/**
+ * Nextcloud OAuth, identity-only.
+ *
+ * Used solely to establish *who the user is* (their NC username +
+ * display name) and create a session cookie. The PhoneTrack API
+ * access tokens go through a separate Login Flow v2 → app-password
+ * path (see `nextcloud/login-flow.ts` and the `/api/nextcloud/connect/*`
+ * routes), so the access/refresh tokens we get here are intentionally
+ * thrown away after the user-info lookup.
+ *
+ * Why two flows: NC OAuth refresh tokens rotate single-use, which
+ * raced fatally across the auth pod and the sync cron — every few
+ * hours one of them would lose the race and the row would flip to
+ * `needs_reauth`. Login Flow v2 issues a long-lived app password
+ * with no refresh dance. We still need OAuth here for the SSO sign-in
+ * step because the SPA needs a session cookie before it can drive
+ * the in-app Login Flow v2 connect button.
+ */
+
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Config } from "../config.js";
-import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
 import { consumeState, createState } from "../middleware/oauth-state.js";
 import { validateReturnTo } from "../middleware/return-to.js";
 import { clearSessionCookie, createSession, setSessionCookie } from "../middleware/session.js";
-import { invalidateTokenCache } from "../nextcloud/token-manager.js";
 import type { UserSession } from "../types.js";
 
 const ncTokenSchema = z.object({
 	access_token: z.string().min(1),
-	refresh_token: z.string().min(1),
-	expires_in: z.number().optional().default(3600),
+	// refresh_token + expires_in are present in the response but we
+	// don't use them — identity-only flow.
 });
 
 const ncUserSchema = z.object({
@@ -27,18 +44,22 @@ const ncUserSchema = z.object({
 export function nextcloudOAuthRoutes(config: Config): Hono<AppEnv> {
 	const app = new Hono<AppEnv>();
 	const nc = config.nextcloud;
+	// OAuth credentials are not part of the runtime Config schema
+	// anymore (Login Flow v2 doesn't need them) but `/login` still
+	// requires them. Read directly from env.
+	const ncClientId = process.env.NC_CLIENT_ID ?? "";
+	const ncClientSecret = process.env.NC_CLIENT_SECRET ?? "";
+	const ncRedirectUri = process.env.NC_REDIRECT_URI ?? "https://health.xinutec.org/auth/callback";
 
 	app.get("/login", (c) => {
 		// Optional return_to lets a banner-driven reconnect from
 		// /your-day?date=... land back there instead of the home page.
-		// Stored in the pending OAuth state map and validated at callback
-		// time before use.
 		const returnTo = c.req.query("return_to");
 		const state = createState({ returnTo });
 		const url = new URL(`${nc.baseUrl}/index.php/apps/oauth2/authorize`);
-		url.searchParams.set("client_id", nc.clientId);
+		url.searchParams.set("client_id", ncClientId);
 		url.searchParams.set("response_type", "code");
-		url.searchParams.set("redirect_uri", nc.redirectUri);
+		url.searchParams.set("redirect_uri", ncRedirectUri);
 		url.searchParams.set("state", state);
 		return c.redirect(url.toString());
 	});
@@ -61,9 +82,9 @@ export function nextcloudOAuthRoutes(config: Config): Hono<AppEnv> {
 			body: new URLSearchParams({
 				grant_type: "authorization_code",
 				code,
-				client_id: nc.clientId,
-				client_secret: nc.clientSecret,
-				redirect_uri: nc.redirectUri,
+				client_id: ncClientId,
+				client_secret: ncClientSecret,
+				redirect_uri: ncRedirectUri,
 			}),
 		});
 
@@ -74,6 +95,9 @@ export function nextcloudOAuthRoutes(config: Config): Hono<AppEnv> {
 
 		const tokens = ncTokenSchema.parse(await tokenRes.json());
 
+		// Use the access token exactly once to look up who this is,
+		// then discard. PhoneTrack API access lives in nc_credentials
+		// (app password from Login Flow v2).
 		const userRes = await fetch(`${nc.baseUrl}/ocs/v2.php/cloud/user?format=json`, {
 			headers: {
 				Authorization: `Bearer ${tokens.access_token}`,
@@ -93,38 +117,8 @@ export function nextcloudOAuthRoutes(config: Config): Hono<AppEnv> {
 			displayName: userData.ocs.data.displayname,
 		};
 
-		// Store Nextcloud OAuth tokens for PhoneTrack API access. The
-		// `status` column is reset to "active" so a previously-flagged
-		// reauth state clears on a fresh successful link.
-		const newExpiresAt = new Date(Date.now() + tokens.expires_in * 1000);
-		await db()
-			.insertInto("nc_tokens")
-			.values({
-				user_id: user.userId,
-				access_token: tokens.access_token,
-				refresh_token: tokens.refresh_token,
-				expires_at: newExpiresAt,
-				status: "active",
-			})
-			.onDuplicateKeyUpdate({
-				access_token: tokens.access_token,
-				refresh_token: tokens.refresh_token,
-				expires_at: newExpiresAt,
-				status: "active",
-			})
-			.execute();
-
-		// Drop the in-process cache so the next API call reads the
-		// freshly stored tokens instead of any stale entry.
-		invalidateTokenCache(user.userId);
-
 		const signedId = await createSession(config.sessionSecret, user);
 		setSessionCookie(c, signedId);
-		// Honor optional return_to stored in the pending OAuth state by
-		// `/login` so reconnecting from /your-day lands back there.
-		// `validateReturnTo` rejects protocol-relative URLs (//evil.com)
-		// and any non-internal path; falls back to `/` on anything
-		// unrecognised. See src/middleware/return-to.ts for the rules.
 		return c.redirect(validateReturnTo(pending.returnTo));
 	});
 

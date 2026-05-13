@@ -7,8 +7,6 @@ import type { UserSession } from "../src/types.js";
 const TEST_CONFIG: ApiRoutesConfig = {
 	nextcloud: {
 		baseUrl: "https://nextcloud.test",
-		clientId: "test-client-id",
-		clientSecret: "test-client-secret",
 	},
 };
 

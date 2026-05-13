@@ -18,10 +18,10 @@ const schema = z.object({
 	}),
 
 	nextcloud: z.object({
+		// Just the base URL — auth is via Login Flow v2 app passwords
+		// per user, stored in `nc_credentials`. No OAuth client_id /
+		// client_secret needed.
 		baseUrl: z.string().url().default("https://dash.xinutec.org"),
-		clientId: z.string().min(1),
-		clientSecret: z.string().min(1),
-		redirectUri: z.string().url().default("https://health.xinutec.org/auth/callback"),
 	}),
 
 	owntracks: z.object({
@@ -63,9 +63,6 @@ export function loadConfig(): Config {
 		},
 		nextcloud: {
 			baseUrl: process.env.NC_BASE_URL,
-			clientId: process.env.NC_CLIENT_ID,
-			clientSecret: process.env.NC_CLIENT_SECRET,
-			redirectUri: process.env.NC_REDIRECT_URI,
 		},
 		owntracks: {
 			allowedTokens: process.env.OWNTRACKS_ALLOWED_TOKENS ?? "",
@@ -74,9 +71,8 @@ export function loadConfig(): Config {
 	});
 }
 
-// Config for sync job. Fitbit creds are required; Nextcloud creds are
-// optional — sync uses them to fetch PhoneTrack fixes for tz inference of
-// Fitbit rows, but falls back to profile.timezone (or NULL) when absent.
+// Config for sync job. Fitbit creds are required; Nextcloud is just
+// a base URL — per-user app passwords live in nc_credentials.
 export function loadSyncConfig() {
 	return z
 		.object({
@@ -88,8 +84,6 @@ export function loadSyncConfig() {
 			nextcloud: z
 				.object({
 					baseUrl: z.string().url().default("https://dash.xinutec.org"),
-					clientId: z.string().min(1),
-					clientSecret: z.string().min(1),
 				})
 				.nullable(),
 		})
@@ -105,13 +99,6 @@ export function loadSyncConfig() {
 				clientId: process.env.FITBIT_CLIENT_ID,
 				clientSecret: process.env.FITBIT_CLIENT_SECRET,
 			},
-			nextcloud:
-				process.env.NC_CLIENT_ID && process.env.NC_CLIENT_SECRET
-					? {
-							baseUrl: process.env.NC_BASE_URL,
-							clientId: process.env.NC_CLIENT_ID,
-							clientSecret: process.env.NC_CLIENT_SECRET,
-						}
-					: null,
+			nextcloud: process.env.NC_BASE_URL ? { baseUrl: process.env.NC_BASE_URL } : null,
 		});
 }

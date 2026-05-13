@@ -7,9 +7,15 @@ import { isValidTimezone } from "../geo/timezone.js";
 import { computeVelocity } from "../geo/velocity.js";
 import { requireAuth } from "../middleware/auth.js";
 import { NextcloudClient } from "../nextcloud/client.js";
+import { getConnectionStatus as getNextcloudConnectionStatus, storeCredentials } from "../nextcloud/credentials.js";
+import {
+	type LoginFlowInitiation,
+	type LoginFlowResult,
+	parseInitiateResponse,
+	pollLoginFlow,
+} from "../nextcloud/login-flow.js";
 import { fetchTrackPoints, NextcloudNotLinkedError, NextcloudReauthRequiredError } from "../nextcloud/phonetrack.js";
 import { buildPhoneTrackFilterValues, computePhoneTrackDatemin } from "../nextcloud/phonetrack-prefs.js";
-import { getConnectionStatus as getNextcloudConnectionStatus } from "../nextcloud/token-manager.js";
 import { getVelocityCached } from "./velocity-cache.js";
 
 /** Subset of the full Config that the API routes actually need. Narrowing
@@ -18,8 +24,6 @@ import { getVelocityCached } from "./velocity-cache.js";
 export interface ApiRoutesConfig {
 	nextcloud: {
 		baseUrl: string;
-		clientId: string;
-		clientSecret: string;
 	};
 }
 
@@ -289,6 +293,69 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 		const dataStr = data === undefined ? "" : JSON.stringify(data).slice(0, 4000);
 		console.log(`[client/${uid}] ${event}${dataStr ? ` ${dataStr}` : ""}`);
 		return c.body(null, 204);
+	});
+
+	// ─── Nextcloud Login Flow v2 connect flow ─────────────────────────
+	// Per-user in-flight state for an ongoing Login Flow v2. Cleared on
+	// success/failure/timeout. Single user → at most one pending flow
+	// per user at a time; new POST /init cancels any previous.
+	interface FlowState {
+		readonly initiation: LoginFlowInitiation;
+		readonly started: number;
+		result: { kind: "pending" } | { kind: "ready"; creds: LoginFlowResult } | { kind: "failed"; error: string };
+	}
+	const pendingFlows = new Map<string, FlowState>();
+
+	app.post("/nextcloud/connect/init", async (c) => {
+		const uid = c.get("session").userId;
+		// Initiate Login Flow v2 with NC. Returns a loginUrl the user
+		// should open in a browser to grant access, and we kick off
+		// background polling to detect completion.
+		const res = await fetch(`${config.nextcloud.baseUrl}/index.php/login/v2`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "User-Agent": "health.xinutec.org" },
+		});
+		if (!res.ok) {
+			const body = await res.text();
+			console.error(`NC login-flow init failed for user=${uid}: ${res.status} ${body}`);
+			return c.json({ error: "nextcloud_init_failed" }, 502);
+		}
+		const initiation = parseInitiateResponse(await res.json());
+
+		const flow: FlowState = { initiation, started: Date.now(), result: { kind: "pending" } };
+		pendingFlows.set(uid, flow);
+
+		// Background poll until success / failure / 5-min deadline.
+		// On success we persist credentials and mark active; the SPA
+		// observes the change via GET /nextcloud/connect/status.
+		void (async () => {
+			try {
+				const creds = await pollLoginFlow(initiation, { intervalMs: 2_000, deadlineMs: 5 * 60_000 });
+				await storeCredentials(uid, { loginName: creds.loginName, appPassword: creds.appPassword });
+				flow.result = { kind: "ready", creds };
+				console.log(`NC login-flow complete for user=${uid} (loginName=${creds.loginName})`);
+			} catch (e) {
+				flow.result = { kind: "failed", error: (e as Error).message };
+				console.warn(`NC login-flow failed for user=${uid}: ${(e as Error).message}`);
+			}
+		})();
+
+		return c.json({ loginUrl: initiation.loginUrl });
+	});
+
+	app.get("/nextcloud/connect/status", async (c) => {
+		const uid = c.get("session").userId;
+		const flow = pendingFlows.get(uid);
+		if (!flow) return c.json({ state: "idle" });
+		if (flow.result.kind === "pending") return c.json({ state: "pending" });
+		if (flow.result.kind === "ready") {
+			// Once SPA has observed "ready" we can clear; the credentials
+			// are persisted and getConnectionStatus will report "active".
+			pendingFlows.delete(uid);
+			return c.json({ state: "ready", loginName: flow.result.creds.loginName });
+		}
+		pendingFlows.delete(uid);
+		return c.json({ state: "failed", error: flow.result.error });
 	});
 
 	app.post("/phonetrack/sync-filter", async (c) => {

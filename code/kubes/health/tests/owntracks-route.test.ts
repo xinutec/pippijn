@@ -52,9 +52,6 @@ const CONFIG: Config = {
 	fitbit: { clientId: "x", clientSecret: "x", redirectUri: "https://example.com/cb" },
 	nextcloud: {
 		baseUrl: "https://nc.test",
-		clientId: "x",
-		clientSecret: "x",
-		redirectUri: "https://example.com/cb",
 	},
 	owntracks: { allowedTokens: ["abc12345token1", "def67890token2"] },
 	sessionSecret: "x".repeat(32),

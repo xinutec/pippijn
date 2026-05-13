@@ -262,6 +262,18 @@ export interface ModeBiometricsTable {
 	refreshed_at: Generated<Date>;
 }
 
+/** Nextcloud app-password credentials. One row per linked user; the
+ *  app password is treated as opaque and sent as HTTP Basic Auth on
+ *  every NC request. Replaces the OAuth refresh-token flow. */
+export interface NcCredentialsTable {
+	user_id: string;
+	login_name: string;
+	app_password: string;
+	status: Generated<string>; // 'active' | 'needs_reauth'
+	created_at: Generated<Date>;
+	updated_at: Generated<Date>;
+}
+
 export interface FocusPlacesTable {
 	id: Generated<number>;
 	user_id: string;
@@ -303,6 +315,7 @@ export interface Database {
 	devices: DevicesTable;
 	sessions: SessionsTable;
 	nc_tokens: NcTokensTable;
+	nc_credentials: NcCredentialsTable;
 	osm_cache: OsmCacheTable;
 	osm_coverage: OsmCoverageTable;
 	osm_points: OsmPointsTable;

@@ -16,8 +16,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { _resetVelocityCache, getVelocityCached } from "../src/routes/velocity-cache.js";
 import type { VelocityResult } from "../src/geo/velocity.js";
+import { _resetVelocityCache, getVelocityCached } from "../src/routes/velocity-cache.js";
 
 function makeResult(tag: string): VelocityResult {
 	// Carry a tag so tests can tell different results apart. The shape
