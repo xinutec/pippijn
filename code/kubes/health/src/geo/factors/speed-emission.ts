@@ -78,12 +78,16 @@ function scoreFromSpeedOnly(mode: string, kmh: number): number | null {
 			if (kmh > 40) return -2.0;
 			return -0.5;
 		case "driving":
-			if (kmh > 25) return 0.8;
-			if (kmh < 5) return -1.5;
-			return 0;
+			if (kmh > 25) return 1.0;
+			if (kmh > 15) return 0.3;
+			if (kmh > 8) return -0.5;
+			// Walking-pace or slower: strongly contradicts driving.
+			// Mirrors the segments.ts scoreDriving multiplier 0.1× for
+			// medianSpeed < 10 (≈ -2.3 nats in log domain).
+			return -2.5;
 		case "train":
 			if (kmh > 40) return 1.0;
-			if (kmh < 10) return -2.0;
+			if (kmh < 10) return -2.5;
 			return 0;
 		case "plane":
 			if (kmh > 200) return 1.5;

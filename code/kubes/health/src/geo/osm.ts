@@ -783,14 +783,15 @@ function confidenceFromMargin(margin: number): "low" | "medium" | "high" {
 }
 
 function reasonFromBest(ranked: ScoredRefinement): string {
-	const factors = ranked.best.factors.map((f) => f.name).join("+");
-	if (ranked.best.wayName && ranked.best.waySubtype) {
-		return `factor-scored on ${ranked.best.waySubtype} via ${factors}`;
+	// The "way attached" indicator is the candidate's subtype, not its
+	// name — many OSM ways (esp. footways) have no name tag, and a
+	// subtyped-but-unnamed candidate is still way-attached, not a
+	// fallback. The wayName, when present, gets included separately.
+	if (ranked.best.waySubtype) {
+		const name = ranked.best.wayName ? ` "${ranked.best.wayName}"` : "";
+		return `on ${ranked.best.waySubtype}${name}`;
 	}
-	if (ranked.best.wayName) {
-		return `factor-scored on ${ranked.best.wayName} via ${factors}`;
-	}
-	return `factor-scored fallback (${ranked.best.mode}) via ${factors || "no factors"}`;
+	return `${ranked.best.mode} (no way context)`;
 }
 
 function refineModeLegacyCascade(originalMode: string, speedKmh: number, ways: NearbyWay[]): ModeRefinement {
