@@ -86,9 +86,34 @@ describe("derivePlaceForSleep", () => {
 		expect(derivePlaceForSleep(window, segs)).toBeNull();
 	});
 
-	it("returns null when no stationary segment overlaps the sleep window", () => {
-		const segs = [stationary(0, 100, "Home")]; // ends well before sleep window
-		const window = { startTs: 200, endTs: 800 };
+	it("falls back to the nearest stationary segment within 6h after the sleep ends", () => {
+		// Concrete case: user wakes at 08:19 (window ends), first GPS
+		// fix is a stationary period at 11:40 — same morning, same
+		// place, but no overlap with the sleep window. The fallback
+		// should pick up the post-wake segment's place since it's
+		// well within the 6h tolerance.
+		const wakeTs = 8 * 3600 + 19 * 60;
+		const firstFixStart = 11 * 3600 + 40 * 60;
+		const segs = [stationary(firstFixStart, firstFixStart + 3600, "Home")];
+		const window = { startTs: 0, endTs: wakeTs };
+		expect(derivePlaceForSleep(window, segs)).toBe("Home");
+	});
+
+	it("falls back to the nearest stationary segment within 6h before the sleep starts", () => {
+		// Evening sleep: starts at 23:43, no stationary segment after
+		// (haven't synced tomorrow yet), but the user's last
+		// stationary period was 17:22-22:43 @ Home — within 6h before
+		// the sleep started.
+		const segs = [stationary(17 * 3600 + 22 * 60, 22 * 3600 + 43 * 60, "Home")];
+		const window = { startTs: 23 * 3600 + 43 * 60, endTs: 32 * 3600 + 19 * 60 };
+		expect(derivePlaceForSleep(window, segs)).toBe("Home");
+	});
+
+	it("returns null when the nearest stationary segment is more than 6h from the sleep window", () => {
+		// Segment ends at 00:00; window starts at 07:00 — gap is 7h,
+		// outside the trust window.
+		const segs = [stationary(0, 100, "Home")];
+		const window = { startTs: 7 * 3600 + 100, endTs: 8 * 3600 };
 		expect(derivePlaceForSleep(window, segs)).toBeNull();
 	});
 
@@ -96,5 +121,17 @@ describe("derivePlaceForSleep", () => {
 		const segs = [stationary(0, 1000)]; // no place
 		const window = { startTs: 200, endTs: 800 };
 		expect(derivePlaceForSleep(window, segs)).toBeNull();
+	});
+
+	it("prefers an overlapping segment over a more-distant nearby one", () => {
+		// The user briefly slept on a Tube during a long commute,
+		// then a stationary segment at Work started 2h later. We
+		// should pick the (in this case non-existent overlapping)
+		// segment first — and since there isn't one, fall back to
+		// the Work segment via proximity. Verifies tie-breaking
+		// across multiple candidates.
+		const segs = [stationary(0, 1000, "Home"), stationary(10_000, 20_000, "Work")];
+		const window = { startTs: 500, endTs: 800 };
+		expect(derivePlaceForSleep(window, segs)).toBe("Home"); // overlap wins
 	});
 });

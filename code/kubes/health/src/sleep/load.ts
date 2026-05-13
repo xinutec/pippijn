@@ -32,19 +32,28 @@ export interface RawSleepWindow {
 	minutesAsleep: number;
 }
 
-/** Look at segments and return the place a stationary segment is
- *  tagged with, if any such segment overlaps the sleep window.
+/** Max time gap (seconds) between a sleep window and the nearest
+ *  stationary segment we'll still trust as the sleep location.
+ *  Six hours covers the common case where the user wakes at 08:00
+ *  but doesn't get a GPS fix until ~midday (phone idle at home):
+ *  the noon segment's place is a defensible answer for the sleep.
+ *  Beyond six hours, fall through to null — the user may well have
+ *  gone somewhere between waking and the next fix, and we don't
+ *  want to paint sleep onto an unrelated place. */
+const PLACE_FALLBACK_MAX_GAP_SEC = 6 * 3600;
+
+/** Pick the place attribute of a stationary segment to represent
+ *  where the sleep happened. Picks the segment with the smallest
+ *  time gap to the window — gap=0 for an overlap (the common
+ *  morning case where the wake-up endpoint lands inside today's
+ *  first stationary segment); positive for the fallback case
+ *  where the first fix arrives hours after wake-up.
+ *
  *  Returns null when:
  *    - the sleep occurred entirely inside moving segments
- *      (overnight train), or
- *    - no overlapping stationary segment has a place tag.
- *
- *  Why overlap (not just "contains start"): the morning sleep
- *  event's `startTs` lies the previous evening, outside today's
- *  segment range. The wake-up endpoint, however, is inside today's
- *  first stationary segment. Checking overlap covers both directions
- *  (morning sleep from yesterday's bed; evening sleep into
- *  tomorrow's bed) without separate code paths.
+ *      (overnight train) AND no stationary segment lies within
+ *      `PLACE_FALLBACK_MAX_GAP_SEC` of either window edge, or
+ *    - no in-range stationary segment has a place tag.
  *
  *  Pure function — the segments pipeline produces the candidates;
  *  this helper only consults them. */
@@ -52,14 +61,23 @@ export function derivePlaceForSleep(
 	window: { startTs: number; endTs: number },
 	segments: readonly EnrichedSegment[],
 ): string | null {
-	const overlapping = segments.find(
-		(s) =>
-			s.endTs > window.startTs &&
-			s.startTs < window.endTs &&
-			(s.refinedMode ?? s.mode) === "stationary" &&
-			s.place !== undefined,
-	);
-	return overlapping?.place ?? null;
+	let best: { place: string; gap: number } | null = null;
+	for (const s of segments) {
+		if ((s.refinedMode ?? s.mode) !== "stationary") continue;
+		if (s.place === undefined) continue;
+		// gap=0 when the segment overlaps the window; positive
+		// otherwise. Math.max with 0 collapses both before-window and
+		// after-window cases.
+		const gap =
+			s.startTs > window.endTs
+				? s.startTs - window.endTs
+				: window.startTs > s.endTs
+					? window.startTs - s.endTs
+					: 0;
+		if (gap > PLACE_FALLBACK_MAX_GAP_SEC) continue;
+		if (!best || gap < best.gap) best = { place: s.place, gap };
+	}
+	return best?.place ?? null;
 }
 
 /**

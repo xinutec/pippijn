@@ -1,5 +1,5 @@
 import type * as mariadb from "mariadb";
-import type { FitbitSleepLogId } from "../../db/branded.js";
+import { asFitbitSleepLogId, type FitbitSleepLogId } from "../../db/branded.js";
 import { NULL_TZ_SOURCE, type TzSource } from "../../geo/fitbit-tz.js";
 import type { FitbitClient } from "../client.js";
 
@@ -142,7 +142,22 @@ export async function syncSleep(
 		);
 
 		if (log.levels?.data && log.levels.data.length > 0) {
-			const rows = parseSleepStages(log.levels.data, userId, log.logId, tzSource);
+			// Use the canonical sleep.log_id for the stages INSERT so we
+			// don't re-fork the join after a re-sync. With the unique
+			// index on (user_id, start_time, is_main_sleep) added by
+			// migration v31c, an existing row's log_id is preserved on
+			// upsert — but log.logId from the fresh Fitbit response may
+			// differ (e.g. when an earlier sync ran before the BigInt
+			// precision fix and stored a rounded Number). Looking up
+			// the stored log_id keeps the stages tied to whatever the
+			// sleep row currently has.
+			const existing = (await conn.query(
+				`SELECT log_id FROM sleep WHERE user_id = ? AND start_time = ? AND is_main_sleep = ? LIMIT 1`,
+				[userId, log.startTime, log.isMainSleep],
+			)) as Array<{ log_id: bigint }>;
+			const canonicalLogId = existing[0]?.log_id !== undefined ? asFitbitSleepLogId(existing[0].log_id) : log.logId;
+
+			const rows = parseSleepStages(log.levels.data, userId, canonicalLogId, tzSource);
 			await conn.batch(
 				// COALESCE-preserve `tz` so backfill CLI can later upgrade NULL.
 				`INSERT INTO sleep_stages (user_id, sleep_log_id, ts, stage, duration_seconds, tz)

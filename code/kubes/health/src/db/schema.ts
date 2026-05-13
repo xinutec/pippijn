@@ -374,6 +374,48 @@ const MIGRATIONS: readonly string[] = [
 	// from the user's TzSource.
 	`ALTER TABLE sleep ADD COLUMN IF NOT EXISTS tz VARCHAR(64) NULL`,
 
+	// v31a–c: Repair sleep-row duplication from the BigInt cutover and
+	// add a uniqueness constraint that prevents recurrence.
+	//
+	// Background: Fitbit's 64-bit log_id used to be parsed as a JS
+	// Number, losing precision. The bigIntAsNumber:false fix (and
+	// BigInt-aware Fitbit JSON parser) made future syncs produce the
+	// full-precision value. The first sync after that cutover for an
+	// already-stored night inserts a SECOND row, because the PK
+	// (user_id, log_id) sees a different log_id. Same logical sleep,
+	// two DB rows, doubled sleep_stages.
+	//
+	// Fix: (a) drop the orphan-stage rows whose sleep_log_id belongs
+	// to a non-canonical duplicate; (b) drop the duplicate sleep rows
+	// themselves; (c) add a unique index on
+	// (user_id, start_time, is_main_sleep) so future re-syncs UPSERT
+	// the existing row rather than creating a new one. ON DUPLICATE
+	// KEY UPDATE in syncSleep deliberately does NOT touch log_id, so
+	// existing sleep_stages references remain valid; syncSleep
+	// additionally looks up the canonical log_id after the upsert and
+	// uses it for the stages INSERT.
+	//
+	// Canonical row per duplicate group: MIN(log_id). Arbitrary but
+	// deterministic — both rows contain the same Fitbit payload.
+	`DELETE ss FROM sleep_stages ss
+   JOIN sleep s ON ss.user_id = s.user_id AND ss.sleep_log_id = s.log_id
+   JOIN (
+     SELECT user_id, start_time, is_main_sleep, MIN(log_id) AS keep_id
+     FROM sleep
+     GROUP BY user_id, start_time, is_main_sleep
+     HAVING COUNT(*) > 1
+   ) dup ON dup.user_id = s.user_id AND dup.start_time = s.start_time AND dup.is_main_sleep = s.is_main_sleep
+   WHERE s.log_id <> dup.keep_id`,
+	`DELETE s FROM sleep s
+   JOIN (
+     SELECT user_id, start_time, is_main_sleep, MIN(log_id) AS keep_id
+     FROM sleep
+     GROUP BY user_id, start_time, is_main_sleep
+     HAVING COUNT(*) > 1
+   ) dup ON dup.user_id = s.user_id AND dup.start_time = s.start_time AND dup.is_main_sleep = s.is_main_sleep
+   WHERE s.log_id <> dup.keep_id`,
+	`ALTER TABLE sleep ADD UNIQUE INDEX IF NOT EXISTS uniq_sleep_user_start_main (user_id, start_time, is_main_sleep)`,
+
 	// Future migrations go here.
 ];
 
