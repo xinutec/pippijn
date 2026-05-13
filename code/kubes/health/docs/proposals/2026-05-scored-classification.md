@@ -633,14 +633,31 @@ labels are expected to drift. Not auto-incremented from package.json
 
 **CI enforcement.** Process-only "remember to bump" is a known
 landmine. We back it with a CI check: a `classification-snapshot`
-fixture set of 5-10 representative segments is checked in; the
-classifier produces a label for each. On every PR, the snapshot is
-re-generated and compared to the checked-in version. If labels
-differ AND `CURRENT_CLASSIFIER_VERSION` did not change, the build
-fails with a message instructing the engineer to either revert the
-behaviour change or bump the version (and update the snapshot in
-the same PR). This makes "bump on label change" mechanical rather
-than disciplinary.
+fixture set is checked in; the classifier produces a label for each
+segment. On every PR, the snapshot is re-generated and compared to
+the checked-in version. If labels differ AND
+`CURRENT_CLASSIFIER_VERSION` did not change, the build fails with a
+message instructing the engineer to either revert the behaviour
+change or bump the version (and update the snapshot in the same
+PR). This makes "bump on label change" mechanical rather than
+disciplinary.
+
+The snapshot fixture set covers one segment per known failure
+category so the CI check catches regressions across all the rules
+we've patched:
+
+- one motorway/secondary driving segment (rail-road tie-break)
+- one footway/pedestrian walking segment (driveable-vs-pedestrian)
+- one Tube ride with a non-disembark intermediate station (alight-fix
+  speed threshold)
+- one inferred-from-gap transit segment (gap-handling)
+- one cycling segment with HR+cadence (cycling-signature)
+- one boarding from preceding-stationary vs walked-from-stationary
+  (walking-pace sanity)
+- one home/work cluster-pair commute (commute-prior, added in Phase 2)
+
+Captured via `capture-day.ts` (Phase 1 deliverable). Bare minimum:
+7 fixtures at Phase 1 start; grows as new factors are added.
 
 **Rollback story.** Bumping the version triggers re-classification
 of historical days. If the new classifier turns out *worse* on the
@@ -697,12 +714,31 @@ the version from the mined rows and applies `weight × 0.5` when
 the rows are previous-version (stale). The intent is "useful but
 distrusted": stale priors avoid the catastrophic case of no prior
 at all on a freshly-bumped system, but are weighted down enough
-that wrong labels in the stale window don't dominate the factor sum.
+that wrong labels in the stale window don't dominate the factor
+sum. The 0.5 multiplier is a tunable; the initial value is chosen
+so a single strong stale-prior contribution (~+2.5 nats fresh →
++1.25 nats stale) can't outweigh combined evidence from speed +
+OSM + biometric on its own (~+3.2 nats jointly). Calibrate against
+fixture days during Phase 2 audit.
+
+**Rollback during stale window — important edge case.** A
+bump-revert-bump sequence (a version was bumped, audit revealed
+worse output, code reverted, version bumped again) leaves the user
+with *no* current-version data and "previous-version" output that's
+the *buggy* version we just rolled back. The stale-discount path
+would naively apply, treating the buggy priors as 0.5× weight rather
+than zero. The fix: the production code MUST also check
+`journey_patterns.classifier_version` against the two most-recent
+version numbers — if the only mined output is from a *rolled-back*
+version (one strictly between the current-on-disk version and the
+previous-active version), the factor returns 0, not stale-discounted.
+This is one extra DB query column and a min-of comparison; mention
+in the migration spec so Phase 2 doesn't miss it.
 
 When even the previous-version output is missing (cold-start user,
-or two version bumps in close succession), the factor returns 0
-(no prior contribution) and the rest of the factor stack carries
-the classification.
+or two version bumps in close succession with no rollback), the
+factor returns 0 (no prior contribution) and the rest of the factor
+stack carries the classification.
 
 ### Cycling-signature mining: a special case
 
