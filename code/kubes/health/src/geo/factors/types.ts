@@ -18,6 +18,7 @@
  * dock score, only a clearly-disagreeing biometric signature should.
  */
 
+import type { MinuteObservation, ModeStats } from "../mode-biometrics.js";
 import type { TransportMode, WindowFeatures } from "../segments.js";
 
 /** A single candidate interpretation of a segment. The candidate
@@ -47,6 +48,13 @@ export interface FactorContext {
 	 *  Gaussian range-score in segments.ts). Required by the
 	 *  speed-emission factor. */
 	windowFeatures?: WindowFeatures;
+	/** Aggregated per-segment biometric observation (hr/cadence/speed).
+	 *  Required by the biometric-ll factor. */
+	biometricObs?: MinuteObservation;
+	/** Per-user per-mode biometric signatures from `mode_biometrics`.
+	 *  Required by the biometric-ll factor; loaded once per call to
+	 *  the consumer and passed unchanged through context. */
+	modeStats?: ModeStats[];
 }
 
 export interface FactorScore {
