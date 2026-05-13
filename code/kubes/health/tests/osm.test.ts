@@ -429,15 +429,14 @@ describe("refineMode", () => {
 	});
 
 	it("prefers a driveable road over a closer footway at driving speeds", () => {
-		// Real case from 2026-05-12: GPS fix on the 13:29-13:46 drive
-		// landed on the pavement next to Great Central Way. The mirror
-		// returned the footway at 21m AND Great Central Way (secondary)
-		// at 27m, both within nearbyWays' 50m radius. Aggregation by
-		// distance puts the footway first, and the old refineMode
-		// blindly picked highways[0] → labelled the drive "near footway"
-		// even though the user is clearly on a real road (61 km/h, 17
-		// minutes, 17 km of travel). At driving speed the labeller must
-		// pass over pedestrian-only ways and pick the closest car-road.
+		// Urban driving: GPS fix lands on the pavement next to a road.
+		// The mirror returns a footway at 21m AND a parallel secondary
+		// road at 27m, both within nearbyWays' 50m radius. Aggregation
+		// by distance puts the footway first; the old refineMode
+		// blindly picked highways[0] and labelled the segment "near
+		// footway" despite the speed being clearly vehicular. At
+		// driving speed the labeller must pass over pedestrian-only
+		// ways and pick the closest car-road.
 		const ways: NearbyWay[] = [
 			{ type: "highway", subtype: "footway" },
 			{ type: "highway", subtype: "secondary", name: "Great Central Way" },
@@ -462,11 +461,11 @@ describe("refineMode", () => {
 	});
 
 	it("prefers train when rail is closer than parallel major road (tube under arterial)", () => {
-		// Real case from 2026-05-12 13:29: Jubilee line surface trace
-		// 20m from one sample, Bridge Road (primary) 30m from same
-		// sample. Old guard refused train because a major highway was
-		// "present" anywhere → labelled as driving on Bridge Road. New
-		// distance-aware tie-break: rail closer than road → train.
+		// Subway surface trace 20m from one sample, a primary road
+		// 30m from the same sample. Old guard refused train because
+		// a major highway was "present" anywhere → segment labelled
+		// as driving. New distance-aware tie-break: rail closer than
+		// road → train.
 		const ways: NearbyWay[] = [
 			{ type: "railway", subtype: "subway", name: "Jubilee Line", distanceM: 20 },
 			{ type: "highway", subtype: "primary", name: "Bridge Road", distanceM: 30 },

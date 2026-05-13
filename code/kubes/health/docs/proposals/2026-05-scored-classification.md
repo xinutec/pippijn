@@ -36,13 +36,13 @@ Today's pipeline mixes two paradigms:
   `velocity.ts:annotateRailRuns` (local heuristics) are if/else trees we
   keep adding cases to.
 
-Today (2026-05-13) saw five separate patches to the hard-rule layers for
-what is structurally one problem: *the labeller chose an explanation that
-didn't match the user's actual journey, because each rule decided locally
-without seeing the full evidence.* The same root cause that 2025-model-hmm.md
-addresses with a full HMM.
+A recent session shipped five separate patches to the hard-rule
+layers for what is structurally one problem: *the labeller chose
+an explanation that didn't match the actual route, because each
+rule decided locally without seeing the full evidence.* The same
+root cause that 2025-model-hmm.md addresses with a full HMM.
 
-The bet of this roadmap: we can absorb most of today's bug class with
+The bet of this roadmap: we can absorb most of that bug class with
 **factor-decomposed scoring + a commute-history prior + careful mining
 lifecycle**. The numeric refinement layer fits factor decomposition
 well; the structural layer (mode dispatch, segment merging, gap
@@ -204,8 +204,8 @@ of today's `refineMode` + `annotateRailRuns` line count.
 
 Phase 2's commute prior can only demote a wrong label if the *right*
 label is in the candidate set. Today's `annotateRailRuns` returns one
-station pair — picking the wrong pair (Baker Street vs Kings Cross on
-2026-05-12) gave the system no recovery path.
+station pair — picking the wrong pair in observed bug cases gave
+the system no recovery path.
 
 Phase 1 must therefore enumerate **alternative candidates** in the
 candidate generator, not just produce a single best. Concretely for
@@ -304,10 +304,11 @@ middle. No new factor; the existing cascade gains ~30 lines.
 Factor weights are flat at first (all 1.0). After Phase 1 is in place,
 backtest against the fixture days (see "Fixture infrastructure" below)
 and tune weights so backtest segment-mode agreement matches or beats the
-post-2026-05-13 baseline on those fixtures. **The doc was originally
-silent on fixtures.** Phase 1 has to capture at least 3 fixture days
-(a normal commute, a Baker Street style trip, and a Lidl/grocery
-visit) before calibration is meaningful. Adds ~3 days.
+current baseline on those fixtures. **The doc was originally silent
+on fixtures.** Phase 1 has to capture at least 3 fixture days
+(a routine commute, a multi-leg-with-misclassification trip, and a
+short-visit grocery stop) before calibration is meaningful.
+Adds ~3 days.
 
 ### Files modified
 
@@ -335,14 +336,12 @@ visit) before calibration is meaningful. Adds ~3 days.
 
 ### Success criteria
 
-- 2026-05-12 analyze-day output **matches the post-2026-05-13-fixes
-  baseline**: morning labelled `train: Wembley Park → Kings Cross St
-  Pancras`, evening labelled `train: Baker Street → Wembley Park` (or
-  whatever the corrected output is at the moment Phase 1 starts), alight
-  stations correct. Note: this is **not** "bit-identical to what we
-  shipped today" — Phase 1 must be free to fix issues that today's
-  cascade still has, so long as the corrected fixture days remain
-  correct.
+- Captured fixture-day outputs match the pre-Phase-1 baseline: each
+  fixture's segments are labelled with the same modes and station
+  pairs as the cascade-based classifier produces at the moment Phase 1
+  begins. Note: this is **not** "bit-identical to a frozen snapshot"
+  — Phase 1 must be free to fix issues the cascade still has, so long
+  as the corrected fixture days remain correct after re-capture.
 - Per-segment `factorBreakdown` field is populated and inspectable in raw
   JSON output (no UI yet — Phase 3).
 - For rail-run segments: **alternative candidate station-pairs** are
@@ -368,14 +367,15 @@ visit) before calibration is meaningful. Adds ~3 days.
 - Phase 1's candidate enumeration for rail-runs (the prior can only
   lift the right answer if it's in the candidate set).
 
-Goal: add a factor that boosts candidates matching the user's historical
-journey patterns. This is the single change that would have prevented
-today's evening-trip "Baker Street" → "Kings Cross" confusion **provided
-Phase 1's alternative-candidate enumeration includes Kings Cross as a
-candidate**: with 80+ mornings of Wembley→KX Met commute and 80+ evening
-returns, KX-boarding on a return trip has overwhelming prior weight over
-Baker-Street-boarding — but only if "KX boarding" is one of the
-enumerated candidates that the factor scorer is choosing among.
+Goal: add a factor that boosts candidates matching historical
+journey patterns for the same cluster pair, hour-of-day, and day-
+of-week. This addresses the class of bug where a one-off
+GPS-noise-induced wrong station-pair gets picked over a station-
+pair that the user travels every working day — **provided Phase 1's
+alternative-candidate enumeration includes the correct station-pair
+as one of the candidates**. The prior cannot rescue a candidate
+that wasn't generated; Phase 1's candidate generator is the
+upstream dependency.
 
 This phase also adds the **classifier-version tracking** infrastructure
 that mining requires (see "Mining lifecycle" below).
@@ -390,7 +390,7 @@ CREATE TABLE journey_patterns (
     hour_bin           TINYINT NOT NULL,    -- 0-23, ALWAYS in segment's displayTz
     dow_bin            TINYINT NOT NULL,    -- 0-6 (Sunday=0), in displayTz
     mode               VARCHAR(16) NOT NULL,
-    way_name           VARCHAR(128) NULL,   -- e.g. "Wembley Park → Kings Cross St Pancras"
+    way_name           VARCHAR(128) NULL,   -- e.g. "Station A → Station B"
     line_name          VARCHAR(64) NULL,
     observation_count  INT NOT NULL,        -- decayed count (not raw)
     last_seen          DATE NOT NULL,
@@ -540,10 +540,10 @@ weight; if it doesn't influence repeat commutes enough, raise.
 - On a fixture day where the user takes their daily commute, the
   `commute-prior` factor contributes ≥ +2.0 nats to the correct
   candidate vs alternatives.
-- Replay 2026-05-12: morning trip labels Wembley Park → Kings Cross
-  with `commute-prior: +2.5 nats`. Evening trip labels Kings Cross →
-  Wembley Park with `commute-prior: +2.5 nats` and `Baker Street →
-  Wembley Park` becomes a lower-ranked alternative explanation.
+- On a representative routine-commute fixture, the correct station
+  pair receives `commute-prior: +2.5 nats`, and a previously
+  misclassified neighbouring-station alternative appears in the
+  candidate list with a lower total score (now correctly demoted).
 
 ### Out of scope
 
@@ -575,7 +575,8 @@ Classifier
 ```
 
 When the classifier changes — exactly what happened five times on
-2026-05-13 — the cached `EnrichedSegment` rows in the DB reflect the
+in any recent multi-fix session — the cached `EnrichedSegment` rows
+in the DB reflect the
 *old* classifier. Naive nightly mining reads those and produces priors
 that bake in old bugs as ground truth. The reviewer's #1 concern; the
 user's stated reason to slow down.
@@ -851,18 +852,18 @@ Each timeline segment is clickable. Clicking opens a detail panel:
 
 ```
 13:29-13:46 (17 min) Train
-   Wembley Park → Kings Cross St Pancras
+   Station A → Station B
 
    Why this label?
      ✓ Speed/linearity profile fits "train"     +1.8
      ✓ Rail line at 18m, road at 32m             +0.9
-     ✓ HR 62 bpm matches your train signature    +0.5
-     ✓ Matches your usual morning commute (87×)  +2.5
+     ✓ HR within your train signature            +0.5
+     ✓ Matches your recurring commute pattern    +2.5
                                        total:    +5.7
                               margin over 2nd:    +4.2
 
    Other interpretations considered:
-     • Driving on Bridge Road                    -3.1
+     • Driving on a parallel primary road        -3.1
        (see breakdown)
 ```
 
@@ -916,7 +917,7 @@ Viterbi" but the frontend can adapt.
 - Click any segment, see its factor breakdown within 200 ms.
 - "Why this label?" makes sense to a user without reading the source code.
 - The top alternative candidate's score is shown inline (one line:
-  "Driving on Bridge Road: -3.1, lost by 4.2"). A dedicated
+  "Driving on parallel primary road: -3.1, lost by 4.2"). A dedicated
   comparison view ("show me the second-best and why it lost in
   detail") is **deferred** — the inline alternative score is enough
   for the common case, and the deeper comparison view is fragile for
@@ -967,14 +968,14 @@ rewrite. The gap is smaller than the previous draft of this roadmap
 implied. The trade-off:
 
 - This roadmap delivers **incremental, shippable value** at the end of
-  each phase. Phase 1 alone catches a subset of today's bug class
-  (cycling-as-driving via the new cycling-signature factor;
+  each phase. Phase 1 alone catches a subset of the observed bug
+  classes (cycling-as-driving via the new cycling-signature factor;
   rail-vs-road tie-break failures via distance-aware scoring;
-  driveable-vs-footway misses via mode-coherence). The headline
-  2026-05-12 evening "Baker Street vs Kings Cross" bug needs Phase
-  2's commute prior to resolve — Phase 1 enumerates the candidate
-  but doesn't yet pick it. Phase 2 adds the prior; Phase 3 adds
-  explainability. Each phase is a deploy.
+  driveable-vs-footway misses via mode-coherence). The "wrong-
+  neighbouring-station-picked-over-routine-station" class needs
+  Phase 2's commute prior to resolve — Phase 1 enumerates the
+  candidate but doesn't yet pick it. Phase 2 adds the prior; Phase
+  3 adds explainability. Each phase is a deploy.
 - 2025-model-hmm.md delivers **one big system** at the end, with intermediate
   phases that aren't independently shippable (fixture capture, model
   training, inference) — same total time, less granular delivery.

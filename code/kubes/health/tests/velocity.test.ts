@@ -452,15 +452,15 @@ describe("annotateRailRuns", () => {
 	});
 
 	it("upgrades a single inferred-gap driving segment to train when both endpoints resolve to stations", async () => {
-		// Today's bug: the Baker Street → Wembley Park tube ride shows up
-		// in the timeline as a single "driving" segment annotated with
-		// the station pair. The annotation is correct but the mode is
-		// wrong — internally contradictory, and downstream code (UI
-		// icons, stats) treats it as a car drive. annotateRailRuns
-		// already produces the wayName label; it should also flip the
-		// mode to "train" when the label is produced (because we have
-		// high-confidence rail evidence: BOTH endpoints are real
-		// stations and the segment is rail-like by GPS shape).
+		// Bug pattern: a tube ride shows up in the timeline as a single
+		// "driving" segment annotated with a station pair. The
+		// annotation is correct but the mode is wrong — internally
+		// contradictory, and downstream code (UI icons, stats) treats
+		// it as a car drive. annotateRailRuns already produces the
+		// wayName label; it should also flip the mode to "train" when
+		// the label is produced (because we have high-confidence rail
+		// evidence: BOTH endpoints are real stations and the segment
+		// is rail-like by GPS shape).
 		const segs = [inferredVehicleGap(1000, 1500)];
 		const points = [fix(900, 51.523, -0.158), fix(1600, 51.563, -0.279)];
 		const out = await annotateRailRuns(segs, points, lookup);
@@ -493,10 +493,11 @@ describe("annotateRailRuns", () => {
 		expect(out[0].refinedReason).toMatch(/merged rail run/);
 	});
 
-	// Line-intersection disambiguation. The user's commute Wembley Park →
-	// Kings Cross has the parallel-track Met/Jubilee ambiguity (both serve
-	// Wembley Park; Jubilee doesn't reach Kings Cross). When both lookups
-	// agree on exactly one line, append the line name to the label.
+	// Line-intersection disambiguation. The Wembley Park ↔ Kings Cross
+	// corridor has a parallel-track Met/Jubilee ambiguity (both serve
+	// Wembley Park; Jubilee doesn't reach Kings Cross). When both
+	// lookups agree on exactly one line, append the line name to the
+	// label.
 	it("appends line name when both endpoints' line sets intersect to one line", async () => {
 		// Wembley Park is served by Met + Jubilee; Kings Cross by Met +
 		// many others but NOT Jubilee. Intersection = {Met} → use it.
@@ -704,14 +705,12 @@ describe("annotateRailRuns", () => {
 	});
 
 	// --- Boarding-station inference from preceding stationary segment ---
-	// The Kings Cross → Wembley Park bug: today's commute had the user
-	// stationary at Work (next to Kings Cross), walking briefly through
-	// the station entrance, then disappearing into the tube tunnel. The
-	// "last slow fix before the run" lookup picked a noisy underground
-	// blip near Baker Street, so the annotation said "Baker Street →
-	// Wembley Park" instead of "Kings Cross → Wembley Park". The
-	// preceding stationary segment's location is a much stronger signal
-	// of where the user actually was.
+	// Pattern: a Stationary segment next to a tube station, a brief
+	// walking segment through the station entrance, then a tube ride.
+	// The "last slow fix before the run" lookup can pick up a noisy
+	// underground blip from a different (intermediate) station, mis-
+	// attributing the boarding. The preceding stationary segment's
+	// location is a stronger signal of where the trip actually started.
 
 	const stationaryAt = (startTs: number, endTs: number): EnrichedSegment => ({
 		startTs,
@@ -789,11 +788,11 @@ describe("annotateRailRuns", () => {
 	});
 
 	it("ignores a slow mid-train fix at endTs when picking the alighting station", async () => {
-		// Real case from 2026-05-12 morning: the Met line decelerated
-		// approaching a non-disembark station just as the velocity
-		// classifier's detection window closed. The last fix in the
-		// train segment landed at platform speed near that station, and
-		// the old `p.ts >= endTs && slow(p)` rule picked THAT fix as
+		// Pattern: a subway train decelerates approaching a non-
+		// disembark station just as the velocity classifier's
+		// detection window closes. The last fix in the train segment
+		// lands at platform speed near that intermediate station, and
+		// the old `p.ts >= endTs && slow(p)` rule picks THAT fix as
 		// `after` → wrong alight station. Strict `p.ts > endTs` skips
 		// the segment's own last fix and picks the first post-train
 		// walking fix.
@@ -817,14 +816,14 @@ describe("annotateRailRuns", () => {
 	});
 
 	it("skips a decelerating-train fix at a non-disembark station after endTs", async () => {
-		// 2026-05-12 morning: between endTs (13:46:33) and the actual
-		// disembark fix at Kings Cross (13:50), there's an intermediate
-		// fix at 13:48:23 at Euston Square coords with speed 7.5 km/h —
-		// the train decelerating through Euston Square en route to KX.
-		// A 15 km/h `slow` threshold treats that as post-train and picks
-		// "Euston Square" as alighting. A tighter 5 km/h threshold
-		// distinguishes a decelerating train (5-15 km/h) from a user
-		// walking or standing (< 5 km/h).
+		// Pattern: between segment endTs and the actual disembark, an
+		// intermediate fix lands at an intermediate station coords with
+		// speed 5-10 km/h — the train decelerating through a station
+		// en route to the actual disembark. A 15 km/h `slow` threshold
+		// treats that as post-train and picks the wrong (intermediate)
+		// station as alighting. A tighter 5 km/h threshold distinguishes
+		// a decelerating train (5-15 km/h) from a rider walking or
+		// standing on a platform (< 5 km/h).
 		const customStations = async (lat: number, lon: number) => {
 			if (Math.abs(lat - 51.563) < 0.005 && Math.abs(lon - -0.279) < 0.005)
 				return [{ name: "Wembley Park", subtype: "subway", distanceM: 50 }];
@@ -844,18 +843,17 @@ describe("annotateRailRuns", () => {
 		expect(out[0].wayName).toBe("Wembley Park → Kings Cross St Pancras");
 	});
 
-	it("uses slowBefore's station when the user walked a realistic distance from stationary", async () => {
-		// Real case from 2026-05-12 17:48: 26-min stationary at Work
-		// (near Kings Cross St Pancras), then a 15-min walk west to
-		// Marylebone (~1.4 km in 8 min, ≈ 10 km/h brisk-but-realistic
-		// walking pace), then Chiltern Railways to Wembley Stadium.
-		// The old "preceding-stationary wins" rule annotated this as
-		// "Kings Cross St Pancras → Wembley Park" because KX was the
-		// nearest station to Work. But the user clearly walked to a
-		// different station — slowBefore is 1.4 km from the stationary
-		// endpoint at human-walking pace, so it's a real new location
-		// (not the mid-tunnel GPS noise the preceding-stationary rule
-		// was designed to ignore). Trust slowBefore in this case.
+	it("uses slowBefore's station when the rider walked a realistic distance from stationary", async () => {
+		// Pattern: a 26-min Stationary segment near station A, then a
+		// 15-min walk to station B (~1.4 km in 8 min, ≈ 10 km/h
+		// brisk-but-realistic walking pace), then a train ride. The
+		// old "preceding-stationary wins" rule would annotate boarding
+		// at station A because that was the nearest station to the
+		// Stationary segment. But the rider clearly walked to station
+		// B — slowBefore is 1.4 km from the stationary endpoint at
+		// human-walking pace, so it's a real new location (not the
+		// mid-tunnel GPS noise the preceding-stationary rule was
+		// designed to ignore). Trust slowBefore in this case.
 		const customStations = async (lat: number, lon: number) => {
 			if (Math.abs(lat - 51.53) < 0.005 && Math.abs(lon - -0.125) < 0.005)
 				return [{ name: "Kings Cross St Pancras", subtype: "subway", distanceM: 50 }];
