@@ -23,8 +23,8 @@
 
 import { describe, expect, it } from "vitest";
 import { biometricLL } from "../../src/geo/factors/biometric-ll.js";
+import type { FactorContext, ModeCandidate } from "../../src/geo/factors/types.js";
 import type { ModeStats } from "../../src/geo/mode-biometrics.js";
-import type { ModeCandidate, FactorContext } from "../../src/geo/factors/types.js";
 
 const drivingStats: ModeStats = {
 	mode: "driving",

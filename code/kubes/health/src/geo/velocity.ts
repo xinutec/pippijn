@@ -8,10 +8,10 @@ import { sql } from "kysely";
 import tzLookup from "tz-lookup";
 import { db } from "../db/pool.js";
 import { getSyncState } from "../db/sync-state.js";
-import { type DayState, segmentsToDayStates } from "../sleep/day-state.js";
-import { enrichSleepWindows, loadDaySleepWindows } from "../sleep/load.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
+import { type DayState, segmentsToDayStates } from "../sleep/day-state.js";
+import { enrichSleepWindows, loadDaySleepWindows } from "../sleep/load.js";
 import {
 	type BiometricEnrichment,
 	correctModeFromCadence,
@@ -824,9 +824,7 @@ const PLATFORM_MAX_SPREAD_M = 150;
  */
 export function findBoardingPlatformFix(points: FilteredPoint[], startTs: number): FilteredPoint | null {
 	const windowStart = startTs - PLATFORM_PATTERN_WALKBACK_S;
-	const windowFixes = points
-		.filter((p) => p.ts >= windowStart && p.ts <= startTs)
-		.sort((a, b) => a.ts - b.ts);
+	const windowFixes = points.filter((p) => p.ts >= windowStart && p.ts <= startTs).sort((a, b) => a.ts - b.ts);
 	if (windowFixes.length === 0) return null;
 
 	// Find the earliest train-speed fix in the window. If none, the
@@ -1018,12 +1016,7 @@ export async function annotateRailRuns(
 				}
 
 				if (stationaryCandidate) {
-					const dM = haversineMeters(
-						stationaryCandidate.lat,
-						stationaryCandidate.lon,
-						slowBefore.lat,
-						slowBefore.lon,
-					);
+					const dM = haversineMeters(stationaryCandidate.lat, stationaryCandidate.lon, slowBefore.lat, slowBefore.lon);
 					const dt = Math.max(1, slowBefore.ts - stationaryCandidate.endTs);
 					const apparentKmh = (dM / dt) * 3.6;
 					if (apparentKmh > BOARDING_NOISE_SPEED_KMH) {

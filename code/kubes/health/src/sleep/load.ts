@@ -108,7 +108,10 @@ export async function loadDaySleepWindows(userId: string, date: string): Promise
 
 /** Enrich raw sleep windows with `place` from segments and produce
  *  the full `SleepWindow` shape the day-state converter expects. */
-export function enrichSleepWindows(raw: readonly RawSleepWindow[], segments: readonly EnrichedSegment[]): SleepWindow[] {
+export function enrichSleepWindows(
+	raw: readonly RawSleepWindow[],
+	segments: readonly EnrichedSegment[],
+): SleepWindow[] {
 	return raw.map((w) => ({
 		startTs: w.startTs,
 		endTs: w.endTs,

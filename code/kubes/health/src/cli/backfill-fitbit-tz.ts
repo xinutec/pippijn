@@ -274,10 +274,11 @@ async function backfillUser(userId: string): Promise<void> {
 			// than a ts range.
 			let sleepUpdated = 0;
 			for (const date of datesForTz) {
-				const result = (await conn.query(
-					`UPDATE sleep SET tz = ? WHERE user_id = ? AND tz IS NULL AND date = ?`,
-					[tz, userId, date],
-				)) as { affectedRows: number };
+				const result = (await conn.query(`UPDATE sleep SET tz = ? WHERE user_id = ? AND tz IS NULL AND date = ?`, [
+					tz,
+					userId,
+					date,
+				])) as { affectedRows: number };
 				sleepUpdated += result.affectedRows ?? 0;
 			}
 			if (sleepUpdated > 0) {

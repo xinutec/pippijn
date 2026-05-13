@@ -31,9 +31,9 @@
  *     waterway ways are currently dropped.
  */
 
-import type { ModeCandidate } from "./types.js";
-import type { TransportMode } from "../segments.js";
 import type { NearbyWay } from "../osm.js";
+import type { TransportMode } from "../segments.js";
+import type { ModeCandidate } from "./types.js";
 
 const DRIVEABLE_HIGHWAY_SUBTYPES = new Set([
 	"motorway",
@@ -70,10 +70,7 @@ function modesForWay(way: NearbyWay): TransportMode[] {
  * fallback candidate (so downstream code can rely on a non-empty
  * result).
  */
-export function generateRefineModeCandidates(
-	originalMode: TransportMode,
-	ways: readonly NearbyWay[],
-): ModeCandidate[] {
+export function generateRefineModeCandidates(originalMode: TransportMode, ways: readonly NearbyWay[]): ModeCandidate[] {
 	const candidates: ModeCandidate[] = [];
 	for (const way of ways) {
 		const modes = modesForWay(way);

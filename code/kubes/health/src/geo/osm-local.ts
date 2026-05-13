@@ -285,12 +285,7 @@ export async function streamOverpassElements(
 	// stage propagates to the consumer's `for await` loop as a
 	// rejection — vanilla `.pipe()` would let it surface as an
 	// uncaught 'error' event instead.
-	const pipeline = chain([
-		nodeStream,
-		parser(),
-		pick({ filter: "elements" }),
-		streamArray(),
-	]);
+	const pipeline = chain([nodeStream, parser(), pick({ filter: "elements" }), streamArray()]);
 
 	let points: ParsedFeature[] = [];
 	let lines: ParsedFeature[] = [];

@@ -23,21 +23,23 @@
 
 import { describe, expect, it } from "vitest";
 import { speedEmission } from "../../src/geo/factors/speed-emission.js";
-import type { ModeCandidate, FactorContext } from "../../src/geo/factors/types.js";
+import type { FactorContext, ModeCandidate } from "../../src/geo/factors/types.js";
 
 /** Build a minimal WindowFeatures-compatible context shape; only the
  *  fields the speed-emission factor consults need plausible values. */
-const ctx = (overrides: Partial<{
-	medianSpeed: number;
-	maxSpeed: number;
-	speedVariance: number;
-	headingChangeRate: number;
-	linearity: number;
-	accelerationBursts: number;
-	stopFraction: number;
-	netDisplacement: number;
-	boundingRadius: number;
-}>): FactorContext => ({
+const ctx = (
+	overrides: Partial<{
+		medianSpeed: number;
+		maxSpeed: number;
+		speedVariance: number;
+		headingChangeRate: number;
+		linearity: number;
+		accelerationBursts: number;
+		stopFraction: number;
+		netDisplacement: number;
+		boundingRadius: number;
+	}>,
+): FactorContext => ({
 	windowFeatures: {
 		startTs: 0,
 		endTs: 60,

@@ -759,7 +759,13 @@ function refineModeViaFactors(originalMode: string, speedKmh: number, ways: Near
 	// TEMP debug — remove after Phase 1 calibration. Dumps every
 	// candidate's score so we can diagnose unexpected fallback wins.
 	if (process.env.FACTOR_DEBUG === "1") {
-		const fmt = (c: { mode: string; wayName?: string; waySubtype?: string; totalScore: number; factors: { name: string; score: number }[] }): string =>
+		const fmt = (c: {
+			mode: string;
+			wayName?: string;
+			waySubtype?: string;
+			totalScore: number;
+			factors: { name: string; score: number }[];
+		}): string =>
 			`    ${c.totalScore.toFixed(2).padStart(7)} ${c.mode}${c.wayName ? ` "${c.wayName}"` : ""}${c.waySubtype ? ` (${c.waySubtype})` : ""} ← ${c.factors.map((f) => `${f.name}=${f.score.toFixed(2)}`).join(" ")}`;
 		console.log(
 			`[factor-debug] originalMode=${originalMode} speed=${speedKmh.toFixed(1)} ways=${ways.length}\n` +

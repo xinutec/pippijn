@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { derivePlaceForSleep, nextDateString } from "../../src/sleep/load.js";
 import type { EnrichedSegment } from "../../src/geo/velocity.js";
+import { derivePlaceForSleep, nextDateString } from "../../src/sleep/load.js";
 
 function stationary(startTs: number, endTs: number, place?: string): EnrichedSegment {
 	return {

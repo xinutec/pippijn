@@ -41,9 +41,7 @@ const RAIL_SUBTYPES = new Set(["rail", "subway", "light_rail", "tram", "monorail
 const WATERWAY_NAVIGABLE = new Set(["river", "canal", "fairway"]);
 const AEROWAY = new Set(["runway", "taxiway", "aerodrome", "terminal"]);
 
-interface Rule {
-	(subtype: string): number | null;
-}
+type Rule = (subtype: string) => number | null;
 
 const RULES_BY_MODE: Record<string, Rule> = {
 	driving: (s) => {

@@ -25,8 +25,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { segmentsToDayStates, type SleepWindow } from "../../src/sleep/day-state.js";
 import type { EnrichedSegment } from "../../src/geo/velocity.js";
+import { type SleepWindow, segmentsToDayStates } from "../../src/sleep/day-state.js";
 
 function stationary(startTs: number, endTs: number, place: string): EnrichedSegment {
 	return {

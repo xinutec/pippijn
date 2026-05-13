@@ -21,7 +21,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { refineMode, type NearbyWay } from "../src/geo/osm.js";
+import { type NearbyWay, refineMode } from "../src/geo/osm.js";
 
 describe("refineMode flag toggle", () => {
 	beforeEach(() => {

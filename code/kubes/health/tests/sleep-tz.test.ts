@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from "vitest";
 import { asFitbitSleepLogId } from "../src/db/branded.js";
-import { parseSleepLog, type FitbitSleepLog } from "../src/fitbit/sync/sleep.js";
+import { type FitbitSleepLog, parseSleepLog } from "../src/fitbit/sync/sleep.js";
 import type { TzSource } from "../src/geo/fitbit-tz.js";
 
 const sleepLog = (overrides: Partial<FitbitSleepLog> = {}): FitbitSleepLog => ({

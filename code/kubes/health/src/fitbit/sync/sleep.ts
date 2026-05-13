@@ -51,7 +51,23 @@ export function parseSleepLog(
 	log: FitbitSleepLog,
 	userId: string,
 	tzSource: TzSource = NULL_TZ_SOURCE,
-): [string, FitbitSleepLogId, string, string, string, number, number, number, number, number | null, number | null, number | null, number | null, boolean, string | null] {
+): [
+	string,
+	FitbitSleepLogId,
+	string,
+	string,
+	string,
+	number,
+	number,
+	number,
+	number,
+	number | null,
+	number | null,
+	number | null,
+	number | null,
+	boolean,
+	string | null,
+] {
 	// startTime shape: "2026-05-12T00:06:00.000". Same split as
 	// parseSleepStages: date | time | (milliseconds dropped).
 	const [, startTimeRaw] = log.startTime.split("T");

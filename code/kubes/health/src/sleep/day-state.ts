@@ -64,7 +64,10 @@ export interface DayState {
 /** Public entry: convert segments + sleep windows into the day's
  *  non-overlapping state sequence. Adjacent same-state runs are
  *  merged. */
-export function segmentsToDayStates(segments: readonly EnrichedSegment[], sleepWindows: readonly SleepWindow[]): DayState[] {
+export function segmentsToDayStates(
+	segments: readonly EnrichedSegment[],
+	sleepWindows: readonly SleepWindow[],
+): DayState[] {
 	const boundaries = collectBoundaries(segments, sleepWindows);
 	if (boundaries.length < 2) return [];
 

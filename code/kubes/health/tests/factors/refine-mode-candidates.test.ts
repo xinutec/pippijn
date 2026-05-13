@@ -34,7 +34,9 @@ const way = (type: string, subtype: string, name?: string, distanceM?: number): 
 describe("generateRefineModeCandidates", () => {
 	it("emits driving/walking/cycling candidates for a driveable highway", () => {
 		const result = generateRefineModeCandidates("driving", [way("highway", "primary", "A1", 25)]);
-		const modes = result.map((c) => c.mode).filter((m) => m !== "driving" || result.find((c) => c.mode === m && c.wayName));
+		const modes = result
+			.map((c) => c.mode)
+			.filter((m) => m !== "driving" || result.find((c) => c.mode === m && c.wayName));
 		// driving-on-A1, walking-on-A1, cycling-on-A1, and an originalMode fallback
 		expect(result.some((c) => c.mode === "driving" && c.wayName === "A1")).toBe(true);
 		expect(result.some((c) => c.mode === "walking" && c.wayName === "A1")).toBe(true);

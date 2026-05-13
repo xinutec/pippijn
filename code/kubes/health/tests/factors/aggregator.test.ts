@@ -91,11 +91,7 @@ describe("scoreCandidates aggregator", () => {
 
 	it("sorts alternatives descending by totalScore", () => {
 		const candidates = [candidate("walking"), candidate("driving"), candidate("train")];
-		const factors = [
-			constFactor("f", "driving", 3),
-			constFactor("f", "train", 2),
-			constFactor("f", "walking", -1),
-		];
+		const factors = [constFactor("f", "driving", 3), constFactor("f", "train", 2), constFactor("f", "walking", -1)];
 		const r = scoreCandidates(candidates, emptyCtx, factors);
 		expect(r.best.mode).toBe("driving");
 		expect(r.alternatives.map((a) => a.mode)).toEqual(["train", "walking"]);
