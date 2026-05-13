@@ -63,6 +63,7 @@ import { bodyLimit } from "hono/body-limit";
 import type { Config } from "../config.js";
 import type { AppEnv } from "../env.js";
 import { haversineMeters } from "../geo/place-snap.js";
+import { fetchTrackPoints, NextcloudNotLinkedError, NextcloudReauthRequiredError } from "../nextcloud/phonetrack.js";
 import { getFocusPlacesForGating } from "./owntracks-focus-cache.js";
 import { isLongStayLocation } from "./owntracks-long-stay.js";
 
@@ -546,6 +547,10 @@ function touchStateKey(key: string): void {
 		if (oldest === undefined) break;
 		historyByKey.delete(oldest);
 		lastProfileByKey.delete(oldest);
+		// If this device comes back later, treat it as a cold start
+		// and seed again — the long absence likely means the cache
+		// is no longer representative.
+		seedAttempted.delete(oldest);
 	}
 
 	if (existingProfile !== undefined) lastProfileByKey.set(key, existingProfile);
@@ -555,6 +560,60 @@ function touchStateKey(key: string): void {
 const lastProfileByKey = new Map<string, MotionProfile>();
 /** Per-device fix history used by the decision pipeline. */
 const historyByKey = new Map<string, FixRecord[]>();
+/** Per (token,device) flag: have we already attempted to seed this
+ *  key's history from PhoneTrack since the process started? Seeding
+ *  is a one-shot per pod lifetime per device — repeat attempts would
+ *  hammer Nextcloud on every POST if NC is unreachable. */
+const seedAttempted = new Set<string>();
+
+/**
+ * On the first fix after pod start for a given (token,device),
+ * fetch the last `HISTORY_MAX_AGE_SEC` of PhoneTrack points and use
+ * them to seed the in-memory history cache. Without this, every
+ * pod restart resets the decision pipeline to `hist=1` and the
+ * proxy makes premature Move-mode escalations on what would
+ * otherwise be a stationary device at home.
+ *
+ * The in-memory cache is load-bearing: it affects every decision
+ * the pipeline makes, and PhoneTrack is the source of truth for
+ * the same fixes anyway. Seeding closes the gap.
+ *
+ * Failure modes (Nextcloud unreachable, user not linked, reauth
+ * required) are non-fatal — we return an empty seed and the
+ * pipeline runs with whatever fixes Owntracks sends next.
+ */
+async function seedHistoryFromPhoneTrack(
+	config: { nextcloud: { baseUrl: string; clientId: string; clientSecret: string } },
+	userId: string,
+	nowSec: number,
+): Promise<FixRecord[]> {
+	const startSec = nowSec - HISTORY_MAX_AGE_SEC;
+	const startIso = new Date(startSec * 1000).toISOString();
+	const endIso = new Date(nowSec * 1000).toISOString();
+	try {
+		const points = await fetchTrackPoints(config, userId, startIso, endIso);
+		// PhoneTrack's speed field is in m/s; convert to km/h to match
+		// the Owntracks `vel` convention used by the rest of the
+		// pipeline. Null stays null. Trigger and monitoringMode are
+		// unknown for historical fixes; null is the right answer (the
+		// pipeline only consults the *latest* fix's `t` and `m`, which
+		// will always be from a live Owntracks payload).
+		return points.map((p) => ({
+			ts: p.ts,
+			lat: p.lat,
+			lon: p.lon,
+			vel: p.speed === null ? null : p.speed * 3.6,
+			trigger: null,
+			monitoringMode: null,
+		}));
+	} catch (e) {
+		if (e instanceof NextcloudNotLinkedError || e instanceof NextcloudReauthRequiredError) {
+			return [];
+		}
+		console.warn(`Owntracks seed failed for device=${userId}: ${(e as Error).message ?? e}`);
+		return [];
+	}
+}
 
 // ============================================================================
 // Route
@@ -637,6 +696,22 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 				}
 			}
 			const nowTs = newFixes.length > 0 ? newFixes[newFixes.length - 1].ts : Math.floor(Date.now() / 1000);
+
+			// Cold-start seed: if we've never seeded this key in this
+			// pod lifetime and the cache has nothing, pull recent
+			// fixes from PhoneTrack. This is the source of truth for
+			// location storage anyway; the in-memory cache duplicates
+			// it for low-latency decisions. Without this, every pod
+			// restart resets `hist` to 1 and the cascade makes a
+			// premature Move escalation on the next `t=u`.
+			if (!seedAttempted.has(stateKey) && !historyByKey.has(stateKey)) {
+				seedAttempted.add(stateKey);
+				const seeded = await seedHistoryFromPhoneTrack(config, device, nowTs);
+				if (seeded.length > 0) {
+					historyByKey.set(stateKey, seeded);
+					console.log(`owntracks seed: ${device} got ${seeded.length} fix(es) from PhoneTrack`);
+				}
+			}
 
 			const merged = [...(historyByKey.get(stateKey) ?? []), ...newFixes];
 			const history = pruneFixHistory(merged, HISTORY_MAX_AGE_SEC, nowTs);
