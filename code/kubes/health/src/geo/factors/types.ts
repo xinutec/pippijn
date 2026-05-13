@@ -37,6 +37,12 @@ export interface ModeCandidate {
 	 *  because some candidates (e.g. "stationary" without a known
 	 *  amenity) don't carry one. */
 	wayName?: string;
+	/** Distance from the GPS trajectory to the way's geometry, in
+	 *  metres. Set by the candidate generator when it picks a
+	 *  specific OSM way to represent. Read by the osm-distance
+	 *  factor; null/undefined means "no distance to score against"
+	 *  and the factor returns null. */
+	wayDistanceM?: number;
 }
 
 /** Everything a factor might want to consult. Each field is optional
