@@ -19,6 +19,7 @@ import { StepsChartComponent } from "./components/steps-chart/steps-chart.compon
 import { HeartrateChartComponent } from "./components/heartrate-chart/heartrate-chart.component";
 import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.component";
 import { formatDateInTz, browserTimezone, todayLocal } from "./time-utils";
+import { installErrorReporting, logBootContext } from "./client-diagnostics";
 
 @Component({
   selector: "app-root",
@@ -76,9 +77,19 @@ export class AppComponent implements OnInit {
   }
 
   async ngOnInit(): Promise<void> {
+    // Install browser error/unhandledrejection listeners up-front so
+    // any failure during auth or initial render still gets reported.
+    // Best-effort — the install itself never throws.
+    installErrorReporting(this.health);
+
     const ok = await this.health.checkAuth();
     this.authenticated.set(ok);
     if (!ok) { this.loading.set(false); return; }
+
+    // One-shot boot context (UA, viewport, tz, locale) for future
+    // bug-correlation. Posted after auth succeeds so it carries the
+    // authenticated user_id in the log prefix.
+    logBootContext(this.health);
 
     this.fitbitLinked.set(this.health.user()?.fitbitLinked ?? false);
     if (!this.fitbitLinked()) { this.loading.set(false); return; }
