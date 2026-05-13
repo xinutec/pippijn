@@ -23,7 +23,13 @@
 .day-label {
   font-size: 16px;
   font-weight: 500;
-  min-width: 120px;
+  /* Fixed width — was min-width: 120px but date strings like
+   * "Tuesday, May 13" exceed that and push the chevron buttons
+   * outward, so arrowing across days appeared to spread the
+   * controls. Pick a value that comfortably fits the worst case
+   * (longest weekday + month + day-of-month) so the chevrons stay
+   * put for every label. */
+  width: 180px;
   text-align: center;
   &.loading { opacity: 0.5; }
 }

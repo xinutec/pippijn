@@ -6,6 +6,16 @@
   box-sizing: border-box;
 }
 
+html {
+  /* Reserve the vertical scrollbar's gutter even when content fits
+   * the viewport. Without this, the page width changes by ~15px
+   * every time content height crosses the viewport — which on this
+   * dashboard happens whenever the day-loading spinner replaces the
+   * cards. The visible side-effect is a slight horizontal jitter on
+   * everything centered. */
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--mat-app-background-color, #303030);
   color: var(--mat-app-text-color, #ffffff);
