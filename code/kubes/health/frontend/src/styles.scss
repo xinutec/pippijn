@@ -6,6 +6,25 @@
   box-sizing: border-box;
 }
 
+:root {
+  /* Project palette for the dark-on-purple Material theme. Components
+   * reference these instead of hard-coding rgba/hex so a future theme
+   * swap (or light-mode support) only needs to touch this block.
+   *
+   * Naming: --text-* for foreground-on-background opacity tiers, where
+   * "secondary" is the most prominent dim text and "faint" is the
+   * least. --border-faint is the thin-divider tier. --color-* are the
+   * accent colours used by the timeline state icons. */
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-tertiary: rgba(255, 255, 255, 0.55);
+  --text-faint: rgba(255, 255, 255, 0.5);
+  --border-faint: rgba(255, 255, 255, 0.15);
+
+  --color-moving: #818cf8;     /* moving-mode timeline icon (indigo) */
+  --color-stationary: #94a3b8; /* stationary-mode timeline icon (slate) */
+  --color-overlay: #c4b5fd;    /* city / journey overlay header (violet) */
+}
+
 html {
   /* Reserve the vertical scrollbar's gutter even when content fits
    * the viewport. Without this, the page width changes by ~15px
@@ -20,4 +39,13 @@ body {
   background: var(--mat-app-background-color, #303030);
   color: var(--mat-app-text-color, #ffffff);
   min-height: 100vh;
+}
+
+/* Shared "no data yet" placeholder used by every chart/card component
+ * that renders nothing for the current day. Kept in styles.scss so the
+ * five components that all defined this identically don't drift. */
+.no-data {
+  opacity: 0.5;
+  padding: 24px 0;
+  text-align: center;
 }
