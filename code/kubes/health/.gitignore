@@ -2,3 +2,9 @@ node_modules/
 dist/
 .local-data/
 docs/archive/
+
+# Captured fixture days contain real GPS + biometric data (home/work
+# coords, HR, cadence). Local-only. CI snapshot tests must use
+# synthetic fixtures committed under tests/fixtures/synthetic/
+# instead (TODO — Phase 1 deliverable still to be built).
+tests/fixtures/days/

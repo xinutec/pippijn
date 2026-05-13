@@ -656,8 +656,21 @@ we've patched:
   (walking-pace sanity)
 - one home/work cluster-pair commute (commute-prior, added in Phase 2)
 
-Captured via `capture-day.ts` (Phase 1 deliverable). Bare minimum:
-7 fixtures at Phase 1 start; grows as new factors are added.
+Captured via `capture-day.ts` (Phase 1 deliverable, shipped
+2026-05-13). The captured fixtures contain real GPS + biometric
+data, which violates the "no private data in test fixtures" rule
+and so they are gitignored under `tests/fixtures/days/`.
+
+**Synthetic CI fixtures are a separate Phase 1 deliverable.** The
+CI snapshot test cannot use the real captured fixtures. It needs
+hand-authored synthetic fixtures with made-up coordinates, made-up
+station names, and made-up biometrics — designed to cover each
+failure category. Probably stored under `tests/fixtures/synthetic/`
+to make the distinction obvious. Calibration uses the real
+fixtures (local-only); CI uses the synthetic fixtures (in repo).
+This separation is load-bearing: the CI check is the version-bump
+forcing mechanism, and it must run on every PR without private
+data leakage.
 
 **Rollback story.** Bumping the version triggers re-classification
 of historical days. If the new classifier turns out *worse* on the
