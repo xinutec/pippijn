@@ -788,6 +788,39 @@ describe("annotateRailRuns", () => {
 		expect(out[2].wayName).toBe("Baker Street → Wembley Park");
 	});
 
+	it("uses slowBefore's station when the user walked a realistic distance from stationary", async () => {
+		// Real case from 2026-05-12 17:48: 26-min stationary at Work
+		// (near Kings Cross St Pancras), then a 15-min walk west to
+		// Marylebone (~1.4 km in 8 min, ≈ 10 km/h brisk-but-realistic
+		// walking pace), then Chiltern Railways to Wembley Stadium.
+		// The old "preceding-stationary wins" rule annotated this as
+		// "Kings Cross St Pancras → Wembley Park" because KX was the
+		// nearest station to Work. But the user clearly walked to a
+		// different station — slowBefore is 1.4 km from the stationary
+		// endpoint at human-walking pace, so it's a real new location
+		// (not the mid-tunnel GPS noise the preceding-stationary rule
+		// was designed to ignore). Trust slowBefore in this case.
+		const customStations = async (lat: number, lon: number) => {
+			if (Math.abs(lat - 51.53) < 0.005 && Math.abs(lon - -0.125) < 0.005)
+				return [{ name: "Kings Cross St Pancras", subtype: "subway", distanceM: 50 }];
+			if (Math.abs(lat - 51.524) < 0.005 && Math.abs(lon - -0.144) < 0.005)
+				return [{ name: "Marylebone", subtype: "train_station", distanceM: 80 }];
+			if (Math.abs(lat - 51.554) < 0.01 && Math.abs(lon - -0.25) < 0.01)
+				return [{ name: "Wembley Stadium", subtype: "train_station", distanceM: 100 }];
+			return [];
+		};
+		const segs = [stationaryAt(1560, 3120), walking(3120, 4020), train(4020, 4500)];
+		const points = [
+			fix(2000, 51.53, -0.125), // inside stationary at Work
+			fix(3000, 51.53, -0.125), // last fix in stationary — KX area
+			fix(3360, 51.531, -0.125), // walking, still near KX
+			fix(3840, 51.524, -0.144), // late walking, Marylebone area (becomes slowBefore)
+			fix(4500, 51.554, -0.25), // post-train, Wembley Stadium
+		];
+		const out = await annotateRailRuns(segs, points, customStations);
+		expect(out[2].wayName).toBe("Marylebone → Wembley Stadium");
+	});
+
 	it("does not walk back across a previous train segment when picking boarding", async () => {
 		// Previous train → stationary at Kings Cross (interchange) →
 		// walking → new train. The most-recent stationary is the

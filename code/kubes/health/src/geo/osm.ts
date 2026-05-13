@@ -628,6 +628,14 @@ export interface NearbyWay {
 	type: string; // "highway", "railway", "waterway", "aeroway"
 	subtype: string; // "motorway", "rail", "subway", "river", etc.
 	name?: string; // e.g. "A2", "Northern Line"
+	/** Distance from the GPS sample to this way's geometry, in metres.
+	 *  Populated by `nearbyWays`. When aggregated across multiple
+	 *  sample points (e.g. velocity.ts:474), the *minimum* distance
+	 *  seen for a given (type/subtype/name) wins, so refineMode can
+	 *  tell the difference between a road we brushed past once and
+	 *  a road the GPS trace was hugging the whole way. Optional for
+	 *  back-compat with tests that don't care. */
+	distanceM?: number;
 }
 
 /**
@@ -661,11 +669,16 @@ export async function nearbyWays(lat: number, lon: number, radiusM = 50): Promis
 		queryPoints(lat, lon, radiusM, "aeroway"),
 	]);
 	const ways: NearbyWay[] = [];
-	for (const f of highways) ways.push({ type: "highway", subtype: f.subtype ?? "", name: f.name ?? undefined });
-	for (const f of railways) ways.push({ type: "railway", subtype: f.subtype ?? "", name: f.name ?? undefined });
-	for (const f of waterways) ways.push({ type: "waterway", subtype: f.subtype ?? "", name: f.name ?? undefined });
-	for (const f of aerowayLines) ways.push({ type: "aeroway", subtype: f.subtype ?? "", name: f.name ?? undefined });
-	for (const f of aerowayPoints) ways.push({ type: "aeroway", subtype: f.subtype ?? "", name: f.name ?? undefined });
+	for (const f of highways)
+		ways.push({ type: "highway", subtype: f.subtype ?? "", name: f.name ?? undefined, distanceM: f.distance_m });
+	for (const f of railways)
+		ways.push({ type: "railway", subtype: f.subtype ?? "", name: f.name ?? undefined, distanceM: f.distance_m });
+	for (const f of waterways)
+		ways.push({ type: "waterway", subtype: f.subtype ?? "", name: f.name ?? undefined, distanceM: f.distance_m });
+	for (const f of aerowayLines)
+		ways.push({ type: "aeroway", subtype: f.subtype ?? "", name: f.name ?? undefined, distanceM: f.distance_m });
+	for (const f of aerowayPoints)
+		ways.push({ type: "aeroway", subtype: f.subtype ?? "", name: f.name ?? undefined, distanceM: f.distance_m });
 	return ways;
 }
 
@@ -723,17 +736,32 @@ export function refineMode(originalMode: string, speedKmh: number, ways: NearbyW
 	// rebuttal evidence against a classifier "train" call below.
 	const majorHighways = highways.filter((h) => ["motorway", "trunk", "primary", "secondary"].includes(h.subtype));
 
-	// Railway → train, but only when no major highway is also present.
-	// Without this guard the Betuweroute (rail running parallel to A15) would
-	// hijack any motorway drive in that corridor.
-	if (railways.length > 0 && speedKmh > 30 && majorHighways.length === 0) {
-		const rail = railways[0];
-		return {
-			mode: "train",
-			confidence: "high",
-			reason: `on ${rail.subtype}`,
-			wayName: rail.name,
-		};
+	// Railway → train. The naive rule "any rail nearby → train" gets
+	// hijacked by rail running parallel to motorways (the Betuweroute
+	// alongside A15). The naive opposite rule "any major highway nearby
+	// → not train" gets hijacked by tube lines running under urban
+	// arterials (Jubilee line under Bridge Road in London — 2026-05-12).
+	// Distance-aware tie-break when distance info is available: prefer
+	// whichever feature the GPS trajectory was actually closer to.
+	// Back-compat: when distances are missing (older callers, tests),
+	// fall back to the original presence-based rule.
+	if (railways.length > 0 && speedKmh > 30) {
+		const railMinM = Math.min(...railways.map((r) => r.distanceM ?? Number.POSITIVE_INFINITY));
+		const hwyMinM =
+			majorHighways.length > 0
+				? Math.min(...majorHighways.map((h) => h.distanceM ?? Number.POSITIVE_INFINITY))
+				: Number.POSITIVE_INFINITY;
+		const haveDistanceInfo = Number.isFinite(railMinM) || Number.isFinite(hwyMinM);
+		const preferRail = haveDistanceInfo ? railMinM <= hwyMinM : majorHighways.length === 0;
+		if (preferRail) {
+			const rail = railways[0];
+			return {
+				mode: "train",
+				confidence: "high",
+				reason: `on ${rail.subtype}`,
+				wayName: rail.name,
+			};
+		}
 	}
 
 	// Classifier said "train" but no rail anywhere in our samples — almost

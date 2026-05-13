@@ -461,6 +461,47 @@ describe("refineMode", () => {
 		expect(r.reason).toContain("footway");
 	});
 
+	it("prefers train when rail is closer than parallel major road (tube under arterial)", () => {
+		// Real case from 2026-05-12 13:29: Jubilee line surface trace
+		// 20m from one sample, Bridge Road (primary) 30m from same
+		// sample. Old guard refused train because a major highway was
+		// "present" anywhere → labelled as driving on Bridge Road. New
+		// distance-aware tie-break: rail closer than road → train.
+		const ways: NearbyWay[] = [
+			{ type: "railway", subtype: "subway", name: "Jubilee Line", distanceM: 20 },
+			{ type: "highway", subtype: "primary", name: "Bridge Road", distanceM: 30 },
+		];
+		const r = refineMode("driving", 65, ways);
+		expect(r.mode).toBe("train");
+		expect(r.wayName).toBe("Jubilee Line");
+	});
+
+	it("keeps driving when major road is closer than parallel rail (Betuweroute)", () => {
+		// Original Betuweroute case re-stated with distances: A15 at 10m
+		// hugs the GPS trace, Betuweroute rail at 30m runs alongside.
+		// Road closer → driving wins (old behaviour preserved by the
+		// distance comparison, not by the presence rule).
+		const ways: NearbyWay[] = [
+			{ type: "railway", subtype: "rail", name: "Betuweroute", distanceM: 30 },
+			{ type: "highway", subtype: "motorway", name: "A15", distanceM: 10 },
+		];
+		const r = refineMode("driving", 100, ways);
+		expect(r.mode).toBe("driving");
+		expect(r.wayName).toBe("A15");
+	});
+
+	it("falls back to presence-based rule when distanceM is missing (back-compat)", () => {
+		// Callers that don't (yet) pass distanceM keep the original
+		// behaviour: any major highway present blocks the train branch.
+		const ways: NearbyWay[] = [
+			{ type: "railway", subtype: "rail", name: "Betuweroute" },
+			{ type: "highway", subtype: "motorway", name: "A15" },
+		];
+		const r = refineMode("driving", 100, ways);
+		expect(r.mode).toBe("driving");
+		expect(r.wayName).toBe("A15");
+	});
+
 	it("falls back to the footway label when no driveable road is in range", () => {
 		// Driving speed but only pedestrian-only ways nearby. The fix
 		// shouldn't silently swallow this — the label still reflects

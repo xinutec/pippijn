@@ -35,7 +35,7 @@ import {
 	refineMode,
 	reverseGeocode,
 } from "./osm.js";
-import { type KnownPlace, snapToPlace } from "./place-snap.js";
+import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
@@ -455,17 +455,26 @@ export async function computeVelocity(
 					reverseGeocode(movingStart.lat, movingStart.lon),
 					reverseGeocode(movingEnd.lat, movingEnd.lon),
 				]);
-				const seen = new Set<string>();
-				const aggregated = [];
+				// Dedup by (type, subtype, name) but keep the *minimum* distance
+				// across sample points. A road we brushed past at one sample
+				// shouldn't outweigh a road we hugged at four others — and the
+				// distance is what refineMode uses to tie-break parallel
+				// rail/road.
+				const byKey = new Map<string, (typeof wayResults)[number][number]>();
 				for (const ways of wayResults) {
 					for (const w of ways) {
 						const key = `${w.type}/${w.subtype}/${w.name ?? ""}`;
-						if (!seen.has(key)) {
-							seen.add(key);
-							aggregated.push(w);
+						const existing = byKey.get(key);
+						if (!existing) {
+							byKey.set(key, w);
+						} else {
+							const existingD = existing.distanceM ?? Number.POSITIVE_INFINITY;
+							const newD = w.distanceM ?? Number.POSITIVE_INFINITY;
+							if (newD < existingD) byKey.set(key, w);
 						}
 					}
 				}
+				const aggregated = [...byKey.values()];
 				const refined = refineMode(seg.mode, seg.avgSpeed, aggregated);
 				const movingCity = commonCity(startPlace, endPlace);
 				return {
@@ -819,21 +828,28 @@ export async function annotateRailRuns(
 			const after = points.find((p) => p.ts >= endTs && slow(p)) ?? points.find((p) => p.ts >= endTs);
 			if (!slowBefore || !after) return null;
 
-			// Boarding-station lookup with preceding-stationary preference.
+			// Boarding-station lookup with preceding-stationary preference,
+			// gated by a walking-pace sanity check.
+			//
 			// Walk back through stationary + walking segments only; stop
 			// at any other mode (e.g. a previous train, driving) so we
 			// don't claim the last journey's destination as this one's
-			// boarding station. The first stationary segment we hit
-			// whose location resolves to a real station wins — that's
-			// where the user actually was just before entering the tube
-			// system. Falls back to the slow-fix heuristic when no
-			// such stationary segment exists. The chosen location is
-			// also used for the line-intersection lookup below so the
-			// disambiguation is consistent with the chosen station.
+			// boarding station. The first stationary segment we hit whose
+			// location resolves to a real station is a *candidate*.
+			//
+			// The candidate is used IFF the user's apparent velocity from
+			// the stationary endpoint to slowBefore is mid-tunnel-noise
+			// territory (> 15 km/h). If it's realistic walking pace, the
+			// user genuinely moved to a different station and we should
+			// trust slowBefore's lookup — the 2026-05-12 Marylebone case
+			// where 1.4 km walked at ~10 km/h ended at a different station
+			// from the preceding Stationary at Work.
 			let startStation: string | undefined;
 			let beforeLookup = { lat: slowBefore.lat, lon: slowBefore.lon };
 			let endStation: string | undefined;
+			const BOARDING_NOISE_SPEED_KMH = 15;
 			try {
+				let stationaryCandidate: { name: string; lat: number; lon: number; endTs: number } | null = null;
 				for (let i = run.from - 1; i >= 0; i--) {
 					const seg = segments[i];
 					if (seg.mode === "stationary") {
@@ -843,20 +859,44 @@ export async function annotateRailRuns(
 							const stations = await stationsLookup(last.lat, last.lon);
 							const best = pickBestStation(stations);
 							if (best) {
-								startStation = best.name;
-								beforeLookup = { lat: last.lat, lon: last.lon };
-								break;
+								stationaryCandidate = { name: best.name, lat: last.lat, lon: last.lon, endTs: last.ts };
 							}
 						}
-						break; // stationary not near a station → fall through
+						break;
 					}
 					if (seg.mode !== "walking") break;
 				}
+
+				if (stationaryCandidate) {
+					const dM = haversineMeters(
+						stationaryCandidate.lat,
+						stationaryCandidate.lon,
+						slowBefore.lat,
+						slowBefore.lon,
+					);
+					const dt = Math.max(1, slowBefore.ts - stationaryCandidate.endTs);
+					const apparentKmh = (dM / dt) * 3.6;
+					if (apparentKmh > BOARDING_NOISE_SPEED_KMH) {
+						// slowBefore is mid-tunnel GPS noise — trust stationary.
+						startStation = stationaryCandidate.name;
+						beforeLookup = { lat: stationaryCandidate.lat, lon: stationaryCandidate.lon };
+					}
+					// else: realistic walking pace, fall through to slowBefore.
+				}
+
 				const [startStationsSlow, endStations] = await Promise.all([
 					startStation ? Promise.resolve([]) : stationsLookup(slowBefore.lat, slowBefore.lon),
 					stationsLookup(after.lat, after.lon),
 				]);
 				if (!startStation) startStation = pickBestStation(startStationsSlow)?.name;
+				// Fallback for back-compat: when slowBefore doesn't resolve
+				// to a station but a preceding-stationary station exists,
+				// use that — covers the original "user noisy at platform"
+				// case from before the velocity gate was added.
+				if (!startStation && stationaryCandidate) {
+					startStation = stationaryCandidate.name;
+					beforeLookup = { lat: stationaryCandidate.lat, lon: stationaryCandidate.lon };
+				}
 				endStation = pickBestStation(endStations)?.name;
 			} catch {
 				return null;
