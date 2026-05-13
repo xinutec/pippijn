@@ -33,7 +33,7 @@ export interface TrackSegment {
 	refinedReason?: string;
 }
 
-interface WindowFeatures {
+export interface WindowFeatures {
 	startTs: number;
 	endTs: number;
 	centroidLat: number;
@@ -177,7 +177,7 @@ function extractFeatures(points: FilteredPoint[], windowSec: number): WindowFeat
 
 // --- Mode scoring ---
 
-interface ModeScore {
+export interface ModeScore {
 	mode: TransportMode;
 	score: number;
 }
@@ -259,7 +259,7 @@ export function normalizeScores(scores: ModeScore[]): {
 	return { mode: top.mode, probability, margin };
 }
 
-function scoreWindow(f: WindowFeatures): ModeScore[] {
+export function scoreWindow(f: WindowFeatures): ModeScore[] {
 	const scores: ModeScore[] = [
 		{ mode: "stationary", score: scoreStationary(f) },
 		{ mode: "walking", score: scoreWalking(f) },
