@@ -10,6 +10,7 @@ import { NextcloudClient } from "../nextcloud/client.js";
 import { fetchTrackPoints, NextcloudNotLinkedError, NextcloudReauthRequiredError } from "../nextcloud/phonetrack.js";
 import { buildPhoneTrackFilterValues, computePhoneTrackDatemin } from "../nextcloud/phonetrack-prefs.js";
 import { getConnectionStatus as getNextcloudConnectionStatus } from "../nextcloud/token-manager.js";
+import { getVelocityCached } from "./velocity-cache.js";
 
 /** Subset of the full Config that the API routes actually need. Narrowing
  *  the type here keeps test stubs minimal and surfaces dependency drift
@@ -238,7 +239,12 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 		const date = dateParam.parse(c.req.query("date"));
 		const tz = tzParam.parse(c.req.query("tz"));
 		try {
-			const result = await computeVelocity(config, uid, date, tz);
+			// Cache result by (user, date, tz) — see velocity-cache.ts.
+			// Repeat views in the same session return in tens of ms;
+			// pod restart clears the cache so logic changes go live
+			// on the first request after deploy.
+			const cacheKey = `${uid}|${date}|${tz ?? ""}`;
+			const result = await getVelocityCached(cacheKey, () => computeVelocity(config, uid, date, tz));
 			return c.json(result);
 		} catch (e) {
 			// Graceful degradation: unlinked → empty timeline (200).
