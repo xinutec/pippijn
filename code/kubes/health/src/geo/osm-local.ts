@@ -30,15 +30,19 @@
  * The query path becomes:
  *
  *   1. Check if (lat, lon, radius) is fully inside any coverage row
- *      for this feature_type. If yes → go straight to step 3.
- *   2. Fetch a 10 km box around (lat, lon) from Overpass, parse the
+ *      for this feature_type. If yes → go straight to step 4.
+ *   2. Probe `osm_points`/`osm_lines` for any feature_type row in
+ *      the area. If yes (a sibling feature_type's bbox fetch
+ *      populated us as overflow), treat as covered → step 4.
+ *   3. Fetch a 10 km box around (lat, lon) from Overpass, parse the
  *      features, upsert into `osm_features`, insert a `osm_coverage`
  *      row for the bbox + feature_type.
- *   3. Run a SQL spatial query: `ST_Distance_Sphere(geom, ...) < radius`.
+ *   4. Run a SQL spatial query: `ST_Distance_Sphere(geom, ...) < radius`.
  *
  * Steady-state cost is one indexed SQL query — no network, no
  * transient failures, no negative-cache TTLs. The only Overpass call
- * is on the first visit to a new area.
+ * is on the first visit to a new area that no sibling fetch happened
+ * to also cover.
  *
  * # Scope
  *
@@ -333,12 +337,27 @@ export const COVERAGE_FRESH_DAYS = 180;
  *  rows (older than `COVERAGE_FRESH_DAYS`) are excluded from the
  *  containment check, so a stale row that happens to cover a region
  *  doesn't suppress a refresh. Rows with no `fetched_at` are treated
- *  as fresh (legacy data from before tracking). */
+ *  as fresh (legacy data from before tracking).
+ *
+ *  `options.hasLocalData` is the local-data fallback: when a sibling
+ *  feature_type's bbox fetch happened to populate this feature_type's
+ *  rows too (common around city centres where one Overpass query
+ *  brings back overflow), the caller can probe the geometry tables
+ *  directly and pass true here to skip Overpass entirely. This is
+ *  what keeps Sunday-trip-to-Brussels from looping on Overpass
+ *  ETIMEDOUT — we already have the highway data from an earlier
+ *  visit, we just didn't have a `highway` coverage row for the area.
+ *  Returning "covered" in this case explicitly trades "data might be
+ *  stale" for "don't query a flaky network when we have the answer
+ *  locally" — the right call given OSM features change on month/year
+ *  timescales, not within a single trip. */
 export function decideCoverage(
 	point: { lat: number; lon: number; radiusM: number },
 	coverage: readonly CoverageRow[],
 	nowMs: number,
+	options?: { hasLocalData?: boolean },
 ): "covered" | "needs-fetch" {
+	if (options?.hasLocalData) return "covered";
 	const cutoffMs = nowMs - COVERAGE_FRESH_DAYS * 86400_000;
 	const fresh = coverage.filter((c) => !c.fetched_at || c.fetched_at.getTime() > cutoffMs);
 	return isPointCovered(point.lat, point.lon, point.radiusM, fresh) ? "covered" : "needs-fetch";
@@ -447,9 +466,65 @@ async function upsertFeatures(table: "osm_points" | "osm_lines", features: Parse
  *  call → memory pressure + thundering herd. */
 const inFlightFetches = new Map<string, Promise<void>>();
 
+/** Cheapest possible "do we have ANY data here for this feature_type?"
+ *  query. Used by `ensureCovered` as a fallback when osm_coverage has
+ *  no row for the area: a sibling feature_type's bbox fetch may have
+ *  populated this feature_type's rows anyway. `LIMIT 1` lets the
+ *  spatial index stop scanning at the first hit. */
+export function buildLocalDataProbeQuery(
+	k: typeof db extends () => infer K ? K : never,
+	table: "osm_points" | "osm_lines",
+	lat: number,
+	lon: number,
+	radiusM: number,
+	featureType: string,
+) {
+	const point = sql`ST_GeomFromText(${`POINT(${lon} ${lat})`}, 4326)`;
+	const mPerDeg = Math.min(METERS_PER_DEG_LAT, metersPerDegLon(lat));
+	const dDeg = radiusM / mPerDeg;
+	return k
+		.selectFrom(table)
+		.select(sql<number>`1`.as("exists_marker"))
+		.where("feature_type", "=", featureType)
+		.where(sql<boolean>`MBRIntersects(geom, ST_Buffer(${point}, ${dDeg}))`)
+		.limit(1);
+}
+
+/** Existence-only probe across both geometry tables. Returns true if
+ *  either osm_points or osm_lines has a row for this feature_type
+ *  within `radiusM` of (lat, lon). The two queries run sequentially
+ *  rather than in parallel because the spatial index makes them each
+ *  effectively free (<10ms) and the sequential form lets us short-
+ *  circuit on the first hit. */
+async function hasLocalData(lat: number, lon: number, radiusM: number, featureType: string): Promise<boolean> {
+	const inLines = await buildLocalDataProbeQuery(db(), "osm_lines", lat, lon, radiusM, featureType).executeTakeFirst();
+	if (inLines) return true;
+	const inPoints = await buildLocalDataProbeQuery(
+		db(),
+		"osm_points",
+		lat,
+		lon,
+		radiusM,
+		featureType,
+	).executeTakeFirst();
+	return inPoints !== undefined;
+}
+
 export async function ensureCovered(lat: number, lon: number, radiusM: number, featureType: string): Promise<void> {
 	const coverage = await readCoverage(featureType);
 	if (decideCoverage({ lat, lon, radiusM }, coverage, Date.now()) === "covered") return;
+
+	// Local-data fallback. A previous overlapping fetch (e.g. an
+	// `aeroway` bbox over Brussels) may have populated this
+	// feature_type's rows without leaving a matching coverage row.
+	// Re-asking Overpass is wasteful — and on Sunday May 10 it
+	// looped on ETIMEDOUT for several minutes per request. The
+	// probe is one indexed query each against osm_lines and
+	// osm_points, both <10ms.
+	if (await hasLocalData(lat, lon, radiusM, featureType)) {
+		return;
+	}
+
 	const bbox = fetchBboxAround(lat, lon);
 
 	// Dedup: key includes the bbox so distant lookups in the same

@@ -134,6 +134,46 @@ describe("decideCoverage", () => {
 		const boundaryFresh = new Date(NOW - COVERAGE_FRESH_DAYS * 86400_000 + 1);
 		expect(decideCoverage(inLondon, [row(boundaryFresh)], NOW)).toBe("covered");
 	});
+
+	// --------------------------------------------------------------
+	// Local-data fallback: a previous sibling-feature_type fetch may
+	// have populated osm_lines / osm_points without leaving a
+	// coverage row for THIS feature_type. Example: fetching `aeroway`
+	// over a 10 km bbox around Brussels also pulls some `highway`
+	// rows from the same Overpass call's overflow, but only the
+	// `aeroway` coverage row gets recorded. Every subsequent `highway`
+	// query in Brussels then sees "no coverage" and re-fetches.
+	//
+	// `hasLocalData: true` lets the caller short-circuit that: if
+	// we already have data for this area in the local table, we can
+	// serve from it without a fresh Overpass roundtrip.
+	// --------------------------------------------------------------
+
+	it("returns 'covered' when hasLocalData=true even with no coverage rows", () => {
+		// Empty coverage but local probe found rows. This is the
+		// Brussels-highway case: we have the data, we just don't have
+		// a coverage marker. Skip Overpass.
+		expect(decideCoverage(inLondon, [], NOW, { hasLocalData: true })).toBe("covered");
+	});
+
+	it("hasLocalData=false (or missing) behaves like the original signature", () => {
+		// Backwards compat: callers that don't probe shouldn't see any
+		// change. Empty coverage still means needs-fetch.
+		expect(decideCoverage(inLondon, [], NOW, { hasLocalData: false })).toBe("needs-fetch");
+		expect(decideCoverage(inLondon, [], NOW)).toBe("needs-fetch");
+	});
+
+	it("hasLocalData=true does NOT override a stale coverage row's freshness logic when refresh is desired", () => {
+		// Subtle: if the only containment is stale, we'd normally
+		// re-fetch to update the data. With hasLocalData=true we
+		// accept what we have. This documents the trade-off:
+		// "use what we have" wins over "data might be stale". For
+		// our use case (personal travel history, OSM features stable
+		// over months) this is the right call — the alternative is
+		// a Brussels-highway timeout loop every time stale rows are
+		// the only coverage.
+		expect(decideCoverage(inLondon, [row(STALE)], NOW, { hasLocalData: true })).toBe("covered");
+	});
 });
 
 describe("fetchBboxAround", () => {

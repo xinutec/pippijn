@@ -27,7 +27,7 @@ import { Kysely, sql } from "kysely";
 import { MariadbDialect } from "kysely-mariadb";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../src/db/tables.js";
-import { buildLinesQuery, buildPointsQuery } from "../src/geo/osm-local.js";
+import { buildLinesQuery, buildLocalDataProbeQuery, buildPointsQuery } from "../src/geo/osm-local.js";
 
 /** Kysely instance configured for SQL compilation only — the
  *  pool is never executed against, so a stubbed object suffices. */
@@ -70,6 +70,45 @@ describe("osm spatial query SQL", () => {
 		const q = buildPointsQuery(k, 51.5, -0.1, 500, "railway");
 		const { sql: compiled } = q.compile();
 		expect(compiled).toContain("ST_Distance_Sphere");
+	});
+
+	// --------------------------------------------------------------
+	// Local-data probe: existence check used by ensureCovered as a
+	// fallback when osm_coverage has no row for (feature_type, area)
+	// but the geometry table may already contain data from a sibling
+	// fetch. MUST use the spatial index — otherwise the probe would
+	// itself become a 240k-row scan and the fix would make things
+	// worse, not better.
+	// --------------------------------------------------------------
+
+	it("buildLocalDataProbeQuery (lines table) uses MBRIntersects for index-accelerated probe", () => {
+		const k = compileOnlyKysely();
+		const q = buildLocalDataProbeQuery(k, "osm_lines", 50.85, 4.35, 500, "highway");
+		const { sql: compiled } = q.compile();
+		expect(compiled).toContain("MBRIntersects");
+	});
+
+	it("buildLocalDataProbeQuery (points table) uses MBRIntersects for index-accelerated probe", () => {
+		const k = compileOnlyKysely();
+		const q = buildLocalDataProbeQuery(k, "osm_points", 50.85, 4.35, 500, "railway");
+		const { sql: compiled } = q.compile();
+		expect(compiled).toContain("MBRIntersects");
+	});
+
+	it("buildLocalDataProbeQuery filters on feature_type and limits to 1 row (existence check)", () => {
+		// Existence-only — we don't care about the actual rows, just
+		// whether ANY match. `LIMIT 1` lets the spatial index stop
+		// scanning after the first hit, which is what makes this
+		// cheap enough to run on every uncovered query.
+		const k = compileOnlyKysely();
+		const q = buildLocalDataProbeQuery(k, "osm_lines", 50.85, 4.35, 500, "highway");
+		const { sql: compiled, parameters } = q.compile();
+		expect(compiled).toContain("`feature_type` =");
+		expect(parameters).toContain("highway");
+		// Kysely parameterises LIMIT — check the compiled SQL has a
+		// `limit ?` clause AND the parameter is exactly 1.
+		expect(compiled.toLowerCase()).toContain("limit ?");
+		expect(parameters).toContain(1);
 	});
 });
 
