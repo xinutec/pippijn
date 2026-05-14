@@ -981,34 +981,39 @@ export async function annotateRailRuns(
 	// artefacts in the middle of a tube ride. Threshold deliberately
 	// tight (5 min) so that genuine longer stays still surface.
 	//
-	// We accept both already-stationary segments and any short segment
-	// bookended by rail-like ones, with a generous spread cap to keep
-	// real cross-city walks (>1 km) from being swallowed. The April 29
-	// Arnhem case was a platform-to-platform interchange — 5-min walk,
-	// ~400 m path — that the original tight-cluster check (and even a
-	// percentile fix on it) couldn't catch because the fixes were
-	// spread linearly along the platform path.
+	// A short non-rail-like segment bookended by rail-like segments
+	// (caller checks bookends) is almost certainly a platform
+	// interchange. Three disjunctive signals confirm it isn't a real
+	// activity between train legs:
+	//   - duration ≤ 5 min (a real stop is longer)
+	//   - segment avgSpeed ≤ walking pace, OR
+	//   - the segment's GPS points cluster within TRAIN_DWELL_RADIUS_M
+	//     of their centroid.
 	//
-	// The load-bearing signals here are duration (≤ 5 min) and the
-	// rail-like bookends (the caller already gates on this). A 5-min
-	// segment between two trains is almost certainly an interchange —
-	// nobody legitimately bikes/drives for 5 min between train legs.
-	// The spread cap is belt-and-suspenders: a >1 km path in 5 min is
-	// a 12 km/h-or-faster mode (cycling/driving), not an interchange.
+	// Either signal alone is enough. The classifier-reported avgSpeed
+	// is wrong sometimes (GPS jitter at a platform inflates instant-
+	// speeds, but the average smooths them out — usually). The GPS
+	// tightness is wrong sometimes (sparse fixes with multipath spikes
+	// inflate the apparent spread — the actual April 29 prod case had
+	// 7 fixes covering 2.8 km of apparent path with avgSpeed 4.7 km/h).
+	// Trusting whichever signal looks sane catches both failure modes.
 	const TRAIN_PAUSE_MAX_SEC = 5 * 60;
-	const TRAIN_DWELL_PATH_CAP_M = 1000;
+	const TRAIN_PAUSE_MAX_AVG_KMH = 10;
+	const TRAIN_DWELL_RADIUS_M = 100;
+	const TRAIN_DWELL_PERCENTILE = 0.8;
 	const couldBeTrainPause = (s: EnrichedSegment): boolean => {
 		if (s.endTs - s.startTs > TRAIN_PAUSE_MAX_SEC) return false;
 		if (s.mode === "stationary") return true;
-		// Non-stationary candidate: bound the displacement so cross-city
-		// walks aren't absorbed.
+		if (s.avgSpeed <= TRAIN_PAUSE_MAX_AVG_KMH) return true;
+		// Fallback: GPS-cluster check for the case where the classifier
+		// over-estimated avgSpeed (instant-speed spikes at a platform).
 		const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
-		if (segPoints.length < 2) return true;
-		let pathM = 0;
-		for (let k = 1; k < segPoints.length; k++) {
-			pathM += haversineMeters(segPoints[k - 1].lat, segPoints[k - 1].lon, segPoints[k].lat, segPoints[k].lon);
-		}
-		return pathM <= TRAIN_DWELL_PATH_CAP_M;
+		if (segPoints.length < 2) return false;
+		const cLat = segPoints.reduce((sum, p) => sum + p.lat, 0) / segPoints.length;
+		const cLon = segPoints.reduce((sum, p) => sum + p.lon, 0) / segPoints.length;
+		const distances = segPoints.map((p) => haversineMeters(p.lat, p.lon, cLat, cLon)).sort((a, b) => a - b);
+		const idx = Math.min(distances.length - 1, Math.floor(distances.length * TRAIN_DWELL_PERCENTILE));
+		return distances[idx] <= TRAIN_DWELL_RADIUS_M;
 	};
 
 	// Identify maximal rail runs. A run starts and ends with a rail-like
