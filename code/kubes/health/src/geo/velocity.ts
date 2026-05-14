@@ -988,8 +988,17 @@ export async function annotateRailRuns(
 	// "driving" between two train legs because GPS-jitter speed spikes
 	// fooled the classifier; the fixes themselves scattered within
 	// ~50 m of the platform.
+	//
+	// Spread check is on the 80th-percentile distance from centroid, not
+	// max. A single GPS spike (multipath, brief signal loss) at a
+	// platform can put one fix 200 m off the rest while the user is
+	// physically standing still — using max would reject the absorption.
+	// Allowing the top 20% of fixes to be outliers covers a couple of
+	// spikes in a 30-fix 5-min window without softening the "no real
+	// movement" signal.
 	const TRAIN_PAUSE_MAX_SEC = 5 * 60;
 	const TRAIN_DWELL_RADIUS_M = 100;
+	const TRAIN_DWELL_PERCENTILE = 0.8;
 	const couldBeTrainPause = (s: EnrichedSegment): boolean => {
 		if (s.endTs - s.startTs > TRAIN_PAUSE_MAX_SEC) return false;
 		if (s.mode === "stationary") return true;
@@ -998,10 +1007,9 @@ export async function annotateRailRuns(
 		if (segPoints.length < 2) return false;
 		const cLat = segPoints.reduce((sum, p) => sum + p.lat, 0) / segPoints.length;
 		const cLon = segPoints.reduce((sum, p) => sum + p.lon, 0) / segPoints.length;
-		for (const p of segPoints) {
-			if (haversineMeters(p.lat, p.lon, cLat, cLon) > TRAIN_DWELL_RADIUS_M) return false;
-		}
-		return true;
+		const distances = segPoints.map((p) => haversineMeters(p.lat, p.lon, cLat, cLon)).sort((a, b) => a - b);
+		const idx = Math.min(distances.length - 1, Math.floor(distances.length * TRAIN_DWELL_PERCENTILE));
+		return distances[idx] <= TRAIN_DWELL_RADIUS_M;
 	};
 
 	// Identify maximal rail runs. A run starts and ends with a rail-like
