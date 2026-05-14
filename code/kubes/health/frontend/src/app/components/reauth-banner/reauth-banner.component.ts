@@ -29,50 +29,8 @@ type ConnectState = "idle" | "starting" | "waiting" | "success" | "failed";
 	selector: "app-reauth-banner",
 	standalone: true,
 	imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule],
-	template: `
-		@if (connectionState.nextcloudStatus() === "needs_reauth" || connectionState.nextcloudStatus() === "not_linked") {
-			<div class="reauth-banner" role="status">
-				<mat-icon class="icon">link_off</mat-icon>
-				<span class="message">
-					@switch (state()) {
-						@case ("waiting") { Opened Nextcloud in a new tab — finish granting access there, this banner will disappear automatically. }
-						@case ("failed") { Connect attempt failed: {{ errorMessage() }}. Try again? }
-						@default {
-							@if (connectionState.nextcloudStatus() === "not_linked") {
-								Connect your Nextcloud to load location data.
-							} @else {
-								Your Nextcloud connection has expired. Reconnect to load location data.
-							}
-						}
-					}
-				</span>
-				@if (state() === "waiting") {
-					<mat-spinner diameter="24"></mat-spinner>
-				} @else {
-					<button mat-raised-button color="primary" (click)="reconnect()" [disabled]="state() === 'starting'">
-						@if (state() === "starting") { Starting… }
-						@else if (connectionState.nextcloudStatus() === "not_linked") { Connect Nextcloud }
-						@else { Reconnect Nextcloud }
-					</button>
-				}
-			</div>
-		}
-	`,
-	styles: [
-		`
-		.reauth-banner {
-			display: flex;
-			align-items: center;
-			gap: 1rem;
-			padding: 0.75rem 1.25rem;
-			background-color: #fff3e0;
-			color: #5d4037;
-			border-bottom: 1px solid #ffb74d;
-		}
-		.icon { color: #e65100; }
-		.message { flex: 1; }
-		`,
-	],
+	templateUrl: "./reauth-banner.component.html",
+	styleUrl: "./reauth-banner.component.scss",
 })
 export class ReauthBannerComponent {
 	readonly connectionState = inject(ConnectionStateService);
