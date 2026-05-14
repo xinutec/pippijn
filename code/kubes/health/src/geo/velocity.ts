@@ -699,10 +699,25 @@ export async function computeVelocity(
  * Chains (A, A, A) collapse into one. We deliberately do NOT collapse across
  * a real movement segment yet — keeps the post-step trivially correct.
  */
+/** Max duration of a brief intermediate segment we'll bridge across when
+ *  it sits between two same-place stays. A user genuinely stepping out
+ *  for more than ~10 min is doing something the timeline should surface,
+ *  not be silently absorbed. */
+const STAY_BRIDGE_MAX_GAP_S = 10 * 60;
+
+/** Max average speed of the intermediate segment. A GPS-multipath phantom
+ *  walk has near-zero avg speed (a few outliers drag pointwise speed up
+ *  briefly, but the time-weighted average stays sub-walking). A real
+ *  excursion — even a brief one — averages 3+ km/h. */
+const STAY_BRIDGE_MAX_AVG_KMH = 2;
+
 export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment[] {
 	const result: EnrichedSegment[] = [];
 	for (const seg of segments) {
 		const prev = result[result.length - 1];
+		// Direct adjacency: two stationary segments at the same place,
+		// back-to-back. The classifier sometimes splits a continuous stay
+		// when GPS goes briefly dark or jitters; collapse them.
 		if (
 			prev &&
 			prev.mode === "stationary" &&
@@ -713,9 +728,33 @@ export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment
 		) {
 			prev.endTs = seg.endTs;
 			prev.pointCount += seg.pointCount;
-		} else {
-			result.push({ ...seg });
+			continue;
 		}
+		// Bridge over a brief non-stationary segment when bracketed by
+		// two stays at the same place. The triggering shape is
+		// [stay @ X, brief move, stay @ X]: a GPS multipath spike
+		// inside a continuous stay produced a fake "walking" segment
+		// (typically with avg ≤ 2 km/h — well below walking pace,
+		// because most fixes are still at the table and only one or
+		// two outliers drag the position).
+		const prevPrev = result[result.length - 2];
+		if (
+			prev &&
+			prevPrev &&
+			seg.mode === "stationary" &&
+			prevPrev.mode === "stationary" &&
+			prev.mode !== "stationary" &&
+			prevPrev.place &&
+			prevPrev.place === seg.place &&
+			prev.endTs - prev.startTs <= STAY_BRIDGE_MAX_GAP_S &&
+			prev.avgSpeed <= STAY_BRIDGE_MAX_AVG_KMH
+		) {
+			result.pop(); // drop the phantom-move
+			prevPrev.endTs = seg.endTs;
+			prevPrev.pointCount += prev.pointCount + seg.pointCount;
+			continue;
+		}
+		result.push({ ...seg });
 	}
 	return result;
 }
