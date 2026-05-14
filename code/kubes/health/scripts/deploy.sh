@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#!/usr/bin/env nix-shell
+#!nix-shell -i bash -p git git-crypt nodejs_22 gh
 # Deploy the health-sync app end-to-end.
 #
 # Runs `npm run verify` (typecheck + lint + tests), commits the
@@ -9,11 +10,9 @@
 #   scripts/deploy.sh -m "commit message"
 #   scripts/deploy.sh -F /path/to/message.txt
 #
-# Designed to be invoked from anywhere; resolves both the health
-# subdir and the parent pippijn repo root from its own location.
-# Run it via your usual git/git-crypt wrapper if needed, e.g.:
-#   nix-shell -p git -p git-crypt -p nodejs_22 \
-#     --run 'bash scripts/deploy.sh -F /tmp/msg.txt'
+# The shebang pulls in git / git-crypt / nodejs / gh via nix-shell so
+# you can run the script directly on macOS without a manual wrapper.
+# Same pattern as ~/Code/xinutec-infra/mac-mini/fleet_health.py.
 
 set -euo pipefail
 
