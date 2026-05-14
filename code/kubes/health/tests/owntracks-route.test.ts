@@ -55,6 +55,7 @@ const CONFIG: Config = {
 	},
 	owntracks: { allowedTokens: ["abc12345token1", "def67890token2"] },
 	sessionSecret: "x".repeat(32),
+	publicBaseUrl: "https://health.test",
 };
 
 function buildApp(): Hono {

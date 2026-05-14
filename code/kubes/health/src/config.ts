@@ -42,6 +42,10 @@ const schema = z.object({
 	}),
 
 	sessionSecret: z.string().min(16),
+
+	/** Public origin where the dashboard is reachable. Used by the
+	 *  share feature to compose URLs that get sent to recipients. */
+	publicBaseUrl: z.string().url().default("https://health.xinutec.org"),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -68,6 +72,7 @@ export function loadConfig(): Config {
 			allowedTokens: process.env.OWNTRACKS_ALLOWED_TOKENS ?? "",
 		},
 		sessionSecret: process.env.SESSION_SECRET,
+		publicBaseUrl: process.env.PUBLIC_BASE_URL,
 	});
 }
 

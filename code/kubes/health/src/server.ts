@@ -11,6 +11,7 @@ import { initPool, withConnection } from "./db/pool.js";
 import { migrate } from "./db/schema.js";
 import type { AppEnv } from "./env.js";
 import { cleanupExpiredSessions, sessionMiddleware } from "./middleware/session.js";
+import { shareAuthMiddleware } from "./middleware/share-auth.js";
 import { apiRoutes } from "./routes/api.js";
 import { fitbitOAuthRoutes } from "./routes/fitbit-oauth.js";
 import { nextcloudOAuthRoutes } from "./routes/nextcloud-oauth.js";
@@ -58,6 +59,12 @@ app.use("*", async (c, next) => {
 
 // Session middleware on all routes
 app.use("*", sessionMiddleware(config.sessionSecret));
+
+// Auxiliary share-token auth runs after session: if the request has
+// no cookie but carries an X-Share-Token header that maps to a row,
+// authenticate as the owner with `shareViewer` set so downstream
+// gates can apply read-only + date-window constraints.
+app.use("*", shareAuthMiddleware);
 
 // Health check (no auth) — returns JSON with system status when ?detail=1
 app.get("/health", async (c) => {
@@ -111,6 +118,15 @@ app.route("/owntracks", owntracksRoutes(config));
 
 // Static files (Angular SPA)
 app.use("/*", serveStatic({ root: "./public" }));
+
+// SPA fallback: paths that aren't a real file in ./public (e.g.
+// /settings, /share/:token) should still load the Angular shell so
+// the in-app routing can take over. Only matches "extensionless"
+// paths so that genuinely missing assets (typo'd .css/.js) still
+// 404 rather than silently returning HTML.
+app.get("/settings", serveStatic({ path: "./public/index.html" }));
+app.get("/settings/*", serveStatic({ path: "./public/index.html" }));
+app.get("/share/:token", serveStatic({ path: "./public/index.html" }));
 
 // Fallback: if no Angular build exists, show a simple landing page
 app.get("*", (c) => {

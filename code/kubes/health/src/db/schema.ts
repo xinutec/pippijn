@@ -432,6 +432,20 @@ const MIGRATIONS: readonly string[] = [
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   )`,
 
+	// v33: share_tokens. One row per user (PRIMARY KEY user_id); token
+	// rotation is DELETE + INSERT, so the old token's row vanishes and
+	// subsequent lookups by it 404. `days_back` is the rolling window
+	// the recipient sees ending at today. `last_accessed_at` is for
+	// "is this share still in use?" diagnostics — not load-bearing.
+	`CREATE TABLE IF NOT EXISTS share_tokens (
+    user_id VARCHAR(64) NOT NULL PRIMARY KEY,
+    token VARCHAR(64) NOT NULL,
+    days_back INT NOT NULL DEFAULT 7,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_accessed_at TIMESTAMP NULL,
+    UNIQUE KEY uniq_share_token (token)
+  )`,
+
 	// Future migrations go here.
 ];
 

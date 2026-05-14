@@ -122,6 +122,15 @@ export interface UserInfo {
   };
 }
 
+export interface ShareStatus {
+  active: boolean;
+  token?: string;
+  url?: string;
+  daysBack?: number;
+  createdAt?: string;
+  lastAccessedAt?: string | null;
+}
+
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -135,13 +144,24 @@ function yesterday(): string {
 @Injectable({ providedIn: "root" })
 export class HealthService {
   readonly user = signal<UserInfo | null>(null);
+  /** When the SPA was loaded at `/share/:token`, this holds the
+   *  token. Every backend call attaches it as `X-Share-Token` so
+   *  the recipient is authenticated as the owner (read-only,
+   *  date-windowed — enforced server-side). Null in owner mode. */
+  readonly shareToken = signal<string | null>(null);
   private readonly connection = inject(ConnectionStateService);
 
   /** All HTTP calls go through here so the connection-state service
    *  can observe 409 reauth signals from any endpoint and flip the
-   *  global banner. Mirrors `fetch`'s signature. */
+   *  global banner. Mirrors `fetch`'s signature. Auto-attaches the
+   *  share token header when present so share-mode SPAs work
+   *  transparently. */
   private fetch(input: string, init?: RequestInit): Promise<Response> {
-    return this.connection.fetch(input, init);
+    const token = this.shareToken();
+    if (!token) return this.connection.fetch(input, init);
+    const headers = new Headers(init?.headers);
+    headers.set("X-Share-Token", token);
+    return this.connection.fetch(input, { ...init, headers });
   }
 
   async checkAuth(): Promise<boolean> {
@@ -210,6 +230,28 @@ export class HealthService {
     } catch {
       // Non-fatal — the dashboard works regardless.
     }
+  }
+
+  // ─── Share-token management (owner only) ────────────────────
+  async getShareStatus(): Promise<ShareStatus> {
+    const res = await this.fetch("/api/share");
+    if (!res.ok) throw new Error(`share status failed: ${res.status}`);
+    return res.json();
+  }
+
+  async createOrRotateShare(daysBack: number): Promise<ShareStatus> {
+    const res = await this.fetch("/api/share", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ daysBack }),
+    });
+    if (!res.ok) throw new Error(`share create failed: ${res.status}`);
+    return res.json();
+  }
+
+  async revokeShare(): Promise<void> {
+    const res = await this.fetch("/api/share", { method: "DELETE" });
+    if (!res.ok && res.status !== 204) throw new Error(`share revoke failed: ${res.status}`);
   }
 
   /** Diagnostic logging: post `event` + arbitrary `data` to the

@@ -262,6 +262,16 @@ export interface ModeBiometricsTable {
 	refreshed_at: Generated<Date>;
 }
 
+/** Share-token row. One per user; token rotation is DELETE +
+ *  INSERT so the row reflects the *current* active token. */
+export interface ShareTokensTable {
+	user_id: string;
+	token: string;
+	days_back: number;
+	created_at: Generated<Date>;
+	last_accessed_at: Date | null;
+}
+
 /** Nextcloud app-password credentials. One row per linked user; the
  *  app password is treated as opaque and sent as HTTP Basic Auth on
  *  every NC request. Replaces the OAuth refresh-token flow. */
@@ -316,6 +326,7 @@ export interface Database {
 	sessions: SessionsTable;
 	nc_tokens: NcTokensTable;
 	nc_credentials: NcCredentialsTable;
+	share_tokens: ShareTokensTable;
 	osm_cache: OsmCacheTable;
 	osm_coverage: OsmCoverageTable;
 	osm_points: OsmPointsTable;

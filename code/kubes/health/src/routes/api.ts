@@ -6,6 +6,7 @@ import { getConnectionStatus as getFitbitConnectionStatus } from "../fitbit/toke
 import { isValidTimezone } from "../geo/timezone.js";
 import { computeVelocity } from "../geo/velocity.js";
 import { requireAuth } from "../middleware/auth.js";
+import { requireOwnerOnly } from "../middleware/share-auth.js";
 import { NextcloudClient } from "../nextcloud/client.js";
 import { getConnectionStatus as getNextcloudConnectionStatus, storeCredentials } from "../nextcloud/credentials.js";
 import {
@@ -16,6 +17,8 @@ import {
 } from "../nextcloud/login-flow.js";
 import { fetchTrackPoints, NextcloudNotLinkedError, NextcloudReauthRequiredError } from "../nextcloud/phonetrack.js";
 import { buildPhoneTrackFilterValues, computePhoneTrackDatemin } from "../nextcloud/phonetrack-prefs.js";
+import { getShareForUser, revokeShareForUser, rotateShareForUser } from "../share/repository.js";
+import { buildShareUrl } from "../share/token.js";
 import { getVelocityCached } from "./velocity-cache.js";
 
 /** Subset of the full Config that the API routes actually need. Narrowing
@@ -25,6 +28,9 @@ export interface ApiRoutesConfig {
 	nextcloud: {
 		baseUrl: string;
 	};
+	/** Public origin where the dashboard is served from. Used to build
+	 *  share URLs that get sent to recipients. */
+	publicBaseUrl: string;
 }
 
 const daysParam = z.coerce.number().int().min(1).max(365).default(30);
@@ -46,10 +52,30 @@ function sinceDate(days: number): string {
 	return d.toISOString().slice(0, 10);
 }
 
+/** "Earliest date this request is allowed to see" for the given days
+ *  parameter. For owner sessions: sinceDate(days). For share-viewer
+ *  sessions: max(sinceDate(days), shareViewer.from), so the share's
+ *  date window strictly caps the multi-day read regardless of how
+ *  large `days` is. */
+function sinceDateForSession(session: { shareViewer?: { from: string; to: string } }, days: number): string {
+	const owner = sinceDate(days);
+	if (!session.shareViewer) return owner;
+	return owner < session.shareViewer.from ? session.shareViewer.from : owner;
+}
+
+/** True iff a single-day request for `date` should be rejected
+ *  because the session is a share-viewer and the date is outside
+ *  the share window. */
+function isDateOutsideShareWindow(session: { shareViewer?: { from: string; to: string } }, date: string): boolean {
+	if (!session.shareViewer) return false;
+	return date < session.shareViewer.from || date > session.shareViewer.to;
+}
+
 export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 	const app = new Hono<AppEnv>();
 
 	app.use("/*", requireAuth);
+	app.use("/*", requireOwnerOnly);
 
 	app.get("/me", async (c) => {
 		const { userId, displayName } = c.get("session");
@@ -78,7 +104,7 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			.selectFrom("daily_activity")
 			.selectAll()
 			.where("user_id", "=", uid)
-			.where("date", ">=", sinceDate(days))
+			.where("date", ">=", sinceDateForSession(c.get("session"), days))
 			.orderBy("date")
 			.execute();
 		return c.json(rows);
@@ -91,15 +117,17 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			.selectFrom("sleep")
 			.selectAll()
 			.where("user_id", "=", uid)
-			.where("date", ">=", sinceDate(days))
+			.where("date", ">=", sinceDateForSession(c.get("session"), days))
 			.orderBy("date")
 			.execute();
 		return c.json(rows);
 	});
 
 	app.get("/sleep/stages", async (c) => {
-		const uid = c.get("session").userId;
+		const session = c.get("session");
+		const uid = session.userId;
 		const date = dateParam.parse(c.req.query("date"));
+		if (isDateOutsideShareWindow(session, date)) return c.json([]);
 		// Find the main sleep log for this date
 		const sleepLog = await db()
 			.selectFrom("sleep")
@@ -128,7 +156,7 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			.selectFrom("heart_rate_zones")
 			.selectAll()
 			.where("user_id", "=", uid)
-			.where("date", ">=", sinceDate(days))
+			.where("date", ">=", sinceDateForSession(c.get("session"), days))
 			.orderBy("date")
 			.orderBy("zone_name")
 			.execute();
@@ -136,8 +164,10 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 	});
 
 	app.get("/heartrate/intraday", async (c) => {
-		const uid = c.get("session").userId;
+		const session = c.get("session");
+		const uid = session.userId;
 		const date = dateParam.parse(c.req.query("date"));
+		if (isDateOutsideShareWindow(session, date)) return c.json([]);
 		const rows = await db()
 			.selectFrom("heart_rate_intraday")
 			.selectAll()
@@ -156,7 +186,7 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			.selectFrom("body")
 			.selectAll()
 			.where("user_id", "=", uid)
-			.where("date", ">=", sinceDate(days))
+			.where("date", ">=", sinceDateForSession(c.get("session"), days))
 			.orderBy("date")
 			.execute();
 		return c.json(rows);
@@ -169,7 +199,7 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			.selectFrom("spo2_daily")
 			.selectAll()
 			.where("user_id", "=", uid)
-			.where("date", ">=", sinceDate(days))
+			.where("date", ">=", sinceDateForSession(c.get("session"), days))
 			.orderBy("date")
 			.execute();
 		return c.json(rows);
@@ -182,7 +212,7 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			.selectFrom("hrv_daily")
 			.selectAll()
 			.where("user_id", "=", uid)
-			.where("date", ">=", sinceDate(days))
+			.where("date", ">=", sinceDateForSession(c.get("session"), days))
 			.orderBy("date")
 			.execute();
 		return c.json(rows);
@@ -195,7 +225,7 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			.selectFrom("breathing_rate")
 			.selectAll()
 			.where("user_id", "=", uid)
-			.where("date", ">=", sinceDate(days))
+			.where("date", ">=", sinceDateForSession(c.get("session"), days))
 			.orderBy("date")
 			.execute();
 		return c.json(rows);
@@ -208,7 +238,7 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			.selectFrom("skin_temperature")
 			.selectAll()
 			.where("user_id", "=", uid)
-			.where("date", ">=", sinceDate(days))
+			.where("date", ">=", sinceDateForSession(c.get("session"), days))
 			.orderBy("date")
 			.execute();
 		return c.json(rows);
@@ -221,8 +251,10 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 	});
 
 	app.get("/locations", async (c) => {
-		const uid = c.get("session").userId;
+		const session = c.get("session");
+		const uid = session.userId;
 		const date = dateParam.parse(c.req.query("date"));
+		if (isDateOutsideShareWindow(session, date)) return c.json([]);
 		try {
 			const points = await fetchTrackPoints(config, uid, date, nextDay(date));
 			return c.json(points);
@@ -239,9 +271,14 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 	});
 
 	app.get("/velocity", async (c) => {
-		const uid = c.get("session").userId;
+		const session = c.get("session");
+		const uid = session.userId;
 		const date = dateParam.parse(c.req.query("date"));
 		const tz = tzParam.parse(c.req.query("tz"));
+		// Share-viewers can only see dates inside the share's window.
+		if (session.shareViewer && (date < session.shareViewer.from || date > session.shareViewer.to)) {
+			return c.json({ error: "out_of_share_window", from: session.shareViewer.from, to: session.shareViewer.to }, 403);
+		}
 		try {
 			// Cache result by (user, date, tz) — see velocity-cache.ts.
 			// Repeat views in the same session return in tens of ms;
@@ -266,6 +303,55 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 		const uid = c.get("session").userId;
 		const rows = await db().selectFrom("sync_state").selectAll().where("user_id", "=", uid).execute();
 		return c.json(rows);
+	});
+
+	// ─── Share-link management ────────────────────────────────────────
+	// GET /api/share → current share status (token, url, days_back) or null
+	// POST /api/share → create/rotate; body { days_back?: number } (default 7)
+	// DELETE /api/share → revoke the current token
+	//
+	// The companion public read endpoint lives outside /api so it skips
+	// requireAuth — it authenticates strictly via the URL token.
+	app.get("/share", async (c) => {
+		const uid = c.get("session").userId;
+		const row = await getShareForUser(uid);
+		if (!row) return c.json({ active: false });
+		return c.json({
+			active: true,
+			token: row.token,
+			url: buildShareUrl(config.publicBaseUrl, row.token),
+			daysBack: row.days_back,
+			createdAt: row.created_at.toISOString(),
+			lastAccessedAt: row.last_accessed_at?.toISOString() ?? null,
+		});
+	});
+
+	app.post("/share", async (c) => {
+		const uid = c.get("session").userId;
+		let daysBack = 7;
+		try {
+			const body = (await c.req.json()) as { daysBack?: unknown };
+			if (typeof body.daysBack === "number" && Number.isFinite(body.daysBack)) {
+				daysBack = Math.max(1, Math.min(365, Math.floor(body.daysBack)));
+			}
+		} catch {
+			// no body → use default
+		}
+		const row = await rotateShareForUser(uid, daysBack);
+		return c.json({
+			active: true,
+			token: row.token,
+			url: buildShareUrl(config.publicBaseUrl, row.token),
+			daysBack: row.days_back,
+			createdAt: row.created_at.toISOString(),
+			lastAccessedAt: row.last_accessed_at?.toISOString() ?? null,
+		});
+	});
+
+	app.delete("/share", async (c) => {
+		const uid = c.get("session").userId;
+		await revokeShareForUser(uid);
+		return c.body(null, 204);
 	});
 
 	app.post("/client-log", async (c) => {

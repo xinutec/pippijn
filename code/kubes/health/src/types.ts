@@ -101,6 +101,16 @@ export interface DeviceInfo {
 export interface UserSession {
 	userId: string;
 	displayName: string;
+	/** Present when this request is authenticated via a share token
+	 *  (the recipient of a share link), not the owner's session cookie.
+	 *  `window` is the inclusive [from, to] date range the recipient
+	 *  is allowed to query — the velocity endpoint rejects dates
+	 *  outside this. Non-GET requests are rejected wholesale when
+	 *  this is set. */
+	shareViewer?: {
+		from: string;
+		to: string;
+	};
 }
 
 export interface MeResponse extends UserSession {

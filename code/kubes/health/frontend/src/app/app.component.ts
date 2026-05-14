@@ -10,6 +10,7 @@ import {
   type ActivityDay, type SleepLog, type SleepStage, type HeartRatePoint, type VelocityData,
 } from "./services/health.service";
 import { ReauthBannerComponent } from "./components/reauth-banner/reauth-banner.component";
+import { SettingsComponent } from "./components/settings/settings.component";
 import { SummaryCardsComponent } from "./components/summary-cards/summary-cards.component";
 import { HypnogramComponent } from "./components/hypnogram/hypnogram.component";
 import { IntradayHrComponent } from "./components/intraday-hr/intraday-hr.component";
@@ -21,12 +22,16 @@ import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.compon
 import { formatDateInTz, browserTimezone, todayLocal } from "./time-utils";
 import { installErrorReporting, logBootContext } from "./client-diagnostics";
 
+/** What the app is showing right now. Driven by URL path at boot;
+ *  doesn't change without a navigation. */
+type AppMode = "dashboard" | "settings" | "share";
+
 @Component({
   selector: "app-root",
   standalone: true,
   imports: [
     MatToolbarModule, MatButtonModule, MatIconModule, MatTabsModule, MatProgressSpinnerModule,
-    ReauthBannerComponent,
+    ReauthBannerComponent, SettingsComponent,
     SummaryCardsComponent, HypnogramComponent, IntradayHrComponent, SpeedChartComponent, TimelineComponent,
     StepsChartComponent, HeartrateChartComponent, SleepChartComponent,
   ],
@@ -34,6 +39,7 @@ import { installErrorReporting, logBootContext } from "./client-diagnostics";
   styleUrl: './app.component.scss',
 })
 export class AppComponent implements OnInit {
+  readonly mode = signal<AppMode>(detectMode());
   readonly view = signal<"today" | "trends">("today");
   readonly selectedDate = signal(todayLocal());
   readonly activity = signal<ActivityDay[]>([]);
@@ -82,6 +88,24 @@ export class AppComponent implements OnInit {
     // Best-effort — the install itself never throws.
     installErrorReporting(this.health);
 
+    // Share mode: the URL was /share/:token. Stash the token in the
+    // service so every API call attaches it as a header. The rest of
+    // the dashboard then renders normally — the server-side gates
+    // enforce read-only + date-window.
+    if (this.mode() === "share") {
+      const token = extractShareTokenFromPath();
+      if (token) this.health.shareToken.set(token);
+    }
+
+    // Settings mode short-circuits the dashboard data load — the
+    // SettingsComponent fetches what it needs.
+    if (this.mode() === "settings") {
+      const okSettings = await this.health.checkAuth();
+      this.authenticated.set(okSettings);
+      this.loading.set(false);
+      return;
+    }
+
     const ok = await this.health.checkAuth();
     this.authenticated.set(ok);
     if (!ok) { this.loading.set(false); return; }
@@ -112,7 +136,12 @@ export class AppComponent implements OnInit {
 
     // Fire-and-forget: keep PhoneTrack's visualisation filter aligned with
     // "today from 00:00 (or yesterday after midnight before 06:00)".
-    void this.health.syncPhoneTrackFilter();
+    // Skip in share-viewer mode — the backend would 403 (read-only),
+    // and the recipient has no business touching the owner's PhoneTrack
+    // prefs anyway.
+    if (this.mode() !== "share") {
+      void this.health.syncPhoneTrackFilter();
+    }
 
     await this.loadData();
     this.loading.set(false);
@@ -174,4 +203,22 @@ export class AppComponent implements OnInit {
     if (date === formatDateInTz(yesterday, browserTimezone())) return "Yesterday";
     return d.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" });
   }
+}
+
+/** Inspect window.location.pathname once at boot and pick the mode.
+ *  No reactive re-detection — navigating between modes is a full
+ *  page load (plain anchor href), so a single static read is fine. */
+function detectMode(): AppMode {
+  const path = typeof window !== "undefined" ? window.location.pathname : "/";
+  if (path.startsWith("/share/")) return "share";
+  if (path === "/settings" || path.startsWith("/settings/")) return "settings";
+  return "dashboard";
+}
+
+/** Pull the token out of /share/:token. Returns null if the path
+ *  shape doesn't match — caller should fall back to owner mode. */
+function extractShareTokenFromPath(): string | null {
+  const path = window.location.pathname;
+  const match = path.match(/^\/share\/([^/]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
 }

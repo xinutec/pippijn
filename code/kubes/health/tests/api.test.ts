@@ -8,6 +8,7 @@ const TEST_CONFIG: ApiRoutesConfig = {
 	nextcloud: {
 		baseUrl: "https://nextcloud.test",
 	},
+	publicBaseUrl: "https://health.test",
 };
 
 // Mock the DB pool module — intercept all Kysely queries

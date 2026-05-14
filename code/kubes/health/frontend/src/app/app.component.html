@@ -1,18 +1,27 @@
 <mat-toolbar color="primary" class="toolbar">
-  <span class="title">Health</span>
+  <span class="title">Health@if (mode() === "share") { (shared) }</span>
   <span class="spacer"></span>
   @if (health.user(); as user) {
     <span class="user-name">{{ user.displayName }}</span>
-    <form method="POST" action="/logout" class="logout-form">
-      <button mat-button type="submit">Logout</button>
-    </form>
+    @if (mode() !== "share") {
+      <a mat-icon-button href="/settings" aria-label="Settings" class="settings-link">
+        <mat-icon>settings</mat-icon>
+      </a>
+      <form method="POST" action="/logout" class="logout-form">
+        <button mat-button type="submit">Logout</button>
+      </form>
+    }
   }
 </mat-toolbar>
 
-<app-reauth-banner></app-reauth-banner>
+@if (mode() !== "share") {
+  <app-reauth-banner></app-reauth-banner>
+}
 
 <main class="content">
-  @if (!authenticated()) {
+  @if (mode() === "settings") {
+    <app-settings></app-settings>
+  } @else if (!authenticated()) {
     <div class="prompt">
       <h2>Sign in to view your health data</h2>
       <a mat-raised-button color="primary" href="/login">Sign in with Nextcloud</a>
