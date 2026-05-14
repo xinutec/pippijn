@@ -84,13 +84,34 @@ fi
 echo "==> [3/6] git commit"
 git commit -F "$MSG_FILE"
 
+COMMIT_SHA=$(git rev-parse HEAD)
+echo "    HEAD is now $COMMIT_SHA"
+
 echo "==> [4/6] git push origin main"
 git push origin main
 
 # --- wait for CI ---------------------------------------------------------
-echo "==> [5/6] watching CI"
+# Find the CI run that matches THIS commit's SHA. `gh run list --limit 1`
+# would race: between push and gh-list the previous commit's run is often
+# still the freshest, and gh run watch on an already-completed run exits
+# in ~0 ms, which then rolls out the stale image. Poll until a run for
+# our specific SHA shows up (Actions usually queues within a few seconds).
+echo "==> [5/6] watching CI for $COMMIT_SHA"
 cd "$HEALTH_DIR"
-RUN_ID=$(gh run list --branch main --limit 1 --json databaseId --jq '.[0].databaseId')
+RUN_ID=""
+for attempt in $(seq 1 30); do
+	RUN_ID=$(gh run list --branch main --limit 10 --json databaseId,headSha \
+		--jq ".[] | select(.headSha == \"$COMMIT_SHA\") | .databaseId" | head -1)
+	if [[ -n "$RUN_ID" ]]; then
+		echo "    found run $RUN_ID after $attempt attempt(s)"
+		break
+	fi
+	sleep 2
+done
+if [[ -z "$RUN_ID" ]]; then
+	echo "deploy: no CI run for $COMMIT_SHA appeared within ~60s" >&2
+	exit 1
+fi
 gh run watch --exit-status "$RUN_ID"
 
 # --- rollout -------------------------------------------------------------
