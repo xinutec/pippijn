@@ -6,15 +6,23 @@ import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
 import { MatInputModule } from "@angular/material/input";
 import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";
+import { MatSnackBar, MatSnackBarModule } from "@angular/material/snack-bar";
+import { MatTooltipModule } from "@angular/material/tooltip";
 import { HealthService, type ShareStatus } from "../../services/health.service";
 
 /**
  * Settings page. Today: just the share-link section.
  *
- * One token per user. The "Generate new" button rotates (DELETE +
- * INSERT atomically server-side) — the previous URL stops working
- * the instant the new one is shown. "Revoke" removes the row;
- * server returns 404 to the old URL afterwards.
+ * One token per user. "Generate new link" rotates (DELETE + INSERT
+ * atomic server-side) — the previous URL stops working the instant
+ * the new one is shown. "Revoke" removes the row.
+ *
+ * Material-first: the URL display is a real `<mat-form-field>` with
+ * a `matSuffix` copy button so theming, focus, and contrast all
+ * come from Material's tokens (no hand-rolled CSS for the input
+ * shell). Copy confirmation uses MatSnackBar instead of a
+ * label-swap on the button — transient feedback is exactly what
+ * the snack-bar is for.
  */
 @Component({
 	selector: "app-settings",
@@ -27,6 +35,8 @@ import { HealthService, type ShareStatus } from "../../services/health.service";
 		MatIconModule,
 		MatInputModule,
 		MatProgressSpinnerModule,
+		MatSnackBarModule,
+		MatTooltipModule,
 	],
 	template: `
 		<div class="settings-page">
@@ -37,7 +47,7 @@ import { HealthService, type ShareStatus } from "../../services/health.service";
 				<h1>Settings</h1>
 			</header>
 
-			<mat-card class="share-card">
+			<mat-card>
 				<mat-card-header>
 					<mat-card-title>Share your timeline</mat-card-title>
 					<mat-card-subtitle>
@@ -49,46 +59,55 @@ import { HealthService, type ShareStatus } from "../../services/health.service";
 						<mat-spinner diameter="32"></mat-spinner>
 					} @else if (status(); as s) {
 						@if (s.active && s.url) {
-							<p>Active share link:</p>
-							<div class="link-row">
-								<input matInput class="link-input" readonly [value]="s.url" #linkInput />
-								<button mat-raised-button (click)="copyLink(linkInput.value)">
+							<mat-form-field appearance="outline" class="full-width">
+								<mat-label>Share link</mat-label>
+								<input matInput readonly [value]="s.url" #linkInput />
+								<button
+									matSuffix
+									mat-icon-button
+									(click)="copyLink(linkInput.value)"
+									matTooltip="Copy link"
+									aria-label="Copy link">
 									<mat-icon>content_copy</mat-icon>
-									{{ copied() ? "Copied" : "Copy" }}
 								</button>
-							</div>
-							<p class="meta">
+							</mat-form-field>
+							<p>
 								Showing the last {{ s.daysBack }} day{{ s.daysBack === 1 ? "" : "s" }}.
 								@if (s.lastAccessedAt) {
-									Last accessed: {{ formatDate(s.lastAccessedAt) }}.
+									Last accessed {{ formatDate(s.lastAccessedAt) }}.
 								} @else {
 									Not yet accessed.
 								}
 							</p>
-							<div class="actions">
-								<button mat-stroked-button color="warn" (click)="revoke()">Revoke</button>
-								<button mat-stroked-button (click)="rotate(s.daysBack ?? 7)">Generate new link</button>
-							</div>
 						} @else {
 							<p>No share link active. Choose how many days to share, then create one.</p>
-							<mat-form-field appearance="outline" class="days-field">
+							<mat-form-field appearance="outline">
 								<mat-label>Days to share</mat-label>
 								<input matInput type="number" min="1" max="365" [(ngModel)]="daysInput" />
 							</mat-form-field>
-							<div class="actions">
-								<button mat-raised-button color="primary" (click)="create()">Create share link</button>
-							</div>
 						}
 					}
 					@if (error(); as e) {
 						<p class="error">{{ e }}</p>
 					}
 				</mat-card-content>
+				@if (status(); as s) {
+					<mat-card-actions align="end">
+						@if (s.active) {
+							<button mat-button color="warn" (click)="revoke()">Revoke</button>
+							<button mat-stroked-button (click)="rotate(s.daysBack ?? 7)">Generate new link</button>
+						} @else {
+							<button mat-raised-button color="primary" (click)="create()">Create share link</button>
+						}
+					</mat-card-actions>
+				}
 			</mat-card>
 		</div>
 	`,
 	styles: [
 		`
+		/* Page-level layout only — nothing visual that Material
+		 * already provides via mat-card / mat-form-field. */
 		.settings-page {
 			max-width: 720px;
 			margin: 0 auto;
@@ -104,36 +123,21 @@ import { HealthService, type ShareStatus } from "../../services/health.service";
 			margin: 0;
 			font-size: 1.5rem;
 		}
-		.share-card { margin-top: 1rem; }
-		.link-row {
-			display: flex;
-			gap: 0.5rem;
-			align-items: center;
-			margin: 0.75rem 0;
+		.full-width {
+			width: 100%;
 		}
-		.link-input {
-			flex: 1;
-			padding: 0.5rem;
-			font-family: var(--font-mono, ui-monospace, monospace);
-			font-size: 0.875rem;
-			border: 1px solid var(--mat-sys-outline);
-			border-radius: 4px;
-			background: var(--mat-sys-surface-variant);
-			color: var(--mat-sys-on-surface-variant);
+		.error {
+			color: var(--mat-sys-error);
 		}
-		.meta { color: var(--mat-sys-on-surface-variant); margin: 0.5rem 0; }
-		.actions { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
-		.days-field { width: 200px; margin-top: 0.5rem; }
-		.error { color: var(--mat-sys-error); margin-top: 0.5rem; }
 		`,
 	],
 })
 export class SettingsComponent implements OnInit {
 	readonly health = inject(HealthService);
+	private readonly snackBar = inject(MatSnackBar);
 	readonly loading = signal(true);
 	readonly status = signal<ShareStatus | null>(null);
 	readonly error = signal<string | null>(null);
-	readonly copied = signal(false);
 	daysInput = 7;
 
 	async ngOnInit(): Promise<void> {
@@ -163,13 +167,10 @@ export class SettingsComponent implements OnInit {
 	}
 
 	async rotate(currentDays: number): Promise<void> {
-		// Rotation keeps the current days_back. Use the settings page's
-		// days-input only on first creation.
 		this.error.set(null);
 		try {
 			const s = await this.health.createOrRotateShare(currentDays);
 			this.status.set(s);
-			this.copied.set(false);
 		} catch (e) {
 			this.error.set((e as Error).message);
 		}
@@ -180,7 +181,6 @@ export class SettingsComponent implements OnInit {
 		try {
 			await this.health.revokeShare();
 			this.status.set({ active: false });
-			this.copied.set(false);
 		} catch (e) {
 			this.error.set((e as Error).message);
 		}
@@ -189,11 +189,9 @@ export class SettingsComponent implements OnInit {
 	async copyLink(text: string): Promise<void> {
 		try {
 			await navigator.clipboard.writeText(text);
-			this.copied.set(true);
-			// reset after 2s
-			setTimeout(() => this.copied.set(false), 2000);
+			this.snackBar.open("Link copied", "Dismiss", { duration: 2000 });
 		} catch {
-			this.error.set("Could not copy — select and copy manually.");
+			this.snackBar.open("Could not copy — select and copy manually.", "Dismiss", { duration: 4000 });
 		}
 	}
 
