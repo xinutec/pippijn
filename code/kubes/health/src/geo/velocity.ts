@@ -424,8 +424,11 @@ export async function computeVelocity(
 							const placeLat = wp.centroidLat;
 							const placeLon = wp.centroidLon;
 
-							// Personal label (Home / Work / …) wins outright.
-							if (wp.displayName) {
+							// Personal label wins outright — but only for the
+							// "intent" labels Home / Work. The "Stay" category
+							// label is just a clustering bucket, not a useful
+							// timeline name; fall through to address lookup.
+							if (wp.displayName === "Home" || wp.displayName === "Work") {
 								const namedPlace = await bestPlace(placeLat, placeLon, { preferResidential: true });
 								const namedCity = extractCity(namedPlace);
 								return {

@@ -51,10 +51,21 @@ export interface PlaceCandidate {
 	amenityLabel: string | null;
 }
 
-/** Lower bound on the distance σ so a single-fix cluster doesn't
- *  produce an infinitely-narrow likelihood. 30 m is below what
- *  typical GPS noise gives even with a clear sky. */
-const SIGMA_FLOOR_M = 30;
+/** Lower bound on the distance σ for the place-likelihood Gaussian.
+ *
+ *  focus_places.radius_m is the spread of the clustering algorithm's
+ *  centroid estimate (~25 m for a single-storey building). The
+ *  spread of typical GPS fixes when a user is AT that place is much
+ *  larger — indoor multipath, building corners, the user walking
+ *  in and out, accuracy variations across the day. Production data
+ *  shows day-of fix clusters routinely sit 100–200 m from a known
+ *  place's centroid even when the user definitively didn't leave.
+ *
+ *  We treat the place's `radius_m` as a lower bound on σ but floor
+ *  it at 100 m so the Gaussian doesn't go to ~0 for ordinary
+ *  GPS-noise distances. The frequency + time priors then drive
+ *  the final ranking. */
+const SIGMA_FLOOR_M = 100;
 
 /** Don't pick a place whose best score is worse than this many
  *  log-points below "fix sits exactly at the centroid + max
