@@ -181,8 +181,12 @@ export class AppComponent implements OnInit {
     const d = new Date(this.selectedDate() + "T12:00:00"); // noon to avoid DST edge
     d.setDate(d.getDate() + delta);
     const newDate = formatDateInTz(d, browserTimezone());
-    // Don't go into the future
-    if (newDate > todayLocal()) return;
+    // Clamp at the navigable edges. Right edge: rightEdge() (today
+    // in owner mode, min(today, shareWindow.to) in share mode).
+    // Left edge: leftEdge() — only set in share mode.
+    if (newDate > this.rightEdge()) return;
+    const left = this.leftEdge();
+    if (left !== null && newDate < left) return;
     // Push to URL — the queryParamMap subscription in ngOnInit drives
     // the rest (sets the signal, triggers loadData). Single source of
     // truth so back/forward navigation and in-app left/right behave
@@ -192,6 +196,30 @@ export class AppComponent implements OnInit {
 
   isToday(): boolean {
     return this.selectedDate() === todayLocal();
+  }
+
+  /** Earliest date the user can navigate to. Owner mode: no limit
+   *  (returns null). Share mode: the share window's `from` date. */
+  leftEdge(): string | null {
+    return this.health.user()?.shareWindow?.from ?? null;
+  }
+
+  /** Latest date the user can navigate to. Owner mode: today.
+   *  Share mode: min(today, shareWindow.to). */
+  rightEdge(): string {
+    const win = this.health.user()?.shareWindow;
+    const t = todayLocal();
+    if (!win) return t;
+    return win.to < t ? win.to : t;
+  }
+
+  canGoLeft(): boolean {
+    const left = this.leftEdge();
+    return left === null || this.selectedDate() > left;
+  }
+
+  canGoRight(): boolean {
+    return this.selectedDate() < this.rightEdge();
   }
 
   formatDisplayDate(): string {

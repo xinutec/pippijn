@@ -45,15 +45,23 @@
       <mat-tab label="Day">
         <div class="tab-content">
           <div class="day-nav">
-            <button mat-icon-button (click)="changeDay(-1)">
-              <mat-icon>chevron_left</mat-icon>
-            </button>
+            @if (canGoLeft()) {
+              <button mat-icon-button (click)="changeDay(-1)" aria-label="Previous day">
+                <mat-icon>chevron_left</mat-icon>
+              </button>
+            } @else {
+              <span class="day-nav-spacer" aria-hidden="true"></span>
+            }
             <span class="day-label" [class.loading]="dayLoading()">
               {{ formatDisplayDate() }}
             </span>
-            <button mat-icon-button (click)="changeDay(1)" [disabled]="isToday()">
-              <mat-icon>chevron_right</mat-icon>
-            </button>
+            @if (canGoRight()) {
+              <button mat-icon-button (click)="changeDay(1)" aria-label="Next day">
+                <mat-icon>chevron_right</mat-icon>
+              </button>
+            } @else {
+              <span class="day-nav-spacer" aria-hidden="true"></span>
+            }
           </div>
 
           <!--

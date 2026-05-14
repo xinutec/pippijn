@@ -78,7 +78,8 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 	app.use("/*", requireOwnerOnly);
 
 	app.get("/me", async (c) => {
-		const { userId, displayName } = c.get("session");
+		const session = c.get("session");
+		const { userId, displayName, shareViewer } = session;
 		const [ncStatus, fbStatus] = await Promise.all([
 			getNextcloudConnectionStatus(userId),
 			getFitbitConnectionStatus(userId),
@@ -94,6 +95,10 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 				nextcloud: { status: ncStatus },
 				fitbit: { status: fbStatus },
 			},
+			// Present iff this request was authenticated via share token.
+			// Lets the SPA know the navigable date range so it can clamp
+			// the prev/next-day arrows.
+			shareWindow: shareViewer ?? null,
 		});
 	});
 

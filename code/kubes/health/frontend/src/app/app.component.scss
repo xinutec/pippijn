@@ -20,6 +20,15 @@
   gap: 8px;
   margin-bottom: 16px;
 }
+/* Placeholder that takes the exact footprint of a hidden mat-icon-button
+ * so the label stays centred when one of the chevrons disappears at an
+ * edge (today, or the share-window boundary). 40px matches Material 3's
+ * default icon-button hit area. */
+.day-nav-spacer {
+  display: inline-block;
+  width: 40px;
+  height: 40px;
+}
 .day-label {
   font-size: 16px;
   font-weight: 500;

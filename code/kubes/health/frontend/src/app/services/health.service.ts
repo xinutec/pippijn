@@ -120,6 +120,9 @@ export interface UserInfo {
     nextcloud: { status: "active" | "needs_reauth" | "not_linked" };
     fitbit: { status: "active" | "not_linked" };
   };
+  /** Present iff this request was authenticated via share token.
+   *  The recipient SPA uses [from, to] to clamp day navigation. */
+  shareWindow?: { from: string; to: string } | null;
 }
 
 export interface ShareStatus {
