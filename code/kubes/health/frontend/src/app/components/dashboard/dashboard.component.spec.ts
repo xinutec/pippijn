@@ -1,13 +1,15 @@
 import { TestBed } from "@angular/core/testing";
 import { signal } from "@angular/core";
-import { describe, expect, it, beforeEach } from "vitest";
-import { AppComponent } from "./app.component";
-import { HealthService, type ActivityDay, type SleepLog } from "./services/health.service";
+import { provideRouter } from "@angular/router";
+import { beforeEach, describe, expect, it } from "vitest";
+import { type ActivityDay, HealthService, type SleepLog } from "../../services/health.service";
+import { DashboardComponent } from "./dashboard.component";
 
 // Hand-rolled mock — no spy library needed for these read-only methods.
 function makeHealthMock(opts: { activity?: ActivityDay[]; sleep?: SleepLog[] } = {}) {
 	return {
 		user: signal(null),
+		shareToken: signal(null),
 		checkAuth: async () => true,
 		getActivity: async () => opts.activity ?? [],
 		getSleep: async () => opts.sleep ?? [],
@@ -56,11 +58,11 @@ function mainSleep(date: string, minutes = 489): SleepLog {
 	} as unknown as SleepLog;
 }
 
-describe("AppComponent.loadData — date matching", () => {
+describe("DashboardComponent.loadData — date matching", () => {
 	beforeEach(() => {
 		TestBed.configureTestingModule({
-			imports: [AppComponent],
-			providers: [{ provide: HealthService, useValue: makeHealthMock() }],
+			imports: [DashboardComponent],
+			providers: [provideRouter([]), { provide: HealthService, useValue: makeHealthMock() }],
 		});
 	});
 
@@ -73,13 +75,13 @@ describe("AppComponent.loadData — date matching", () => {
 				sleep: [mainSleep(yesterday)], // only yesterday's sleep is synced
 			}),
 		});
-		const fixture = TestBed.createComponent(AppComponent);
+		const fixture = TestBed.createComponent(DashboardComponent);
 		const cmp = fixture.componentInstance;
 		cmp.selectedDate.set(today);
 
 		await cmp.loadData();
 
-		expect(cmp.latestSleep()).toBeNull(); // ← the regression we just fixed
+		expect(cmp.latestSleep()).toBeNull(); // ← the regression we fixed earlier
 		expect(cmp.latestActivity()?.date).toBe(today);
 		expect(cmp.latestActivity()?.steps).toBe(8000);
 	});
@@ -93,7 +95,7 @@ describe("AppComponent.loadData — date matching", () => {
 				sleep: [],
 			}),
 		});
-		const fixture = TestBed.createComponent(AppComponent);
+		const fixture = TestBed.createComponent(DashboardComponent);
 		const cmp = fixture.componentInstance;
 		cmp.selectedDate.set(today);
 
@@ -111,7 +113,7 @@ describe("AppComponent.loadData — date matching", () => {
 				sleep: [mainSleep("2026-05-09"), mainSleep(today, 480)],
 			}),
 		});
-		const fixture = TestBed.createComponent(AppComponent);
+		const fixture = TestBed.createComponent(DashboardComponent);
 		const cmp = fixture.componentInstance;
 		cmp.selectedDate.set(today);
 
@@ -131,7 +133,7 @@ describe("AppComponent.loadData — date matching", () => {
 				sleep: [nap], // only a nap exists for today, no main sleep yet
 			}),
 		});
-		const fixture = TestBed.createComponent(AppComponent);
+		const fixture = TestBed.createComponent(DashboardComponent);
 		const cmp = fixture.componentInstance;
 		cmp.selectedDate.set(today);
 

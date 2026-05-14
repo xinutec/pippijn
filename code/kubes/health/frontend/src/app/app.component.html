@@ -1,118 +1,23 @@
 <mat-toolbar color="primary" class="toolbar">
-  <span class="title">Health@if (mode() === "share") { (shared) }</span>
-  <span class="spacer"></span>
-  @if (health.user(); as user) {
-    <span class="user-name">{{ user.displayName }}</span>
-    @if (mode() !== "share") {
-      <a mat-icon-button href="/settings" aria-label="Settings" class="settings-link">
-        <mat-icon>settings</mat-icon>
-      </a>
-      <form method="POST" action="/logout" class="logout-form">
-        <button mat-button type="submit">Logout</button>
-      </form>
-    }
-  }
+	<span class="title">Health@if (mode() === "share") { (shared) }</span>
+	<span class="spacer"></span>
+	@if (health.user(); as user) {
+		<span class="user-name">{{ user.displayName }}</span>
+		@if (mode() !== "share") {
+			<a mat-icon-button routerLink="/settings" aria-label="Settings" class="settings-link">
+				<mat-icon>settings</mat-icon>
+			</a>
+			<form method="POST" action="/logout" class="logout-form">
+				<button mat-button type="submit">Logout</button>
+			</form>
+		}
+	}
 </mat-toolbar>
 
 @if (mode() !== "share") {
-  <app-reauth-banner></app-reauth-banner>
+	<app-reauth-banner></app-reauth-banner>
 }
 
 <main class="content">
-  @if (mode() === "settings") {
-    <app-settings></app-settings>
-  } @else if (!authenticated()) {
-    <div class="prompt">
-      <h2>Sign in to view your health data</h2>
-      <a mat-raised-button color="primary" href="/login">Sign in with Nextcloud</a>
-    </div>
-  } @else if (loading()) {
-    <div class="app-loading">
-      <mat-spinner diameter="48"></mat-spinner>
-      <p>Loading your health data...</p>
-    </div>
-  } @else if (!fitbitLinked()) {
-    <div class="prompt">
-      <h2>Link your Fitbit account</h2>
-      <p>Connect your Fitbit to start tracking your health data.</p>
-      <a mat-raised-button color="primary" href="/fitbit/auth">Link Fitbit</a>
-    </div>
-  } @else {
-    <mat-tab-group
-      (selectedIndexChange)="view.set($event === 0 ? 'today' : 'trends')"
-      [backgroundColor]="'primary'"
-      class="view-tabs">
-      <mat-tab label="Day">
-        <div class="tab-content">
-          <div class="day-nav">
-            @if (canGoLeft()) {
-              <button mat-icon-button (click)="changeDay(-1)" aria-label="Previous day">
-                <mat-icon>chevron_left</mat-icon>
-              </button>
-            } @else {
-              <span class="day-nav-spacer" aria-hidden="true"></span>
-            }
-            <span class="day-label" [class.loading]="dayLoading()">
-              {{ formatDisplayDate() }}
-            </span>
-            @if (canGoRight()) {
-              <button mat-icon-button (click)="changeDay(1)" aria-label="Next day">
-                <mat-icon>chevron_right</mat-icon>
-              </button>
-            } @else {
-              <span class="day-nav-spacer" aria-hidden="true"></span>
-            }
-          </div>
-
-          <!--
-            The cards render unconditionally — `dayLoading()` only
-            toggles a `stale` class that fades the body, and a
-            sibling overlay paints a spinner on top. The overlay
-            is OUTSIDE .day-body because CSS opacity cascades to
-            children: if the overlay nested inside the faded body
-            it would also be faded to 35%. Keeping the DOM stable
-            across day switches stops mat-tab-body-wrapper from
-            reflowing, which is what was making the day-nav row
-            drift vertically.
-          -->
-          <div class="day-body-wrap">
-            <div class="day-body" [class.stale]="dayLoading()">
-              <app-summary-cards
-                [latestActivity]="latestActivity()"
-                [latestSleep]="latestSleep()"
-              />
-              <div class="section">
-                <app-hypnogram [stages]="sleepStages()" />
-              </div>
-              <div class="section">
-                <app-intraday-hr [points]="intradayHr()" />
-              </div>
-              <div class="section">
-                <app-speed-chart [data]="velocity()" />
-              </div>
-              <div class="section">
-                <app-timeline [data]="velocity()" [referenceDate]="selectedDate()" />
-              </div>
-            </div>
-            @if (dayLoading()) {
-              <div class="day-body-overlay" aria-hidden="true">
-                <mat-spinner diameter="32"></mat-spinner>
-              </div>
-            }
-          </div>
-        </div>
-      </mat-tab>
-      <mat-tab label="Trends">
-        <div class="tab-content">
-          <div class="charts-row">
-            <app-steps-chart [activity]="activity()" />
-            <app-heartrate-chart [activity]="activity()" />
-          </div>
-          <div class="section">
-            <app-sleep-chart [sleep]="sleep()" />
-          </div>
-        </div>
-      </mat-tab>
-    </mat-tab-group>
-  }
+	<router-outlet></router-outlet>
 </main>

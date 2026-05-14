@@ -1,276 +1,53 @@
-import { Component, OnInit, signal } from "@angular/core";
-import { MatToolbarModule } from "@angular/material/toolbar";
+import { Component, computed, inject } from "@angular/core";
+import { toSignal } from "@angular/core/rxjs-interop";
+import { NavigationEnd, Router, RouterLink, RouterOutlet } from "@angular/router";
+import { filter, map, startWith } from "rxjs/operators";
 import { MatButtonModule } from "@angular/material/button";
 import { MatIconModule } from "@angular/material/icon";
-import { MatTabsModule } from "@angular/material/tabs";
-import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";
-import {
-  HealthService,
-  type ActivityDay, type SleepLog, type SleepStage, type HeartRatePoint, type VelocityData,
-} from "./services/health.service";
+import { MatToolbarModule } from "@angular/material/toolbar";
 import { ReauthBannerComponent } from "./components/reauth-banner/reauth-banner.component";
-import { SettingsComponent } from "./components/settings/settings.component";
-import { SummaryCardsComponent } from "./components/summary-cards/summary-cards.component";
-import { HypnogramComponent } from "./components/hypnogram/hypnogram.component";
-import { IntradayHrComponent } from "./components/intraday-hr/intraday-hr.component";
-import { SpeedChartComponent } from "./components/speed-chart/speed-chart.component";
-import { TimelineComponent } from "./components/timeline/timeline.component";
-import { StepsChartComponent } from "./components/steps-chart/steps-chart.component";
-import { HeartrateChartComponent } from "./components/heartrate-chart/heartrate-chart.component";
-import { SleepChartComponent } from "./components/sleep-chart/sleep-chart.component";
-import { formatDateInTz, browserTimezone, todayLocal } from "./time-utils";
-import { installErrorReporting, logBootContext } from "./client-diagnostics";
+import { HealthService } from "./services/health.service";
+import { installErrorReporting } from "./client-diagnostics";
 
-/** What the app is showing right now. Driven by URL path at boot;
- *  doesn't change without a navigation. */
+/** What kind of view the current URL maps to. Drives toolbar
+ *  controls visibility (the gear and Logout disappear in share
+ *  mode; the reauth banner hides too — the recipient has no path
+ *  to fix the owner's connection). */
 type AppMode = "dashboard" | "settings" | "share";
 
 @Component({
-  selector: "app-root",
-  standalone: true,
-  imports: [
-    MatToolbarModule, MatButtonModule, MatIconModule, MatTabsModule, MatProgressSpinnerModule,
-    ReauthBannerComponent, SettingsComponent,
-    SummaryCardsComponent, HypnogramComponent, IntradayHrComponent, SpeedChartComponent, TimelineComponent,
-    StepsChartComponent, HeartrateChartComponent, SleepChartComponent,
-  ],
-  templateUrl: './app.component.html',
-  styleUrl: './app.component.scss',
+	selector: "app-root",
+	standalone: true,
+	imports: [MatToolbarModule, MatButtonModule, MatIconModule, RouterLink, RouterOutlet, ReauthBannerComponent],
+	templateUrl: "./app.component.html",
+	styleUrl: "./app.component.scss",
 })
-export class AppComponent implements OnInit {
-  readonly mode = signal<AppMode>(detectMode());
-  readonly view = signal<"today" | "trends">("today");
-  readonly selectedDate = signal(todayLocal());
-  readonly activity = signal<ActivityDay[]>([]);
-  readonly sleep = signal<SleepLog[]>([]);
-  readonly sleepStages = signal<SleepStage[]>([]);
-  readonly intradayHr = signal<HeartRatePoint[]>([]);
-  readonly velocity = signal<VelocityData | null>(null);
-  readonly latestActivity = signal<ActivityDay | null>(null);
-  readonly latestSleep = signal<SleepLog | null>(null);
-  readonly authenticated = signal(false);
-  readonly fitbitLinked = signal(false);
-  readonly loading = signal(true);
-  readonly dayLoading = signal(false);
+export class AppComponent {
+	readonly health = inject(HealthService);
+	private readonly router = inject(Router);
 
-  constructor(readonly health: HealthService) {}
+	/** Mirror of `router.url` as a signal, recomputed on every
+	 *  NavigationEnd. `startWith(router.url)` seeds the value so
+	 *  the toolbar renders correctly on first paint. */
+	private readonly url = toSignal(
+		this.router.events.pipe(
+			filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+			map((e) => e.urlAfterRedirects),
+			startWith(this.router.url),
+		),
+		{ initialValue: this.router.url },
+	);
 
-  /** Validate a ?date=YYYY-MM-DD query parameter. Rejects malformed
-   *  strings and future dates (the timeline doesn't render future days). */
-  private parseDateParam(raw: string | null): string | null {
-    if (raw === null) return null;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
-    if (raw > todayLocal()) return null;
-    return raw;
-  }
+	readonly mode = computed<AppMode>(() => {
+		const u = this.url();
+		if (u.startsWith("/share/")) return "share";
+		if (u === "/settings" || u.startsWith("/settings?") || u.startsWith("/settings/")) return "settings";
+		return "dashboard";
+	});
 
-  /** Sync `selectedDate` into the URL as `?date=`. Preserves the
-   *  current pathname (matters in share mode where it's
-   *  `/share/<token>`), and only mutates the date query parameter
-   *  while leaving any unrelated query params alone.
-   *
-   *  Uses `history.pushState`/`replaceState` directly rather than
-   *  Angular Router because the SPA doesn't define an Angular Route
-   *  for `/share/:token` — Router would treat it as `/` and strip
-   *  the prefix. Direct history manipulation also avoids the
-   *  Router subscription firing a redundant load. */
-  private writeDateToUrl(date: string, push: boolean): void {
-    const url = new URL(window.location.href);
-    if (date === todayLocal()) {
-      url.searchParams.delete("date");
-    } else {
-      url.searchParams.set("date", date);
-    }
-    const target = url.pathname + (url.search ? url.search : "") + url.hash;
-    if (push) {
-      window.history.pushState(null, "", target);
-    } else {
-      window.history.replaceState(null, "", target);
-    }
-  }
-
-  async ngOnInit(): Promise<void> {
-    // Install browser error/unhandledrejection listeners up-front so
-    // any failure during auth or initial render still gets reported.
-    // Best-effort — the install itself never throws.
-    installErrorReporting(this.health);
-
-    // Share mode: the URL was /share/:token. Stash the token in the
-    // service so every API call attaches it as a header. The rest of
-    // the dashboard then renders normally — the server-side gates
-    // enforce read-only + date-window.
-    if (this.mode() === "share") {
-      const token = extractShareTokenFromPath();
-      if (token) this.health.shareToken.set(token);
-    }
-
-    // Settings mode short-circuits the dashboard data load — the
-    // SettingsComponent fetches what it needs.
-    if (this.mode() === "settings") {
-      const okSettings = await this.health.checkAuth();
-      this.authenticated.set(okSettings);
-      this.loading.set(false);
-      return;
-    }
-
-    const ok = await this.health.checkAuth();
-    this.authenticated.set(ok);
-    if (!ok) { this.loading.set(false); return; }
-
-    // One-shot boot context (UA, viewport, tz, locale) for future
-    // bug-correlation. Posted after auth succeeds so it carries the
-    // authenticated user_id in the log prefix.
-    logBootContext(this.health);
-
-    this.fitbitLinked.set(this.health.user()?.fitbitLinked ?? false);
-    if (!this.fitbitLinked()) { this.loading.set(false); return; }
-
-    // Restore the day from `?date=YYYY-MM-DD` on first paint so reload
-    // stays on the day the user navigated to. Reads directly from
-    // window.location since we don't use Angular Router for the
-    // dashboard (share-mode paths are `/share/<token>`, which the
-    // Router doesn't know about).
-    const initial = this.parseDateParam(new URL(window.location.href).searchParams.get("date"));
-    if (initial !== null) this.selectedDate.set(initial);
-
-    // Browser back/forward: history.pushState bypasses Router's
-    // queryParamMap subscription, so listen to popstate instead.
-    window.addEventListener("popstate", () => {
-      void this.handleUrlChange();
-    });
-
-    // Fire-and-forget: keep PhoneTrack's visualisation filter aligned with
-    // "today from 00:00 (or yesterday after midnight before 06:00)".
-    // Skip in share-viewer mode — the backend would 403 (read-only),
-    // and the recipient has no business touching the owner's PhoneTrack
-    // prefs anyway.
-    if (this.mode() !== "share") {
-      void this.health.syncPhoneTrackFilter();
-    }
-
-    await this.loadData();
-    this.loading.set(false);
-  }
-
-  async loadData(): Promise<void> {
-    const date = this.selectedDate();
-    try {
-      const [activity, sleep, stages, hrIntraday, velocity] = await Promise.all([
-        this.health.getActivity(30),
-        this.health.getSleep(30),
-        this.health.getSleepStages(date),
-        this.health.getHeartRateIntraday(date),
-        this.health.getVelocity(date).catch(() => null),
-      ]);
-
-      this.activity.set(activity);
-      this.sleep.set(sleep);
-      this.sleepStages.set(stages);
-      this.intradayHr.set(hrIntraday);
-      this.velocity.set(velocity);
-
-      // Show only data that actually belongs to the selected date — no
-      // silent fallback to "the latest". An empty card is correct when
-      // today's data hasn't synced yet (e.g. sleep before the next sync).
-      const dayActivity = activity.find((a) => a.date.startsWith(date));
-      this.latestActivity.set(dayActivity ?? null);
-
-      const dayMainSleep = sleep.find((s) => s.is_main_sleep && s.date.startsWith(date));
-      this.latestSleep.set(dayMainSleep ?? null);
-    } catch (e) {
-      console.error("Failed to load data:", e);
-    }
-  }
-
-  async changeDay(delta: number): Promise<void> {
-    const d = new Date(this.selectedDate() + "T12:00:00"); // noon to avoid DST edge
-    d.setDate(d.getDate() + delta);
-    const newDate = formatDateInTz(d, browserTimezone());
-    // Clamp at the navigable edges. Right edge: rightEdge() (today
-    // in owner mode, min(today, shareWindow.to) in share mode).
-    // Left edge: leftEdge() — only set in share mode.
-    if (newDate > this.rightEdge()) return;
-    const left = this.leftEdge();
-    if (left !== null && newDate < left) return;
-    if (newDate === this.selectedDate()) return;
-    this.writeDateToUrl(newDate, /* push */ true);
-    this.selectedDate.set(newDate);
-    this.dayLoading.set(true);
-    try {
-      await this.loadData();
-    } finally {
-      this.dayLoading.set(false);
-    }
-  }
-
-  /** Re-sync state from the URL after a browser back/forward (popstate).
-   *  The in-app left/right buttons drive `changeDay` directly; only
-   *  history navigation lands here. */
-  private async handleUrlChange(): Promise<void> {
-    const next = this.parseDateParam(new URL(window.location.href).searchParams.get("date")) ?? todayLocal();
-    if (next === this.selectedDate()) return;
-    this.selectedDate.set(next);
-    this.dayLoading.set(true);
-    try {
-      await this.loadData();
-    } finally {
-      this.dayLoading.set(false);
-    }
-  }
-
-  isToday(): boolean {
-    return this.selectedDate() === todayLocal();
-  }
-
-  /** Earliest date the user can navigate to. Owner mode: no limit
-   *  (returns null). Share mode: the share window's `from` date. */
-  leftEdge(): string | null {
-    return this.health.user()?.shareWindow?.from ?? null;
-  }
-
-  /** Latest date the user can navigate to. Owner mode: today.
-   *  Share mode: min(today, shareWindow.to). */
-  rightEdge(): string {
-    const win = this.health.user()?.shareWindow;
-    const t = todayLocal();
-    if (!win) return t;
-    return win.to < t ? win.to : t;
-  }
-
-  canGoLeft(): boolean {
-    const left = this.leftEdge();
-    return left === null || this.selectedDate() > left;
-  }
-
-  canGoRight(): boolean {
-    return this.selectedDate() < this.rightEdge();
-  }
-
-  formatDisplayDate(): string {
-    const date = this.selectedDate();
-    if (date === todayLocal()) return "Today";
-    const d = new Date(date + "T12:00:00");
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (date === formatDateInTz(yesterday, browserTimezone())) return "Yesterday";
-    return d.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" });
-  }
-}
-
-/** Inspect window.location.pathname once at boot and pick the mode.
- *  No reactive re-detection — navigating between modes is a full
- *  page load (plain anchor href), so a single static read is fine. */
-function detectMode(): AppMode {
-  const path = typeof window !== "undefined" ? window.location.pathname : "/";
-  if (path.startsWith("/share/")) return "share";
-  if (path === "/settings" || path.startsWith("/settings/")) return "settings";
-  return "dashboard";
-}
-
-/** Pull the token out of /share/:token. Returns null if the path
- *  shape doesn't match — caller should fall back to owner mode. */
-function extractShareTokenFromPath(): string | null {
-  const path = window.location.pathname;
-  const match = path.match(/^\/share\/([^/]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
+	constructor() {
+		// Install browser error/unhandledrejection listeners up-front so
+		// any failure during auth or initial render still gets reported.
+		installErrorReporting(this.health);
+	}
 }
