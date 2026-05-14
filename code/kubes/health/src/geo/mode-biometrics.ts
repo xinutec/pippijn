@@ -162,10 +162,33 @@ const CADENCE_VETO_SIGMA = 2.0;
  *  actual walking (~80-130 spm). */
 const CADENCE_VETO_FLOOR_SPM = 30;
 
+/** Speed ceiling for cadence-veto. Above this, walking is no longer a
+ *  biomechanically plausible alternative, so cadence-veto's premise
+ *  ("the user was walking, not pedalling") fails. Production bug
+ *  motivator: a train segment at 108 km/h had a cadence reading > 30
+ *  (vehicle vibration registered as steps); the veto fired against
+ *  "driving" and the alternative-picker chose cycling because every
+ *  alternative is equally implausible at that speed, so it picked the
+ *  least-bad log-likelihood. 15 km/h sits comfortably above brisk
+ *  walking (~7) and well below cycling (~17). */
+const CADENCE_VETO_MAX_SPEED_KMH = 15;
+
 /** Modes whose biometric signature is "cadence ≈ 0" (pedalling /
  *  sitting / standing). A walking-range observed cadence inside one
  *  of these modes is biologically implausible. */
 const LOW_CADENCE_MODES = new Set(["cycling", "driving", "train", "plane"]);
+
+/** Speed ceilings used to filter biomechanically implausible flip targets
+ *  in the LL-based re-classification. At 80 km/h, walking and cycling are
+ *  not real alternatives no matter how the per-modality log-likelihoods
+ *  shake out — the speed dimension already excluded them. Modes not in
+ *  the table have no cap (sit-modes: driving / train / plane can be
+ *  arbitrarily slow or fast). */
+const MAX_SPEED_FOR_MODE: Record<string, number> = {
+	stationary: 5,
+	walking: 12,
+	cycling: 35,
+};
 
 /** Hard veto: when the segment's observed HR is more than
  *  HR_VETO_SIGMA std-devs below the current mode's HR mean, the
@@ -235,6 +258,13 @@ export function vetoImplausibleCadence(
 ): { mode: string; changed: boolean } {
 	if (!LOW_CADENCE_MODES.has(seg.mode)) return { mode: seg.mode, changed: false };
 	if (seg.obsCadence === null) return { mode: seg.mode, changed: false };
+	// Above the walking-plausible speed ceiling, observed cadence is more
+	// likely vehicle vibration than steps. The whole point of the veto is
+	// "this was probably walking" — if walking isn't a plausible
+	// alternative at this speed, the veto's premise fails.
+	if (seg.obsSpeed !== null && seg.obsSpeed > CADENCE_VETO_MAX_SPEED_KMH) {
+		return { mode: seg.mode, changed: false };
+	}
 	const cur = stats.find((s) => s.mode === seg.mode);
 	if (!cur || cur.cadenceMean === null || cur.cadenceStd === null) {
 		return { mode: seg.mode, changed: false };
@@ -307,6 +337,14 @@ export function correctModeBySignature(
 		// Don't consider sit-modes as flip targets when the current mode
 		// is also a sit-mode — they're biometrically equivalent.
 		if (SIT_MODES.has(seg.mode) && SIT_MODES.has(s.mode) && s.mode !== seg.mode) continue;
+		// Speed-compatibility gate: don't flip into a mode whose speed
+		// signature can't physically accommodate the observation. Catches
+		// the cadence-std-numerics quirk where cycling can score "less
+		// bad" than train at 80 km/h purely because of std-dev widths.
+		if (s.mode !== seg.mode && seg.obsSpeed !== null) {
+			const cap = MAX_SPEED_FOR_MODE[s.mode];
+			if (cap !== undefined && seg.obsSpeed > cap) continue;
+		}
 		if (score > best.score) best = { mode: s.mode, score };
 	}
 

@@ -450,6 +450,31 @@ describe("vetoImplausibleCadence", () => {
 		expect(r.mode).toBe("walking");
 	});
 
+	it("does not veto at high speeds (walking is biomechanically implausible)", () => {
+		// Train at 108 km/h with vibration-cadence 50 spm. The prior
+		// version would have demoted to cycling (the least-bad LL among
+		// alternatives, all bad at 108 km/h). The speed gate prevents
+		// the veto because walking isn't a plausible alternative here.
+		const r = vetoImplausibleCadence({ mode: "driving", obsHr: 80, obsCadence: 50, obsSpeed: 108 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(false);
+	});
+
+	it("still vetoes when speed is plausible for walking even with elevated cadence", () => {
+		// Cycling at 6 km/h is borderline-slow cycling but plausibly walking
+		// with cadence 80. Veto fires because speed is well under the 15 km/h
+		// ceiling.
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: 6 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(true);
+	});
+
+	it("does not veto when obsSpeed is null (no signal to apply speed gate)", () => {
+		// Conservative: if we don't know speed, don't gate. This preserves
+		// the legacy behaviour for callers that don't pass speed (e.g. tests
+		// or future callers that haven't computed it yet).
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: null }, PIPPIJN_STATS);
+		expect(r.changed).toBe(true);
+	});
+
 	it("respects the FLOOR even when std-dev is zero (degenerate stats)", () => {
 		// Some users have cadenceMean=0, cadenceStd=0 (pure zeros for
 		// cycling). Then mean + 2σ = 0, which would veto any obsCadence > 0.
@@ -498,6 +523,48 @@ describe("cadence-veto integration via correctModeBySignature", () => {
 		);
 		expect(r.changed).toBe(false);
 		expect(r.mode).toBe("cycling");
+	});
+});
+
+describe("correctModeBySignature speed-compatibility gate", () => {
+	// The LL-based re-classification was picking 'cycling' as the best
+	// alternative for a train segment at 80+ km/h. Reason: cycling's
+	// per-user cadenceStd was wider than train's, so when the observation
+	// had a non-zero cadence (vehicle vibration), cycling's log-likelihood
+	// was less catastrophic than train's. The gate is "you cannot flip
+	// into a mode whose speed signature is biomechanically incompatible
+	// with the observed speed."
+
+	it("does not flip a train segment at 80 km/h to cycling via LL", () => {
+		// Borderline-ambiguous classifier output: confidence margin 1.3,
+		// well inside the RELABEL_MAX_MARGIN=3 window. LL would normally
+		// pick cycling here purely on cadence-std numerics; the speed gate
+		// must block it.
+		const r = correctModeBySignature(
+			{ mode: "train", confidenceMargin: 1.3, obsHr: 80, obsCadence: 50, obsSpeed: 81 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).not.toBe("cycling");
+	});
+
+	it("does not flip a driving segment at 100 km/h to walking via LL", () => {
+		const r = correctModeBySignature(
+			{ mode: "driving", confidenceMargin: 1.5, obsHr: 80, obsCadence: 0, obsSpeed: 100 },
+			PIPPIJN_STATS,
+		);
+		expect(r.mode).not.toBe("walking");
+	});
+
+	it("still allows flips among compatible alternatives at low speeds", () => {
+		// A 6 km/h segment labelled cycling with cadence/HR consistent with
+		// walking. Walking is speed-compatible at 6 km/h, so the flip is
+		// allowed (this is the existing Noordwal-style correction).
+		const r = correctModeBySignature(
+			{ mode: "cycling", confidenceMargin: 1.5, obsHr: 100, obsCadence: 95, obsSpeed: 6 },
+			PIPPIJN_STATS,
+		);
+		expect(r.changed).toBe(true);
+		expect(r.mode).toBe("walking");
 	});
 });
 
