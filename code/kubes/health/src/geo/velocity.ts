@@ -37,6 +37,7 @@ import {
 	refineMode,
 	reverseGeocode,
 } from "./osm.js";
+import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
@@ -151,37 +152,16 @@ interface NamedPlace extends KnownPlace {
 	displayName: string | null;
 	sleepHours: number;
 	amenityLabel: string | null;
+	/** Distinct days this cluster has been visited — frequency
+	 *  prior for the place scorer. */
+	uniqueDays: number;
+	/** Total observed dwell across all visits, seconds. */
+	totalDwellSec: number;
 }
 
 /** A focus_place is "residential" if the user has slept (covered deep-night
  *  hours) at it for at least RESIDENCE_SLEEP_THRESHOLD_H total hours. */
 const RESIDENCE_SLEEP_THRESHOLD_H = 5;
-
-/**
- * Decide whether to label a stationary segment with its cluster's mined
- * `amenity_label` (Bairro Alto, Wasabi, etc.) instead of going through the
- * one-shot OSM picker. Pure function so the gate is testable independent of
- * the I/O-heavy enrichment pipeline.
- *
- * Returns true iff all of:
- *   - the segment snapped to a cluster (snappedTo non-null)
- *   - the cluster has a mined amenity_label
- *   - the cluster is NOT residential (sleepHours < threshold) — residential
- *     clusters are lodging, so the closest amenity is wrong even on daytime
- *     visits. Fitbit's overnight presence is the constraint.
- *   - the cluster is not Home/Work, which has its own labelling branch
- *     upstream and shouldn't be reached here in practice (defensive).
- */
-export function shouldUseClusterAmenity(
-	snappedTo: { displayName: string | null; sleepHours: number; amenityLabel: string | null } | null,
-	residenceThreshold: number,
-): boolean {
-	if (!snappedTo) return false;
-	if (snappedTo.amenityLabel === null) return false;
-	if (snappedTo.displayName === "Home" || snappedTo.displayName === "Work") return false;
-	if (snappedTo.sleepHours >= residenceThreshold) return false;
-	return true;
-}
 
 /** Load the user's mined per-mode biometric signatures. Returns an empty
  *  array for cold-start users (no `mode_biometrics` rows) so callers can
@@ -252,7 +232,17 @@ function applyBiometricSignature(
 async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 	const rows = await db()
 		.selectFrom("focus_places")
-		.select(["id", "centroid_lat", "centroid_lon", "radius_m", "display_name", "sleep_hours", "amenity_label"])
+		.select([
+			"id",
+			"centroid_lat",
+			"centroid_lon",
+			"radius_m",
+			"display_name",
+			"sleep_hours",
+			"amenity_label",
+			"unique_days",
+			"total_dwell_sec",
+		])
 		.where("user_id", "=", userId)
 		.execute();
 	return rows.map((r) => ({
@@ -263,7 +253,26 @@ async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 		displayName: r.display_name,
 		sleepHours: r.sleep_hours ?? 0,
 		amenityLabel: r.amenity_label,
+		uniqueDays: r.unique_days,
+		totalDwellSec: Number(r.total_dwell_sec),
 	}));
+}
+
+/** Project a loaded NamedPlace down to the shape the place-prior
+ *  scorer needs. Pure mapping — kept inline so the scorer stays
+ *  loosely coupled to the DB-touching pipeline. */
+function toPlaceCandidate(p: NamedPlace): PlaceCandidate {
+	return {
+		id: typeof p.id === "number" ? p.id : 0,
+		centroidLat: p.centroidLat,
+		centroidLon: p.centroidLon,
+		radiusM: p.radiusM ?? 50,
+		uniqueDays: p.uniqueDays,
+		totalDwellSec: p.totalDwellSec,
+		sleepHours: p.sleepHours,
+		displayName: p.displayName,
+		amenityLabel: p.amenityLabel,
+	};
 }
 
 export interface EnrichedSegment extends TrackSegment {
@@ -389,61 +398,78 @@ export async function computeVelocity(
 
 			try {
 				if (seg.mode === "stationary") {
-					let cLat = segPoints.reduce((s, p) => s + p.lat, 0) / segPoints.length;
-					let cLon = segPoints.reduce((s, p) => s + p.lon, 0) / segPoints.length;
+					const cLat = segPoints.reduce((s, p) => s + p.lat, 0) / segPoints.length;
+					const cLon = segPoints.reduce((s, p) => s + p.lon, 0) / segPoints.length;
 
-					// Stay-centroid snap: long stays accumulate centroid drift past the
-					// per-fix snap radius. Re-snap the segment centroid against known
-					// places with a generous radius so we recover from overnight drift.
-					let snappedTo: NamedPlace | null = null;
-					if (knownPlaces.length > 0) {
-						const r = snapToPlace({ lat: cLat, lon: cLon, accuracy: 200 }, knownPlaces, {
-							snapRadiusM: 100,
-							minAccuracyToSnapM: 0,
-						});
-						if (r.snapped) {
-							cLat = r.lat;
-							cLon = r.lon;
-							snappedTo = (knownPlaces.find((p) => p.id === r.snappedTo?.id) as NamedPlace) ?? null;
-							// Only Home and Work are personal labels worth showing directly;
-							// "Stay" is a category, not a useful timeline label, so for Stay
-							// we let bestPlace return the residential address instead.
-							if (snappedTo?.displayName === "Home" || snappedTo?.displayName === "Work") {
-								// Still call bestPlace (cache hit) so we can attach a city
-								// for timeline grouping — keep the personal label.
-								const namedPlace = await bestPlace(cLat, cLon, { preferResidential: true });
+					// Probabilistic place assignment: rank candidates from
+					// focus_places by combined log-likelihood (Gaussian on
+					// distance, σ = empirical radius) + log-prior (visit
+					// frequency, time-of-day match against sleep_hours /
+					// awake_hours). Replaces the old snap-radius +
+					// residential-hours-threshold + amenity-gate chain.
+					// See `src/geo/place-prior.ts`.
+					const isSleepWindow = hasOvernightPresence(seg.startTs, seg.endTs, cLon);
+					const winner =
+						knownPlaces.length > 0
+							? pickBestPlace(knownPlaces.map(toPlaceCandidate), cLat, cLon, { isSleepWindow })
+							: null;
+
+					if (winner !== null) {
+						const wp = knownPlaces.find((p) => p.id === winner.winner.id) ?? null;
+						if (wp !== null) {
+							// Snap the centroid to the place's stored centroid
+							// so downstream OSM-amenity / city lookup runs at the
+							// place's "true" coordinates instead of the day's
+							// noisy aggregate.
+							const placeLat = wp.centroidLat;
+							const placeLon = wp.centroidLon;
+
+							// Personal label (Home / Work / …) wins outright.
+							if (wp.displayName) {
+								const namedPlace = await bestPlace(placeLat, placeLon, { preferResidential: true });
 								const namedCity = extractCity(namedPlace);
 								return {
 									...seg,
-									place: snappedTo.displayName,
+									place: wp.displayName,
 									...(namedCity ? { city: namedCity } : {}),
 								};
 							}
-							// Per-cluster amenity label: when refresh-focus-places has
-							// majority-voted across the user's visits and produced a
-							// confident venue name, prefer that over the per-visit OSM
-							// picker — except for residential clusters, where Fitbit's
-							// sleep data tells us the user is at lodging, not at the
-							// closest cafe. See `shouldUseClusterAmenity`.
-							if (shouldUseClusterAmenity(snappedTo, RESIDENCE_SLEEP_THRESHOLD_H) && snappedTo?.amenityLabel) {
-								const namedPlace = await bestPlace(cLat, cLon, { preferResidential: false });
+							// Mined cluster-level amenity_label (majority-vote
+							// across the user's prior visits to this cluster)
+							// when the cluster isn't residential. Residential
+							// clusters fall through to the address lookup —
+							// "Plein 1944 187" beats "Bairro Alto Café"
+							// because the cluster's sleep_hours dwarfs its
+							// awake_hours.
+							const isResidential = wp.sleepHours >= RESIDENCE_SLEEP_THRESHOLD_H;
+							if (!isResidential && wp.amenityLabel) {
+								const namedPlace = await bestPlace(placeLat, placeLon, { preferResidential: false });
 								const namedCity = extractCity(namedPlace);
 								return {
 									...seg,
-									place: snappedTo.amenityLabel,
+									place: wp.amenityLabel,
 									...(namedCity ? { city: namedCity } : {}),
 								};
 							}
+							// Residential without a personal label, or no mined
+							// amenity_label — fall through to bestPlace at the
+							// snapped centroid, preferring the residential
+							// address.
+							const place = await bestPlace(placeLat, placeLon, { preferResidential: isResidential });
+							if (!place) return seg;
+							const city = extractCity(place);
+							return {
+								...seg,
+								place: placeLabel(place),
+								...(city ? { city } : {}),
+							};
 						}
 					}
 
-					// "Is this a residential place?" — if the snapped focus_place has
-					// significant deep-night history, the cluster is residential and
-					// every stay there gets the address label, not the closest amenity.
-					// Falls back to per-stay overnight check for unsnapped centroids.
-					const preferResidential =
-						(snappedTo !== null && snappedTo.sleepHours >= RESIDENCE_SLEEP_THRESHOLD_H) ||
-						hasOvernightPresence(seg.startTs, seg.endTs, cLon);
+					// No focus_place crossed the posterior floor — this is a
+					// stay somewhere new. Use the day's centroid and the
+					// per-stay overnight check to decide residential preference.
+					const preferResidential = isSleepWindow;
 					const place = await bestPlace(cLat, cLon, { preferResidential });
 					if (!place) return seg;
 					const city = extractCity(place);

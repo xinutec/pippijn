@@ -2,13 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
 import type { TransportMode } from "../src/geo/segments.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
-import {
-	annotateRailRuns,
-	composeWayName,
-	mergeAdjacentMoving,
-	mergeAdjacentStays,
-	shouldUseClusterAmenity,
-} from "../src/geo/velocity.js";
+import { annotateRailRuns, composeWayName, mergeAdjacentMoving, mergeAdjacentStays } from "../src/geo/velocity.js";
 
 function stay(startTs: number, endTs: number, place: string | undefined, pointCount = 5): EnrichedSegment {
 	return {
@@ -1000,62 +994,5 @@ describe("annotateRailRuns", () => {
 		// train run's annotation should reference Kings Cross.
 		const lastTrain = out[out.length - 1];
 		expect(lastTrain.wayName).toBe("Kings Cross St Pancras → Wembley Park");
-	});
-});
-
-describe("shouldUseClusterAmenity", () => {
-	// Per-cluster amenity_label from mining (Bairro Alto, Wasabi, etc.) is
-	// the right label for a non-residential cluster. For a *residential*
-	// cluster — one where Fitbit data shows you sleep there — the closest
-	// amenity is the wrong concept (you're at the lodging, not at the
-	// restaurant next door). This gate decides.
-	const THRESHOLD = 5;
-
-	const place = (
-		overrides: Partial<{ displayName: string | null; sleepHours: number; amenityLabel: string | null }>,
-	) => ({
-		displayName: null,
-		sleepHours: 0,
-		amenityLabel: "Bairro Alto",
-		...overrides,
-	});
-
-	it("returns true for a non-residential cluster with an amenity_label", () => {
-		expect(shouldUseClusterAmenity(place({ sleepHours: 0, amenityLabel: "Bairro Alto" }), THRESHOLD)).toBe(true);
-	});
-
-	it("returns false when the cluster has no amenity_label", () => {
-		expect(shouldUseClusterAmenity(place({ amenityLabel: null }), THRESHOLD)).toBe(false);
-	});
-
-	it("returns false for a residential cluster even when amenity_label is set", () => {
-		// The Nijmegen hotel case: 118h dwell with sustained overnight
-		// presence → sleep_hours well above threshold → amenity_label
-		// "Zappa's" is the adjacent restaurant, not where the user is.
-		// Address-based residential lookup should win instead.
-		expect(shouldUseClusterAmenity(place({ sleepHours: 80, amenityLabel: "Zappa's" }), THRESHOLD)).toBe(false);
-	});
-
-	it("returns false when sleepHours is exactly at the threshold", () => {
-		// Threshold is exclusive: >= threshold means residential.
-		expect(shouldUseClusterAmenity(place({ sleepHours: THRESHOLD, amenityLabel: "X" }), THRESHOLD)).toBe(false);
-	});
-
-	it("returns true when sleepHours is just below the threshold", () => {
-		expect(shouldUseClusterAmenity(place({ sleepHours: THRESHOLD - 0.01, amenityLabel: "X" }), THRESHOLD)).toBe(true);
-	});
-
-	it("returns false when the cluster is Home (Home/Work label takes priority)", () => {
-		// Home/Work clusters are handled by a separate branch that names
-		// them by user intent ("Home", "Work"). amenity_label is not used.
-		expect(shouldUseClusterAmenity(place({ displayName: "Home", amenityLabel: "X" }), THRESHOLD)).toBe(false);
-	});
-
-	it("returns false when the cluster is Work", () => {
-		expect(shouldUseClusterAmenity(place({ displayName: "Work", amenityLabel: "X" }), THRESHOLD)).toBe(false);
-	});
-
-	it("returns false for a null snappedTo (no cluster to consult)", () => {
-		expect(shouldUseClusterAmenity(null, THRESHOLD)).toBe(false);
 	});
 });
