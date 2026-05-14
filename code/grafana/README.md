@@ -33,10 +33,12 @@ wrapper exports them from the token file. Run from anywhere — `sync.sh`
 
 ## What's tracked
 
-- `dashboards/picade-monitoring.yaml` — public view on Picade metrics.
+- `dashboards/fleet-monitoring.yaml` — public CPU / temperature /
+  memory / disk / network view across hosts running grafana-agent
+  or Alloy (Picade + amun/isis/odin servers). Multi-select `$host`
+  template variable filters per host.
 
 Future additions:
-- Custom fleet-overview dashboards
 - Grafana-managed alert rules (the `grr` Kind is `AlertRuleGroup`)
 - Real contact points (Pushover, Matrix, Signal — whatever wins the
   "page me at 03:00" criterion)
