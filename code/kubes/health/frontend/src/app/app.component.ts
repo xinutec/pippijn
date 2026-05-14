@@ -1,5 +1,4 @@
-import { Component, OnInit, inject, signal } from "@angular/core";
-import { ActivatedRoute, Router } from "@angular/router";
+import { Component, OnInit, signal } from "@angular/core";
 import { MatToolbarModule } from "@angular/material/toolbar";
 import { MatButtonModule } from "@angular/material/button";
 import { MatIconModule } from "@angular/material/icon";
@@ -54,9 +53,6 @@ export class AppComponent implements OnInit {
   readonly loading = signal(true);
   readonly dayLoading = signal(false);
 
-  private readonly route = inject(ActivatedRoute);
-  private readonly router = inject(Router);
-
   constructor(readonly health: HealthService) {}
 
   /** Validate a ?date=YYYY-MM-DD query parameter. Rejects malformed
@@ -68,18 +64,29 @@ export class AppComponent implements OnInit {
     return raw;
   }
 
-  /** Sync `selectedDate` into the URL as `?date=`. Omits the parameter
-   *  for today so the canonical URL stays clean. Replaces history so a
-   *  single reload doesn't pile up entries; left/right navigation pushes
-   *  a new entry so back/forward work as expected. */
+  /** Sync `selectedDate` into the URL as `?date=`. Preserves the
+   *  current pathname (matters in share mode where it's
+   *  `/share/<token>`), and only mutates the date query parameter
+   *  while leaving any unrelated query params alone.
+   *
+   *  Uses `history.pushState`/`replaceState` directly rather than
+   *  Angular Router because the SPA doesn't define an Angular Route
+   *  for `/share/:token` — Router would treat it as `/` and strip
+   *  the prefix. Direct history manipulation also avoids the
+   *  Router subscription firing a redundant load. */
   private writeDateToUrl(date: string, push: boolean): void {
-    const queryParams = date === todayLocal() ? { date: null } : { date };
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams,
-      queryParamsHandling: "merge",
-      replaceUrl: !push,
-    });
+    const url = new URL(window.location.href);
+    if (date === todayLocal()) {
+      url.searchParams.delete("date");
+    } else {
+      url.searchParams.set("date", date);
+    }
+    const target = url.pathname + (url.search ? url.search : "") + url.hash;
+    if (push) {
+      window.history.pushState(null, "", target);
+    } else {
+      window.history.replaceState(null, "", target);
+    }
   }
 
   async ngOnInit(): Promise<void> {
@@ -119,19 +126,17 @@ export class AppComponent implements OnInit {
     if (!this.fitbitLinked()) { this.loading.set(false); return; }
 
     // Restore the day from `?date=YYYY-MM-DD` on first paint so reload
-    // stays on the day the user navigated to.
-    const initial = this.parseDateParam(this.route.snapshot.queryParamMap.get("date"));
+    // stays on the day the user navigated to. Reads directly from
+    // window.location since we don't use Angular Router for the
+    // dashboard (share-mode paths are `/share/<token>`, which the
+    // Router doesn't know about).
+    const initial = this.parseDateParam(new URL(window.location.href).searchParams.get("date"));
     if (initial !== null) this.selectedDate.set(initial);
 
-    // Browser back/forward: when the user changes the URL externally
-    // (history nav, hand-edit), sync the in-app state.
-    this.route.queryParamMap.subscribe(async (params) => {
-      const next = this.parseDateParam(params.get("date")) ?? todayLocal();
-      if (next === this.selectedDate()) return;
-      this.selectedDate.set(next);
-      this.dayLoading.set(true);
-      await this.loadData();
-      this.dayLoading.set(false);
+    // Browser back/forward: history.pushState bypasses Router's
+    // queryParamMap subscription, so listen to popstate instead.
+    window.addEventListener("popstate", () => {
+      void this.handleUrlChange();
     });
 
     // Fire-and-forget: keep PhoneTrack's visualisation filter aligned with
@@ -187,11 +192,30 @@ export class AppComponent implements OnInit {
     if (newDate > this.rightEdge()) return;
     const left = this.leftEdge();
     if (left !== null && newDate < left) return;
-    // Push to URL — the queryParamMap subscription in ngOnInit drives
-    // the rest (sets the signal, triggers loadData). Single source of
-    // truth so back/forward navigation and in-app left/right behave
-    // identically.
+    if (newDate === this.selectedDate()) return;
     this.writeDateToUrl(newDate, /* push */ true);
+    this.selectedDate.set(newDate);
+    this.dayLoading.set(true);
+    try {
+      await this.loadData();
+    } finally {
+      this.dayLoading.set(false);
+    }
+  }
+
+  /** Re-sync state from the URL after a browser back/forward (popstate).
+   *  The in-app left/right buttons drive `changeDay` directly; only
+   *  history navigation lands here. */
+  private async handleUrlChange(): Promise<void> {
+    const next = this.parseDateParam(new URL(window.location.href).searchParams.get("date")) ?? todayLocal();
+    if (next === this.selectedDate()) return;
+    this.selectedDate.set(next);
+    this.dayLoading.set(true);
+    try {
+      await this.loadData();
+    } finally {
+      this.dayLoading.set(false);
+    }
   }
 
   isToday(): boolean {
