@@ -119,6 +119,7 @@ import { HealthService, type ShareStatus } from "../../services/health.service";
 			border: 1px solid var(--mat-sys-outline);
 			border-radius: 4px;
 			background: var(--mat-sys-surface-variant);
+			color: var(--mat-sys-on-surface-variant);
 		}
 		.meta { color: var(--mat-sys-on-surface-variant); margin: 0.5rem 0; }
 		.actions { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
