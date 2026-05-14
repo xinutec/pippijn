@@ -149,6 +149,24 @@ const SIT_MODES = new Set(["driving", "train", "plane"]);
  *  observed HR is several σ below cycling's mean. */
 const HR_VETO_SIGMA = 2.0;
 
+/** Number of stds ABOVE the per-mode cadence mean at which the
+ *  observed cadence becomes implausible for a "cadence ≈ 0" mode
+ *  (cycling / driving / train / plane). */
+const CADENCE_VETO_SIGMA = 2.0;
+
+/** Floor on the cadence-veto threshold. Some users have a degenerate
+ *  per-mode cadence distribution (mean=0, std=0 — every training
+ *  sample was exactly zero), which would make mean + 2σ = 0 and veto
+ *  *any* non-zero observed cadence. A floor of 30 spm cleanly separates
+ *  pedalling-with-occasional-step-noise (typically 0-10 spm) from
+ *  actual walking (~80-130 spm). */
+const CADENCE_VETO_FLOOR_SPM = 30;
+
+/** Modes whose biometric signature is "cadence ≈ 0" (pedalling /
+ *  sitting / standing). A walking-range observed cadence inside one
+ *  of these modes is biologically implausible. */
+const LOW_CADENCE_MODES = new Set(["cycling", "driving", "train", "plane"]);
+
 /** Hard veto: when the segment's observed HR is more than
  *  HR_VETO_SIGMA std-devs below the current mode's HR mean, the
  *  classification is biologically implausible regardless of how
@@ -194,6 +212,47 @@ export function vetoImplausibleHr(
 	return { mode: best.mode, changed: true };
 }
 
+/** Hard veto: when the segment is labelled one of the low-cadence
+ *  modes (cycling / driving / train / plane) but the observed cadence
+ *  is in walking range, the classification is biologically implausible.
+ *  Demote to the highest-log-likelihood alternative.
+ *
+ *  Sibling to `vetoImplausibleHr`. Catches the case where HR sits in
+ *  the cycling-borderline band (so HR-veto doesn't fire) but step
+ *  cadence ~80 spm gives the walk away. April 29 motivator: Noordwal +
+ *  Mauritskade phantom-cycling segments with cadence 80/86 spm.
+ *
+ *  Returns no-change when:
+ *    - mode is not in LOW_CADENCE_MODES;
+ *    - obsCadence is null;
+ *    - no stats row for the current mode (cold-start user);
+ *    - the current mode's stats row has no cadence distribution;
+ *    - obsCadence is within max(mean + 2σ, FLOOR_SPM).
+ */
+export function vetoImplausibleCadence(
+	seg: { mode: string; obsHr: number | null; obsCadence: number | null; obsSpeed: number | null },
+	stats: readonly ModeStats[],
+): { mode: string; changed: boolean } {
+	if (!LOW_CADENCE_MODES.has(seg.mode)) return { mode: seg.mode, changed: false };
+	if (seg.obsCadence === null) return { mode: seg.mode, changed: false };
+	const cur = stats.find((s) => s.mode === seg.mode);
+	if (!cur || cur.cadenceMean === null || cur.cadenceStd === null) {
+		return { mode: seg.mode, changed: false };
+	}
+	const maxPlausible = Math.max(cur.cadenceMean + CADENCE_VETO_SIGMA * cur.cadenceStd, CADENCE_VETO_FLOOR_SPM);
+	if (seg.obsCadence <= maxPlausible) return { mode: seg.mode, changed: false };
+
+	const obs: MinuteObservation = { hr: seg.obsHr, cadence: seg.obsCadence, speed: seg.obsSpeed };
+	let best: { mode: string; score: number } | null = null;
+	for (const s of stats) {
+		if (s.mode === seg.mode) continue;
+		const sc = scoreModeLogLikelihood(obs, s);
+		if (best === null || sc > best.score) best = { mode: s.mode, score: sc };
+	}
+	if (best === null) return { mode: seg.mode, changed: false };
+	return { mode: best.mode, changed: true };
+}
+
 /**
  * Decide whether to relabel a segment's mode based on per-user
  * biometric signatures. Returns the chosen mode plus whether a change
@@ -220,11 +279,14 @@ export function correctModeBySignature(
 ): { mode: string; changed: boolean } {
 	if (seg.mode === "stationary") return { mode: seg.mode, changed: false };
 
-	// HR veto runs FIRST, before the confidence-margin gate: a
+	// Biometric vetoes run FIRST, before the confidence-margin gate: a
 	// classifier that's "confident" about cycling can still be
-	// biologically impossible if HR sits in the resting band.
-	const veto = vetoImplausibleHr(seg, stats);
-	if (veto.changed) return veto;
+	// biologically impossible if HR sits in the resting band or
+	// cadence is in walking range.
+	const hrVeto = vetoImplausibleHr(seg, stats);
+	if (hrVeto.changed) return hrVeto;
+	const cadenceVeto = vetoImplausibleCadence(seg, stats);
+	if (cadenceVeto.changed) return cadenceVeto;
 
 	if (seg.confidenceMargin >= RELABEL_MAX_MARGIN) return { mode: seg.mode, changed: false };
 	if (stats.length === 0) return { mode: seg.mode, changed: false };

@@ -6,6 +6,7 @@ import {
 	type MinuteObservation,
 	type ModeStats,
 	scoreModeLogLikelihood,
+	vetoImplausibleCadence,
 	vetoImplausibleHr,
 } from "../src/geo/mode-biometrics.js";
 
@@ -367,6 +368,136 @@ describe("vetoImplausibleHr", () => {
 		// pins down that the veto picks a movement-compatible
 		// mode, not e.g. plane.
 		expect(["walking", "stationary"]).toContain(r.mode);
+	});
+});
+
+describe("vetoImplausibleCadence", () => {
+	// Sibling to vetoImplausibleHr. Cycling, driving, train, and plane all
+	// share the signature "cadence ≈ 0" — pedalling / sitting / standing
+	// quietly don't register as steps. A segment labelled one of these
+	// modes whose observed cadence is in walking range (~80-130 spm) is
+	// biologically implausible; the user was walking, not cycling.
+	//
+	// April 29 motivator: Noordwal segment classified as cycling with HR
+	// 97 and steps 1614 in 20 min → cadence 80 spm. HR is in cycling's
+	// borderline range (~107 ± 6 mean), so vetoImplausibleHr doesn't fire.
+	// Cadence is decisive.
+
+	it("vetoes a cycling label when observed cadence is in walking range", () => {
+		// Noordwal: 80 spm at HR 97. Cycling cadenceMean=0 std=0.8 → 2σ
+		// + floor 30 → threshold 30. 80 >> 30, demote.
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: 6 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(true);
+		expect(r.mode).not.toBe("cycling");
+	});
+
+	it("does not veto when cadence is plausibly zero (real cycling)", () => {
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 130, obsCadence: 0, obsSpeed: 18 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(false);
+	});
+
+	it("does not veto when cadence is small noise (e.g. 5 spm — incidental steps while pedalling)", () => {
+		// A noisy cadence reading of 5 spm during real cycling shouldn't
+		// trigger a flip. Floor 30 protects against this.
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 120, obsCadence: 5, obsSpeed: 18 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(false);
+	});
+
+	it("does not veto when obsCadence is null (no evidence)", () => {
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 110, obsCadence: null, obsSpeed: 18 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(false);
+	});
+
+	it("does not veto a walking-labeled segment (mode-symmetry intentional)", () => {
+		// The cadence-veto is for low-cadence modes only. Walking already
+		// expects high cadence — a walking segment with high cadence is
+		// just confirmation, not a veto target.
+		const r = vetoImplausibleCadence({ mode: "walking", obsHr: 110, obsCadence: 105, obsSpeed: 5 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(false);
+	});
+
+	it("does not veto a stationary segment (low cadence is its signature)", () => {
+		const r = vetoImplausibleCadence({ mode: "stationary", obsHr: 70, obsCadence: 0, obsSpeed: 0 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(false);
+	});
+
+	it("vetoes driving if observed cadence is in walking range", () => {
+		// A "driving" misclassification of a brisk walk — high cadence
+		// gives it away.
+		const r = vetoImplausibleCadence({ mode: "driving", obsHr: 105, obsCadence: 100, obsSpeed: 5 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(true);
+	});
+
+	it("does not veto when no stats row exists for the current mode (cold start)", () => {
+		const noCyclingStats = PIPPIJN_STATS.filter((s) => s.mode !== "cycling");
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 100, obsCadence: 80, obsSpeed: 6 }, noCyclingStats);
+		expect(r.changed).toBe(false);
+	});
+
+	it("does not veto when the current mode's stats have no cadence distribution", () => {
+		const cyclingNoCadence = PIPPIJN_STATS.map((s) =>
+			s.mode === "cycling" ? { ...s, cadenceMean: null, cadenceStd: null, cadenceSampleCount: 0 } : s,
+		);
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 100, obsCadence: 80, obsSpeed: 6 }, cyclingNoCadence);
+		expect(r.changed).toBe(false);
+	});
+
+	it("after vetoing, picks the highest-log-likelihood alternative", () => {
+		// HR 97 + cadence 80 + speed 6: walking signature fits best
+		// (HR ~108 ± 14, cadence ~107 ± 11, speed ~5.1 ± 1.1).
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: 6 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(true);
+		expect(r.mode).toBe("walking");
+	});
+
+	it("respects the FLOOR even when std-dev is zero (degenerate stats)", () => {
+		// Some users have cadenceMean=0, cadenceStd=0 (pure zeros for
+		// cycling). Then mean + 2σ = 0, which would veto any obsCadence > 0.
+		// Floor 30 prevents this false positive at small cadence noise.
+		const cyclingDegenerate = PIPPIJN_STATS.map((s) =>
+			s.mode === "cycling" ? { ...s, cadenceMean: 0, cadenceStd: 0, cadenceSampleCount: 60 } : s,
+		);
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 120, obsCadence: 20, obsSpeed: 18 }, cyclingDegenerate);
+		expect(r.changed).toBe(false);
+	});
+});
+
+describe("cadence-veto integration via correctModeBySignature", () => {
+	it("flips Noordwal phantom-cycling to walking at high confidence margin", () => {
+		// April 29 12:32-12:53 Noordwal observed: cycling label,
+		// confidenceMargin 11.3, HR 97, cadence 80 (1614 steps / 20 min),
+		// speed 5.7 km/h. HR-veto threshold for cycling is 107 - 2*6 = 95;
+		// HR 97 is just above → HR-veto doesn't fire. LL gate is locked
+		// out by the high confidence margin. Cadence-veto is what saves
+		// us: 80 spm is way over the cycling cadence threshold.
+		const r = correctModeBySignature(
+			{ mode: "cycling", confidenceMargin: 11.3, obsHr: 97, obsCadence: 80, obsSpeed: 5.7 },
+			PIPPIJN_STATS,
+		);
+		expect(r.changed).toBe(true);
+		expect(r.mode).toBe("walking");
+	});
+
+	it("flips Mauritskade phantom-cycling to walking", () => {
+		// April 29 16:56-17:41 Mauritskade observed: cycling label,
+		// confidenceMargin 7.8, HR 104, cadence 86, speed 4.4 km/h.
+		const r = correctModeBySignature(
+			{ mode: "cycling", confidenceMargin: 7.8, obsHr: 104, obsCadence: 86, obsSpeed: 4.4 },
+			PIPPIJN_STATS,
+		);
+		expect(r.changed).toBe(true);
+		expect(r.mode).toBe("walking");
+	});
+
+	it("preserves genuine cycling at high confidence margin (cadence 0)", () => {
+		// A real cycling segment: zero cadence, cycling HR, cycling speed.
+		// High confidence margin must NOT trigger a cadence-veto here.
+		const r = correctModeBySignature(
+			{ mode: "cycling", confidenceMargin: 11.0, obsHr: 130, obsCadence: 0, obsSpeed: 18 },
+			PIPPIJN_STATS,
+		);
+		expect(r.changed).toBe(false);
+		expect(r.mode).toBe("cycling");
 	});
 });
 
