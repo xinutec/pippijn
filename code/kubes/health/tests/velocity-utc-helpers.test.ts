@@ -1,43 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { utcDatetimeStrToSeconds, utcSecondsToDatetimeStr } from "../src/geo/velocity.js";
 
-describe("utcSecondsToDatetimeStr", () => {
-	it("formats unix seconds as 'YYYY-MM-DD HH:MM:SS' UTC", () => {
+describe("UTC datetime helpers", () => {
+	it("round-trips between unix seconds and the 'YYYY-MM-DD HH:MM:SS' UTC string", () => {
 		// 1778414400 = 2026-05-10T12:00:00Z
-		expect(utcSecondsToDatetimeStr(1778414400)).toBe("2026-05-10 12:00:00");
+		const unix = 1778414400;
+		expect(utcSecondsToDatetimeStr(unix)).toBe("2026-05-10 12:00:00");
+		expect(utcDatetimeStrToSeconds("2026-05-10 12:00:00")).toBe(unix);
+		expect(utcDatetimeStrToSeconds(utcSecondsToDatetimeStr(unix))).toBe(unix);
 	});
 
-	it("rounds away sub-second precision", () => {
-		expect(utcSecondsToDatetimeStr(1778414400)).toBe("2026-05-10 12:00:00");
-	});
-});
-
-describe("utcDatetimeStrToSeconds", () => {
-	it("parses a DATE_FORMAT-shaped UTC string", () => {
-		expect(utcDatetimeStrToSeconds("2026-05-10 12:00:00")).toBe(1778414400);
-	});
-
-	it("parses an ISO-shaped string from the mariadb driver", () => {
-		// fitbitTsToUnix accepts this shape — the driver hangs a misleading
-		// Z suffix on a DATETIME serialised to ISO. We treat components as
-		// UTC regardless.
+	it("parses both shapes the mariadb driver returns: ISO string and Date", () => {
+		// REGRESSION: the prod hot-fix bug — the driver returns a Date object for
+		// `select(["ts_utc"])` (raw column) but a string for `DATE_FORMAT(...)`.
+		// Both must work; an earlier version called `s.replace(...)` and crashed
+		// on the Date case.
 		expect(utcDatetimeStrToSeconds("2026-05-10T12:00:00.000Z")).toBe(1778414400);
-	});
-
-	it("parses a Date object from the mariadb driver", () => {
-		// REGRESSION: an earlier version of this helper called `s.replace(...)`,
-		// which crashed at runtime on the Date the driver returns for a raw
-		// SELECT against a DATETIME column. The fix accepts both inputs.
-		const driverDate = new Date("2026-05-10T12:00:00.000Z");
-		expect(utcDatetimeStrToSeconds(driverDate)).toBe(1778414400);
+		expect(utcDatetimeStrToSeconds(new Date("2026-05-10T12:00:00.000Z"))).toBe(1778414400);
 	});
 
 	it("returns NaN for a malformed input", () => {
 		expect(Number.isNaN(utcDatetimeStrToSeconds("not a date"))).toBe(true);
-	});
-
-	it("round-trips with utcSecondsToDatetimeStr", () => {
-		const unix = 1778414400;
-		expect(utcDatetimeStrToSeconds(utcSecondsToDatetimeStr(unix))).toBe(unix);
 	});
 });

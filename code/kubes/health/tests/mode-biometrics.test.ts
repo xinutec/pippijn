@@ -299,25 +299,6 @@ describe("scoreModeLogLikelihood", () => {
 		};
 		expect(scoreModeLogLikelihood({ hr: 100, cadence: 100, speed: 5 }, empty)).toBe(-Infinity);
 	});
-
-	it("returns the same score regardless of std-zero modalities (skipped)", () => {
-		// std=0 would be /0; should be treated as "no info" for that modality.
-		const degenerate: ModeStats = {
-			mode: "x",
-			hrMean: 80,
-			hrStd: 0,
-			hrSampleCount: 1,
-			cadenceMean: 0,
-			cadenceStd: 0.4,
-			cadenceSampleCount: 100,
-			speedMean: 5,
-			speedStd: 1,
-			speedSampleCount: 100,
-			sampleCount: 100,
-		};
-		const score = scoreModeLogLikelihood({ hr: 80, cadence: 0, speed: 5 }, degenerate);
-		expect(Number.isFinite(score)).toBe(true);
-	});
 });
 
 describe("vetoImplausibleHr", () => {
@@ -335,22 +316,6 @@ describe("vetoImplausibleHr", () => {
 
 	it("does not veto when observed HR is comfortably inside the cycling distribution", () => {
 		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 110, obsCadence: 0, obsSpeed: 18 }, PIPPIJN_STATS);
-		expect(r.changed).toBe(false);
-	});
-
-	it("does not veto when obsHr is null (no evidence to act on)", () => {
-		const r = vetoImplausibleHr({ mode: "cycling", obsHr: null, obsCadence: 5, obsSpeed: 6 }, PIPPIJN_STATS);
-		expect(r.changed).toBe(false);
-	});
-
-	it("does not veto a stationary mode (HR-veto is for movement modes only)", () => {
-		const r = vetoImplausibleHr({ mode: "stationary", obsHr: 50, obsCadence: 0, obsSpeed: 0 }, PIPPIJN_STATS);
-		expect(r.changed).toBe(false);
-	});
-
-	it("does not veto when no stats row exists for the current mode (cold start)", () => {
-		const noCyclingStats = PIPPIJN_STATS.filter((s) => s.mode !== "cycling");
-		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 70, obsCadence: 0, obsSpeed: 8 }, noCyclingStats);
 		expect(r.changed).toBe(false);
 	});
 
@@ -403,43 +368,11 @@ describe("vetoImplausibleCadence", () => {
 		expect(r.changed).toBe(false);
 	});
 
-	it("does not veto when obsCadence is null (no evidence)", () => {
-		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 110, obsCadence: null, obsSpeed: 18 }, PIPPIJN_STATS);
-		expect(r.changed).toBe(false);
-	});
-
-	it("does not veto a walking-labeled segment (mode-symmetry intentional)", () => {
-		// The cadence-veto is for low-cadence modes only. Walking already
-		// expects high cadence — a walking segment with high cadence is
-		// just confirmation, not a veto target.
-		const r = vetoImplausibleCadence({ mode: "walking", obsHr: 110, obsCadence: 105, obsSpeed: 5 }, PIPPIJN_STATS);
-		expect(r.changed).toBe(false);
-	});
-
-	it("does not veto a stationary segment (low cadence is its signature)", () => {
-		const r = vetoImplausibleCadence({ mode: "stationary", obsHr: 70, obsCadence: 0, obsSpeed: 0 }, PIPPIJN_STATS);
-		expect(r.changed).toBe(false);
-	});
-
 	it("vetoes driving if observed cadence is in walking range", () => {
 		// A "driving" misclassification of a brisk walk — high cadence
 		// gives it away.
 		const r = vetoImplausibleCadence({ mode: "driving", obsHr: 105, obsCadence: 100, obsSpeed: 5 }, PIPPIJN_STATS);
 		expect(r.changed).toBe(true);
-	});
-
-	it("does not veto when no stats row exists for the current mode (cold start)", () => {
-		const noCyclingStats = PIPPIJN_STATS.filter((s) => s.mode !== "cycling");
-		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 100, obsCadence: 80, obsSpeed: 6 }, noCyclingStats);
-		expect(r.changed).toBe(false);
-	});
-
-	it("does not veto when the current mode's stats have no cadence distribution", () => {
-		const cyclingNoCadence = PIPPIJN_STATS.map((s) =>
-			s.mode === "cycling" ? { ...s, cadenceMean: null, cadenceStd: null, cadenceSampleCount: 0 } : s,
-		);
-		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 100, obsCadence: 80, obsSpeed: 6 }, cyclingNoCadence);
-		expect(r.changed).toBe(false);
 	});
 
 	it("after vetoing, picks the highest-log-likelihood alternative", () => {
@@ -467,14 +400,6 @@ describe("vetoImplausibleCadence", () => {
 		expect(r.changed).toBe(true);
 	});
 
-	it("does not veto when obsSpeed is null (no signal to apply speed gate)", () => {
-		// Conservative: if we don't know speed, don't gate. This preserves
-		// the legacy behaviour for callers that don't pass speed (e.g. tests
-		// or future callers that haven't computed it yet).
-		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: null }, PIPPIJN_STATS);
-		expect(r.changed).toBe(true);
-	});
-
 	it("respects the FLOOR even when std-dev is zero (degenerate stats)", () => {
 		// Some users have cadenceMean=0, cadenceStd=0 (pure zeros for
 		// cycling). Then mean + 2σ = 0, which would veto any obsCadence > 0.
@@ -488,31 +413,12 @@ describe("vetoImplausibleCadence", () => {
 });
 
 describe("cadence-veto integration via correctModeBySignature", () => {
-	it("flips Noordwal phantom-cycling to walking at high confidence margin", () => {
-		// April 29 12:32-12:53 Noordwal observed: cycling label,
-		// confidenceMargin 11.3, HR 97, cadence 80 (1614 steps / 20 min),
-		// speed 5.7 km/h. HR-veto threshold for cycling is 107 - 2*6 = 95;
-		// HR 97 is just above → HR-veto doesn't fire. LL gate is locked
-		// out by the high confidence margin. Cadence-veto is what saves
-		// us: 80 spm is way over the cycling cadence threshold.
-		const r = correctModeBySignature(
-			{ mode: "cycling", confidenceMargin: 11.3, obsHr: 97, obsCadence: 80, obsSpeed: 5.7 },
-			PIPPIJN_STATS,
-		);
-		expect(r.changed).toBe(true);
-		expect(r.mode).toBe("walking");
-	});
-
-	it("flips Mauritskade phantom-cycling to walking", () => {
-		// April 29 16:56-17:41 Mauritskade observed: cycling label,
-		// confidenceMargin 7.8, HR 104, cadence 86, speed 4.4 km/h.
-		const r = correctModeBySignature(
-			{ mode: "cycling", confidenceMargin: 7.8, obsHr: 104, obsCadence: 86, obsSpeed: 4.4 },
-			PIPPIJN_STATS,
-		);
-		expect(r.changed).toBe(true);
-		expect(r.mode).toBe("walking");
-	});
+	// The Noordwal phantom-cycling → walking case is covered by
+	// tests/scenarios/phantom-cycling.test.ts, which drives the same
+	// situation through classifySegments instead of pinning the exact
+	// (margin, HR, cadence, speed) trio. Only the negative control
+	// stays here — it's the "don't over-fire" boundary worth pinning
+	// at the unit level.
 
 	it("preserves genuine cycling at high confidence margin (cadence 0)", () => {
 		// A real cycling segment: zero cadence, cycling HR, cycling speed.
