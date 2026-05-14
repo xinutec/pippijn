@@ -20,8 +20,10 @@ import {
 	type Cluster,
 	classifyCluster,
 	detectFocusPlaces,
+	type FitbitSleepWindow,
 	pickWinningAmenity,
 	type RawPoint,
+	sleepHoursFromFitbit,
 	sleepHoursOf,
 	uniqueDayCount,
 } from "../geo/focus-places.js";
@@ -110,14 +112,42 @@ async function refreshOne(userId: string): Promise<void> {
 		`[${userId}] ${points.length} points (fetch ${fetchMs}ms) → ${result.stays.length} stays → ${result.clusters.length} clusters (${Date.now() - t1}ms)`,
 	);
 
+	// Load Fitbit sleep windows covering the same lookback period so
+	// `sleepHoursFromFitbit` can compute per-cluster actual-sleep hours
+	// instead of the local-clock 02:00–06:00 heuristic. Falls back to
+	// the old heuristic for users without Fitbit data.
+	const sleepRows = await db()
+		.selectFrom("sleep")
+		.select(["start_time", "end_time"])
+		.where("user_id", "=", userId)
+		.where("is_main_sleep", "=", true)
+		.execute();
+	const fitbitSleepWindows: FitbitSleepWindow[] = sleepRows.map((r) => ({
+		startTs: Math.floor(new Date(r.start_time).getTime() / 1000),
+		endTs: Math.floor(new Date(r.end_time).getTime() / 1000),
+	}));
+	const hasFitbitSleep = fitbitSleepWindows.length > 0;
+	console.log(`[${userId}] loaded ${fitbitSleepWindows.length} Fitbit sleep windows for mining`);
+
 	// Mine per-cluster amenity label by aggregating OSM picks across all
 	// the cluster's stays (time-weighted). A cluster the user has visited
 	// many times converges on the true venue even when single-visit GPS
-	// noise would have flipped the picker to an adjacent venue. See
-	// `pickWinningAmenity` for the threshold rules.
+	// noise would have flipped the picker to an adjacent venue.
+	//
+	// Skip mining for clusters that look residential (Fitbit-confirmed
+	// sleep_hours above the residency threshold). For those, the
+	// runtime labeller falls through to the OSM residential-address
+	// lookup, and `amenity_label` is unused — populating it would just
+	// be dead data that an old code path could mis-pick up.
+	const RESIDENCE_SLEEP_THRESHOLD_H = 5;
 	const tMine = Date.now();
 	const amenityLabels = new Map<number, string | null>();
 	for (const c of result.clusters) {
+		const clusterSleepH = hasFitbitSleep ? sleepHoursFromFitbit(c.stays, fitbitSleepWindows) : sleepHoursOf(c);
+		if (clusterSleepH >= RESIDENCE_SLEEP_THRESHOLD_H) {
+			amenityLabels.set(c.id, null);
+			continue;
+		}
 		const votes = new Map<string, number>();
 		for (const s of c.stays) {
 			const landmarks = await nearbyLandmarks(s.centroidLat, s.centroidLon);
@@ -152,6 +182,10 @@ async function refreshOne(userId: string): Promise<void> {
 				const rows = result.clusters.map((c) => {
 					const sortedStays = [...c.stays].sort((a, b) => a.startTs - b.startTs);
 					const cls = classifyCluster(c);
+					// Prefer Fitbit-confirmed sleep hours when available;
+					// fall back to the local-clock 02-06 heuristic for
+					// users without Fitbit data.
+					const sleepH = hasFitbitSleep ? sleepHoursFromFitbit(c.stays, fitbitSleepWindows) : sleepHoursOf(c);
 					return [
 						userId,
 						c.centroidLat,
@@ -164,7 +198,7 @@ async function refreshOne(userId: string): Promise<void> {
 						sortedStays[sortedStays.length - 1].endTs,
 						cls.label,
 						displayNames.get(c.id) ?? null,
-						Math.round(sleepHoursOf(c)),
+						Math.round(sleepH),
 						amenityLabels.get(c.id) ?? null,
 					];
 				});

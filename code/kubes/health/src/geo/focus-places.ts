@@ -237,6 +237,40 @@ export function sleepHoursOf(cluster: Cluster): number {
 	return sec / 3600;
 }
 
+/** A Fitbit sleep record's wall-clock window, expressed as unix
+ *  seconds. Constructed from the `sleep` table by the caller; this
+ *  module stays pure. */
+export interface FitbitSleepWindow {
+	startTs: number;
+	endTs: number;
+}
+
+/** Sum, in hours, of the actual overlap between each stay and any
+ *  Fitbit sleep window. Strictly more accurate than `sleepHoursOf`
+ *  when Fitbit data is available:
+ *
+ *    - Catches shifted-sleep nights (04:00–12:00) that the local
+ *      02:00–06:00 deep-night heuristic would miss.
+ *    - Excludes "I sat at home from 22:00 to 04:00 watching TV"
+ *      nights — if Fitbit didn't record sleep, those hours don't
+ *      count.
+ *
+ *  Returns 0 when `sleepWindows` is empty (user without Fitbit, or
+ *  no sleep data in the relevant period) — caller can fall back to
+ *  `sleepHoursOf` in that case. */
+export function sleepHoursFromFitbit(stays: readonly Stay[], sleepWindows: readonly FitbitSleepWindow[]): number {
+	if (sleepWindows.length === 0) return 0;
+	let totalSec = 0;
+	for (const s of stays) {
+		for (const w of sleepWindows) {
+			const overlapStart = Math.max(s.startTs, w.startTs);
+			const overlapEnd = Math.min(s.endTs, w.endTs);
+			if (overlapEnd > overlapStart) totalSec += overlapEnd - overlapStart;
+		}
+	}
+	return totalSec / 3600;
+}
+
 function sumHourBucket(stays: Stay[], lon: number, hStart: number, hEnd: number): number {
 	let hours = 0;
 	const stepSec = 30 * 60;
