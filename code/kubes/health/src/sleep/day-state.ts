@@ -86,7 +86,25 @@ export function segmentsToDayStates(
 		const state = stateForInterval(start, end, seg, sleep);
 		if (state) states.push(state);
 	}
-	return mergeAdjacent(states);
+	return stripPartialMinutesAsleep(mergeAdjacent(states), sleepWindows);
+}
+
+/** After merging adjacent same-state runs, a sleeping state's
+ *  range either matches its sleep window exactly (the asleep
+ *  total describes the whole row, OK to show) or covers only
+ *  part of it (split across mid-night events: the row is shorter
+ *  than the asleep duration). For partial rows, strip
+ *  `minutesAsleep` so the UI doesn't claim a multi-hour asleep
+ *  total on a row that's only a fraction of the window long. */
+function stripPartialMinutesAsleep(states: readonly DayState[], sleepWindows: readonly SleepWindow[]): DayState[] {
+	const matchesFullWindow = (s: DayState): boolean =>
+		sleepWindows.some((w) => w.startTs === s.startTs && w.endTs === s.endTs);
+	return states.map((s) => {
+		if (s.mode !== "sleeping" || s.minutesAsleep === undefined) return s;
+		if (matchesFullWindow(s)) return s;
+		const { minutesAsleep: _omit, ...rest } = s;
+		return rest;
+	});
 }
 
 function collectBoundaries(segments: readonly EnrichedSegment[], sleepWindows: readonly SleepWindow[]): number[] {
@@ -148,8 +166,15 @@ function stateForInterval(
 		// Stationary at sleep place → sleeping mode.
 		if (sleep.place !== null && segment.place === sleep.place) {
 			const out: DayState = { startTs: start, endTs: end, mode: "sleeping", place: segment.place };
-			if (segment.displayTz) out.tz = segment.displayTz;
-			else if (sleep.tz) out.tz = sleep.tz;
+			// tz: prefer the sleep window's tz over the segment's
+			// displayTz so the rewritten half matches the synthesized
+			// half's tz string. When the two strings differ but
+			// represent the same wall clock (two IANA names for the
+			// same offset), strict equality in `sameState` would
+			// otherwise prevent mergeAdjacent from collapsing the
+			// two halves of one sleep into a single row.
+			if (sleep.tz) out.tz = sleep.tz;
+			else if (segment.displayTz) out.tz = segment.displayTz;
 			if (sleep.minutesAsleep > 0) out.minutesAsleep = sleep.minutesAsleep;
 			return out;
 		}

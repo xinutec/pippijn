@@ -301,6 +301,85 @@ describe("segmentsToDayStates — full sleep window beyond segment coverage", ()
 		expect(states[0]).toMatchObject({ startTs: 1000, endTs: 2000, mode: "train", asleep: true });
 	});
 
+	it("merges synthesized + rewritten sleeping halves even when segment.displayTz != sleep.tz", () => {
+		// Sleep window covers a stretch where the first half has no
+		// GPS coverage (synthesized state, tz from sleep.tz) and the
+		// second half has a stationary-at-sleep-place segment
+		// (rewritten state, tz from segment.displayTz). When the two
+		// tz strings happen to differ but represent the same offset
+		// (e.g. two equivalent IANA names for the same wall clock),
+		// the old `sameState` failed strict-equality on tz and the
+		// two halves stayed as separate rows in the timeline. Both
+		// halves are the same sleep at the same place — they should
+		// merge.
+		const stationaryWithTz = (startTs: number, endTs: number, place: string, displayTz: string): EnrichedSegment => ({
+			startTs,
+			endTs,
+			mode: "stationary",
+			confidence: 1,
+			confidenceMargin: Number.POSITIVE_INFINITY,
+			avgSpeed: 0,
+			maxSpeed: 0,
+			linearity: 0,
+			pointCount: 10,
+			place,
+			displayTz,
+		});
+		const sleep: SleepWindow = {
+			startTs: 1000,
+			endTs: 4000,
+			place: "P",
+			minutesAsleep: 45,
+			tz: "Tz/A",
+		};
+		const segs = [stationaryWithTz(2000, 5000, "P", "Tz/B")];
+		const states = segmentsToDayStates(segs, [sleep]);
+		// One merged sleeping state spanning the full window, plus the
+		// remaining stationary tail.
+		const sleeping = states.filter((s) => s.mode === "sleeping");
+		expect(sleeping).toHaveLength(1);
+		expect(sleeping[0].startTs).toBe(1000);
+		expect(sleeping[0].endTs).toBe(4000);
+		expect(sleeping[0].minutesAsleep).toBe(45);
+		expect(sleeping[0].place).toBe("P");
+	});
+
+	it("does not attach minutesAsleep to a sleeping state that covers only part of the sleep window", () => {
+		// minutesAsleep is the aggregate for the whole sleep window.
+		// If the timeline ends up splitting one window into multiple
+		// rows (e.g. because the user moved between two stationary
+		// places mid-window and the place tag breaks the merge),
+		// none of the partial rows alone represents the whole
+		// asleep total. Only attach minutesAsleep to a row whose
+		// range matches the sleep window exactly.
+		const sleep: SleepWindow = {
+			startTs: 0,
+			endTs: 21_600, // 6h window in seconds
+			place: "P",
+			minutesAsleep: 320,
+			tz: "Tz/A",
+		};
+		// Positive case: stationary at the sleep place covers the
+		// second half. After merge: one state 0..21_600. minutesAsleep
+		// should be set.
+		const segs = [stationary(8000, 21_600, "P")];
+		// Negative case: a middle stationary at a DIFFERENT place
+		// splits the run. Hotel P halves can't merge across the
+		// Hotel Q stationary between them, so no sleeping row spans
+		// the full window.
+		const segsSplit = [stationary(8000, 16_000, "Q"), stationary(16_000, 21_600, "P")];
+		const split = segmentsToDayStates(segsSplit, [sleep]);
+		for (const s of split) {
+			if (s.mode === "sleeping" && (s.startTs !== sleep.startTs || s.endTs !== sleep.endTs)) {
+				expect(s.minutesAsleep).toBeUndefined();
+			}
+		}
+		// Positive case still works.
+		const merged = segmentsToDayStates(segs, [sleep]);
+		const fullSleep = merged.find((s) => s.mode === "sleeping" && s.startTs === 0 && s.endTs === 21_600);
+		expect(fullSleep?.minutesAsleep).toBe(320);
+	});
+
 	it("merges synthesized sleeping with a downstream stationary-at-home sleeping segment", () => {
 		// Morning case where the sleep window starts before the first
 		// fix at 07:47 and the first segment is stationary at Home

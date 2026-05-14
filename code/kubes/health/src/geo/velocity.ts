@@ -965,8 +965,7 @@ export async function annotateRailRuns(
 			//      disembark station can land a fix at 5-15 km/h. The
 			//      looser POST_TRANSIT threshold accepts those and the
 			//      alight resolves to "wherever the train is currently
-			//      passing" — Euston Square on the 2026-05-12 morning
-			//      trip when the user actually got off at Kings Cross.
+			//      passing" rather than the actual disembark station.
 			//      Fall back to the looser threshold if no fix below 5
 			//      exists, then to any fix as final fallback.
 			const alightFix =
@@ -988,10 +987,9 @@ export async function annotateRailRuns(
 			// The candidate is used IFF the user's apparent velocity from
 			// the stationary endpoint to slowBefore is mid-tunnel-noise
 			// territory (> 15 km/h). If it's realistic walking pace, the
-			// user genuinely moved to a different station and we should
-			// trust slowBefore's lookup — the 2026-05-12 Marylebone case
-			// where 1.4 km walked at ~10 km/h ended at a different station
-			// from the preceding Stationary at Work.
+			// user genuinely moved to a different station between the
+			// stay and the boarding and we trust slowBefore's lookup
+			// instead.
 			let startStation: string | undefined;
 			let beforeLookup = { lat: slowBefore.lat, lon: slowBefore.lon };
 			let endStation: string | undefined;
@@ -1005,9 +1003,11 @@ export async function annotateRailRuns(
 						// next segment's startTs (the segment classifier puts
 						// adjacent segments back-to-back). The fix at that
 						// boundary is the FIRST fix of the next segment, not
-						// the last of this one. Including it picked up the
-						// 46 km/h Euston-Square fix as the "last stationary
-						// fix" on 2026-05-10's Kings-Cross → Wembley ride.
+						// the last of this one. Including it picks up the
+						// mid-ride boundary fix as the "last stationary fix"
+						// and the boarding-station lookup resolves to wherever
+						// the train was passing, not the actual boarding
+						// platform.
 						const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts < seg.endTs);
 						if (segPoints.length > 0) {
 							const last = segPoints[segPoints.length - 1];

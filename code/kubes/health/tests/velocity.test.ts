@@ -585,25 +585,23 @@ describe("annotateRailRuns", () => {
 	});
 
 	it("ignores the boundary fix at seg.endTs when picking the preceding stationary's location", async () => {
-		// Sunday 2026-05-10 bug: a stationary segment from a Eurostar
-		// arrival at Kings Cross has endTs == next train's startTs. The
-		// fix at that shared boundary ts is the FIRST fix of the next
-		// train segment — already mid-ride at 46 km/h, at the wrong
-		// location (Euston Square, 700 m away). The old filter
-		// `p.ts >= seg.startTs && p.ts <= seg.endTs` picked that fix as
-		// the stationary's "last fix", so:
+		// A stationary segment immediately preceded by a train segment
+		// has endTs == next train's startTs. The fix at that shared
+		// boundary timestamp is the FIRST fix of the next segment —
+		// already mid-ride at train speed and at the wrong location.
+		// The old filter `p.ts >= seg.startTs && p.ts <= seg.endTs`
+		// picked that fix as the stationary's "last fix", so:
 		//
-		//   - stationaryCandidate.lat/lon = Euston Square fix
-		//   - stationsLookup → Euston Square (31 m, closest)
-		//   - apparentKmh from "Euston Square" candidate to slowBefore
-		//     at Kings Cross: 700 m / clamped-1s dt = 2520 km/h » 15 km/h
-		//   - algorithm decides "slowBefore is mid-tunnel noise, trust
-		//     stationaryCandidate" → boarding station = Euston Square
+		//   - stationaryCandidate.lat/lon = mid-ride boundary fix
+		//   - stationsLookup → wrong-station-near-train-path
+		//   - apparentKmh from that candidate to slowBefore (at the
+		//     real station): hundreds of metres / clamped-1s dt
+		//     → many hundreds of km/h » 15 km/h threshold
+		//   - algorithm decides "slowBefore is mid-tunnel noise,
+		//     trust stationaryCandidate" → wrong boarding station
 		//
-		// Result: "Euston Square → Wembley Park" — completely wrong;
-		// the user actually boarded at Kings Cross. Fix: `p.ts < seg.endTs`
-		// because endTs is the next segment's start, not this one's last
-		// fix. The boundary fix belongs to the next segment.
+		// Fix: strict `<` on the upper bound, because endTs is the
+		// next segment's startTs, not this segment's last fix.
 		const stationary: EnrichedSegment = {
 			startTs: 1000,
 			endTs: 1200,
