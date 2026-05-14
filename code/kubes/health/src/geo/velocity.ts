@@ -45,16 +45,21 @@ import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
 
 /** Format a unix-second instant as a `YYYY-MM-DD HH:MM:SS` UTC DATETIME
  *  string for filtering against `ts_utc` columns. */
-function utcSecondsToDatetimeStr(unix: number): string {
+export function utcSecondsToDatetimeStr(unix: number): string {
 	return new Date(unix * 1000).toISOString().slice(0, 19).replace("T", " ");
 }
 
-/** Parse a `YYYY-MM-DD HH:MM:SS` UTC DATETIME string from the DB into
- *  unix seconds. The DB never stores a `Z` suffix; append one before
- *  passing to Date.parse so it's interpreted as UTC, not the local TZ
- *  of whatever runs the Node process. */
-function utcDatetimeStrToSeconds(s: string): number {
-	return Math.floor(Date.parse(`${s.replace(" ", "T")}Z`) / 1000);
+/** Parse a `YYYY-MM-DD HH:MM:SS` UTC DATETIME value from the DB into
+ *  unix seconds. The mariadb driver returns DATETIME columns as `Date`
+ *  objects whose UTC components literally mirror the stored bytes (any
+ *  `Z` suffix is decoration, not a TZ claim); `DATE_FORMAT(...)` returns
+ *  a string. Handle both by component-matching the same way
+ *  `fitbitTsToUnix` does. */
+export function utcDatetimeStrToSeconds(s: string | Date): number {
+	const str = typeof s === "string" ? s : s.toISOString();
+	const m = str.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+	if (!m) return Number.NaN;
+	return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) / 1000;
 }
 
 /**
