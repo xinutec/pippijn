@@ -134,18 +134,23 @@ describe("scenario: station dwell with a single GPS-spike outlier", () => {
 		expect(result[0].endTs).toBe(trainAfter.endTs);
 	});
 
-	it("does NOT absorb a true between-station walk (sustained displacement)", async () => {
-		// Negative control: if the "dwell" is actually a 5-min walk where
-		// most fixes spread across hundreds of meters, absorption must NOT
-		// fire — that's a real walking segment between trains.
+	it("absorbs a 5-min platform interchange walk (sustained ~400 m path)", async () => {
+		// The actual Arnhem case isn't a tight cluster + outlier — it's a
+		// sustained ~400 m path at walking pace (4.7 km/h × 5 min). The
+		// fixes spread linearly, so a percentile-of-distance-from-centroid
+		// check still fails them. ≤5-min bookended by rail-like is the
+		// load-bearing signal of a platform interchange.
 		const walkingFixes: FilteredPoint[] = [];
 		const latDegPerMeter = 1 / 111000;
-		for (let dt = 0; dt < dwellEnd - dwellStart; dt += 10) {
+		const segDur = dwellEnd - dwellStart;
+		const totalMeters = 400; // realistic platform-to-platform interchange path
+		for (let dt = 0; dt < segDur; dt += 10) {
+			const progress = dt / segDur;
 			walkingFixes.push({
 				ts: dwellStart + dt,
-				lat: arnhem[0] + dt * 3 * latDegPerMeter, // 3 m/sample → 18 km/h
+				lat: arnhem[0] + progress * totalMeters * latDegPerMeter,
 				lon: arnhem[1],
-				speed_kmh: 18,
+				speed_kmh: 4.7,
 				bearing: 0,
 			});
 		}
@@ -156,7 +161,22 @@ describe("scenario: station dwell with a single GPS-spike outlier", () => {
 			lineLookup,
 		);
 
-		// Two train legs survive separately; the walk between is NOT absorbed.
+		expect(result, `expected 1 merged segment, got ${result.length}`).toHaveLength(1);
+		expect(result[0].mode).toBe("train");
+	});
+
+	it("does NOT absorb a long off-route segment between trains (e.g. went home, came back)", async () => {
+		// Negative control: a much longer duration between trains is a
+		// real activity (coffee, meeting, going home). The ≤5-min cap
+		// blocks absorption.
+		const longDwell: EnrichedSegment = { ...dwell, endTs: dwellStart + 30 * 60 }; // 30 min
+		const longFixes = platformFixes(dwellStart, 30 * 60, arnhem);
+		const result = await annotateRailRuns(
+			[trainBefore, longDwell, trainAfter],
+			[...trainBeforePoints, ...longFixes, ...trainAfterPoints],
+			stationLookup,
+			lineLookup,
+		);
 		expect(result.length).toBeGreaterThanOrEqual(2);
 	});
 });

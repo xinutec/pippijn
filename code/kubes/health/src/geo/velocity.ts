@@ -982,34 +982,33 @@ export async function annotateRailRuns(
 	// tight (5 min) so that genuine longer stays still surface.
 	//
 	// We accept both already-stationary segments and any short segment
-	// whose GPS points cluster within TRAIN_DWELL_RADIUS_M of their
-	// centroid — that's the load-bearing signal that the user didn't
-	// actually move. The April 29 Arnhem case showed up as a 5-min
-	// "driving" between two train legs because GPS-jitter speed spikes
-	// fooled the classifier; the fixes themselves scattered within
-	// ~50 m of the platform.
+	// bookended by rail-like ones, with a generous spread cap to keep
+	// real cross-city walks (>1 km) from being swallowed. The April 29
+	// Arnhem case was a platform-to-platform interchange — 5-min walk,
+	// ~400 m path — that the original tight-cluster check (and even a
+	// percentile fix on it) couldn't catch because the fixes were
+	// spread linearly along the platform path.
 	//
-	// Spread check is on the 80th-percentile distance from centroid, not
-	// max. A single GPS spike (multipath, brief signal loss) at a
-	// platform can put one fix 200 m off the rest while the user is
-	// physically standing still — using max would reject the absorption.
-	// Allowing the top 20% of fixes to be outliers covers a couple of
-	// spikes in a 30-fix 5-min window without softening the "no real
-	// movement" signal.
+	// The load-bearing signals here are duration (≤ 5 min) and the
+	// rail-like bookends (the caller already gates on this). A 5-min
+	// segment between two trains is almost certainly an interchange —
+	// nobody legitimately bikes/drives for 5 min between train legs.
+	// The spread cap is belt-and-suspenders: a >1 km path in 5 min is
+	// a 12 km/h-or-faster mode (cycling/driving), not an interchange.
 	const TRAIN_PAUSE_MAX_SEC = 5 * 60;
-	const TRAIN_DWELL_RADIUS_M = 100;
-	const TRAIN_DWELL_PERCENTILE = 0.8;
+	const TRAIN_DWELL_PATH_CAP_M = 1000;
 	const couldBeTrainPause = (s: EnrichedSegment): boolean => {
 		if (s.endTs - s.startTs > TRAIN_PAUSE_MAX_SEC) return false;
 		if (s.mode === "stationary") return true;
-		// Non-stationary candidate: check the actual GPS spread.
+		// Non-stationary candidate: bound the displacement so cross-city
+		// walks aren't absorbed.
 		const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
-		if (segPoints.length < 2) return false;
-		const cLat = segPoints.reduce((sum, p) => sum + p.lat, 0) / segPoints.length;
-		const cLon = segPoints.reduce((sum, p) => sum + p.lon, 0) / segPoints.length;
-		const distances = segPoints.map((p) => haversineMeters(p.lat, p.lon, cLat, cLon)).sort((a, b) => a - b);
-		const idx = Math.min(distances.length - 1, Math.floor(distances.length * TRAIN_DWELL_PERCENTILE));
-		return distances[idx] <= TRAIN_DWELL_RADIUS_M;
+		if (segPoints.length < 2) return true;
+		let pathM = 0;
+		for (let k = 1; k < segPoints.length; k++) {
+			pathM += haversineMeters(segPoints[k - 1].lat, segPoints[k - 1].lon, segPoints[k].lat, segPoints[k].lon);
+		}
+		return pathM <= TRAIN_DWELL_PATH_CAP_M;
 	};
 
 	// Identify maximal rail runs. A run starts and ends with a rail-like
