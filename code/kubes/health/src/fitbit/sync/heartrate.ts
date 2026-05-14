@@ -1,5 +1,6 @@
 import type * as mariadb from "mariadb";
 import { NULL_TZ_SOURCE, type TzSource } from "../../geo/fitbit-tz.js";
+import { wallClockToUtcString } from "../../geo/timezone.js";
 import type { FitbitClient } from "../client.js";
 
 export interface HRResponse {
@@ -12,18 +13,24 @@ export interface HRResponse {
 
 /**
  * Pure parser: take a Fitbit intraday-heart-rate response, return rows shaped
- * for `conn.batch(INSERT INTO heart_rate_intraday ...)`. The trailing `tz`
- * slot is the IANA tz the wall-clock was recorded in; see TIMEZONE.md.
+ * for `conn.batch(INSERT INTO heart_rate_intraday ...)`. The trailing slots
+ * are the IANA tz the wall-clock was recorded in (see TIMEZONE.md) and the
+ * derived UTC DATETIME (see docs/proposals/2026-05-utc-three-tier.md);
+ * `ts_utc` is null when `tz` is null.
  */
 export function parseHRDataset(
 	response: HRResponse,
 	userId: string,
 	date: string,
 	tzSource: TzSource = NULL_TZ_SOURCE,
-): Array<[string, string, number, string | null]> {
+): Array<[string, string, number, string | null, string | null]> {
 	const dataset = response["activities-heart-intraday"]?.dataset;
 	if (!dataset?.length) return [];
-	return dataset.map((d) => [userId, `${date} ${d.time}`, d.value, tzSource.forWallClock(date, d.time)]);
+	return dataset.map((d) => {
+		const ts = `${date} ${d.time}`;
+		const tz = tzSource.forWallClock(date, d.time);
+		return [userId, ts, d.value, tz, wallClockToUtcString(ts, tz)];
+	});
 }
 
 export async function syncHeartRateZones(
@@ -83,12 +90,14 @@ export async function syncHeartRateIntraday(
 		if (rows.length === 0) continue;
 
 		await conn.batch(
-			// COALESCE-preserve `tz` so the backfill CLI can later upgrade
-			// NULL → value but a normal re-sync doesn't overwrite a known tz.
-			`INSERT INTO heart_rate_intraday (user_id, ts, bpm, tz) VALUES (?, ?, ?, ?)
+			// COALESCE-preserve `tz` and `ts_utc` so the backfill CLI can later
+			// upgrade NULL → value but a normal re-sync doesn't overwrite a
+			// known tz.
+			`INSERT INTO heart_rate_intraday (user_id, ts, bpm, tz, ts_utc) VALUES (?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         bpm = VALUES(bpm),
-         tz  = COALESCE(tz, VALUES(tz))`,
+         bpm    = VALUES(bpm),
+         tz     = COALESCE(tz, VALUES(tz)),
+         ts_utc = COALESCE(ts_utc, VALUES(ts_utc))`,
 			rows,
 		);
 

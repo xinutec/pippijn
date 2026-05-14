@@ -1,5 +1,6 @@
 import type * as mariadb from "mariadb";
 import { NULL_TZ_SOURCE, type TzSource } from "../../geo/fitbit-tz.js";
+import { wallClockToUtcString } from "../../geo/timezone.js";
 import type { FitbitClient } from "../client.js";
 
 export interface StepsApiResponse {
@@ -14,21 +15,25 @@ export interface StepsApiResponse {
  * (absence implies zero).
  *
  * Returns tuples shaped for `conn.batch(INSERT INTO steps_intraday ...)` so
- * the caller doesn't have to massage the shape. The trailing `tz` slot is
- * the IANA tz the wall-clock was recorded in; see TIMEZONE.md.
+ * the caller doesn't have to massage the shape. The trailing slots are
+ * the IANA tz the wall-clock was recorded in (see TIMEZONE.md) and the
+ * derived UTC DATETIME (see docs/proposals/2026-05-utc-three-tier.md);
+ * `ts_utc` is null when `tz` is null.
  */
 export function parseStepsDataset(
 	response: StepsApiResponse,
 	userId: string,
 	date: string,
 	tzSource: TzSource = NULL_TZ_SOURCE,
-): Array<[string, string, number, string | null]> {
+): Array<[string, string, number, string | null, string | null]> {
 	const dataset = response["activities-steps-intraday"]?.dataset;
 	if (!dataset?.length) return [];
-	const rows: Array<[string, string, number, string | null]> = [];
+	const rows: Array<[string, string, number, string | null, string | null]> = [];
 	for (const d of dataset) {
 		if (d.value <= 0) continue;
-		rows.push([userId, `${date} ${d.time}`, d.value, tzSource.forWallClock(date, d.time)]);
+		const ts = `${date} ${d.time}`;
+		const tz = tzSource.forWallClock(date, d.time);
+		rows.push([userId, ts, d.value, tz, wallClockToUtcString(ts, tz)]);
 	}
 	return rows;
 }
@@ -67,12 +72,13 @@ export async function syncStepsIntraday(
 			// MAX-preserve `steps` (a later sync returning a smaller count for a
 			// minute we already have data for must not overwrite — Fitbit's
 			// intraday endpoint occasionally serves a less-complete response).
-			// COALESCE-preserve `tz` (the first non-NULL sticks; the backfill
-			// CLI bypasses this to write tz directly).
-			`INSERT INTO steps_intraday (user_id, ts, steps, tz) VALUES (?, ?, ?, ?)
+			// COALESCE-preserve `tz` and `ts_utc` (the first non-NULL sticks;
+			// the backfill CLI bypasses this to populate `ts_utc` directly).
+			`INSERT INTO steps_intraday (user_id, ts, steps, tz, ts_utc) VALUES (?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         steps = GREATEST(steps, VALUES(steps)),
-         tz    = COALESCE(tz, VALUES(tz))`,
+         steps  = GREATEST(steps, VALUES(steps)),
+         tz     = COALESCE(tz, VALUES(tz)),
+         ts_utc = COALESCE(ts_utc, VALUES(ts_utc))`,
 			rows,
 		);
 

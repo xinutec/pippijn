@@ -45,16 +45,20 @@ export interface DailyActivityTable {
 
 export interface HeartRateIntradayTable {
 	user_id: string;
-	ts: string; // DATETIME as string
+	ts: string; // DATETIME as string — verbatim Fitbit wall-clock, immutable source of truth
 	bpm: number;
 	tz: string | null; // IANA tz the wall-clock was recorded in; see TIMEZONE.md
+	ts_utc: string | null; // Derived UTC DATETIME; see docs/proposals/2026-05-utc-three-tier.md
+	tz_source: string | null; // Provenance: phonetrack | home_tz | manual | legacy | NULL
 }
 
 export interface StepsIntradayTable {
 	user_id: string;
-	ts: string; // DATETIME as string
+	ts: string; // DATETIME as string — verbatim Fitbit wall-clock, immutable source of truth
 	steps: number;
 	tz: string | null; // IANA tz the wall-clock was recorded in; see TIMEZONE.md
+	ts_utc: string | null;
+	tz_source: string | null;
 }
 
 export interface HeartRateZonesTable {
@@ -89,6 +93,9 @@ export interface SleepTable {
 	minutes_wake: number | null;
 	is_main_sleep: boolean | null;
 	tz: string | null; // IANA tz of start_time/end_time wall-clocks; see docs/design/timezone.md
+	start_time_utc: string | null; // Derived UTC DATETIME; see docs/proposals/2026-05-utc-three-tier.md
+	end_time_utc: string | null;
+	tz_source: string | null;
 }
 
 export interface SleepStagesTable {
@@ -99,6 +106,8 @@ export interface SleepStagesTable {
 	stage: string;
 	duration_seconds: number;
 	tz: string | null; // IANA tz the wall-clock was recorded in; see TIMEZONE.md
+	ts_utc: string | null;
+	tz_source: string | null;
 }
 
 export interface BodyTable {

@@ -1,6 +1,7 @@
 import type * as mariadb from "mariadb";
 import { asFitbitSleepLogId, type FitbitSleepLogId } from "../../db/branded.js";
 import { NULL_TZ_SOURCE, type TzSource } from "../../geo/fitbit-tz.js";
+import { wallClockToUtcString } from "../../geo/timezone.js";
 import type { FitbitClient } from "../client.js";
 
 export interface FitbitSleepLog {
@@ -67,6 +68,8 @@ export function parseSleepLog(
 	number | null,
 	boolean,
 	string | null,
+	string | null,
+	string | null,
 ] {
 	// startTime shape: "2026-05-12T00:06:00.000". Same split as
 	// parseSleepStages: date | time | (milliseconds dropped).
@@ -89,6 +92,8 @@ export function parseSleepLog(
 		log.levels?.summary.wake?.minutes ?? null,
 		log.isMainSleep,
 		tz,
+		wallClockToUtcString(log.startTime, tz),
+		wallClockToUtcString(log.endTime, tz),
 	];
 }
 
@@ -106,13 +111,22 @@ export function parseSleepStages(
 	userId: string,
 	sleepLogId: FitbitSleepLogId,
 	tzSource: TzSource = NULL_TZ_SOURCE,
-): Array<[string, FitbitSleepLogId, string, string, number, string | null]> {
+): Array<[string, FitbitSleepLogId, string, string, number, string | null, string | null]> {
 	return stages.map((stage) => {
 		// `dateTime` shape: "2026-05-10T22:48:30.000" (no Z suffix from Fitbit).
 		// Split into date + time for the TzSource lookup.
 		const [date, timeRaw] = stage.dateTime.split("T");
 		const time = (timeRaw ?? "").split(".")[0]; // strip milliseconds
-		return [userId, sleepLogId, stage.dateTime, stage.level, stage.seconds, tzSource.forWallClock(date, time)];
+		const tz = tzSource.forWallClock(date, time);
+		return [
+			userId,
+			sleepLogId,
+			stage.dateTime,
+			stage.level,
+			stage.seconds,
+			tz,
+			wallClockToUtcString(stage.dateTime, tz),
+		];
 	});
 }
 
@@ -130,14 +144,17 @@ export async function syncSleep(
 		await conn.query(
 			`INSERT INTO sleep (user_id, log_id, date, start_time, end_time, duration_ms, efficiency,
          minutes_asleep, minutes_awake, minutes_deep, minutes_light, minutes_rem, minutes_wake,
-         is_main_sleep, tz)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         is_main_sleep, tz, start_time_utc, end_time_utc)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE start_time=VALUES(start_time), end_time=VALUES(end_time),
          duration_ms=VALUES(duration_ms), efficiency=VALUES(efficiency),
          minutes_asleep=VALUES(minutes_asleep), minutes_awake=VALUES(minutes_awake),
          minutes_deep=VALUES(minutes_deep), minutes_light=VALUES(minutes_light),
          minutes_rem=VALUES(minutes_rem), minutes_wake=VALUES(minutes_wake),
-         is_main_sleep=VALUES(is_main_sleep), tz=COALESCE(tz, VALUES(tz))`,
+         is_main_sleep=VALUES(is_main_sleep),
+         tz=COALESCE(tz, VALUES(tz)),
+         start_time_utc=COALESCE(start_time_utc, VALUES(start_time_utc)),
+         end_time_utc=COALESCE(end_time_utc, VALUES(end_time_utc))`,
 			parseSleepLog(log, userId, tzSource),
 		);
 
@@ -159,13 +176,14 @@ export async function syncSleep(
 
 			const rows = parseSleepStages(log.levels.data, userId, canonicalLogId, tzSource);
 			await conn.batch(
-				// COALESCE-preserve `tz` so backfill CLI can later upgrade NULL.
-				`INSERT INTO sleep_stages (user_id, sleep_log_id, ts, stage, duration_seconds, tz)
-         VALUES (?, ?, ?, ?, ?, ?)
+				// COALESCE-preserve `tz`/`ts_utc` so backfill CLI can later upgrade NULL.
+				`INSERT INTO sleep_stages (user_id, sleep_log_id, ts, stage, duration_seconds, tz, ts_utc)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            stage = VALUES(stage),
            duration_seconds = VALUES(duration_seconds),
-           tz = COALESCE(tz, VALUES(tz))`,
+           tz = COALESCE(tz, VALUES(tz)),
+           ts_utc = COALESCE(ts_utc, VALUES(ts_utc))`,
 				rows,
 			);
 		}

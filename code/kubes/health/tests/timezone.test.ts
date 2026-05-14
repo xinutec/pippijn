@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitbitTsToUnix, isValidTimezone } from "../src/geo/timezone.js";
+import { fitbitTsToUnix, isValidTimezone, wallClockToUtcString } from "../src/geo/timezone.js";
 
 describe("isValidTimezone", () => {
 	it("accepts well-known IANA names", () => {
@@ -71,5 +71,56 @@ describe("fitbitTsToUnix", () => {
 		expect(fitbitTsToUnix(asDate, "Europe/Amsterdam")).toBe(
 			fitbitTsToUnix("2026-05-10T14:00:00.000Z", "Europe/Amsterdam"),
 		);
+	});
+});
+
+describe("wallClockToUtcString", () => {
+	it("returns null when tz is null", () => {
+		expect(wallClockToUtcString("2026-05-10 14:00:00", null)).toBeNull();
+	});
+
+	it("returns null for a malformed wall-clock", () => {
+		expect(wallClockToUtcString("not a timestamp", "Europe/Amsterdam")).toBeNull();
+	});
+
+	it("converts Amsterdam summer wall-clock to UTC DATETIME string", () => {
+		// 14:00 CEST = 12:00 UTC
+		expect(wallClockToUtcString("2026-05-10 14:00:00", "Europe/Amsterdam")).toBe("2026-05-10 12:00:00");
+	});
+
+	it("converts London summer wall-clock to UTC DATETIME string", () => {
+		// 14:00 BST = 13:00 UTC
+		expect(wallClockToUtcString("2026-05-10 14:00:00", "Europe/London")).toBe("2026-05-10 13:00:00");
+	});
+
+	it("handles date crossing for east-of-UTC midnights", () => {
+		// 00:30 CEST = 22:30 UTC the previous day
+		expect(wallClockToUtcString("2026-05-10 00:30:00", "Europe/Amsterdam")).toBe("2026-05-09 22:30:00");
+	});
+
+	it("handles date crossing for west-of-UTC late-evenings", () => {
+		// 23:00 EST = 04:00 UTC the next day
+		expect(wallClockToUtcString("2026-01-15 23:00:00", "America/New_York")).toBe("2026-01-16 04:00:00");
+	});
+
+	it("respects CET/CEST transition (October = CET = UTC+1)", () => {
+		// 12:00 CET = 11:00 UTC
+		expect(wallClockToUtcString("2026-10-25 12:00:00", "Europe/Amsterdam")).toBe("2026-10-25 11:00:00");
+	});
+
+	it("accepts a Date input (mariadb driver shape) just like fitbitTsToUnix", () => {
+		const asDate = new Date("2026-05-10T14:00:00Z");
+		expect(wallClockToUtcString(asDate, "Europe/Amsterdam")).toBe(
+			wallClockToUtcString("2026-05-10T14:00:00.000Z", "Europe/Amsterdam"),
+		);
+	});
+
+	it("round-trips through fitbitTsToUnix", () => {
+		const wall = "2026-05-10 14:00:00";
+		const tz = "Europe/Amsterdam";
+		const utcString = wallClockToUtcString(wall, tz);
+		expect(utcString).not.toBeNull();
+		const reparsed = Math.floor(Date.parse(`${utcString}Z`) / 1000);
+		expect(reparsed).toBe(fitbitTsToUnix(wall, tz));
 	});
 });

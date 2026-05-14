@@ -446,6 +446,36 @@ const MIGRATIONS: readonly string[] = [
     UNIQUE KEY uniq_share_token (token)
   )`,
 
+	// v34: Three-tier timestamp storage on the intraday Fitbit tables.
+	// `ts` (wall-clock DATETIME from Fitbit) stays immutable. New
+	// columns: `ts_utc` (DATETIME interpreted by convention as UTC,
+	// derived from `ts` + `tz`) and `tz_source` (provenance tag —
+	// 'phonetrack' / 'home_tz' / 'manual' / 'legacy' / NULL).
+	// See `docs/proposals/2026-05-utc-three-tier.md`.
+	// Columns only; the `(user_id, ts_utc)` index is deferred until
+	// after the Phase B backfill populates `ts_utc` for historical
+	// rows (building an index over a half-empty column is wasted
+	// work and slow DDL inside the startup migration risks the pod's
+	// liveness probe).
+	`ALTER TABLE heart_rate_intraday
+     ADD COLUMN IF NOT EXISTS ts_utc DATETIME NULL,
+     ADD COLUMN IF NOT EXISTS tz_source VARCHAR(32) NULL`,
+	`ALTER TABLE steps_intraday
+     ADD COLUMN IF NOT EXISTS ts_utc DATETIME NULL,
+     ADD COLUMN IF NOT EXISTS tz_source VARCHAR(32) NULL`,
+	`ALTER TABLE sleep_stages
+     ADD COLUMN IF NOT EXISTS ts_utc DATETIME NULL,
+     ADD COLUMN IF NOT EXISTS tz_source VARCHAR(32) NULL`,
+
+	// v35: Same three-tier storage on the sleep summary table. The
+	// sleep summary has both `start_time` and `end_time` wall-clock
+	// columns, so it gets two UTC siblings plus the shared
+	// `tz_source` provenance tag.
+	`ALTER TABLE sleep
+     ADD COLUMN IF NOT EXISTS start_time_utc DATETIME NULL,
+     ADD COLUMN IF NOT EXISTS end_time_utc   DATETIME NULL,
+     ADD COLUMN IF NOT EXISTS tz_source VARCHAR(32) NULL`,
+
 	// Future migrations go here.
 ];
 

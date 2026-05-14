@@ -26,8 +26,8 @@ describe("parseStepsDataset", () => {
 			"u1",
 			"2026-05-10",
 		);
-		// Default TzSource (NULL_TZ_SOURCE) → tz=null in the trailing slot.
-		expect(rows).toEqual([["u1", "2026-05-10 00:01:00", 5, null]]);
+		// Default TzSource (NULL_TZ_SOURCE) → tz=null and ts_utc=null in trailing slots.
+		expect(rows).toEqual([["u1", "2026-05-10 00:01:00", 5, null, null]]);
 	});
 
 	it("emits one row per non-zero minute", () => {
@@ -41,11 +41,11 @@ describe("parseStepsDataset", () => {
 			"2026-05-10",
 		);
 		expect(rows).toHaveLength(3);
-		expect(rows[0]).toEqual(["alice", "2026-05-10 08:30:00", 100, null]);
-		expect(rows[2]).toEqual(["alice", "2026-05-10 08:32:00", 95, null]);
+		expect(rows[0]).toEqual(["alice", "2026-05-10 08:30:00", 100, null, null]);
+		expect(rows[2]).toEqual(["alice", "2026-05-10 08:32:00", 95, null, null]);
 	});
 
-	it("populates the tz slot from the provided TzSource", () => {
+	it("populates the tz and ts_utc slots from the provided TzSource", () => {
 		const tzSource = { forWallClock: (_d: string, _t: string) => "Europe/Amsterdam" };
 		const rows = parseStepsDataset(
 			r([
@@ -56,7 +56,9 @@ describe("parseStepsDataset", () => {
 			"2026-05-10",
 			tzSource,
 		);
-		expect(rows[0]).toEqual(["u1", "2026-05-10 08:30:00", 100, "Europe/Amsterdam"]);
+		// 08:30 CEST = 06:30 UTC
+		expect(rows[0]).toEqual(["u1", "2026-05-10 08:30:00", 100, "Europe/Amsterdam", "2026-05-10 06:30:00"]);
 		expect(rows[1][3]).toBe("Europe/Amsterdam");
+		expect(rows[1][4]).toBe("2026-05-10 06:31:00");
 	});
 });

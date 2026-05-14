@@ -151,3 +151,26 @@ export function fitbitTsToUnix(s: string | Date, tz?: string): number {
 	const offsetMs = renderedAsUtcMs - guessUtcMs;
 	return (guessUtcMs - offsetMs) / 1000;
 }
+
+/**
+ * Convert a Fitbit wall-clock DATETIME + tz into a UTC DATETIME string
+ * (`YYYY-MM-DD HH:MM:SS`) suitable for storage in a column declared by
+ * convention to hold UTC.
+ *
+ * Returns null when tz is null (no inference signal at write time) or
+ * when the wall-clock string is malformed.
+ *
+ * See `docs/proposals/2026-05-utc-three-tier.md` for the three-tier
+ * storage contract.
+ */
+export function wallClockToUtcString(wallClock: string | Date, tz: string | null): string | null {
+	if (tz === null) return null;
+	const unix = fitbitTsToUnix(wallClock, tz);
+	if (Number.isNaN(unix)) return null;
+	const d = new Date(unix * 1000);
+	const pad = (n: number): string => String(n).padStart(2, "0");
+	return (
+		`${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+		`${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
+	);
+}

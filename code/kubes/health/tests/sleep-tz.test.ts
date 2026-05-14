@@ -62,9 +62,22 @@ describe("parseSleepLog", () => {
 		const row = parseSleepLog(sleepLog(), "user-1", fixedTzSource("Europe/London"));
 		// Row shape: [user_id, log_id, date, start_time, end_time, duration,
 		//              efficiency, minutesAsleep, minutesAwake, deep, light,
-		//              rem, wake, isMainSleep, tz]
-		expect(row).toHaveLength(15);
+		//              rem, wake, isMainSleep, tz, start_time_utc, end_time_utc]
+		expect(row).toHaveLength(17);
 		expect(row[14]).toBe("Europe/London");
+	});
+
+	it("populates start_time_utc and end_time_utc from the resolved tz", () => {
+		const row = parseSleepLog(sleepLog(), "user-1", fixedTzSource("Europe/Amsterdam"));
+		// 00:06 CEST = 22:06 UTC the previous day; 08:51 CEST = 06:51 UTC same day.
+		expect(row[15]).toBe("2026-05-11 22:06:00");
+		expect(row[16]).toBe("2026-05-12 06:51:00");
+	});
+
+	it("leaves *_utc null when tz is null", () => {
+		const row = parseSleepLog(sleepLog(), "user-1", { forWallClock: () => null });
+		expect(row[15]).toBeNull();
+		expect(row[16]).toBeNull();
 	});
 
 	it("passes the dateOfSleep + the time portion of startTime to TzSource", () => {
