@@ -43,11 +43,32 @@ import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
 
+/** Format a unix-second instant as a `YYYY-MM-DD HH:MM:SS` UTC DATETIME
+ *  string for filtering against `ts_utc` columns. */
+function utcSecondsToDatetimeStr(unix: number): string {
+	return new Date(unix * 1000).toISOString().slice(0, 19).replace("T", " ");
+}
+
+/** Parse a `YYYY-MM-DD HH:MM:SS` UTC DATETIME string from the DB into
+ *  unix seconds. The DB never stores a `Z` suffix; append one before
+ *  passing to Date.parse so it's interpreted as UTC, not the local TZ
+ *  of whatever runs the Node process. */
+function utcDatetimeStrToSeconds(s: string): number {
+	return Math.floor(Date.parse(`${s.replace(" ", "T")}Z`) / 1000);
+}
+
 /**
- * Load Fitbit HR + sleep stages for a UTC time window. Both queries hit a
- * date-string column, so we filter loosely (one-day padding) and trim by
- * unix timestamp after parsing. Both return empty arrays gracefully when
- * the user wasn't wearing their Fitbit (battery, charger, off-arm).
+ * Load Fitbit HR + sleep stages for a UTC time window. Filters directly on
+ * the derived `ts_utc` columns populated by sync/backfill (see
+ * `docs/proposals/2026-05-utc-three-tier.md`); no per-row tz lookup or
+ * wall-clock-string padding required. Returns empty arrays gracefully when
+ * the user wasn't wearing their Fitbit.
+ *
+ * A tiny fallback path covers rows where `ts_utc IS NULL` — these are
+ * expected to be zero in steady state after Phase B backfill, and arise
+ * only when forward sync ran without any tz signal (no PhoneTrack, no
+ * profile.tz). The fallback pays the legacy per-row conversion only for
+ * those rows.
  */
 async function loadBiometrics(
 	userId: string,
@@ -55,82 +76,117 @@ async function loadBiometrics(
 	endUtc: number,
 	tz: string | undefined,
 ): Promise<{ hr: HrPoint[]; sleep: SleepStageRecord[]; steps: StepPoint[] }> {
-	// Pad date-string filter by one day on each side to catch tz-edge timestamps
+	const startUtcDt = utcSecondsToDatetimeStr(startUtc);
+	const endUtcDt = utcSecondsToDatetimeStr(endUtc);
+
+	// Legacy tz fallback chain for the rare `ts_utc IS NULL` stragglers:
+	// row.tz → home_tz → request tz. See TIMEZONE.md.
+	const homeTz = await getSyncState(userId, "home_tz");
+	const resolveTz = (rowTz: string | null): string | undefined => rowTz ?? homeTz ?? tz;
 	const padDate = (ts: number) => new Date(ts * 1000).toISOString().slice(0, 10);
 	const dayBefore = padDate(startUtc - 86400);
 	const dayAfter = padDate(endUtc + 86400);
 
-	// Per-row tz fallback chain: row.tz → home_tz → request tz. The request
-	// tz only applies to rows where the recording tz couldn't be inferred
-	// (legacy NULL rows from before Phase 1+2 deploy, or rows in a sync
-	// run where both PhoneTrack and profile.tz were unavailable).
-	// See TIMEZONE.md for the full design.
-	const homeTz = await getSyncState(userId, "home_tz");
-	const resolveTz = (rowTz: string | null): string | undefined => rowTz ?? homeTz ?? tz;
-
-	// Per-minute aggregate. Fitbit stores 1-second-resolution HR (~21k rows
-	// per day); for segment-level mean/std the per-minute average loses
-	// essentially no precision and is ~60× cheaper to load + parse.
-	// MAX(tz): all rows in a per-minute bucket share the same wall-clock-
-	// formatted minute, and a tz change moves wall-clock discontinuously,
-	// so a single bucket cannot contain rows recorded under two tzs.
-	// MAX gives a deterministic "the bucket's tz" picking arbitrarily.
-	const hrRows = await db()
+	// Per-minute HR aggregate. Fitbit stores 1-second-resolution HR (~21k
+	// rows per day); for segment-level mean/std the per-minute average
+	// loses essentially no precision and is ~60× cheaper to load + parse.
+	const hrPrimaryRows = await db()
 		.selectFrom("heart_rate_intraday")
 		.select([
-			sql<Date>`DATE_FORMAT(MIN(ts), '%Y-%m-%d %H:%i:00')`.as("ts"),
+			sql<string>`DATE_FORMAT(MIN(ts_utc), '%Y-%m-%d %H:%i:00')`.as("ts_utc"),
+			sql<number>`ROUND(AVG(bpm))`.as("bpm"),
+		])
+		.where("user_id", "=", userId)
+		.where("ts_utc", ">=", startUtcDt)
+		.where("ts_utc", "<", endUtcDt)
+		.groupBy(sql`DATE_FORMAT(ts_utc, '%Y-%m-%d %H:%i')`)
+		.orderBy("ts_utc")
+		.execute();
+
+	const hr: HrPoint[] = hrPrimaryRows.map((r) => ({ ts: utcDatetimeStrToSeconds(r.ts_utc), bpm: Number(r.bpm) }));
+
+	const hrFallbackRows = await db()
+		.selectFrom("heart_rate_intraday")
+		.select([
+			sql<string>`DATE_FORMAT(MIN(ts), '%Y-%m-%d %H:%i:00')`.as("ts"),
 			sql<number>`ROUND(AVG(bpm))`.as("bpm"),
 			sql<string | null>`MAX(tz)`.as("tz"),
 		])
 		.where("user_id", "=", userId)
 		.where("ts", ">=", dayBefore)
 		.where("ts", "<", dayAfter)
+		.where("ts_utc", "is", null)
 		.groupBy(sql`DATE_FORMAT(ts, '%Y-%m-%d %H:%i')`)
-		.orderBy("ts")
 		.execute();
-
-	const hr: HrPoint[] = [];
-	for (const r of hrRows) {
+	for (const r of hrFallbackRows) {
 		const ts = fitbitTsToUnix(r.ts, resolveTz(r.tz));
-		if (Number.isNaN(ts)) continue;
-		if (ts < startUtc || ts > endUtc) continue;
+		if (Number.isNaN(ts) || ts < startUtc || ts > endUtc) continue;
 		hr.push({ ts, bpm: Number(r.bpm) });
 	}
+	hr.sort((a, b) => a.ts - b.ts);
 
-	const sleepRows = await db()
+	const sleepPrimaryRows = await db()
+		.selectFrom("sleep_stages")
+		.select(["ts_utc", "stage", "duration_seconds"])
+		.where("user_id", "=", userId)
+		.where("ts_utc", ">=", startUtcDt)
+		.where("ts_utc", "<", endUtcDt)
+		.execute();
+
+	const sleep: SleepStageRecord[] = [];
+	for (const r of sleepPrimaryRows) {
+		if (r.ts_utc === null) continue;
+		const startTs = utcDatetimeStrToSeconds(r.ts_utc);
+		sleep.push({ startTs, endTs: startTs + r.duration_seconds, stage: r.stage });
+	}
+
+	const sleepFallbackRows = await db()
 		.selectFrom("sleep_stages")
 		.select(["ts", "stage", "duration_seconds", "tz"])
 		.where("user_id", "=", userId)
 		.where("ts", ">=", dayBefore)
 		.where("ts", "<", dayAfter)
+		.where("ts_utc", "is", null)
 		.execute();
-
-	const sleep: SleepStageRecord[] = [];
-	for (const r of sleepRows) {
+	for (const r of sleepFallbackRows) {
 		const startTs = fitbitTsToUnix(r.ts, resolveTz(r.tz));
 		if (Number.isNaN(startTs)) continue;
 		const endTs = startTs + r.duration_seconds;
 		if (endTs < startUtc || startTs > endUtc) continue;
 		sleep.push({ startTs, endTs, stage: r.stage });
 	}
+	sleep.sort((a, b) => a.startTs - b.startTs);
 
 	// Steps intraday — only non-zero minutes are stored, so the row count
 	// directly reflects "user took at least one step in this minute".
-	const stepRows = await db()
+	const stepsPrimaryRows = await db()
+		.selectFrom("steps_intraday")
+		.select(["ts_utc", "steps"])
+		.where("user_id", "=", userId)
+		.where("ts_utc", ">=", startUtcDt)
+		.where("ts_utc", "<", endUtcDt)
+		.execute();
+
+	const steps: StepPoint[] = [];
+	for (const r of stepsPrimaryRows) {
+		if (r.ts_utc === null) continue;
+		steps.push({ ts: utcDatetimeStrToSeconds(r.ts_utc), steps: r.steps });
+	}
+
+	const stepsFallbackRows = await db()
 		.selectFrom("steps_intraday")
 		.select(["ts", "steps", "tz"])
 		.where("user_id", "=", userId)
 		.where("ts", ">=", dayBefore)
 		.where("ts", "<", dayAfter)
+		.where("ts_utc", "is", null)
 		.execute();
-
-	const steps: StepPoint[] = [];
-	for (const r of stepRows) {
+	for (const r of stepsFallbackRows) {
 		const ts = fitbitTsToUnix(r.ts, resolveTz(r.tz));
-		if (Number.isNaN(ts)) continue;
-		if (ts < startUtc || ts > endUtc) continue;
+		if (Number.isNaN(ts) || ts < startUtc || ts > endUtc) continue;
 		steps.push({ ts, steps: r.steps });
 	}
+	steps.sort((a, b) => a.ts - b.ts);
 
 	return { hr, sleep, steps };
 }

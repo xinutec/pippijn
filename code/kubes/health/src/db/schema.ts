@@ -476,6 +476,14 @@ const MIGRATIONS: readonly string[] = [
      ADD COLUMN IF NOT EXISTS end_time_utc   DATETIME NULL,
      ADD COLUMN IF NOT EXISTS tz_source VARCHAR(32) NULL`,
 
+	// v36: Secondary index on `(user_id, ts_utc)` to drive Phase C
+	// reads. Built manually online on prod (ALGORITHM=INPLACE,
+	// LOCK=NONE) so the startup migration here is a no-op via IF NOT
+	// EXISTS; fresh databases pay the index build at first boot.
+	`ALTER TABLE heart_rate_intraday ADD INDEX IF NOT EXISTS idx_hri_user_ts_utc (user_id, ts_utc)`,
+	`ALTER TABLE steps_intraday      ADD INDEX IF NOT EXISTS idx_si_user_ts_utc  (user_id, ts_utc)`,
+	`ALTER TABLE sleep_stages        ADD INDEX IF NOT EXISTS idx_sst_user_ts_utc (user_id, ts_utc)`,
+
 	// Future migrations go here.
 ];
 
