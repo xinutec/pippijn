@@ -1,7 +1,6 @@
 import { Component, ElementRef, effect, input, viewChild } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { VelocityData } from "../../services/health.service";
-import { formatLocalTime } from "../../time-utils";
 
 const MODE_COLORS: Record<string, string> = {
 	stationary: "rgba(120, 120, 120, 0.2)",

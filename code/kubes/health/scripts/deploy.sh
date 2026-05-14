@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Deploy the health-sync app end-to-end.
+#
+# Runs `npm run verify` (typecheck + lint + tests), commits the
+# staged-or-stageable changes under `code/kubes/health/`, pushes
+# to main, waits for CI, then rolls out the new image on isis.
+#
+# Usage:
+#   scripts/deploy.sh -m "commit message"
+#   scripts/deploy.sh -F /path/to/message.txt
+#
+# Designed to be invoked from anywhere; resolves both the health
+# subdir and the parent pippijn repo root from its own location.
+# Run it via your usual git/git-crypt wrapper if needed, e.g.:
+#   nix-shell -p git -p git-crypt -p nodejs_22 \
+#     --run 'bash scripts/deploy.sh -F /tmp/msg.txt'
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HEALTH_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# pippijn repo root: ../../../.. from health/scripts/
+# (code/kubes/health → code/kubes → code → pippijn)
+PIPPIJN_DIR="$(cd "$HEALTH_DIR/../../.." && pwd)"
+HEALTH_REL="code/kubes/health"
+
+if [[ ! -d "$PIPPIJN_DIR/.git" ]]; then
+	echo "deploy: expected pippijn git repo at $PIPPIJN_DIR" >&2
+	exit 2
+fi
+
+# --- argument parsing ----------------------------------------------------
+MSG_FILE=""
+CLEANUP_MSG_FILE=0
+case "${1:-}" in
+	-m)
+		[[ -n "${2:-}" ]] || { echo "deploy: -m requires a message" >&2; exit 2; }
+		MSG_FILE=$(mktemp -t deploy-msg.XXXXXX)
+		CLEANUP_MSG_FILE=1
+		printf '%s\n' "$2" > "$MSG_FILE"
+		;;
+	-F)
+		[[ -n "${2:-}" && -f "${2}" ]] || { echo "deploy: -F needs an existing file" >&2; exit 2; }
+		MSG_FILE="$2"
+		;;
+	*)
+		echo "Usage: $0 -m 'commit message' | -F message-file" >&2
+		exit 2
+		;;
+esac
+
+cleanup() {
+	[[ "$CLEANUP_MSG_FILE" -eq 1 && -f "$MSG_FILE" ]] && rm -f "$MSG_FILE"
+}
+trap cleanup EXIT
+
+# --- verify --------------------------------------------------------------
+echo "==> [1/6] npm run verify"
+cd "$HEALTH_DIR"
+npm run verify
+
+# --- stage health/ changes only -----------------------------------------
+echo "==> [2/6] staging $HEALTH_REL"
+cd "$PIPPIJN_DIR"
+git add "$HEALTH_REL"
+
+# Refuse to proceed if staged changes leak outside the health subtree.
+# Catches the case where stuff in other parts of the pippijn repo was
+# already staged from previous work — make it explicit.
+if ! git diff --cached --quiet -- ":!${HEALTH_REL}"; then
+	echo "deploy: there are staged changes outside ${HEALTH_REL}:" >&2
+	git diff --cached --name-only -- ":!${HEALTH_REL}" >&2
+	echo "Unstage them (git restore --staged <path>) or commit them separately." >&2
+	exit 1
+fi
+
+# Nothing to commit? Exit clean rather than creating an empty commit.
+if git diff --cached --quiet -- "$HEALTH_REL"; then
+	echo "deploy: nothing staged under $HEALTH_REL — nothing to deploy."
+	exit 0
+fi
+
+# --- commit + push -------------------------------------------------------
+echo "==> [3/6] git commit"
+git commit -F "$MSG_FILE"
+
+echo "==> [4/6] git push origin main"
+git push origin main
+
+# --- wait for CI ---------------------------------------------------------
+echo "==> [5/6] watching CI"
+cd "$HEALTH_DIR"
+RUN_ID=$(gh run list --branch main --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run watch --exit-status "$RUN_ID"
+
+# --- rollout -------------------------------------------------------------
+echo "==> [6/6] rollout on isis"
+ssh root@isis.xinutec.org \
+	'kubectl -n health rollout restart deploy/health-auth && kubectl -n health rollout status deploy/health-auth --timeout=180s'
+
+echo "==> done."

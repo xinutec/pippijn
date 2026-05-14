@@ -1,7 +1,7 @@
 import { Component, input, effect, ElementRef, viewChild } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { SleepStage } from "../../services/health.service";
-import { localEpoch, formatLocalTime } from "../../time-utils";
+import { localEpoch } from "../../time-utils";
 
 // Y positions: Awake at top, Deep at bottom
 const STAGE_Y: Record<string, number> = {
