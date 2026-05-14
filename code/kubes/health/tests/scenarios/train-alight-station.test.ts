@@ -56,7 +56,7 @@ const stationLookup = async (lat: number, lon: number): Promise<NearbyStation[]>
 };
 const lineLookup = async (): Promise<Set<string>> => new Set<string>();
 
-describe.todo("scenario: train segment ends prematurely at a mid-ride dwell", () => {
+describe("scenario: train segment ends prematurely at a mid-ride dwell", () => {
 	const boardTs = tsAt("2026-05-14T17:56:00Z");
 	// Classifier's reported end (prematurely at Station C):
 	const classifierEndTs = tsAt("2026-05-14T18:11:00Z");
@@ -74,21 +74,29 @@ describe.todo("scenario: train segment ends prematurely at a mid-ride dwell", ()
 		pointCount: 100,
 	};
 
+	// Fix sequence matches today's prod shape. After the (premature)
+	// segment-end at classifierEndTs the data shows:
+	//   - decelerating into Station C (still > 5 km/h)
+	//   - stopped at Station C (< 5 km/h)  ← what current code picks
+	//   - accelerating away from Station C (train continues)
+	//   - approaching Station E (decelerating)
+	//   - stopped at Station E  ← actual user disembark
+	//   - walking away from Station E (this is the real "user got off"
+	//     signal that the picker should hit)
 	const points: FilteredPoint[] = [
 		// Boarding fix (at Station A)
 		{ ts: boardTs, lat: STATION_A[0], lon: STATION_A[1], speed_kmh: 5, bearing: 90 },
 		// Cruise (sampled)
 		{ ts: boardTs + 300, lat: 50.0, lon: 5.05, speed_kmh: 60, bearing: 90 },
-		// Approaching Station C: speed drops
-		{ ts: classifierEndTs - 30, lat: STATION_C[0], lon: STATION_C[1] - 0.001, speed_kmh: 7, bearing: 90 },
-		// Brief stop at Station C (this is where classifier thinks train ends)
-		{ ts: classifierEndTs, lat: STATION_C[0], lon: STATION_C[1], speed_kmh: 2.6, bearing: 90 },
-		// Train continues past Station C — accelerating
-		{ ts: classifierEndTs + 30, lat: STATION_C[0], lon: STATION_C[1] + 0.003, speed_kmh: 52, bearing: 90 },
+		// Decelerating into Station C — still mid-ride
+		{ ts: classifierEndTs + 20, lat: STATION_C[0], lon: STATION_C[1] - 0.0001, speed_kmh: 5.4, bearing: 90 },
+		// Stopped briefly at Station C
+		{ ts: classifierEndTs + 35, lat: STATION_C[0], lon: STATION_C[1], speed_kmh: 1.1, bearing: 90 },
+		// Train continues — accelerating away from Station C
 		{ ts: classifierEndTs + 80, lat: 50.0, lon: 5.15, speed_kmh: 60, bearing: 90 },
 		// Decelerating into Station E (actual alight)
 		{ ts: classifierEndTs + 130, lat: STATION_E[0], lon: STATION_E[1] - 0.0005, speed_kmh: 20, bearing: 90 },
-		{ ts: classifierEndTs + 170, lat: STATION_E[0], lon: STATION_E[1], speed_kmh: 5, bearing: 0 },
+		{ ts: classifierEndTs + 170, lat: STATION_E[0], lon: STATION_E[1], speed_kmh: 4.5, bearing: 0 },
 		// User walks away from Station E
 		{ ts: classifierEndTs + 240, lat: STATION_E[0] + 0.0003, lon: STATION_E[1] + 0.0003, speed_kmh: 4.5, bearing: 30 },
 		{ ts: classifierEndTs + 300, lat: STATION_E[0] + 0.0006, lon: STATION_E[1] + 0.0006, speed_kmh: 4.8, bearing: 30 },
@@ -97,11 +105,11 @@ describe.todo("scenario: train segment ends prematurely at a mid-ride dwell", ()
 	it("labels the alight station as the user's actual disembark, not the mid-ride dwell", async () => {
 		const result = await annotateRailRuns([train], points, stationLookup, lineLookup);
 		expect(result).toHaveLength(1);
-		// The label format is "Boarding -> Alight". Whatever the boarding
+		// The label format is "Boarding → Alight". Whatever the boarding
 		// station picked, the alight must be the actual disembark
 		// (Station E), not the mid-ride brief stop (Station C).
 		expect(result[0].wayName, `expected alight = Station E, got wayName = ${result[0].wayName}`).toMatch(
-			/-> Station E$/,
+			/(→|->) Station E$/,
 		);
 	});
 });

@@ -914,6 +914,14 @@ const POST_TRANSIT_SPEED_KMH = 15;
  *  disembark station." */
 const POST_TRANSIT_ALIGHT_SPEED_KMH = 5;
 
+/** A slow fix is a mid-ride dwell (not the real alight) if a transit-
+ *  speed fix follows within this window. The train stopped at a
+ *  station, the user stayed on board, the train resumed. The actual
+ *  alight is later. 2 min is long enough to cover a typical platform
+ *  dwell + train re-acceleration; shorter than any legitimate alight-
+ *  to-walking-pace transition. */
+const MID_RIDE_DWELL_RESUME_S = 120;
+
 /** How far back in time to scan for a platform-train-platform fix
  *  pattern that suggests the velocity classifier closed the train
  *  segment's startTs too late. 15 minutes accommodates a multi-
@@ -1129,9 +1137,24 @@ export async function annotateRailRuns(
 			//      passing" rather than the actual disembark station.
 			//      Fall back to the looser threshold if no fix below 5
 			//      exists, then to any fix as final fallback.
+			// Walk past mid-ride dwells: a slow fix followed within
+			// MID_RIDE_DWELL_RESUME_S by a transit-speed fix is the
+			// train pausing at a station, not the user getting off.
+			// The actual alight is the first slow fix that ISN'T
+			// followed by a return to transit speed.
+			const findSustainedAlight = (predicate: (p: FilteredPoint) => boolean): FilteredPoint | undefined => {
+				for (const p of points) {
+					if (p.ts <= endTs) continue;
+					if (!predicate(p)) continue;
+					const cutoff = p.ts + MID_RIDE_DWELL_RESUME_S;
+					const resumes = points.some((q) => q.ts > p.ts && q.ts <= cutoff && q.speed_kmh >= POST_TRANSIT_SPEED_KMH);
+					if (!resumes) return p;
+				}
+				return undefined;
+			};
 			const alightFix =
-				points.find((p) => p.ts > endTs && p.speed_kmh < POST_TRANSIT_ALIGHT_SPEED_KMH) ??
-				points.find((p) => p.ts > endTs && slow(p)) ??
+				findSustainedAlight((p) => p.speed_kmh < POST_TRANSIT_ALIGHT_SPEED_KMH) ??
+				findSustainedAlight((p) => slow(p)) ??
 				points.find((p) => p.ts > endTs);
 			const after = alightFix;
 			if (!slowBefore || !after) return null;
