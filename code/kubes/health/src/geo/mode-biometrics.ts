@@ -141,6 +141,59 @@ const RELABEL_MIN_BIOMETRIC_OBS = 1;
  *  driving sample is dominated by 52 km/h city driving. */
 const SIT_MODES = new Set(["driving", "train", "plane"]);
 
+/** Number of stds below the per-mode HR mean at which the
+ *  current mode's HR becomes biologically implausible. 2 σ on a
+ *  Gaussian = ~2.3% of the distribution. Strict enough to avoid
+ *  false vetoes during low-effort cycling, loose enough to catch
+ *  the "labelled cycling but HR sits at resting" case where the
+ *  observed HR is several σ below cycling's mean. */
+const HR_VETO_SIGMA = 2.0;
+
+/** Hard veto: when the segment's observed HR is more than
+ *  HR_VETO_SIGMA std-devs below the current mode's HR mean, the
+ *  classification is biologically implausible regardless of how
+ *  confidently the GPS+OSM classifier picked it. Demote to the
+ *  highest-log-likelihood alternative mode.
+ *
+ *  Returns no-change when:
+ *    - the current mode is stationary (HR-veto only applies to
+ *      movement modes; stationary's HR distribution is the
+ *      resting band itself);
+ *    - no observed HR (no evidence);
+ *    - no stats row for the current mode (cold-start user);
+ *    - the current mode's stats row has no HR distribution
+ *      (insufficient sample for that mode).
+ *
+ *  Designed as a separate function so the rule is testable on its
+ *  own and slots cleanly into `correctModeBySignature` as a
+ *  short-circuit before the log-likelihood comparison.
+ */
+export function vetoImplausibleHr(
+	seg: { mode: string; obsHr: number | null; obsCadence: number | null; obsSpeed: number | null },
+	stats: readonly ModeStats[],
+): { mode: string; changed: boolean } {
+	if (seg.mode === "stationary") return { mode: seg.mode, changed: false };
+	if (seg.obsHr === null) return { mode: seg.mode, changed: false };
+	const cur = stats.find((s) => s.mode === seg.mode);
+	if (!cur || cur.hrMean === null || cur.hrStd === null || cur.hrStd <= 0) {
+		return { mode: seg.mode, changed: false };
+	}
+	const minPlausible = cur.hrMean - HR_VETO_SIGMA * cur.hrStd;
+	if (seg.obsHr >= minPlausible) return { mode: seg.mode, changed: false };
+
+	// HR is implausible for the current mode. Pick the
+	// highest-log-likelihood alternative as the demotion target.
+	const obs: MinuteObservation = { hr: seg.obsHr, cadence: seg.obsCadence, speed: seg.obsSpeed };
+	let best: { mode: string; score: number } | null = null;
+	for (const s of stats) {
+		if (s.mode === seg.mode) continue;
+		const sc = scoreModeLogLikelihood(obs, s);
+		if (best === null || sc > best.score) best = { mode: s.mode, score: sc };
+	}
+	if (best === null) return { mode: seg.mode, changed: false };
+	return { mode: best.mode, changed: true };
+}
+
 /**
  * Decide whether to relabel a segment's mode based on per-user
  * biometric signatures. Returns the chosen mode plus whether a change
@@ -166,6 +219,13 @@ export function correctModeBySignature(
 	stats: ModeStats[],
 ): { mode: string; changed: boolean } {
 	if (seg.mode === "stationary") return { mode: seg.mode, changed: false };
+
+	// HR veto runs FIRST, before the confidence-margin gate: a
+	// classifier that's "confident" about cycling can still be
+	// biologically impossible if HR sits in the resting band.
+	const veto = vetoImplausibleHr(seg, stats);
+	if (veto.changed) return veto;
+
 	if (seg.confidenceMargin >= RELABEL_MAX_MARGIN) return { mode: seg.mode, changed: false };
 	if (stats.length === 0) return { mode: seg.mode, changed: false };
 

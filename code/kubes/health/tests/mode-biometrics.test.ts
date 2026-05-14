@@ -6,6 +6,7 @@ import {
 	type MinuteObservation,
 	type ModeStats,
 	scoreModeLogLikelihood,
+	vetoImplausibleHr,
 } from "../src/geo/mode-biometrics.js";
 
 describe("labelMinuteByHeuristic", () => {
@@ -318,6 +319,57 @@ describe("scoreModeLogLikelihood", () => {
 	});
 });
 
+describe("vetoImplausibleHr", () => {
+	// The HR-veto is a hard rule that fires independently of the
+	// log-likelihood-based correction: if the observed HR is more
+	// than VETO_SIGMA std-devs below the current mode's HR mean,
+	// the classification is biologically implausible regardless of
+	// what speed/cadence/OSM features say.
+	it("vetoes a cycling label when observed HR is ~3 sigma below cycling's HR distribution", () => {
+		// Cycling: 107 ± 6 → 2σ floor at 95. Observed 80 is way below.
+		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 80, obsCadence: 5, obsSpeed: 6 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(true);
+		expect(r.mode).not.toBe("cycling");
+	});
+
+	it("does not veto when observed HR is comfortably inside the cycling distribution", () => {
+		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 110, obsCadence: 0, obsSpeed: 18 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(false);
+	});
+
+	it("does not veto when obsHr is null (no evidence to act on)", () => {
+		const r = vetoImplausibleHr({ mode: "cycling", obsHr: null, obsCadence: 5, obsSpeed: 6 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(false);
+	});
+
+	it("does not veto a stationary mode (HR-veto is for movement modes only)", () => {
+		const r = vetoImplausibleHr({ mode: "stationary", obsHr: 50, obsCadence: 0, obsSpeed: 0 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(false);
+	});
+
+	it("does not veto when no stats row exists for the current mode (cold start)", () => {
+		const noCyclingStats = PIPPIJN_STATS.filter((s) => s.mode !== "cycling");
+		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 70, obsCadence: 0, obsSpeed: 8 }, noCyclingStats);
+		expect(r.changed).toBe(false);
+	});
+
+	it("after vetoing, picks the highest-log-likelihood alternative mode", () => {
+		// Observation: HR 85, cadence 5, speed 6. Walking signature
+		// (108 ± 14, cadence 107 ± 11, speed 5.1 ± 1.1) — HR is
+		// borderline but speed and cadence are off. Stationary
+		// signature (68.5 ± 12.3, cadence 0, speed 0.3) — HR fits
+		// well, low cadence + speed look right. Score should put
+		// walking just slightly ahead of stationary for these obs
+		// because cadence=5 is in walking's lower tail.
+		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 85, obsCadence: 5, obsSpeed: 6 }, PIPPIJN_STATS);
+		expect(r.changed).toBe(true);
+		// Either walking or stationary is acceptable here; this
+		// pins down that the veto picks a movement-compatible
+		// mode, not e.g. plane.
+		expect(["walking", "stationary"]).toContain(r.mode);
+	});
+});
+
 describe("correctModeBySignature", () => {
 	// The bug we're fixing: a walking segment near Bridge Road got
 	// classified as "driving 6.3 km/h". HR ~110, cadence ~100, speed ~6.
@@ -401,6 +453,32 @@ describe("correctModeBySignature", () => {
 			PIPPIJN_STATS,
 		);
 		expect(r.changed).toBe(false);
+	});
+
+	it("vetoes cycling with implausibly low HR even when confidence margin is high", () => {
+		// The April 29 Noordwal "cycling" case: classifier scored
+		// cycling high (margin ~11) because the segment hugged a
+		// cycleway in OSM. But HR was 80-90 across the whole window
+		// — well below the user's cycling signature (107 ± 6). The
+		// log-likelihood-based correction wouldn't fire because
+		// margin >= RELABEL_MAX_MARGIN. The HR veto fires regardless.
+		const r = correctModeBySignature(
+			{ mode: "cycling", confidenceMargin: 11, obsHr: 85, obsCadence: 5, obsSpeed: 6 },
+			PIPPIJN_STATS,
+		);
+		expect(r.changed).toBe(true);
+		expect(r.mode).not.toBe("cycling");
+	});
+
+	it("does NOT veto cycling when HR is plausibly in the cycling band", () => {
+		// Cycling stats: 107 ± 6. HR = 110 is well inside the
+		// distribution → no veto, no relabel.
+		const r = correctModeBySignature(
+			{ mode: "cycling", confidenceMargin: 11, obsHr: 110, obsCadence: 0, obsSpeed: 18 },
+			PIPPIJN_STATS,
+		);
+		expect(r.changed).toBe(false);
+		expect(r.mode).toBe("cycling");
 	});
 
 	// Sit-mode pairs (driving / train / plane) are biometrically

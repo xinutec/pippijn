@@ -919,9 +919,29 @@ export async function annotateRailRuns(
 	// segment so the timeline doesn't show meaningless "Cafe X · 2 min"
 	// artefacts in the middle of a tube ride. Threshold deliberately
 	// tight (5 min) so that genuine longer stays still surface.
+	//
+	// We accept both already-stationary segments and any short segment
+	// whose GPS points cluster within TRAIN_DWELL_RADIUS_M of their
+	// centroid — that's the load-bearing signal that the user didn't
+	// actually move. The April 29 Arnhem case showed up as a 5-min
+	// "driving" between two train legs because GPS-jitter speed spikes
+	// fooled the classifier; the fixes themselves scattered within
+	// ~50 m of the platform.
 	const TRAIN_PAUSE_MAX_SEC = 5 * 60;
-	const couldBeTrainPause = (s: EnrichedSegment): boolean =>
-		s.mode === "stationary" && s.endTs - s.startTs <= TRAIN_PAUSE_MAX_SEC;
+	const TRAIN_DWELL_RADIUS_M = 100;
+	const couldBeTrainPause = (s: EnrichedSegment): boolean => {
+		if (s.endTs - s.startTs > TRAIN_PAUSE_MAX_SEC) return false;
+		if (s.mode === "stationary") return true;
+		// Non-stationary candidate: check the actual GPS spread.
+		const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
+		if (segPoints.length < 2) return false;
+		const cLat = segPoints.reduce((sum, p) => sum + p.lat, 0) / segPoints.length;
+		const cLon = segPoints.reduce((sum, p) => sum + p.lon, 0) / segPoints.length;
+		for (const p of segPoints) {
+			if (haversineMeters(p.lat, p.lon, cLat, cLon) > TRAIN_DWELL_RADIUS_M) return false;
+		}
+		return true;
+	};
 
 	// Identify maximal rail runs. A run starts and ends with a rail-like
 	// segment but may absorb short stationary "platform" segments in the

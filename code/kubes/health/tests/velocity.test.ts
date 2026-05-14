@@ -624,6 +624,86 @@ describe("annotateRailRuns", () => {
 		expect(out[1].wayName).toBe("Kings Cross St Pancras → Wembley Park");
 	});
 
+	it("absorbs a short non-stationary middle segment when its GPS points cluster tightly (train dwell)", async () => {
+		// April 29 case: an intercity train stops at a station for ~5
+		// minutes. GPS jitter at the platform pushes the classifier
+		// to call the dwell "driving" instead of "stationary"
+		// (instantaneous speed spikes between near-static fixes). The
+		// rail-run absorber should still recognise this as a train
+		// dwell -- the GPS points scatter within a tiny radius (well
+		// under 100 m), which is the load-bearing signal that the
+		// user didn't actually move regardless of what mode the
+		// classifier chose.
+		const fakeDrivingDwell: EnrichedSegment = {
+			startTs: 1200,
+			endTs: 1500, // 5 min — at the boundary of the dwell window
+			mode: "driving",
+			confidence: 0.4,
+			confidenceMargin: 1.5,
+			avgSpeed: 12,
+			maxSpeed: 60,
+			linearity: 0.1,
+			pointCount: 6,
+		};
+		const segs = [train(1000, 1200), fakeDrivingDwell, train(1500, 2000)];
+		// GPS points: train legs have moving fixes; the dwell's fixes
+		// all cluster within ~30 m of the platform.
+		const points: FilteredPoint[] = [
+			fix(900, 51.53, -0.125), // pre-train (Kings Cross)
+			// Dwell fixes — all near (51.985, 5.898), Arnhem-Centraal-shaped
+			{ ts: 1220, lat: 51.985, lon: 5.898, speed_kmh: 5, bearing: 0 },
+			{ ts: 1260, lat: 51.9851, lon: 5.8981, speed_kmh: 1, bearing: 0 },
+			{ ts: 1300, lat: 51.9852, lon: 5.8979, speed_kmh: 0, bearing: 0 },
+			{ ts: 1350, lat: 51.985, lon: 5.8982, speed_kmh: 2, bearing: 0 },
+			{ ts: 1400, lat: 51.9849, lon: 5.898, speed_kmh: 1, bearing: 0 },
+			{ ts: 1450, lat: 51.9851, lon: 5.898, speed_kmh: 4, bearing: 0 },
+			fix(1600, 51.563, -0.279), // post-train (Wembley Park)
+		];
+		const out = await annotateRailRuns(segs, points, lookup);
+		// Three input segments → one merged train.
+		expect(out).toHaveLength(1);
+		expect(out[0].mode).toBe("train");
+		expect(out[0].startTs).toBe(1000);
+		expect(out[0].endTs).toBe(2000);
+		expect(out[0].refinedReason).toMatch(/merged rail run/);
+	});
+
+	it("does NOT absorb a non-stationary middle segment when GPS shows real movement", async () => {
+		// Guard against over-eager absorption: if you actually got
+		// off the train and drove somewhere for a few minutes, the
+		// dwell-absorber must NOT swallow that — the segment's GPS
+		// trail covers real distance. Only zero-displacement
+		// segments should be absorbed.
+		const realShortDrive: EnrichedSegment = {
+			startTs: 1200,
+			endTs: 1500,
+			mode: "driving",
+			confidence: 0.6,
+			confidenceMargin: 4,
+			avgSpeed: 40,
+			maxSpeed: 60,
+			linearity: 0.85,
+			pointCount: 6,
+		};
+		const segs = [train(1000, 1200), realShortDrive, train(1500, 2000)];
+		const points: FilteredPoint[] = [
+			fix(900, 51.53, -0.125),
+			// Movement of ~1 km across the segment — far above any
+			// platform-dwell threshold.
+			{ ts: 1220, lat: 51.985, lon: 5.898, speed_kmh: 40, bearing: 90 },
+			{ ts: 1260, lat: 51.985, lon: 5.905, speed_kmh: 50, bearing: 90 },
+			{ ts: 1300, lat: 51.985, lon: 5.912, speed_kmh: 55, bearing: 90 },
+			{ ts: 1350, lat: 51.985, lon: 5.92, speed_kmh: 60, bearing: 90 },
+			{ ts: 1400, lat: 51.985, lon: 5.93, speed_kmh: 55, bearing: 90 },
+			{ ts: 1450, lat: 51.985, lon: 5.935, speed_kmh: 30, bearing: 90 },
+			fix(1600, 51.563, -0.279),
+		];
+		const out = await annotateRailRuns(segs, points, lookup);
+		// Two separate train segments + the drive in the middle.
+		expect(out.length).toBeGreaterThan(1);
+		expect(out.some((s) => s.mode === "driving")).toBe(true);
+	});
+
 	it("collapses train + short-stationary + train into one continuous train segment", async () => {
 		// A brief train pause (signal stop, station dwell — not a transfer)
 		// shouldn't appear in the timeline. The 2-minute stationary fix is
