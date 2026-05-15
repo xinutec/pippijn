@@ -21,6 +21,7 @@ import {
 	type StepPoint,
 } from "./biometrics.js";
 import { localSolarHour } from "./focus-places.js";
+import { qualityFilterGps } from "./gps-quality.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
 import { correctModeBySignature, type ModeStats } from "./mode-biometrics.js";
@@ -393,17 +394,23 @@ export async function computeVelocity(
 	const raw = await time("phonetrack", fetchTrackPoints(config, userId, date, nextDay));
 	const inDay = raw.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc);
 
+	// GPS quality control: drop physically-incoherent runs (underground
+	// cell-tower garbage) before anything else touches the data. The
+	// dropped fixes leave an honest temporal gap that `inferTransitGaps`
+	// bridges downstream. See src/geo/gps-quality.ts.
+	const cleaned = timeSync("gpsQuality", () => qualityFilterGps(inDay));
+
 	// Place-snap: if a fix is unambiguously close to a known cluster (home,
 	// work, etc.), pull it to the cluster centroid. Reduces GPS noise around
 	// well-known locations and stabilises both segment timing and labels.
 	const knownPlaces = await time("loadPlaces", loadKnownPlaces(userId));
 	const snapped =
 		knownPlaces.length > 0
-			? inDay.map((p) => {
+			? cleaned.map((p) => {
 					const r = snapToPlace({ lat: p.lat, lon: p.lon, accuracy: p.accuracy }, knownPlaces);
 					return r.snapped ? { ...p, lat: r.lat, lon: r.lon, accuracy: r.accuracy } : p;
 				})
-			: inDay;
+			: cleaned;
 
 	// Use the same loose accuracy ceiling (≤200m) for both movement and stay
 	// detection. The Kalman filter already weights measurements by their
@@ -939,8 +946,6 @@ const MID_RIDE_DWELL_RESUME_S = 120;
  *  because the per-station platform stops dominated the window
  *  median. */
 const PLATFORM_PATTERN_WALKBACK_S = 900;
-/** Speeds at or below this are platform-or-boarding pace. */
-const PLATFORM_SLOW_KMH = 8;
 /** Speeds at or below this are "near-stationary" — the user is
  *  standing on the platform, not still walking towards it. The
  *  boarding-platform chain walks backwards through these only,
