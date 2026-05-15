@@ -5,7 +5,7 @@
  * AND the HR is too close to cycling's mean for the HR-veto to fire.
  *
  * Reproduces the production bug pattern that motivated the cadence-veto:
- *   April 29 Noordwal segment: HR 97, cadence 80, speed 5.7 km/h →
+ *   a walking segment with HR 97, cadence 80 spm, speed 5.7 km/h →
  *   labelled cycling at confidenceMargin 11.3. The cadence-veto must
  *   demote this to walking.
  *
@@ -21,7 +21,7 @@ import { cadenceForSegment, enrichSegmentWithBiometrics } from "../../src/geo/bi
 import { filterGpsTrack } from "../../src/geo/kalman.js";
 import { correctModeBySignature, type ModeStats } from "../../src/geo/mode-biometrics.js";
 import { classifySegments } from "../../src/geo/segments.js";
-import { moveBearing, synthDay, tsAt } from "./synth-day.js";
+import { moveBearing, synthDay } from "./synth-day.js";
 
 const PIPPIJN_STATS: ModeStats[] = [
 	{
@@ -69,10 +69,10 @@ describe("scenario: walk with cycling-borderline HR + walking cadence", () => {
 	// 20 minutes of walking at 5.7 km/h with HR 97 (cycling's veto floor is
 	// 107 - 2*6 = 95, so HR 97 just-survives the HR-veto). Cadence 80 spm
 	// is walking-band; the cadence-veto must catch it.
-	const day = synthDay(tsAt("2026-04-29T10:32:00Z"), [
+	const day = synthDay(1_700_000_000, [
 		moveBearing({
 			durationSec: 20 * 60,
-			from: [52.0786, 4.3008], // Den Haag, near Noordwal
+			from: [50.0, 5.0],
 			speedKmh: 5.7,
 			headingDeg: 60,
 			hr: 97,

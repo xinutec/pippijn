@@ -1,14 +1,13 @@
 /**
- * Scenario: a tube journey labelled as "driving on Trunk Road X"
- * because the rail line runs underneath a road and the legacy
- * `refineMode` cascade prefers the road over the rail at this
- * segment-summary speed.
+ * Scenario: a tube journey labelled as driving because the rail line
+ * runs underneath a trunk road and the legacy `refineMode` cascade
+ * prefers the road over the rail at this segment-summary speed.
  *
- * Reproduces today's production case (anonymised): the 21-minute
- * tube ride home was labelled "driving on Euston Underpass". The
- * segment had avgSpeed 27.4 km/h, maxSpeed 98.9 km/h. Bursts to
- * ~98 km/h are biomechanically + legally impossible on London
- * surface roads, but the segment-level avg is in driving range.
+ * Bursts to ~98 km/h are biomechanically + legally impossible on UK
+ * urban surface roads (30-50 mph limit), but the segment-level avg
+ * is in driving range, so the cascade picks driving. The fix
+ * (`rejectImplausibleDriving`) demotes to train when a subway is
+ * also parallel.
  *
  * This test calls `refineMode` directly with synthesised NearbyWay
  * data shaped like the prod situation: a trunk highway (the surface

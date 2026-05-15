@@ -4,18 +4,7 @@
  * land at the station where the user actually stopped (the platform-
  * wait cluster), not at an earlier station they walked past.
  *
- * Reproduces today's prod case (anonymised): user walked past one
- * station at ~5–6 km/h, continued to another station, slowed to
- * near-stationary on the platform, then train. The current
- * `findBoardingPlatformFix` includes the whole walking approach in
- * the "platform chain" (its slow-cutoff is 8 km/h, which lets
- * brisk-walking fixes in), so the earliest chain member ends up
- * near the walked-past station. Boarding label = wrong station.
- *
- * The shape (timing in UTC; the prod sequence is a tighter version of
- * this — the test stretches gaps slightly so the chain rebuilds
- * across them are obvious).
- *
+ * Shape:
  *   walking past STATION_A:  fixes at ~5–7 km/h
  *   walking through middle:  fixes at ~5 km/h
  *   approaching STATION_B:   fixes at ~5 km/h slowing
@@ -31,35 +20,37 @@
 import { describe, expect, it } from "vitest";
 import { findBoardingPlatformFix } from "../../src/geo/velocity.js";
 
-const STATION_A: [number, number] = [51.5253, -0.1383]; // walked past
-const STATION_B: [number, number] = [51.5258, -0.1359]; // actual boarding
+// Synthetic anchor: middle-of-nowhere coordinates. Two stations
+// laid out ~165 m apart along an east-west line so the geometry of
+// "walked past A, boarded at B" is preserved without using a real
+// location.
+const STATION_A: [number, number] = [50.0, 5.0]; // walked past
+const STATION_B: [number, number] = [50.0, 5.0024]; // actual boarding (~165 m east)
 
-// Synthetic fix sequence anchored at fixed timestamps. Times chosen
-// so the train start is at boardTs+0 and prior fixes step back ~30 s
-// each (close to today's prod cadence).
-const boardTs = 1_700_000_000; // round number; absolute value doesn't matter
+const boardTs = 1_700_000_000;
 
 const fixes = [
 	// 14 min before board: walking past STATION_A
-	{ ts: boardTs - 14 * 60, lat: 51.5247, lon: -0.1383 + 0.0002, speed_kmh: 5.8 },
-	{ ts: boardTs - 13 * 60, lat: 51.525, lon: -0.1383, speed_kmh: 5.2 },
-	{ ts: boardTs - 12 * 60, lat: 51.5253, lon: -0.1379, speed_kmh: 6.3 }, // closest pass STATION_A
-	{ ts: boardTs - 11 * 60, lat: 51.5254, lon: -0.1374, speed_kmh: 4.7 },
+	{ ts: boardTs - 14 * 60, lat: STATION_A[0] - 0.00006, lon: STATION_A[1] - 0.0001, speed_kmh: 5.8 },
+	{ ts: boardTs - 13 * 60, lat: STATION_A[0] - 0.00003, lon: STATION_A[1] - 0.00005, speed_kmh: 5.2 },
+	{ ts: boardTs - 12 * 60, lat: STATION_A[0], lon: STATION_A[1], speed_kmh: 6.3 }, // closest pass STATION_A
+	{ ts: boardTs - 11 * 60, lat: STATION_A[0] + 0.00005, lon: STATION_A[1] + 0.0005, speed_kmh: 4.7 },
 	// Walking eastward between stations
-	{ ts: boardTs - 10 * 60, lat: 51.5255, lon: -0.1369, speed_kmh: 5.0 },
-	{ ts: boardTs - 9 * 60, lat: 51.5256, lon: -0.1365, speed_kmh: 5.3 },
+	{ ts: boardTs - 10 * 60, lat: STATION_A[0] + 0.00008, lon: STATION_A[1] + 0.001, speed_kmh: 5.0 },
+	{ ts: boardTs - 9 * 60, lat: STATION_A[0] + 0.00012, lon: STATION_A[1] + 0.0015, speed_kmh: 5.3 },
 	// Approaching STATION_B
-	{ ts: boardTs - 8 * 60, lat: 51.5257, lon: -0.1362, speed_kmh: 4.6 },
-	{ ts: boardTs - 7 * 60, lat: 51.5258, lon: -0.136, speed_kmh: 3.9 },
+	{ ts: boardTs - 8 * 60, lat: STATION_B[0] - 0.00005, lon: STATION_B[1] - 0.0002, speed_kmh: 4.6 },
+	{ ts: boardTs - 7 * 60, lat: STATION_B[0], lon: STATION_B[1] - 0.00005, speed_kmh: 3.9 },
 	// Slowing onto the platform
-	{ ts: boardTs - 6 * 60, lat: 51.5258, lon: -0.1359, speed_kmh: 1.0 },
-	{ ts: boardTs - 5 * 60, lat: 51.5258, lon: -0.1359, speed_kmh: 0.2 }, // stopped
-	{ ts: boardTs - 4 * 60, lat: 51.5258, lon: -0.1359, speed_kmh: 0.1 }, // stopped
-	{ ts: boardTs - 3 * 60, lat: 51.5257, lon: -0.1359, speed_kmh: 2.5 }, // shuffling
-	{ ts: boardTs - 2 * 60, lat: 51.5258, lon: -0.1359, speed_kmh: 0.1 }, // stopped
-	{ ts: boardTs - 60, lat: 51.5258, lon: -0.1359, speed_kmh: 1.3 },
-	// Train starts
-	{ ts: boardTs, lat: 51.524, lon: -0.1437, speed_kmh: 69.9, bearing: 270 },
+	{ ts: boardTs - 6 * 60, lat: STATION_B[0], lon: STATION_B[1], speed_kmh: 1.0 },
+	{ ts: boardTs - 5 * 60, lat: STATION_B[0], lon: STATION_B[1], speed_kmh: 0.2 }, // stopped
+	{ ts: boardTs - 4 * 60, lat: STATION_B[0], lon: STATION_B[1], speed_kmh: 0.1 }, // stopped
+	{ ts: boardTs - 3 * 60, lat: STATION_B[0] - 0.00001, lon: STATION_B[1], speed_kmh: 2.5 }, // shuffling
+	{ ts: boardTs - 2 * 60, lat: STATION_B[0], lon: STATION_B[1], speed_kmh: 0.1 }, // stopped
+	{ ts: boardTs - 60, lat: STATION_B[0], lon: STATION_B[1], speed_kmh: 1.3 },
+	// Train starts (decelerating cruise position; the absolute lat/lon
+	// of the train fix doesn't matter — only that it's >= PLATFORM_TRAIN_KMH).
+	{ ts: boardTs, lat: STATION_B[0] - 0.002, lon: STATION_B[1] - 0.008, speed_kmh: 69.9, bearing: 270 },
 ].map((p) => ({ ...p, bearing: p.bearing ?? 0 }));
 
 function distMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {

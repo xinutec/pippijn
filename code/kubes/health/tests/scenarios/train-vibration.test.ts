@@ -24,7 +24,7 @@ import { cadenceForSegment, enrichSegmentWithBiometrics } from "../../src/geo/bi
 import { filterGpsTrack } from "../../src/geo/kalman.js";
 import { correctModeBySignature, type ModeStats } from "../../src/geo/mode-biometrics.js";
 import { classifySegments } from "../../src/geo/segments.js";
-import { moveBearing, synthDay, tsAt } from "./synth-day.js";
+import { moveBearing, synthDay } from "./synth-day.js";
 
 /** Per-user mode-biometric signatures (cf. tests/mode-biometrics.test.ts).
  *  Same fixture as the unit tests — keeps test data centralised mentally. */
@@ -97,41 +97,40 @@ const PIPPIJN_STATS: ModeStats[] = [
 ];
 
 describe("scenario: train with watch-vibration cadence", () => {
-	// Synthesise a day shaped like the actual Den Haag → Arnhem train trip
-	// that hit the cadence-veto regression. Three legs:
+	// Three legs:
 	//   - 10 min walk to the station (HR ~95, cadence ~95)
 	//   - 80 min train at ~100 km/h (HR ~80, but cadence 50 — vibration noise)
 	//   - 10 min walk from the station (HR ~95, cadence ~95)
-	const startTs = tsAt("2026-04-29T16:09:00Z");
-	const denHaag: [number, number] = [52.08, 4.325];
-	const arnhem: [number, number] = [51.985, 5.901];
+	const startTs = 1_700_000_000;
+	const origin: [number, number] = [50.0, 5.0];
+	const destination: [number, number] = [50.0, 6.5]; // ~107 km east
 
 	const day = synthDay(startTs, [
 		// Walk east at 5 km/h to the station.
 		moveBearing({
 			durationSec: 10 * 60,
-			from: denHaag,
+			from: origin,
 			speedKmh: 5,
 			headingDeg: 90,
 			hr: 95,
 			cadence: 95,
 		}),
-		// Train: from Den Haag to Arnhem in 80 min. The exact path
-		// doesn't matter — what matters is the sustained ~100 km/h
-		// speed and the vibration-cadence signal.
+		// Train: 80 min at ~100 km/h between origin and destination.
+		// The exact path doesn't matter — what matters is the
+		// sustained ~100 km/h speed and the vibration-cadence signal.
 		{
 			kind: "move",
 			durationSec: 80 * 60,
-			from: [denHaag[0], denHaag[1] + 0.005], // station, ~500m east of start
-			to: arnhem,
+			from: [origin[0], origin[1] + 0.005], // station, ~500m east of start
+			to: destination,
 			speedKmh: 100,
 			hr: 80,
 			cadence: 50, // **vibration registered as steps**
 		},
-		// Walk east at 5 km/h from Arnhem.
+		// Walk east at 5 km/h from destination.
 		moveBearing({
 			durationSec: 10 * 60,
-			from: arnhem,
+			from: destination,
 			speedKmh: 5,
 			headingDeg: 90,
 			hr: 95,
