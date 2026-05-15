@@ -541,19 +541,58 @@ export async function nearbyStations(lat: number, lon: number, radiusM = 200): P
 	// pickBestStation can deprioritise them — entrance nodes are
 	// labelled "A", "B", "C" in OSM and would otherwise beat the real
 	// station node by distance for nearby fixes.
+	const typed = features.map((f) => ({ ...f, derivedSubtype: deriveStationSubtype(f) }));
+	return dedupeStationsByName(typed);
+}
+
+function deriveStationSubtype(f: { subtype: string | null; tags: Record<string, string> }): string {
+	if (f.subtype === "subway_entrance") return "subway_entrance";
+	if (f.tags.station === "subway") return "subway";
+	if (f.tags.station === "light_rail") return "light_rail";
+	if (f.tags.tram === "yes" || f.subtype === "tram_stop") return "tram";
+	if (f.subtype === "halt") return "halt";
+	return "rail";
+}
+
+/**
+ * Deduplicate stations-by-name from a list of OSM railway features.
+ *
+ * The bug this exists to solve: a station and its entrances are
+ * separate OSM points sharing the station's name. Naive dedup-by-name
+ * "keep closest" picks the entrance (the entrance node is physically
+ * closer to a passing pedestrian) and the deduped record carries
+ * `subtype = "subway_entrance"`. Downstream `pickBestStation` then
+ * filters that record OUT as entrance-like — the station disappears
+ * from the result entirely, and the next-nearest station wins by
+ * default. Real example: a fix at the gates of one station whose
+ * entrance is 15 m away ended up labelled with a different station
+ * 175 m further because the entrance dedup wiped the closer one.
+ *
+ * Rule: station-typed entries WIN over entrance-typed ones regardless
+ * of distance. The entrance was never going to be the right label
+ * for the station; we keep it only as a fallback if no station node
+ * exists.
+ */
+export function dedupeStationsByName(
+	features: Array<{ name: string | null; derivedSubtype: string; distance_m: number }>,
+): NearbyStation[] {
 	const stations = new Map<string, NearbyStation>();
 	for (const f of features) {
-		const name = f.name;
-		if (!name) continue;
-		let subtype = "rail";
-		if (f.subtype === "subway_entrance") subtype = "subway_entrance";
-		else if (f.tags.station === "subway") subtype = "subway";
-		else if (f.tags.station === "light_rail") subtype = "light_rail";
-		else if (f.tags.tram === "yes" || f.subtype === "tram_stop") subtype = "tram";
-		else if (f.subtype === "halt") subtype = "halt";
-		const existing = stations.get(name);
-		if (!existing || f.distance_m < existing.distanceM) {
-			stations.set(name, { name, subtype, distanceM: f.distance_m });
+		if (!f.name) continue;
+		const candidate: NearbyStation = { name: f.name, subtype: f.derivedSubtype, distanceM: f.distance_m };
+		const existing = stations.get(f.name);
+		if (!existing) {
+			stations.set(f.name, candidate);
+			continue;
+		}
+		const existingIsEntrance = existing.subtype === "subway_entrance";
+		const candidateIsEntrance = candidate.subtype === "subway_entrance";
+		// Prefer station-typed records over entrance-typed ones regardless
+		// of distance; otherwise prefer the closer record of the same kind.
+		if (existingIsEntrance && !candidateIsEntrance) {
+			stations.set(f.name, candidate);
+		} else if (existingIsEntrance === candidateIsEntrance && candidate.distanceM < existing.distanceM) {
+			stations.set(f.name, candidate);
 		}
 	}
 	return [...stations.values()].sort((a, b) => a.distanceM - b.distanceM);

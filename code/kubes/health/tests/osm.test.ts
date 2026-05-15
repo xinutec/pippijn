@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	commonCity,
+	dedupeStationsByName,
 	extractCity,
 	extractLineNames,
 	filterLandmarks,
@@ -566,6 +567,51 @@ describe("pickBestStation", () => {
 		// real station name.
 		const out = pickBestStation([s("A", "subway", 240), s("Station W", "subway", 260)]);
 		expect(out?.name).toBe("Station W");
+	});
+});
+
+describe("dedupeStationsByName", () => {
+	// OSM models a station and its entrances as separate points sharing the
+	// station's name. The dedup logic must NOT lose the station-typed entry
+	// when an entrance is closer — `pickBestStation` filters entrances out
+	// later, and a station that survives dedup only as its entrance becomes
+	// invisible to the picker, letting a further-away rival station win.
+	type F = { name: string | null; derivedSubtype: string; distance_m: number };
+
+	it("prefers a station-typed entry over a closer entrance with the same name", () => {
+		const features: F[] = [
+			{ name: "Station E", derivedSubtype: "subway_entrance", distance_m: 15 },
+			{ name: "Station E", derivedSubtype: "subway", distance_m: 22 },
+			{ name: "Station W", derivedSubtype: "rail", distance_m: 175 },
+		];
+		const result = dedupeStationsByName(features);
+		const e = result.find((s) => s.name === "Station E");
+		expect(e?.subtype).toBe("subway");
+		expect(e?.distanceM).toBe(22);
+	});
+
+	it("keeps the entrance entry only when no station-typed sibling exists", () => {
+		const features: F[] = [{ name: "Station X", derivedSubtype: "subway_entrance", distance_m: 30 }];
+		const result = dedupeStationsByName(features);
+		expect(result).toHaveLength(1);
+		expect(result[0].subtype).toBe("subway_entrance");
+	});
+
+	it("picks the closer record when both are non-entrance", () => {
+		const features: F[] = [
+			{ name: "Station S", derivedSubtype: "subway", distance_m: 50 },
+			{ name: "Station S", derivedSubtype: "subway", distance_m: 30 },
+		];
+		const result = dedupeStationsByName(features);
+		expect(result[0].distanceM).toBe(30);
+	});
+
+	it("skips features with null names", () => {
+		const features: F[] = [
+			{ name: null, derivedSubtype: "subway_entrance", distance_m: 10 },
+			{ name: "Station Q", derivedSubtype: "subway", distance_m: 50 },
+		];
+		expect(dedupeStationsByName(features)).toEqual([{ name: "Station Q", subtype: "subway", distanceM: 50 }]);
 	});
 });
 
