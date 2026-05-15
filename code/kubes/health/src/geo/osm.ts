@@ -562,10 +562,10 @@ export async function nearbyStations(lat: number, lon: number, radiusM = 200): P
 /**
  * Find rail-class route relations whose member stops include a station near
  * the given coordinate. Used to disambiguate parallel-track line confusion:
- * given a tube ride with Wembley Park at one end and Kings Cross at the
- * other, the intersection of `linesAtPoint(wembley)` and `linesAtPoint(kc)`
- * is `{Metropolitan Line}` — Jubilee serves Wembley but not Kings Cross, so
- * it falls out of the intersection.
+ * given a tube ride between two stations A and B, the intersection of
+ * `linesAtPoint(A)` and `linesAtPoint(B)` picks the unique line serving
+ * both endpoints — when one line serves A but not B, it falls out of the
+ * intersection.
  *
  * Overpass query: stops/stations near the point → their containing route
  * relations → relation tags. Cached via the standard OSM cache.
@@ -600,7 +600,7 @@ export async function linesAtPoint(lat: number, lon: number, radiusM = 100): Pro
 
 /**
  * Produce a short, human-readable label for a place.
- * Examples: "Brasserie Vermeer (restaurant)", "Vondelpark", "Plein 1944 (square)"
+ * Examples: "Restaurant R (restaurant)", "Park P", "Place A (square)"
  */
 export function placeLabel(result: NominatimResult): string {
 	const a = result.address;
@@ -615,7 +615,7 @@ export function placeLabel(result: NominatimResult): string {
 	if (a.building && result.type) return `${a.building} (${result.type})`;
 
 	// Residential address (or any address with a clear house number).
-	// Use Dutch ordering ("Plein 1944 161") since street + number reads
+	// Use Dutch ordering ("Place A 161") since street + number reads
 	// most naturally for European postal addresses.
 	if (a.house_number && a.road) return `${a.road} ${a.house_number}`;
 
@@ -757,11 +757,11 @@ const SUBWAY_PARALLEL_DISTANCE_M = 100;
 
 /**
  * Post-`refineMode` physical-plausibility rule for the "tube ride
- * labelled as driving" case. Production motivator: 21-min tube ride
- * with maxSpeed 98.9 km/h ended up labelled "driving on Euston
- * Underpass" because that road was the closest OSM way at the
- * segment's surface GPS fixes, and the legacy cascade preferred it
- * over the Metropolitan Line running below.
+ * labelled as driving" case. Motivating pattern: a 21-min tube ride
+ * with maxSpeed ~99 km/h ended up labelled "driving on Trunk Road"
+ * because that road was the closest OSM way at the segment's surface
+ * GPS fixes, and the legacy cascade preferred it over the subway
+ * line running below.
  *
  * Rule: when the refined label is `driving` AND the segment's max
  * speed exceeds the urban-non-motorway limit AND the user is not on
@@ -890,10 +890,10 @@ function refineModeLegacyCascade(originalMode: string, speedKmh: number, ways: N
 	const majorHighways = highways.filter((h) => ["motorway", "trunk", "primary", "secondary"].includes(h.subtype));
 
 	// Railway → train. The naive rule "any rail nearby → train" gets
-	// hijacked by rail running parallel to motorways (the Betuweroute
-	// alongside A15). The naive opposite rule "any major highway nearby
-	// → not train" gets hijacked by tube lines running under urban
-	// arterials (Jubilee line under Bridge Road in London — 2026-05-12).
+	// hijacked by rail running parallel to motorways (a freight line
+	// alongside a motorway). The naive opposite rule "any major highway
+	// nearby → not train" gets hijacked by tube lines running under
+	// urban arterials.
 	// Distance-aware tie-break when distance info is available: prefer
 	// whichever feature the GPS trajectory was actually closer to.
 	// Back-compat: when distances are missing (older callers, tests),

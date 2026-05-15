@@ -87,10 +87,10 @@ describe("segmentsToDayStates — base cases", () => {
 	});
 
 	it("preserves wayName on moving segments", () => {
-		const segs = [train(1000, 2000, "Wembley Park → Kings Cross")];
+		const segs = [train(1000, 2000, "Station W → Station K")];
 		const states = segmentsToDayStates(segs, []);
 		expect(states[0].mode).toBe("train");
-		expect(states[0].wayName).toBe("Wembley Park → Kings Cross");
+		expect(states[0].wayName).toBe("Station W → Station K");
 	});
 
 	it("merges adjacent same-mode same-place segments", () => {

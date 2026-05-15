@@ -425,7 +425,7 @@ describe("detectFocusPlaces", () => {
 
 describe("pickWinningAmenity", () => {
 	// For each cluster we aggregate per-visit OSM amenity lookups across
-	// the user's history. Time-weighted: a 2-hour stay at Bairro Alto
+	// the user's history. Time-weighted: a 2-hour stay at Cafe X
 	// counts more than a 5-min stop. Picks a clear winner only when the
 	// data is decisive — otherwise returns null so the per-visit OSM
 	// picker stays in charge as a fallback.
@@ -433,14 +433,14 @@ describe("pickWinningAmenity", () => {
 	const opts = { minWeight: 60 * 30, minFraction: 0.5 };
 
 	it("picks the majority-vote amenity when one clearly dominates", () => {
-		// 7 visits to Bairro Alto, all 60-min, totaling 7 × 60 = 420 min.
-		// 1 noisy visit landed at Kruidentuin (the cannabis shop next door),
-		// 15 min. Bairro Alto fraction = 420 / 435 = 97% → wins.
+		// 7 visits to Cafe X, all 60-min, totaling 7 × 60 = 420 min.
+		// 1 noisy visit landed at Neighbour Shop (the shop next door),
+		// 15 min. Cafe X fraction = 420 / 435 = 97% → wins.
 		const votes = new Map<string, number>([
-			["Bairro Alto", 7 * 60 * 60],
-			["Kruidentuin", 15 * 60],
+			["Cafe X", 7 * 60 * 60],
+			["Neighbour Shop", 15 * 60],
 		]);
-		expect(pickWinningAmenity(votes, opts)).toBe("Bairro Alto");
+		expect(pickWinningAmenity(votes, opts)).toBe("Cafe X");
 	});
 
 	it("returns null when no amenity has enough total weight", () => {

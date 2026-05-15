@@ -202,12 +202,12 @@ describe("negative caching for transient failures", () => {
 describe("positive caching", () => {
 	it("a successful response is cached and reused on follow-up calls", async () => {
 		const { reverseGeocode } = await loadOsm();
-		fetchHandler = async () => nominatimOk("Kings Cross");
+		fetchHandler = async () => nominatimOk("Station K");
 
 		const r1 = await reverseGeocode(51.0, 5.0);
 		const r2 = await reverseGeocode(51.0, 5.0);
-		expect(r1?.displayName).toBe("Kings Cross");
-		expect(r2?.displayName).toBe("Kings Cross");
+		expect(r1?.displayName).toBe("Station K");
+		expect(r2?.displayName).toBe("Station K");
 		expect(fetchCalls).toHaveLength(1);
 	});
 });

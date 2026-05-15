@@ -4,8 +4,8 @@
  * Scores each candidate by how close its associated way is to the
  * GPS trajectory. The distance lives on the candidate
  * (`wayDistanceM`) because different candidates point at different
- * ways — a "driving on Bridge Road" candidate and a "train on
- * Jubilee Line" candidate look at distance to different OSM
+ * ways — a "driving on Arterial Road" candidate and a "train on
+ * Subway Line" candidate look at distance to different OSM
  * features.
  *
  * The factor implements the distance-aware tie-break that was

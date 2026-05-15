@@ -5,7 +5,8 @@
  * know the place. Pure function — caller supplies the cluster list.
  *
  * Used to:
- *  - kill the "De Bruijn vs. Bairro Alto" type of cafe-next-door label flip
+ *  - kill the cafe-next-door type of label flip when two named venues sit
+ *    within GPS uncertainty of each other
  *  - stop overnight GPS drift from labelling your home as a nearby artwork
  *  - feed cleaner coordinates into segment classification and OSM lookup
  */

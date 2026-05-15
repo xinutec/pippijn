@@ -9,21 +9,21 @@ function offset(lat: number, lon: number, north: number, east: number): { lat: n
 	return { lat: lat + dLat, lon: lon + dLon };
 }
 
-const HOME: KnownPlace = { centroidLat: 51.56997, centroidLon: -0.27896, id: "home", radiusM: 12 };
-const WORK: KnownPlace = { centroidLat: 51.53317, centroidLon: -0.12566, id: "work", radiusM: 15 };
-// Two cafes ~50m apart on the same Nijmegen square — the De Bruijn / Bairro Alto setup
+const HOME: KnownPlace = { centroidLat: 50.06997, centroidLon: 4.84604, id: "home", radiusM: 12 };
+const WORK: KnownPlace = { centroidLat: 50.03317, centroidLon: 4.99934, id: "work", radiusM: 15 };
+// Two cafes ~50m apart on the same square — the cafe-next-door setup
 const CAFE_A: KnownPlace = { centroidLat: 51.84765, centroidLon: 5.86321, id: "cafeA", radiusM: 10 };
 const CAFE_B: KnownPlace = { centroidLat: 51.84796, centroidLon: 5.86384, id: "cafeB", radiusM: 10 };
 
 describe("snapToPlace", () => {
 	it("does not snap when there are no places", () => {
-		const r = snapToPlace({ lat: 51.56997, lon: -0.27896, accuracy: 100 }, []);
+		const r = snapToPlace({ lat: 50.06997, lon: 4.84604, accuracy: 100 }, []);
 		expect(r.snapped).toBe(false);
-		expect(r.lat).toBe(51.56997);
+		expect(r.lat).toBe(50.06997);
 	});
 
 	it("does not snap when no place is within snapRadiusM", () => {
-		// A fix near Wembley shouldn't snap to a King's Cross cluster
+		// A fix near one cluster shouldn't snap to a far-away cluster
 		const r = snapToPlace({ lat: HOME.centroidLat, lon: HOME.centroidLon, accuracy: 80 }, [WORK]);
 		expect(r.snapped).toBe(false);
 	});

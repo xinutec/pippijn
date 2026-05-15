@@ -503,9 +503,9 @@ export async function computeVelocity(
 							// across the user's prior visits to this cluster)
 							// when the cluster isn't residential. Residential
 							// clusters fall through to the address lookup —
-							// "Plein 1944 187" beats "Bairro Alto Café"
-							// because the cluster's sleep_hours dwarfs its
-							// awake_hours.
+							// A residential address beats a co-located cafe
+							// label because the cluster's sleep_hours dwarfs
+							// its awake_hours.
 							const isResidential = wp.sleepHours >= RESIDENCE_SLEEP_THRESHOLD_H;
 							if (!isResidential && wp.amenityLabel) {
 								const namedPlace = await bestPlace(placeLat, placeLon, { preferResidential: false });
@@ -890,17 +890,17 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
  * A "rail-like" segment is anything classified as train (mode or refinedMode)
  * plus inferred-vehicle-speed gaps that look like a tube ride continuation
  * (refinedReason "inferred from GPS gap" with non-stationary mode and
- * avgSpeed >= 7). A maximal run of these is a single journey: a Wembley
- * Park → Kings Cross tube ride that surfaced for one fix mid-route shows
- * up as train + inferred-gap + train (different modes, so mergeAdjacentMoving
+ * avgSpeed >= 7). A maximal run of these is a single journey: a multi-
+ * station tube ride that surfaced for one fix mid-route shows up as
+ * train + inferred-gap + train (different modes, so mergeAdjacentMoving
  * leaves them separate), but it's one journey and gets one label.
  *
  * Per run, we look up nearby stations at the outer-bounding fixes (last fix
  * at-or-before run start, first fix at-or-after run end) and label every
- * segment in the run with "<board> → <alight>". This fixes the Baker Street
- * false-alight: a noisy mid-ride fix near Baker Street can't produce a
- * "Baker Street" annotation because the run's outer fixes are at the true
- * board/alight platforms.
+ * segment in the run with "<board> → <alight>". This fixes the mid-ride-
+ * fix false-alight: a noisy mid-ride fix near an intermediate station
+ * can't produce an annotation for that station because the run's outer
+ * fixes are at the true board/alight platforms.
  */
 /** Search radius (m) for rail-run endpoint station lookup. Larger than the
  *  default 200m of nearbyStations because overground stations often have
@@ -946,8 +946,8 @@ const PLATFORM_SLOW_KMH = 8;
  *  boarding-platform chain walks backwards through these only,
  *  stopping at the first walking-pace fix. That separates the
  *  platform-wait cluster from the approach walk past a closer
- *  station (today's "walked past Warren Street to board at Euston
- *  Square" prod case). The looser PLATFORM_SLOW_KMH still bounds
+ *  station (the "walked past an intermediate station to board at the
+ *  next one" pattern). The looser PLATFORM_SLOW_KMH still bounds
  *  the chain's outer edge — once we've collected a near-stationary
  *  cluster, we don't re-extend through anything > 8 km/h. */
 const BOARDING_STILL_KMH = 3;
@@ -1136,9 +1136,9 @@ export async function annotateRailRuns(
 			const endTs = segments[run.toExclusive - 1].endTs;
 			// Prefer fixes where the user is NOT in transit (speed below
 			// walking pace) — these are at-or-near a station rather than
-			// mid-route. Met line surfaces between Finchley Road and
-			// Wembley Park, so the first fix at-or-after the run's endTs
-			// can be a real GPS reading at ~30 km/h mid-train. Skipping
+			// mid-route. A subway line that surfaces between stations
+			// means the first fix at-or-after the run's endTs can be a
+			// real GPS reading at ~30 km/h mid-train. Skipping
 			// transit-speed fixes gets us to the actual disembark-and-
 			// walk-near-station fix. Fall back to any fix if none qualify.
 			const slow = (p: FilteredPoint): boolean => p.speed_kmh < POST_TRANSIT_SPEED_KMH;
@@ -1274,8 +1274,9 @@ export async function annotateRailRuns(
 			if (startStation === endStation) return null;
 			const base = `${startStation} → ${endStation}`;
 			// Line intersection: which line serves both physical endpoints?
-			// Met/Jubilee both serve Wembley Park but only Met reaches Kings
-			// Cross — the intersection is {Met}. Append the suffix only
+			// Two lines might both serve one endpoint but only one
+			// reaches the other — the intersection picks the right line.
+			// Append the suffix only
 			// when the intersection is a singleton; on empty (one endpoint
 			// off-OSM, or disjoint sets) or ambiguous (>1 line serves both),
 			// fall through to the bare station-pair label.
@@ -1298,8 +1299,8 @@ export async function annotateRailRuns(
 	//     station-pair label (if available).
 	//   - Multi-segment run (with or without absorbed short stationaries):
 	//     collapse into one train segment spanning the whole journey.
-	//     The user thinks of it as one ride — "I got on at Kings Cross,
-	//     off at Wembley Park" — not three sub-windows of the classifier
+	//     The user thinks of it as one ride — "I got on at station A,
+	//     off at station B" — not three sub-windows of the classifier
 	//     plus a momentary train pause. Surface the journey, not the
 	//     artefacts.
 	// Segments outside any run pass through unchanged.
@@ -1324,8 +1325,8 @@ export async function annotateRailRuns(
 			// GPS surface fixes look road-shaped (high linearity,
 			// vehicle-speed), but the station-pair annotation outranks
 			// that. Without the upgrade we end up with a segment that's
-			// internally contradictory: mode=driving + wayName like
-			// "Baker Street → Wembley Park".
+			// internally contradictory: mode=driving + a station-pair
+			// wayName.
 			const s = { ...segments[run.from] };
 			if (label) {
 				s.wayName = label;

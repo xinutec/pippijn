@@ -20,9 +20,9 @@
  *
  * `pickBestPlace` returns the argmax, or `null` when no candidate
  * crosses a posterior threshold. Callers fall through to OSM-amenity
- * lookup on null — that's the path for "you went somewhere new, you've
- * never been to McDonald's before, it's not in focus_places, so the
- * amenity-lookup-from-OSM tells us you're at a McDonald's."
+ * lookup on null — that's the path for "you went somewhere new, the
+ * place isn't in focus_places, so the amenity-lookup-from-OSM tells
+ * us what kind of venue it is."
  *
  * Replaces the old `snapToPlace + shouldUseClusterAmenity + residence-
  * hours-this-day` chain of heuristics. The previous gates were

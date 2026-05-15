@@ -242,8 +242,8 @@ export function vetoImplausibleHr(
  *
  *  Sibling to `vetoImplausibleHr`. Catches the case where HR sits in
  *  the cycling-borderline band (so HR-veto doesn't fire) but step
- *  cadence ~80 spm gives the walk away. April 29 motivator: Noordwal +
- *  Mauritskade phantom-cycling segments with cadence 80/86 spm.
+ *  cadence ~80 spm gives the walk away. Motivating case: phantom-
+ *  cycling segments with cadence 80/86 spm on a brisk walk.
  *
  *  Returns no-change when:
  *    - mode is not in LOW_CADENCE_MODES;

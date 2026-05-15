@@ -181,10 +181,10 @@ describe("aggregateModeStats", () => {
 	});
 });
 
-// Mined from pippijn's 2-year history (see commit message): close-to-real
-// signatures used in scoring + correction tests. The walking/driving HR
-// gap (108 vs 75) is exactly the signal we want the corrector to use.
-const PIPPIJN_STATS: ModeStats[] = [
+// Synthetic per-user signatures used in scoring + correction tests. The
+// walking/driving HR gap (108 vs 75) is exactly the signal we want the
+// corrector to use.
+const USER_STATS: ModeStats[] = [
 	{
 		mode: "stationary",
 		hrMean: 68.5,
@@ -253,8 +253,8 @@ const PIPPIJN_STATS: ModeStats[] = [
 ];
 
 describe("scoreModeLogLikelihood", () => {
-	const walking = PIPPIJN_STATS.find((s) => s.mode === "walking")!;
-	const driving = PIPPIJN_STATS.find((s) => s.mode === "driving")!;
+	const walking = USER_STATS.find((s) => s.mode === "walking")!;
+	const driving = USER_STATS.find((s) => s.mode === "driving")!;
 
 	it("scores a perfect walking observation high under walking", () => {
 		const score = scoreModeLogLikelihood({ hr: 108, cadence: 107, speed: 5.1 }, walking);
@@ -309,13 +309,13 @@ describe("vetoImplausibleHr", () => {
 	// what speed/cadence/OSM features say.
 	it("vetoes a cycling label when observed HR is ~3 sigma below cycling's HR distribution", () => {
 		// Cycling: 107 ± 6 → 2σ floor at 95. Observed 80 is way below.
-		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 80, obsCadence: 5, obsSpeed: 6 }, PIPPIJN_STATS);
+		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 80, obsCadence: 5, obsSpeed: 6 }, USER_STATS);
 		expect(r.changed).toBe(true);
 		expect(r.mode).not.toBe("cycling");
 	});
 
 	it("does not veto when observed HR is comfortably inside the cycling distribution", () => {
-		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 110, obsCadence: 0, obsSpeed: 18 }, PIPPIJN_STATS);
+		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 110, obsCadence: 0, obsSpeed: 18 }, USER_STATS);
 		expect(r.changed).toBe(false);
 	});
 
@@ -327,7 +327,7 @@ describe("vetoImplausibleHr", () => {
 		// well, low cadence + speed look right. Score should put
 		// walking just slightly ahead of stationary for these obs
 		// because cadence=5 is in walking's lower tail.
-		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 85, obsCadence: 5, obsSpeed: 6 }, PIPPIJN_STATS);
+		const r = vetoImplausibleHr({ mode: "cycling", obsHr: 85, obsCadence: 5, obsSpeed: 6 }, USER_STATS);
 		expect(r.changed).toBe(true);
 		// Either walking or stationary is acceptable here; this
 		// pins down that the veto picks a movement-compatible
@@ -343,42 +343,42 @@ describe("vetoImplausibleCadence", () => {
 	// modes whose observed cadence is in walking range (~80-130 spm) is
 	// biologically implausible; the user was walking, not cycling.
 	//
-	// April 29 motivator: Noordwal segment classified as cycling with HR
-	// 97 and steps 1614 in 20 min → cadence 80 spm. HR is in cycling's
-	// borderline range (~107 ± 6 mean), so vetoImplausibleHr doesn't fire.
-	// Cadence is decisive.
+	// Motivating scenario: a 20-min segment classified as cycling with HR
+	// ~97 and cadence ~80 spm. HR is in cycling's borderline range
+	// (~107 ± 6 mean), so vetoImplausibleHr doesn't fire. Cadence is
+	// decisive.
 
 	it("vetoes a cycling label when observed cadence is in walking range", () => {
-		// Noordwal: 80 spm at HR 97. Cycling cadenceMean=0 std=0.8 → 2σ
+		// 80 spm at HR 97. Cycling cadenceMean=0 std=0.8 → 2σ
 		// + floor 30 → threshold 30. 80 >> 30, demote.
-		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: 6 }, PIPPIJN_STATS);
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: 6 }, USER_STATS);
 		expect(r.changed).toBe(true);
 		expect(r.mode).not.toBe("cycling");
 	});
 
 	it("does not veto when cadence is plausibly zero (real cycling)", () => {
-		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 130, obsCadence: 0, obsSpeed: 18 }, PIPPIJN_STATS);
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 130, obsCadence: 0, obsSpeed: 18 }, USER_STATS);
 		expect(r.changed).toBe(false);
 	});
 
 	it("does not veto when cadence is small noise (e.g. 5 spm — incidental steps while pedalling)", () => {
 		// A noisy cadence reading of 5 spm during real cycling shouldn't
 		// trigger a flip. Floor 30 protects against this.
-		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 120, obsCadence: 5, obsSpeed: 18 }, PIPPIJN_STATS);
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 120, obsCadence: 5, obsSpeed: 18 }, USER_STATS);
 		expect(r.changed).toBe(false);
 	});
 
 	it("vetoes driving if observed cadence is in walking range", () => {
 		// A "driving" misclassification of a brisk walk — high cadence
 		// gives it away.
-		const r = vetoImplausibleCadence({ mode: "driving", obsHr: 105, obsCadence: 100, obsSpeed: 5 }, PIPPIJN_STATS);
+		const r = vetoImplausibleCadence({ mode: "driving", obsHr: 105, obsCadence: 100, obsSpeed: 5 }, USER_STATS);
 		expect(r.changed).toBe(true);
 	});
 
 	it("after vetoing, picks the highest-log-likelihood alternative", () => {
 		// HR 97 + cadence 80 + speed 6: walking signature fits best
 		// (HR ~108 ± 14, cadence ~107 ± 11, speed ~5.1 ± 1.1).
-		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: 6 }, PIPPIJN_STATS);
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: 6 }, USER_STATS);
 		expect(r.changed).toBe(true);
 		expect(r.mode).toBe("walking");
 	});
@@ -388,7 +388,7 @@ describe("vetoImplausibleCadence", () => {
 		// version would have demoted to cycling (the least-bad LL among
 		// alternatives, all bad at 108 km/h). The speed gate prevents
 		// the veto because walking isn't a plausible alternative here.
-		const r = vetoImplausibleCadence({ mode: "driving", obsHr: 80, obsCadence: 50, obsSpeed: 108 }, PIPPIJN_STATS);
+		const r = vetoImplausibleCadence({ mode: "driving", obsHr: 80, obsCadence: 50, obsSpeed: 108 }, USER_STATS);
 		expect(r.changed).toBe(false);
 	});
 
@@ -396,7 +396,7 @@ describe("vetoImplausibleCadence", () => {
 		// Cycling at 6 km/h is borderline-slow cycling but plausibly walking
 		// with cadence 80. Veto fires because speed is well under the 15 km/h
 		// ceiling.
-		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: 6 }, PIPPIJN_STATS);
+		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 97, obsCadence: 80, obsSpeed: 6 }, USER_STATS);
 		expect(r.changed).toBe(true);
 	});
 
@@ -404,7 +404,7 @@ describe("vetoImplausibleCadence", () => {
 		// Some users have cadenceMean=0, cadenceStd=0 (pure zeros for
 		// cycling). Then mean + 2σ = 0, which would veto any obsCadence > 0.
 		// Floor 30 prevents this false positive at small cadence noise.
-		const cyclingDegenerate = PIPPIJN_STATS.map((s) =>
+		const cyclingDegenerate = USER_STATS.map((s) =>
 			s.mode === "cycling" ? { ...s, cadenceMean: 0, cadenceStd: 0, cadenceSampleCount: 60 } : s,
 		);
 		const r = vetoImplausibleCadence({ mode: "cycling", obsHr: 120, obsCadence: 20, obsSpeed: 18 }, cyclingDegenerate);
@@ -413,7 +413,7 @@ describe("vetoImplausibleCadence", () => {
 });
 
 describe("cadence-veto integration via correctModeBySignature", () => {
-	// The Noordwal phantom-cycling → walking case is covered by
+	// The phantom-cycling → walking case is covered by
 	// tests/scenarios/phantom-cycling.test.ts, which drives the same
 	// situation through classifySegments instead of pinning the exact
 	// (margin, HR, cadence, speed) trio. Only the negative control
@@ -425,7 +425,7 @@ describe("cadence-veto integration via correctModeBySignature", () => {
 		// High confidence margin must NOT trigger a cadence-veto here.
 		const r = correctModeBySignature(
 			{ mode: "cycling", confidenceMargin: 11.0, obsHr: 130, obsCadence: 0, obsSpeed: 18 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.changed).toBe(false);
 		expect(r.mode).toBe("cycling");
@@ -448,7 +448,7 @@ describe("correctModeBySignature speed-compatibility gate", () => {
 		// must block it.
 		const r = correctModeBySignature(
 			{ mode: "train", confidenceMargin: 1.3, obsHr: 80, obsCadence: 50, obsSpeed: 81 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).not.toBe("cycling");
 	});
@@ -456,7 +456,7 @@ describe("correctModeBySignature speed-compatibility gate", () => {
 	it("does not flip a driving segment at 100 km/h to walking via LL", () => {
 		const r = correctModeBySignature(
 			{ mode: "driving", confidenceMargin: 1.5, obsHr: 80, obsCadence: 0, obsSpeed: 100 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).not.toBe("walking");
 	});
@@ -464,10 +464,10 @@ describe("correctModeBySignature speed-compatibility gate", () => {
 	it("still allows flips among compatible alternatives at low speeds", () => {
 		// A 6 km/h segment labelled cycling with cadence/HR consistent with
 		// walking. Walking is speed-compatible at 6 km/h, so the flip is
-		// allowed (this is the existing Noordwal-style correction).
+		// allowed (this is the existing phantom-cycling correction).
 		const r = correctModeBySignature(
 			{ mode: "cycling", confidenceMargin: 1.5, obsHr: 100, obsCadence: 95, obsSpeed: 6 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.changed).toBe(true);
 		expect(r.mode).toBe("walking");
@@ -475,15 +475,15 @@ describe("correctModeBySignature speed-compatibility gate", () => {
 });
 
 describe("correctModeBySignature", () => {
-	// The bug we're fixing: a walking segment near Bridge Road got
-	// classified as "driving 6.3 km/h". HR ~110, cadence ~100, speed ~6.
-	// Under driving's signature this fits terribly (HR way too high,
-	// speed way too low). Under walking it fits well.
+	// The bug we're fixing: a walking segment got classified as
+	// "driving 6.3 km/h". HR ~110, cadence ~100, speed ~6. Under
+	// driving's signature this fits terribly (HR way too high, speed
+	// way too low). Under walking it fits well.
 
 	it("fixes walking-mislabeled-as-driving (HR + cadence dispositive)", () => {
 		const r = correctModeBySignature(
 			{ mode: "driving", confidenceMargin: 1.2, obsHr: 110, obsCadence: 100, obsSpeed: 6 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).toBe("walking");
 		expect(r.changed).toBe(true);
@@ -493,7 +493,7 @@ describe("correctModeBySignature", () => {
 		// 18 km/h with no steps and HR 130 — cycling, not slow driving.
 		const r = correctModeBySignature(
 			{ mode: "driving", confidenceMargin: 1.5, obsHr: 130, obsCadence: 0, obsSpeed: 18 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).toBe("cycling");
 		expect(r.changed).toBe(true);
@@ -502,7 +502,7 @@ describe("correctModeBySignature", () => {
 	it("leaves a clear driving segment alone (high speed, low HR, no steps)", () => {
 		const r = correctModeBySignature(
 			{ mode: "driving", confidenceMargin: 5, obsHr: 75, obsCadence: 0, obsSpeed: 60 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).toBe("driving");
 		expect(r.changed).toBe(false);
@@ -513,7 +513,7 @@ describe("correctModeBySignature", () => {
 		// a little off — could be a stressed driver (HR 110 in traffic).
 		const r = correctModeBySignature(
 			{ mode: "driving", confidenceMargin: 4, obsHr: 110, obsCadence: 0, obsSpeed: 30 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).toBe("driving");
 		expect(r.changed).toBe(false);
@@ -522,7 +522,7 @@ describe("correctModeBySignature", () => {
 	it("does NOT relabel when biometrics are completely missing", () => {
 		const r = correctModeBySignature(
 			{ mode: "driving", confidenceMargin: 1, obsHr: null, obsCadence: null, obsSpeed: 25 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		// Speed alone is too weak a signal to override.
 		expect(r.changed).toBe(false);
@@ -533,7 +533,7 @@ describe("correctModeBySignature", () => {
 		// differences (>= LL_THRESHOLD) trigger a correction.
 		const r = correctModeBySignature(
 			{ mode: "walking", confidenceMargin: 1.2, obsHr: 100, obsCadence: 100, obsSpeed: 4.5 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		// Slight HR deviation but everything still walking-like.
 		expect(r.mode).toBe("walking");
@@ -554,21 +554,21 @@ describe("correctModeBySignature", () => {
 		// Biometric correction doesn't apply.
 		const r = correctModeBySignature(
 			{ mode: "stationary", confidenceMargin: 100, obsHr: 75, obsCadence: 0, obsSpeed: 0.3 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.changed).toBe(false);
 	});
 
 	it("vetoes cycling with implausibly low HR even when confidence margin is high", () => {
-		// The April 29 Noordwal "cycling" case: classifier scored
-		// cycling high (margin ~11) because the segment hugged a
-		// cycleway in OSM. But HR was 80-90 across the whole window
-		// — well below the user's cycling signature (107 ± 6). The
-		// log-likelihood-based correction wouldn't fire because
-		// margin >= RELABEL_MAX_MARGIN. The HR veto fires regardless.
+		// Phantom-cycling case: classifier scored cycling high (margin
+		// ~11) because the segment hugged a cycleway in OSM. But HR was
+		// 80-90 across the whole window — well below the user's cycling
+		// signature (107 ± 6). The log-likelihood-based correction
+		// wouldn't fire because margin >= RELABEL_MAX_MARGIN. The HR
+		// veto fires regardless.
 		const r = correctModeBySignature(
 			{ mode: "cycling", confidenceMargin: 11, obsHr: 85, obsCadence: 5, obsSpeed: 6 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.changed).toBe(true);
 		expect(r.mode).not.toBe("cycling");
@@ -579,7 +579,7 @@ describe("correctModeBySignature", () => {
 		// distribution → no veto, no relabel.
 		const r = correctModeBySignature(
 			{ mode: "cycling", confidenceMargin: 11, obsHr: 110, obsCadence: 0, obsSpeed: 18 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.changed).toBe(false);
 		expect(r.mode).toBe("cycling");
@@ -599,7 +599,7 @@ describe("correctModeBySignature", () => {
 		// the train signature's mean. Biometric correction must not flip.
 		const r = correctModeBySignature(
 			{ mode: "driving", confidenceMargin: 1.5, obsHr: 75, obsCadence: 0, obsSpeed: 94 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).toBe("driving");
 		expect(r.changed).toBe(false);
@@ -611,7 +611,7 @@ describe("correctModeBySignature", () => {
 		// biometrics can't tell driving from train. Keep as classified.
 		const r = correctModeBySignature(
 			{ mode: "train", confidenceMargin: 1.5, obsHr: 75, obsCadence: 0, obsSpeed: 60 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).toBe("train");
 		expect(r.changed).toBe(false);
@@ -624,7 +624,7 @@ describe("correctModeBySignature", () => {
 		// equally. Don't flip.
 		const r = correctModeBySignature(
 			{ mode: "plane", confidenceMargin: 1.5, obsHr: 75, obsCadence: 0, obsSpeed: 350 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).toBe("plane");
 		expect(r.changed).toBe(false);
@@ -636,7 +636,7 @@ describe("correctModeBySignature", () => {
 		// + HR), so this flip should fire — regression check.
 		const r = correctModeBySignature(
 			{ mode: "driving", confidenceMargin: 1.2, obsHr: 110, obsCadence: 100, obsSpeed: 6 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).toBe("walking");
 		expect(r.changed).toBe(true);
@@ -646,7 +646,7 @@ describe("correctModeBySignature", () => {
 		// Regression check on the other cross-class case.
 		const r = correctModeBySignature(
 			{ mode: "driving", confidenceMargin: 1.5, obsHr: 130, obsCadence: 0, obsSpeed: 18 },
-			PIPPIJN_STATS,
+			USER_STATS,
 		);
 		expect(r.mode).toBe("cycling");
 		expect(r.changed).toBe(true);

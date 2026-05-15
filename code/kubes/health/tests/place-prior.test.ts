@@ -123,7 +123,7 @@ describe("pickBestPlace", () => {
 	it("regression — May 3 case: 70 m off-centre cluster, daytime, only candidate is home → home wins", () => {
 		// The actual May 3 cluster centroid lands ~70 m from home's
 		// stored centroid. Pre-refactor, the snap-radius missed it and
-		// the labeller fell through to OSM amenity ('McDonald's').
+		// the labeller fell through to OSM amenity ('Fast Food Chain X').
 		// Post-refactor, home has 70 m vs radius 80 m → likelihood ≈
 		// exp(-0.5 · (70/80)^2) ≈ 0.68 — plenty of signal. Plus the
 		// heavy prior on having visited 200 times. Wins comfortably.

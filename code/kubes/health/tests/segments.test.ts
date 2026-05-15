@@ -271,9 +271,9 @@ describe("classifySegments", () => {
 	});
 
 	it("splits two stationary periods at distant locations into separate segments", () => {
-		// 30 min stationary at A (Bairro Alto-like), then 30 min stationary at B
-		// (Plein 1944-like) ~280m away. Same mode (stationary) but different
-		// places — must produce TWO stays, not one merged stay.
+		// 30 min stationary at A, then 30 min stationary at B ~280m away.
+		// Same mode (stationary) but different places — must produce TWO
+		// stays, not one merged stay.
 		const A_LAT = 51.84797;
 		const A_LON = 5.86412;
 		const B_LAT = 51.84546;
@@ -475,11 +475,11 @@ describe("classifySegments", () => {
 	});
 
 	it("inferTransitGaps: vehicle-speed gap adjacent to a train segment upgrades to train (Tube interchange)", () => {
-		// Real case: Saint Espresso café (likely at a station) at 21:19, then
-		// a 5-min gap of 3.2 km, then the Jubilee Line at 21:25. The gap is
-		// part of the same transit chain, not a sudden 38 km/h car ride.
-		const A = { lat: 51.515, lon: -0.144 }; // Oxford Circus-ish
-		const B = { lat: 51.522, lon: -0.187 }; // Marylebone-ish
+		// Pattern: a stationary segment near a station, then a 5-min gap of
+		// 3.2 km, then a train segment. The gap is part of the same transit
+		// chain, not a sudden 38 km/h car ride.
+		const A = { lat: 50.0, lon: 5.0 };
+		const B = { lat: 50.007, lon: 4.957 };
 		const segs: TrackSegment[] = [
 			{
 				startTs: 1000,

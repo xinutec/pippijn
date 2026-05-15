@@ -24,27 +24,27 @@ describe("commonCity", () => {
 	});
 
 	it("returns the shared city when both endpoints agree", () => {
-		expect(commonCity(r("Tilburg"), r("Tilburg"))).toBe("Tilburg");
+		expect(commonCity(r("City A"), r("City A"))).toBe("City A");
 	});
 
 	it("returns null when the endpoints disagree", () => {
-		expect(commonCity(r("Nijmegen"), r("Brussels"))).toBeNull();
+		expect(commonCity(r("City A"), r("City B"))).toBeNull();
 	});
 
 	it("returns null when either side has no city", () => {
-		expect(commonCity(r(), r("Amsterdam"))).toBeNull();
-		expect(commonCity(r("Amsterdam"), r())).toBeNull();
+		expect(commonCity(r(), r("City A"))).toBeNull();
+		expect(commonCity(r("City A"), r())).toBeNull();
 	});
 
 	it("returns null when either side is null (geocode failed)", () => {
-		expect(commonCity(null, r("Amsterdam"))).toBeNull();
-		expect(commonCity(r("Amsterdam"), null)).toBeNull();
+		expect(commonCity(null, r("City A"))).toBeNull();
+		expect(commonCity(r("City A"), null)).toBeNull();
 		expect(commonCity(null, null)).toBeNull();
 	});
 
 	it("uses the same fallback chain as extractCity (town counts)", () => {
 		// One endpoint reports as `town`, the other as `city`: same place name → match.
-		expect(commonCity(r(undefined, "Hilversum"), r("Hilversum"))).toBe("Hilversum");
+		expect(commonCity(r(undefined, "Town X"), r("Town X"))).toBe("Town X");
 	});
 });
 
@@ -56,28 +56,28 @@ describe("extractCity", () => {
 	};
 
 	it("returns the city field when present", () => {
-		const r: NominatimResult = { ...baseResult, address: { city: "Amsterdam" } };
-		expect(extractCity(r)).toBe("Amsterdam");
+		const r: NominatimResult = { ...baseResult, address: { city: "City A" } };
+		expect(extractCity(r)).toBe("City A");
 	});
 
 	it("falls back to town when no city is set", () => {
-		const r: NominatimResult = { ...baseResult, address: { town: "Hilversum" } };
-		expect(extractCity(r)).toBe("Hilversum");
+		const r: NominatimResult = { ...baseResult, address: { town: "Town X" } };
+		expect(extractCity(r)).toBe("Town X");
 	});
 
 	it("falls back to village when no city or town is set", () => {
-		const r: NominatimResult = { ...baseResult, address: { village: "Beek" } };
-		expect(extractCity(r)).toBe("Beek");
+		const r: NominatimResult = { ...baseResult, address: { village: "Village V" } };
+		expect(extractCity(r)).toBe("Village V");
 	});
 
 	it("falls back to municipality when no city/town/village", () => {
-		const r: NominatimResult = { ...baseResult, address: { municipality: "Rotterdam-Rijnmond" } };
-		expect(extractCity(r)).toBe("Rotterdam-Rijnmond");
+		const r: NominatimResult = { ...baseResult, address: { municipality: "Municipality M" } };
+		expect(extractCity(r)).toBe("Municipality M");
 	});
 
 	it("prefers city over town when both are set", () => {
-		const r: NominatimResult = { ...baseResult, address: { city: "Amsterdam", town: "Diemen" } };
-		expect(extractCity(r)).toBe("Amsterdam");
+		const r: NominatimResult = { ...baseResult, address: { city: "City A", town: "Town X" } };
+		expect(extractCity(r)).toBe("City A");
 	});
 
 	it("returns null for an empty address", () => {
@@ -112,21 +112,21 @@ describe("extractCity", () => {
 	});
 
 	it("falls back to city when state_district is not a recognised metro", () => {
-		// Most cities don't have a metro-area state_district. Hilversum
-		// is in "Noord-Holland" — a province, not a metropolitan area —
+		// Most cities don't have a metro-area state_district. "City C"
+		// is in "Province P" — a province, not a metropolitan area —
 		// so we should NOT promote it.
 		const r: NominatimResult = {
 			...baseResult,
-			address: { city: "Hilversum", state_district: "Noord-Holland" },
+			address: { city: "City C", state_district: "Province P" },
 		};
-		expect(extractCity(r)).toBe("Hilversum");
+		expect(extractCity(r)).toBe("City C");
 	});
 
 	it("falls back to city when state_district is absent", () => {
 		// Most older / non-UK responses won't carry state_district.
 		// Backward compat: behaves like before.
-		const r: NominatimResult = { ...baseResult, address: { city: "Amsterdam" } };
-		expect(extractCity(r)).toBe("Amsterdam");
+		const r: NominatimResult = { ...baseResult, address: { city: "City A" } };
+		expect(extractCity(r)).toBe("City A");
 	});
 
 	it("collapses 'City of Westminster' to 'Greater London'", () => {
@@ -148,12 +148,12 @@ describe("extractCity", () => {
 describe("placeLabel", () => {
 	it("uses amenity name when available", () => {
 		const r: NominatimResult = {
-			displayName: "Brasserie Vermeer, Amsterdam, Netherlands",
+			displayName: "Restaurant R, City A, Country",
 			type: "restaurant",
 			category: "amenity",
-			address: { amenity: "Brasserie Vermeer", city: "Amsterdam" },
+			address: { amenity: "Restaurant R", city: "City A" },
 		};
-		expect(placeLabel(r)).toBe("Brasserie Vermeer (restaurant)");
+		expect(placeLabel(r)).toBe("Restaurant R (restaurant)");
 	});
 
 	it("uses building name + type when no amenity", () => {
@@ -188,64 +188,64 @@ describe("placeLabel", () => {
 
 	it("uses tourism name when present (hotel, museum)", () => {
 		const r: NominatimResult = {
-			displayName: "Hotel Mercure, Plein 1944, Nijmegen",
+			displayName: "Hotel H, Place A, City C",
 			type: "hotel",
 			category: "tourism",
-			address: { tourism: "Hotel Mercure", road: "Plein 1944" },
+			address: { tourism: "Hotel H", road: "Place A" },
 		};
-		expect(placeLabel(r)).toBe("Hotel Mercure (hotel)");
+		expect(placeLabel(r)).toBe("Hotel H (hotel)");
 	});
 
 	it("uses leisure name when present (park, playground)", () => {
 		const r: NominatimResult = {
-			displayName: "Vondelpark, Amsterdam",
+			displayName: "Park P, City A",
 			type: "park",
 			category: "leisure",
-			address: { leisure: "Vondelpark" },
+			address: { leisure: "Park P" },
 		};
-		expect(placeLabel(r)).toBe("Vondelpark (park)");
+		expect(placeLabel(r)).toBe("Park P (park)");
 	});
 
 	it("uses shop name when present", () => {
 		const r: NominatimResult = {
-			displayName: "Albert Heijn, Damstraat",
+			displayName: "Grocery G, Street S",
 			type: "supermarket",
 			category: "shop",
-			address: { shop: "Albert Heijn", road: "Damstraat" },
+			address: { shop: "Grocery G", road: "Street S" },
 		};
-		expect(placeLabel(r)).toBe("Albert Heijn (supermarket)");
+		expect(placeLabel(r)).toBe("Grocery G (supermarket)");
 	});
 
 	it("uses house_number + road for a residential address", () => {
 		const r: NominatimResult = {
-			displayName: "161, Plein 1944, Stadscentrum, Nijmegen, NL",
+			displayName: "161, Place A, District D, City C, XX",
 			type: "house",
 			category: "place",
-			address: { house_number: "161", road: "Plein 1944", suburb: "Stadscentrum" },
+			address: { house_number: "161", road: "Place A", suburb: "District D" },
 		};
-		expect(placeLabel(r)).toBe("Plein 1944 161");
+		expect(placeLabel(r)).toBe("Place A 161");
 	});
 
 	it("uses pedestrian (square / pedestrian street) name", () => {
-		// Zoom-16 lookups commonly land on named squares like Plein 1944
+		// Zoom-16 lookups commonly land on named squares like Place A
 		const r: NominatimResult = {
-			displayName: "Plein 1944, Stadscentrum, Nijmegen",
+			displayName: "Place A, District D, City C",
 			type: "square",
 			category: "place",
-			address: { pedestrian: "Plein 1944", neighbourhood: "Stadscentrum" },
+			address: { pedestrian: "Place A", neighbourhood: "District D" },
 		};
-		expect(placeLabel(r)).toBe("Plein 1944 (square)");
+		expect(placeLabel(r)).toBe("Place A (square)");
 	});
 });
 
 describe("pickBestLandmark", () => {
 	it("prefers amenity over place at the same distance", () => {
 		const landmarks: NearbyLandmark[] = [
-			{ name: "Plein 1944", type: "place", subtype: "square", distanceM: 50 },
-			{ name: "Brasserie Vermeer", type: "amenity", subtype: "restaurant", distanceM: 50 },
+			{ name: "Place A", type: "place", subtype: "square", distanceM: 50 },
+			{ name: "Restaurant R", type: "amenity", subtype: "restaurant", distanceM: 50 },
 		];
 		const best = pickBestLandmark(landmarks);
-		expect(best.name).toBe("Brasserie Vermeer");
+		expect(best.name).toBe("Restaurant R");
 	});
 
 	it("falls back to closest among same priority", () => {
@@ -258,20 +258,20 @@ describe("pickBestLandmark", () => {
 	});
 
 	it("picks the named pedestrian square when nothing else available", () => {
-		const landmarks: NearbyLandmark[] = [{ name: "Plein 1944", type: "highway", subtype: "pedestrian", distanceM: 80 }];
+		const landmarks: NearbyLandmark[] = [{ name: "Place A", type: "highway", subtype: "pedestrian", distanceM: 80 }];
 		const best = pickBestLandmark(landmarks);
-		expect(best.name).toBe("Plein 1944");
+		expect(best.name).toBe("Place A");
 	});
 });
 
 describe("filterLandmarks", () => {
 	it("drops tourism=artwork (POI marker, not a venue)", () => {
 		const ls: NearbyLandmark[] = [
-			{ name: "Bairro Alto", type: "amenity", subtype: "cafe", distanceM: 30 },
-			{ name: "Valkhof in Vuur en Vlam", type: "tourism", subtype: "artwork", distanceM: 19 },
+			{ name: "Cafe X", type: "amenity", subtype: "cafe", distanceM: 30 },
+			{ name: "Artwork A", type: "tourism", subtype: "artwork", distanceM: 19 },
 		];
 		const out = filterLandmarks(ls);
-		expect(out.map((l) => l.name)).toEqual(["Bairro Alto"]);
+		expect(out.map((l) => l.name)).toEqual(["Cafe X"]);
 	});
 
 	it("drops other POI markers (viewpoint, picnic_site, information)", () => {
@@ -279,11 +279,11 @@ describe("filterLandmarks", () => {
 			{ name: "View", type: "tourism", subtype: "viewpoint", distanceM: 5 },
 			{ name: "Picnic", type: "tourism", subtype: "picnic_site", distanceM: 7 },
 			{ name: "Info Board", type: "tourism", subtype: "information", distanceM: 9 },
-			{ name: "Hotel Mercure", type: "tourism", subtype: "hotel", distanceM: 50 },
+			{ name: "Hotel H", type: "tourism", subtype: "hotel", distanceM: 50 },
 			{ name: "Museum", type: "tourism", subtype: "museum", distanceM: 60 },
 		];
 		const out = filterLandmarks(ls);
-		expect(out.map((l) => l.name)).toEqual(["Hotel Mercure", "Museum"]);
+		expect(out.map((l) => l.name)).toEqual(["Hotel H", "Museum"]);
 	});
 
 	it("keeps non-tourism types untouched", () => {
@@ -306,15 +306,15 @@ describe("landmarkToResult", () => {
 	});
 
 	it("maps named pedestrian area into address.pedestrian", () => {
-		const r = landmarkToResult({ name: "Plein 1944", type: "highway", subtype: "pedestrian", distanceM: 50 });
-		expect(r.address.pedestrian).toBe("Plein 1944");
-		expect(placeLabel(r)).toBe("Plein 1944 (pedestrian)");
+		const r = landmarkToResult({ name: "Place A", type: "highway", subtype: "pedestrian", distanceM: 50 });
+		expect(r.address.pedestrian).toBe("Place A");
+		expect(placeLabel(r)).toBe("Place A (pedestrian)");
 	});
 
 	it("maps place=square into pedestrian (treated like a named open area)", () => {
-		const r = landmarkToResult({ name: "Dam", type: "place", subtype: "square", distanceM: 30 });
-		expect(r.address.pedestrian).toBe("Dam");
-		expect(placeLabel(r)).toBe("Dam (square)");
+		const r = landmarkToResult({ name: "Square S", type: "place", subtype: "square", distanceM: 30 });
+		expect(r.address.pedestrian).toBe("Square S");
+		expect(placeLabel(r)).toBe("Square S (square)");
 	});
 });
 
@@ -467,12 +467,12 @@ describe("refineMode", () => {
 		// as driving. New distance-aware tie-break: rail closer than
 		// road → train.
 		const ways: NearbyWay[] = [
-			{ type: "railway", subtype: "subway", name: "Jubilee Line", distanceM: 20 },
-			{ type: "highway", subtype: "primary", name: "Bridge Road", distanceM: 30 },
+			{ type: "railway", subtype: "subway", name: "Line J", distanceM: 20 },
+			{ type: "highway", subtype: "primary", name: "Arterial Road", distanceM: 30 },
 		];
 		const r = refineMode("driving", 65, ways);
 		expect(r.mode).toBe("train");
-		expect(r.wayName).toBe("Jubilee Line");
+		expect(r.wayName).toBe("Line J");
 	});
 
 	it("keeps driving when major road is closer than parallel rail (Betuweroute)", () => {
@@ -538,22 +538,19 @@ describe("pickBestStation", () => {
 	});
 
 	it("prefers a station entry over closer entrance-letter labels", () => {
-		// Real Wembley Park dump from production:
+		// Real Station W dump from production:
 		const out = pickBestStation([
 			s("A", "subway_entrance", 242),
 			s("B", "subway_entrance", 258),
-			s("Wembley Park", "subway", 260),
+			s("Station W", "subway", 260),
 			s("C", "subway_entrance", 274),
 		]);
-		expect(out?.name).toBe("Wembley Park");
+		expect(out?.name).toBe("Station W");
 	});
 
 	it("falls back to the closest station when all are equivalent type", () => {
-		const out = pickBestStation([
-			s("King's Cross St Pancras", "subway", 143),
-			s("King's Cross St Pancras Underground Station", "subway", 173),
-		]);
-		expect(out?.name).toBe("King's Cross St Pancras");
+		const out = pickBestStation([s("Station K", "subway", 143), s("Station K Underground Station", "subway", 173)]);
+		expect(out?.name).toBe("Station K");
 	});
 
 	it("falls back to entrance when no actual station is present", () => {
@@ -567,8 +564,8 @@ describe("pickBestStation", () => {
 		// Defensive: even if subtype info is missing/unreliable, a single-
 		// letter name "A" is almost certainly an entrance label, not a
 		// real station name.
-		const out = pickBestStation([s("A", "subway", 240), s("Wembley Park", "subway", 260)]);
-		expect(out?.name).toBe("Wembley Park");
+		const out = pickBestStation([s("A", "subway", 240), s("Station W", "subway", 260)]);
+		expect(out?.name).toBe("Station W");
 	});
 });
 
@@ -654,8 +651,8 @@ describe("extractLineNames", () => {
 	it("ignores non-relation elements (ways, nodes)", () => {
 		const data = {
 			elements: [
-				{ type: "node", tags: { railway: "station", name: "Kings Cross" } },
-				{ type: "way", tags: { highway: "primary", name: "Euston Road" } },
+				{ type: "node", tags: { railway: "station", name: "Station K" } },
+				{ type: "way", tags: { highway: "primary", name: "Trunk Road" } },
 				{ type: "relation", tags: { type: "route", route: "subway", name: "Northern Line" } },
 			],
 		};
