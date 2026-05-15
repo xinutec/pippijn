@@ -98,7 +98,7 @@ spec:
                 uid: grafanacloud-prom
               editorMode: code
               exemplar: false
-              expr: "(((count by (agent_hostname) (count(node_cpu_seconds_total{agent_hostname=~\"$host\"}) by (cpu, agent_hostname))) \n- \navg by (agent_hostname) (sum by (agent_hostname, mode)(irate(node_cpu_seconds_total{agent_hostname=~\"$host\",mode='idle'}[$__rate_interval])))) * 100) \n/ \ncount by(agent_hostname) (count(node_cpu_seconds_total{agent_hostname=~\"$host\"}) by (cpu, agent_hostname))"
+              expr: "(((count by (agent_hostname) (count(node_cpu_seconds_total) by (cpu, agent_hostname))) \n- \navg by (agent_hostname) (sum by (agent_hostname, mode)(irate(node_cpu_seconds_total{mode='idle'}[$__rate_interval])))) * 100) \n/ \ncount by(agent_hostname) (count(node_cpu_seconds_total) by (cpu, agent_hostname))"
               instant: false
               interval: ""
               intervalFactor: 1
@@ -178,7 +178,7 @@ spec:
               disableTextWrap: false
               editorMode: builder
               exemplar: false
-              expr: avg by(agent_hostname) (node_hwmon_temp_celsius{agent_hostname=~"$host"})
+              expr: avg by(agent_hostname) (node_hwmon_temp_celsius)
               fullMetaSearch: false
               includeNullMetadata: true
               instant: false
@@ -261,8 +261,8 @@ spec:
               expr: |-
                 100 -
                 (
-                  avg by (agent_hostname) (node_memory_MemAvailable_bytes{agent_hostname=~"$host"}) /
-                  avg by (agent_hostname) (node_memory_MemTotal_bytes{agent_hostname=~"$host"})
+                  avg by (agent_hostname) (node_memory_MemAvailable_bytes) /
+                  avg by (agent_hostname) (node_memory_MemTotal_bytes)
                 * 100
                 )
               instant: false
@@ -340,7 +340,7 @@ spec:
                 uid: grafanacloud-prom
               editorMode: code
               exemplar: false
-              expr: topk(25,irate(node_disk_io_time_seconds_total{agent_hostname=~"$host",device=~"sd[a-z]+|nvme\\d+n\\d+|mmcblk\\d+|md\\d+"}[$__rate_interval]))
+              expr: topk(25,irate(node_disk_io_time_seconds_total{device=~"sd[a-z]+|nvme\\d+n\\d+|mmcblk\\d+|md\\d+"}[$__rate_interval]))
               instant: false
               interval: ""
               intervalFactor: 1
@@ -422,7 +422,7 @@ spec:
                 uid: grafanacloud-prom
               editorMode: code
               exemplar: false
-              expr: irate(node_network_receive_bytes_total{agent_hostname=~"$host",device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*"}[$__rate_interval])
+              expr: irate(node_network_receive_bytes_total{device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*"}[$__rate_interval])
               instant: false
               interval: ""
               intervalFactor: 3
@@ -434,7 +434,7 @@ spec:
                 uid: grafanacloud-prom
               editorMode: code
               exemplar: false
-              expr: irate(node_network_transmit_bytes_total{agent_hostname=~"$host",device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*"}[$__rate_interval])
+              expr: irate(node_network_transmit_bytes_total{device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*"}[$__rate_interval])
               hide: false
               instant: false
               interval: ""
@@ -510,7 +510,7 @@ spec:
                 uid: grafanacloud-prom
               editorMode: code
               exemplar: false
-              expr: topk(25,100 - node_filesystem_avail_bytes{agent_hostname=~"$host", fstype!~"(nfs4|tmpfs|)", mountpoint!~"(.*/kubelet/.*|/nix/store|/run/keys|/home|)"}/node_filesystem_size_bytes{agent_hostname=~"$host", fstype!~"(nfs4|tmpfs|)", mountpoint!=""}*100)
+              expr: topk(25,100 - node_filesystem_avail_bytes{fstype!~"(nfs4|tmpfs|)", mountpoint!~"(.*/kubelet/.*|/nix/store|/run/keys|/home|)"}/node_filesystem_size_bytes{fstype!~"(nfs4|tmpfs|)", mountpoint!=""}*100)
               instant: false
               interval: ""
               intervalFactor: 3
@@ -523,33 +523,11 @@ spec:
     schemaVersion: 39
     tags: []
     templating:
-        list:
-            - allValue: .+
-              current:
-                selected: false
-                text:
-                    - All
-                value:
-                    - $__all
-              datasource:
-                type: prometheus
-                uid: grafanacloud-prom
-              definition: label_values(node_cpu_seconds_total, agent_hostname)
-              hide: 0
-              includeAll: true
-              label: Host
-              multi: true
-              name: host
-              options: []
-              query:
-                qryType: 1
-                query: label_values(node_cpu_seconds_total, agent_hostname)
-                refId: PrometheusVariableQueryEditor-VariableQuery
-              refresh: 1
-              regex: ""
-              skipUrlSync: false
-              sort: 1
-              type: query
+        # Template variables are intentionally absent: Grafana Cloud
+        # public dashboards reject any dashboard that has one. Each
+        # query already groups by agent_hostname, so all hosts render
+        # without needing a filter dropdown.
+        list: []
     time:
         from: now-1h
         to: now
