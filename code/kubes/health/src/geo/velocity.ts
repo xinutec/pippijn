@@ -941,6 +941,16 @@ const MID_RIDE_DWELL_RESUME_S = 120;
 const PLATFORM_PATTERN_WALKBACK_S = 900;
 /** Speeds at or below this are platform-or-boarding pace. */
 const PLATFORM_SLOW_KMH = 8;
+/** Speeds at or below this are "near-stationary" — the user is
+ *  standing on the platform, not still walking towards it. The
+ *  boarding-platform chain walks backwards through these only,
+ *  stopping at the first walking-pace fix. That separates the
+ *  platform-wait cluster from the approach walk past a closer
+ *  station (today's "walked past Warren Street to board at Euston
+ *  Square" prod case). The looser PLATFORM_SLOW_KMH still bounds
+ *  the chain's outer edge — once we've collected a near-stationary
+ *  cluster, we don't re-extend through anything > 8 km/h. */
+const BOARDING_STILL_KMH = 3;
 /** Speeds at or above this are clearly train-in-motion. */
 const PLATFORM_TRAIN_KMH = 30;
 /** Maximum time gap between consecutive slow fixes that we still
@@ -986,32 +996,44 @@ export function findBoardingPlatformFix(points: FilteredPoint[], startTs: number
 	}
 	if (firstFastIdx === -1) return null;
 
-	// Walk backward from firstFast, including each preceding slow
-	// fix into a "platform chain" as long as:
-	//   - it's slow (< PLATFORM_SLOW_KMH)
-	//   - time gap to the previous chain member is <= PLATFORM_MAX_GAP_S
-	//   - it stays within PLATFORM_MAX_SPREAD_M of the chain's centroid
-	//     (rules out a walking trail that approaches the station from
-	//     several blocks away)
-	let earliestIdx = -1;
-	let centroidLat = 0;
-	let centroidLon = 0;
-	let chainSize = 0;
-	let prevChainTs = windowFixes[firstFastIdx].ts;
+	// Anchor-and-extend: walk backward from firstFast until we find
+	// the first near-stationary fix (the user definitely on the
+	// platform). From there, keep extending backwards through more
+	// near-stationary fixes — clustered within PLATFORM_MAX_SPREAD_M
+	// and contiguous within PLATFORM_MAX_GAP_S — until we hit a
+	// walking-pace fix. The earliest near-stationary fix is the
+	// boarding-station anchor.
+	//
+	// Why a two-phase walk: the platform-train-platform pattern (today
+	// already tested in tests/velocity.test.ts) has accelerating
+	// fixes (walking-pace, 4-8 km/h) between the boarding-platform
+	// fix and the first train-speed fix. We need to walk PAST those
+	// to find the platform anchor. But once we have an anchor, a
+	// further-back walking fix means the user was still approaching
+	// — that's where the chain ends.
+	const isStill = (p: FilteredPoint): boolean => p.speed_kmh < BOARDING_STILL_KMH;
+	let anchorIdx = -1;
 	for (let i = firstFastIdx - 1; i >= 0; i--) {
 		const p = windowFixes[i];
-		if (p.speed_kmh >= PLATFORM_SLOW_KMH) break;
-		if (prevChainTs - p.ts > PLATFORM_MAX_GAP_S) break;
-		if (chainSize > 0) {
-			const cLat = centroidLat / chainSize;
-			const cLon = centroidLon / chainSize;
-			if (haversineMeters(p.lat, p.lon, cLat, cLon) > PLATFORM_MAX_SPREAD_M) break;
+		if (windowFixes[firstFastIdx].ts - p.ts > PLATFORM_PATTERN_WALKBACK_S) break;
+		if (isStill(p)) {
+			anchorIdx = i;
+			break;
 		}
-		centroidLat += p.lat;
-		centroidLon += p.lon;
-		chainSize++;
-		earliestIdx = i;
-		prevChainTs = p.ts;
+	}
+	let earliestIdx = anchorIdx;
+	if (anchorIdx >= 0) {
+		const anchorLat = windowFixes[anchorIdx].lat;
+		const anchorLon = windowFixes[anchorIdx].lon;
+		let prevChainTs = windowFixes[anchorIdx].ts;
+		for (let i = anchorIdx - 1; i >= 0; i--) {
+			const p = windowFixes[i];
+			if (!isStill(p)) break;
+			if (prevChainTs - p.ts > PLATFORM_MAX_GAP_S) break;
+			if (haversineMeters(p.lat, p.lon, anchorLat, anchorLon) > PLATFORM_MAX_SPREAD_M) break;
+			earliestIdx = i;
+			prevChainTs = p.ts;
+		}
 	}
 
 	return earliestIdx >= 0 ? windowFixes[earliestIdx] : null;
