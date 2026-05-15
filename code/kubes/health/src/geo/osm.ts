@@ -736,6 +736,75 @@ export function refineMode(originalMode: string, speedKmh: number, ways: NearbyW
 	return refineModeLegacyCascade(originalMode, speedKmh, ways);
 }
 
+/** Maximum sustained speed (km/h) plausibly attainable on a non-
+ *  motorway road. UK urban limit is 30 mph (48 km/h); UK A-road urban
+ *  dual-carriageway limit is 50 mph (80 km/h). Above this on a non-
+ *  motorway way the only physically plausible mode is rail. */
+const URBAN_NON_MOTORWAY_MAX_KMH = 80;
+
+/** Highway subtypes that allow legitimate sustained vehicle speeds
+ *  > URBAN_NON_MOTORWAY_MAX_KMH. Anything else is a city / arterial
+ *  road, regardless of whether OSM tags it "trunk" (which in central
+ *  London often means the surface road over an Underground tunnel,
+ *  not a real fast-driving artery). */
+const MOTORWAY_GRADE_SUBTYPES = new Set(["motorway", "motorway_link"]);
+
+/** Max distance (m) at which a parallel subway counts as evidence
+ *  that the segment is actually on the tube under the road, not on
+ *  the road itself. Generous because surface GPS over an Underground
+ *  station typically sits 20-50 m from the line's mapped geometry. */
+const SUBWAY_PARALLEL_DISTANCE_M = 100;
+
+/**
+ * Post-`refineMode` physical-plausibility rule for the "tube ride
+ * labelled as driving" case. Production motivator: 21-min tube ride
+ * with maxSpeed 98.9 km/h ended up labelled "driving on Euston
+ * Underpass" because that road was the closest OSM way at the
+ * segment's surface GPS fixes, and the legacy cascade preferred it
+ * over the Metropolitan Line running below.
+ *
+ * Rule: when the refined label is `driving` AND the segment's max
+ * speed exceeds the urban-non-motorway limit AND the user is not on
+ * a motorway-grade way AND a subway is parallel to the track,
+ * demote to `train` with the subway's wayName. The three conditions
+ * together rule out legitimate fast-driving cases:
+ *   - on a motorway → kept as driving (motorway speeds are legal)
+ *   - no subway within range → kept as driving (no rail alternative;
+ *     could be a real fast urban drive that's still mislabelled by
+ *     speed-limit standards, but with no rail there we have no
+ *     better candidate)
+ *   - speed under the threshold → kept as driving (could plausibly
+ *     be a slow urban journey)
+ *
+ * This is a targeted patch with a clear contract, not probabilistic.
+ * The HMM-shaped fix (`docs/proposals/2026-05-scored-classification.md`)
+ * would subsume this rule along with the cadence-veto, HR-veto, and
+ * mergeAdjacentStays bridge; track it as another patch deferring
+ * that rewrite (see [[health-sync-hmm-debt]] memory).
+ */
+export function rejectImplausibleDriving(
+	refined: { mode: string; wayName?: string },
+	maxSpeedKmh: number,
+	ways: NearbyWay[],
+): { mode: string; wayName?: string; reason?: string } {
+	if (refined.mode !== "driving") return refined;
+	if (maxSpeedKmh <= URBAN_NON_MOTORWAY_MAX_KMH) return refined;
+	const onMotorway = ways.some((w) => w.type === "highway" && MOTORWAY_GRADE_SUBTYPES.has(w.subtype));
+	if (onMotorway) return refined;
+	const subwayNearby = ways.find(
+		(w) =>
+			w.type === "railway" &&
+			w.subtype === "subway" &&
+			(w.distanceM ?? Number.POSITIVE_INFINITY) < SUBWAY_PARALLEL_DISTANCE_M,
+	);
+	if (!subwayNearby) return refined;
+	return {
+		mode: "train",
+		wayName: subwayNearby.name,
+		reason: `${Math.round(maxSpeedKmh)} km/h max exceeds urban non-motorway limit; subway in range`,
+	};
+}
+
 /**
  * Factor-scorer path. Wraps the candidate generator + aggregator
  * and converts the resulting ScoredRefinement back to the legacy

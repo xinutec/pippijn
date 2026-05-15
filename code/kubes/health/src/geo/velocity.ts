@@ -35,6 +35,7 @@ import {
 	pickBestStation,
 	placeLabel,
 	refineMode,
+	rejectImplausibleDriving,
 	reverseGeocode,
 } from "./osm.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
@@ -581,12 +582,21 @@ export async function computeVelocity(
 				}
 				const aggregated = [...byKey.values()];
 				const refined = refineMode(seg.mode, seg.avgSpeed, aggregated);
+				// Physical-plausibility override: a tube ride under a road
+				// can look like driving to refineMode (the road is the
+				// closest OSM way). Demote when the max speed exceeds
+				// urban-non-motorway limits and a subway is parallel.
+				const plausible = rejectImplausibleDriving(
+					{ mode: refined.mode, wayName: refined.wayName },
+					seg.maxSpeed,
+					aggregated,
+				);
 				const movingCity = commonCity(startPlace, endPlace);
 				return {
 					...seg,
-					refinedMode: refined.mode,
-					refinedReason: refined.reason,
-					wayName: refined.wayName,
+					refinedMode: plausible.mode,
+					refinedReason: plausible.reason ?? refined.reason,
+					wayName: plausible.wayName,
 					...(movingCity ? { city: movingCity } : {}),
 				};
 			} catch (e) {
