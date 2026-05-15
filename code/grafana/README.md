@@ -43,6 +43,22 @@ Future additions:
 - Real contact points (Pushover, Matrix, Signal — whatever wins the
   "page me at 03:00" criterion)
 
+## Public-dashboard constraints
+
+`fleet-monitoring.yaml` is shared as a Grafana Cloud public
+dashboard. The public renderer is more restricted than the
+authenticated UI:
+
+- **Template variables are rejected outright.** Adding any entry
+  under `templating.list` makes the public URL show "template
+  variables are not supported"; the new external link inherits the
+  same error. Keep `templating.list: []` and let each query group
+  by `agent_hostname` instead.
+- Disabling + re-enabling the share **regenerates the
+  `accessToken`** — the public URL changes. Anyone holding the old
+  link will see "invalid panel id" / dashboard-not-found. Re-share
+  the new URL after a toggle.
+
 ## What's deliberately NOT tracked
 
 - Cloud-managed integration dashboards under
