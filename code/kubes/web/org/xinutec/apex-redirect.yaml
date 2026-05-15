@@ -1,0 +1,35 @@
+---
+# Apex `xinutec.org` has no app of its own. Without an Ingress, the
+# default ingress-nginx fake cert was being served on port 443. This
+# Ingress 301-redirects xinutec.org to amun.xinutec.org (the actual
+# main site) and gets a real Let's Encrypt cert for the apex so
+# browsers never see the fake one.
+#
+# The `httpd-amun` backend reference is required for the rule to
+# parse, but nginx-ingress applies the permanent-redirect annotation
+# before proxying — the backend is never hit.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  namespace: web
+  name: xinutec-apex-redirect
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/permanent-redirect: https://amun.xinutec.org$request_uri
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - xinutec.org
+      secretName: xinutec-apex-tls
+  rules:
+    - host: xinutec.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: httpd-amun
+                port:
+                  number: 80
