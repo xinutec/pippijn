@@ -177,6 +177,54 @@ describe("filterGpsTrack", () => {
 		expect(result[2].speed_kmh).toBe(0);
 	});
 
+	it("gates a single-fix GPS teleport spike (underground tube garbage)", () => {
+		// Reproduces the morning-tube failure: the user is stationary at a
+		// station, then goes underground. The phone falls back to cell-tower
+		// triangulation and emits a fix ~2.8 km away — implying ~480 km/h
+		// over a 12 s gap. The old code's teleport-reset only fires for
+		// dt > 300 s, so a 12 s teleport sailed through and the filter
+		// trusted it, producing a 480 km/h speed.
+		//
+		// Synthetic anchor: middle-of-nowhere coords. STATION_A at
+		// (50.0, 5.0); the garbage fix teleports ~2.8 km NE.
+		const points: GpsPoint[] = [];
+		// 8 fixes stationary at STATION_A, 15 s apart.
+		for (let i = 0; i < 8; i++) {
+			points.push({ ts: 1000 + i * 15, lat: 50.0, lon: 5.0, accuracy: 20 });
+		}
+		// One garbage teleport fix 12 s later, ~2.8 km NE (implies ~480 km/h).
+		points.push({ ts: 1000 + 8 * 15 - 3, lat: 50.018, lon: 5.025, accuracy: 20 });
+		// 8 more fixes back at STATION_A — the spike was transient.
+		for (let i = 0; i < 8; i++) {
+			points.push({ ts: 1000 + 9 * 15 + i * 15, lat: 50.0, lon: 5.0, accuracy: 20 });
+		}
+		const result = filterGpsTrack(points);
+		// No filtered point may carry an implausible speed. A real GPS
+		// teleport spike must not become a 480 km/h reading.
+		const maxSpeed = Math.max(...result.map((p) => p.speed_kmh));
+		expect(maxSpeed, `max filtered speed ${maxSpeed} km/h — spike not gated`).toBeLessThan(120);
+	});
+
+	it("does NOT gate sustained high speed (a plane keeps its speed)", () => {
+		// Positive control: innovation gating must not reject genuine
+		// fast travel. A plane at ~600 km/h emits fixes ~5 km apart every
+		// 30 s — each fix IS consistent with the filter's velocity state,
+		// so none is gated.
+		const points: GpsPoint[] = [];
+		// 600 km/h = 166.7 m/s; over 30 s = 5000 m ≈ 0.0449 deg lat.
+		const stepDeg = 0.0449;
+		for (let i = 0; i < 15; i++) {
+			points.push({ ts: 1000 + i * 30, lat: 50.0 + i * stepDeg, lon: 5.0, accuracy: 30 });
+		}
+		const result = filterGpsTrack(points);
+		// After the filter settles, speed should track ~600 km/h, not be
+		// gated down to near-zero.
+		const settled = result.slice(-4);
+		for (const p of settled) {
+			expect(p.speed_kmh, `plane speed gated to ${p.speed_kmh} km/h`).toBeGreaterThan(400);
+		}
+	});
+
 	it("produces consistent speed for constant velocity", () => {
 		// Simulate walking north at ~5 km/h for 2 minutes
 		// 5 km/h = 1.39 m/s ≈ 0.0000125 deg/s latitude

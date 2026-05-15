@@ -123,6 +123,23 @@ function adaptiveProcessNoise(speedDegPerSec: number, _baseLat: number): number 
 	return 2.0;
 }
 
+/** Innovation-gating threshold. After the predict step, a measurement's
+ *  normalised innovation — (Δlat)²/Slat + (Δlon)²/Slon, chi-square with
+ *  2 dof — is compared against this. A genuine fix sits within a few
+ *  units of the filter's prediction; a GPS teleport spike (underground
+ *  cell-tower fallback) is hundreds-to-thousands. 50 is ~5σ per axis:
+ *  far enough out to never reject legitimate motion (the filter's
+ *  velocity state tracks even a plane, so plane fixes stay consistent),
+ *  tight enough to catch gross teleports. */
+const INNOVATION_GATE = 50;
+
+/** After this many consecutive gated measurements the filter stops
+ *  coasting and re-acquires from the next fix. Covers the underground-
+ *  tube case: a whole run of garbage fixes, then the user surfaces
+ *  somewhere new — the surfacing fix is itself far from the (stale)
+ *  coasted prediction, so without re-acquisition it would be gated too. */
+const MAX_CONSECUTIVE_REJECTS = 3;
+
 export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 	if (points.length === 0) return [];
 	if (points.length === 1) {
@@ -157,6 +174,10 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 		{ ts: points[0].ts, lat: points[0].lat, lon: points[0].lon, speed_kmh: 0, bearing: 0 },
 	];
 
+	// Count of consecutive measurements gated out by innovation testing.
+	// Reset to 0 on any accepted measurement or filter reset.
+	let consecutiveRejects = 0;
+
 	for (let i = 1; i < points.length; i++) {
 		const p = points[i];
 		const dt = p.ts - points[i - 1].ts;
@@ -176,9 +197,15 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 				((p.lon - points[i - 1].lon) * 111320 * Math.cos((p.lat * Math.PI) / 180)) ** 2,
 		);
 		const impliedSpeedKmh = (impliedDist / dt) * 3.6;
-		const shouldReset = dt > 3600 || (dt > 300 && impliedSpeedKmh > 200) || (dt >= 600 && impliedDist >= 500);
+		// Re-acquire after a run of gated measurements: the filter has
+		// been coasting on a stale prediction, the user has likely
+		// surfaced somewhere new (underground tube → street).
+		const reacquire = consecutiveRejects >= MAX_CONSECUTIVE_REJECTS;
+		const shouldReset =
+			dt > 3600 || (dt > 300 && impliedSpeedKmh > 200) || (dt >= 600 && impliedDist >= 500) || reacquire;
 
 		if (shouldReset) {
+			consecutiveRejects = 0;
 			const acc = p.accuracy ?? defaultAccuracy;
 			const posVarLat = metersToDegreesLat(acc) ** 2;
 			const posVarLon = metersToDegreesLon(acc, p.lat) ** 2;
@@ -241,6 +268,26 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 		const accM = p.accuracy ?? defaultAccuracy;
 		const rLat = metersToDegreesLat(accM) ** 2;
 		const rLon = metersToDegreesLon(accM, p.lat) ** 2;
+
+		// Innovation gating: reject a measurement that is wildly
+		// inconsistent with the filter's prediction. The normalised
+		// innovation scales with the prediction uncertainty, so the gate
+		// is lenient when the filter is unsure (just after a reset, the
+		// inflated velocity variance widens the gate) and strict once
+		// the track is well-established. A GPS teleport spike from a
+		// settled state scores in the hundreds-to-thousands; a genuine
+		// fast mode stays consistent because the velocity state tracks
+		// it. Gated measurements coast on the prediction (no update, no
+		// emitted point); after MAX_CONSECUTIVE_REJECTS the reset path
+		// above re-acquires.
+		const innovLat = p.lat - stateLat.x;
+		const innovLon = p.lon - stateLon.x;
+		const normInnovation = (innovLat * innovLat) / (stateLat.px + rLat) + (innovLon * innovLon) / (stateLon.px + rLon);
+		if (normInnovation > INNOVATION_GATE) {
+			consecutiveRejects++;
+			continue;
+		}
+		consecutiveRejects = 0;
 
 		// Update
 		stateLat = update1D(stateLat, p.lat, rLat);
