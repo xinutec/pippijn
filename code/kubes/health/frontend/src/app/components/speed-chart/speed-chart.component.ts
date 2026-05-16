@@ -1,4 +1,4 @@
-import { Component, ElementRef, effect, input, viewChild } from "@angular/core";
+import { Component, effect, ElementRef, input, type OnDestroy, signal, viewChild } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { VelocityData } from "../../services/health.service";
 
@@ -27,16 +27,26 @@ const MODE_LABELS: Record<string, string> = {
 	templateUrl: './speed-chart.component.html',
 	styleUrl: './speed-chart.component.scss',
 })
-export class SpeedChartComponent {
+export class SpeedChartComponent implements OnDestroy {
 	readonly data = input<VelocityData | null>(null);
 	readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>("canvas");
 	timeLabels: string[] = [];
 	uniqueModes: string[] = [];
+	/** Bumped by the ResizeObserver to re-run the draw effect when the
+	 *  canvas resizes — including 0→visible after this tab is shown,
+	 *  which is when a day switched on another tab left it blank. */
+	private readonly redrawTick = signal(0);
+	private resizeObs: ResizeObserver | null = null;
 
 	constructor() {
 		effect(() => {
+			this.redrawTick();
 			const vel = this.data();
 			const canvasEl = this.canvasRef();
+			if (canvasEl && !this.resizeObs) {
+				this.resizeObs = new ResizeObserver(() => this.redrawTick.update((n) => n + 1));
+				this.resizeObs.observe(canvasEl.nativeElement.parentElement ?? canvasEl.nativeElement);
+			}
 			if (!vel || vel.points.length === 0 || !canvasEl) return;
 
 			const canvas = canvasEl.nativeElement;
@@ -124,6 +134,10 @@ export class SpeedChartComponent {
 				this.timeLabels.push(`${hh}:${mm}`);
 			}
 		});
+	}
+
+	ngOnDestroy(): void {
+		this.resizeObs?.disconnect();
 	}
 
 	modeColor(mode: string): string {

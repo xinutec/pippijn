@@ -1,4 +1,4 @@
-import { Component, input, effect, ElementRef, viewChild } from "@angular/core";
+import { Component, effect, ElementRef, input, type OnDestroy, signal, viewChild } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { SleepStage } from "../../services/health.service";
 import { localEpoch } from "../../time-utils";
@@ -30,16 +30,26 @@ const STAGE_LABELS = ["Awake", "REM", "Light", "Deep"];
   templateUrl: './hypnogram.component.html',
   styleUrl: './hypnogram.component.scss',
 })
-export class HypnogramComponent {
+export class HypnogramComponent implements OnDestroy {
   readonly stages = input<SleepStage[]>([]);
   readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>("canvas");
   readonly stageLabels = STAGE_LABELS;
   timeLabels: string[] = [];
+  /** Bumped by the ResizeObserver to re-run the draw effect when the
+   *  canvas resizes — including 0→visible after this tab is shown,
+   *  which is when a day switched on another tab left it blank. */
+  private readonly redrawTick = signal(0);
+  private resizeObs: ResizeObserver | null = null;
 
   constructor() {
     effect(() => {
+      this.redrawTick();
       const data = this.stages();
       const canvasEl = this.canvasRef();
+      if (canvasEl && !this.resizeObs) {
+        this.resizeObs = new ResizeObserver(() => this.redrawTick.update((n) => n + 1));
+        this.resizeObs.observe(canvasEl.nativeElement.parentElement ?? canvasEl.nativeElement);
+      }
       if (data.length === 0 || !canvasEl) return;
 
       const canvas = canvasEl.nativeElement;
@@ -138,5 +148,9 @@ export class HypnogramComponent {
         this.timeLabels.push(`${hh}:${mm}`);
       }
     });
+  }
+
+  ngOnDestroy(): void {
+    this.resizeObs?.disconnect();
   }
 }
