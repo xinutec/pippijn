@@ -668,6 +668,11 @@ export async function computeVelocity(
 	// line and split the swallowing walk into walk → train → walk.
 	const withUnderground = await time("undergroundRail", annotateUndergroundRuns(withStations, inDay));
 
+	// Absorb a platform / concourse wait into the boarding of its train
+	// run, so a station wait doesn't surface as a standalone stay
+	// mislabelled with the nearest focus place.
+	const withBoarding = await time("boardingPlatform", absorbBoardingPlatform(withUnderground, points));
+
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
 	// location (centroid for stationary, midpoint for moving). Lets the UI
@@ -677,7 +682,7 @@ export async function computeVelocity(
 	// gap segments).
 	const homeTz = (await getSyncState(userId, "home_tz")) ?? "Europe/Amsterdam";
 	const withDisplayTz = timeSync("displayTz", () =>
-		withUnderground.map((s): EnrichedSegment => {
+		withBoarding.map((s): EnrichedSegment => {
 			const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
 			if (segPoints.length === 0) {
 				return { ...s, displayTz: homeTz };
@@ -1391,6 +1396,68 @@ export async function annotateRailRuns(
 		if (label) merged.wayName = label;
 		out.push(merged);
 		i = run.toExclusive;
+	}
+	return out;
+}
+
+/** Longest stationary stretch (s) before a rail run still treated as a
+ *  platform / concourse wait and absorbed into boarding the train. A
+ *  longer stay at the station is left as its own state. */
+const PLATFORM_WAIT_MAX_S = 15 * 60;
+
+/**
+ * Absorb a platform wait into the boarding of a rail run.
+ *
+ * A short stationary segment immediately before a `train` segment whose
+ * location resolves to that train's boarding station is the wait on the
+ * platform / concourse — part of catching the train, not a separate
+ * stay. Left standalone it gets mislabelled: a station is not a focus
+ * place, so the place-assigner snaps the stay to the nearest focus
+ * place (e.g. a King's Cross platform wait surfaced as "@ Work" 380 m
+ * away). Dropping the stationary and extending the train's start back
+ * over it makes the timeline read walk → train.
+ *
+ * The boarding station is read from the train's station-pair wayName
+ * (`"<board> → <alight>"`, optionally ` · <line>`), so this works for
+ * both annotateRailRuns and annotateUndergroundRuns output.
+ */
+export async function absorbBoardingPlatform(
+	segments: EnrichedSegment[],
+	points: FilteredPoint[],
+	stationsLookup: (lat: number, lon: number) => Promise<NearbyStation[]> = (lat, lon) =>
+		nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+): Promise<EnrichedSegment[]> {
+	const absorbed = new Set<number>();
+	const extendTo = new Map<number, number>();
+
+	for (let k = 1; k < segments.length; k++) {
+		const train = segments[k];
+		if (train.mode !== "train") continue;
+		const arrow = (train.wayName ?? "").indexOf(" → ");
+		if (arrow < 0) continue;
+		const boardingStation = (train.wayName ?? "").slice(0, arrow);
+
+		const prev = segments[k - 1];
+		if (prev.mode !== "stationary") continue;
+		if (prev.endTs - prev.startTs > PLATFORM_WAIT_MAX_S) continue;
+
+		const segPoints = points.filter((p) => p.ts >= prev.startTs && p.ts < prev.endTs);
+		if (segPoints.length === 0) continue;
+		const cLat = segPoints.reduce((a, p) => a + p.lat, 0) / segPoints.length;
+		const cLon = segPoints.reduce((a, p) => a + p.lon, 0) / segPoints.length;
+		const station = pickBestStation(await stationsLookup(cLat, cLon));
+		if (!station || station.name !== boardingStation) continue;
+
+		absorbed.add(k - 1);
+		extendTo.set(k, prev.startTs);
+	}
+
+	if (absorbed.size === 0) return segments;
+	const out: EnrichedSegment[] = [];
+	for (let idx = 0; idx < segments.length; idx++) {
+		if (absorbed.has(idx)) continue;
+		const newStart = extendTo.get(idx);
+		out.push(newStart !== undefined ? { ...segments[idx], startTs: newStart } : segments[idx]);
 	}
 	return out;
 }
