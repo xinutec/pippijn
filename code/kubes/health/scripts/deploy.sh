@@ -111,7 +111,21 @@ if [[ -z "$RUN_ID" ]]; then
 	echo "deploy: no CI run for $COMMIT_SHA appeared within ~60s" >&2
 	exit 1
 fi
-gh run watch --exit-status "$RUN_ID"
+# Bound the CI wait. `gh run watch` polls until the run finishes — with
+# no ceiling, a stuck Actions queue (a real ~5-hour stall has happened)
+# would hang the deploy indefinitely. Cap it at 15 min: a normal build
+# is ~1 min, so anything past 15 is wedged — fail fast, before rollout.
+ci_status=0
+timeout 900 gh run watch --exit-status "$RUN_ID" || ci_status=$?
+if [[ $ci_status -ne 0 ]]; then
+	if [[ $ci_status -eq 124 ]]; then
+		echo "deploy: CI run $RUN_ID did not finish within 15 min — aborting before rollout." >&2
+		echo "        Inspect or cancel it: gh run view $RUN_ID  |  gh run cancel $RUN_ID" >&2
+	else
+		echo "deploy: CI run $RUN_ID failed (exit $ci_status) — aborting before rollout." >&2
+	fi
+	exit 1
+fi
 
 # --- rollout -------------------------------------------------------------
 echo "==> [6/6] rollout on isis"
