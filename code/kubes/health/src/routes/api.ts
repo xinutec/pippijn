@@ -46,6 +46,20 @@ function nextDay(date: string): string {
 	return d.toISOString().slice(0, 10);
 }
 
+/** The most recent location fix, for the live map marker. */
+interface LatestFix {
+	lat: number;
+	lon: number;
+	ts: number;
+	accuracy: number | null;
+}
+
+/** Per-user cache for `/location/latest`. The Map tab polls every
+ *  ~15s; a short TTL keeps Nextcloud calls bounded without making the
+ *  marker feel stale. */
+const latestFixCache = new Map<string, { at: number; fix: LatestFix | null }>();
+const LATEST_FIX_TTL_MS = 10_000;
+
 function sinceDate(days: number): string {
 	const d = new Date();
 	d.setDate(d.getDate() - days);
@@ -272,6 +286,38 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			if (e instanceof NextcloudReauthRequiredError) return c.json({ error: "nextcloud_reauth_required" }, 409);
 			console.error(`/api/locations failed for user=${uid} date=${date}:`, e);
 			return c.json({ error: "locations fetch failed" }, 400);
+		}
+	});
+
+	app.get("/location/latest", async (c) => {
+		const session = c.get("session");
+		const uid = session.userId;
+		const today = new Date().toISOString().slice(0, 10);
+		// The latest fix is "now" — only expose it to a share-viewer
+		// whose window includes today.
+		if (isDateOutsideShareWindow(session, today)) return c.json(null);
+
+		const cached = latestFixCache.get(uid);
+		if (cached && Date.now() - cached.at < LATEST_FIX_TTL_MS) return c.json(cached.fix);
+
+		try {
+			// Fetch yesterday + today so a fix just after midnight is not
+			// missed; points come back sorted, so the last one is freshest.
+			const y = new Date();
+			y.setDate(y.getDate() - 1);
+			const yesterday = y.toISOString().slice(0, 10);
+			const points = await fetchTrackPoints(config, uid, yesterday, nextDay(today));
+			const last = points.at(-1);
+			const fix: LatestFix | null = last
+				? { lat: last.lat, lon: last.lon, ts: last.ts, accuracy: last.accuracy }
+				: null;
+			latestFixCache.set(uid, { at: Date.now(), fix });
+			return c.json(fix);
+		} catch (e) {
+			if (e instanceof NextcloudNotLinkedError) return c.json(null);
+			if (e instanceof NextcloudReauthRequiredError) return c.json({ error: "nextcloud_reauth_required" }, 409);
+			console.error(`/api/location/latest failed for user=${uid}:`, e);
+			return c.json({ error: "latest fix fetch failed" }, 400);
 		}
 	});
 

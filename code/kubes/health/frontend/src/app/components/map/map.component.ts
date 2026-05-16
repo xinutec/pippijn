@@ -7,11 +7,12 @@ import {
 	input,
 	NgZone,
 	type OnDestroy,
+	signal,
 	viewChild,
 } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import * as L from "leaflet";
-import type { VelocityData, VelocityPoint } from "../../services/health.service";
+import { HealthService, type LatestFix, type VelocityData, type VelocityPoint } from "../../services/health.service";
 
 /** Track colour per transport mode — distinct hues from the app
  *  palette, so a glance at the line shows how the day was travelled. */
@@ -24,6 +25,9 @@ const MODE_COLORS: Record<string, string> = {
 	stationary: "#94a3b8",
 };
 const DEFAULT_COLOR = "#94a3b8";
+
+/** How often to poll for the latest fix while the live marker is on. */
+const POLL_MS = 15_000;
 
 /** A vertex of the rendered track: a position plus the mode it
  *  belongs to (used to colour the polyline). */
@@ -64,18 +68,19 @@ function rejectSpikes(pts: VelocityPoint[]): VelocityPoint[] {
 }
 
 /**
- * Map tab — the day's GPS track drawn on an OpenStreetMap basemap.
+ * Map tab — the day's GPS track on an OpenStreetMap basemap.
  *
  * The map draws a *display* track derived from the classified
  * segments, not the raw fix cloud: a stationary segment collapses to a
- * single vertex (its centroid), so hours of GPS jitter at a stay
- * become one clean point; a moving segment contributes its path with
- * lone teleport spikes dropped. Every raw fix stays in the data and in
- * classification — this only changes what is drawn.
+ * single vertex (its centroid); a moving segment contributes its path
+ * with lone teleport spikes dropped. Every raw fix stays in the data —
+ * this only changes what is drawn.
  *
- * Each named stay gets a marker; the most recent position is the
- * emphasised marker — that "where are they now" point is the purpose
- * of the tab.
+ * When `live` is set (the user is viewing today), the component polls
+ * for the most recent PhoneTrack fix every {@link POLL_MS} ms and
+ * keeps the emphasised "current position" marker on it — so a viewer
+ * watches the marker move in near-real-time. The map view is fitted
+ * once per day (not on every poll), so polling never yanks the view.
  *
  * Leaflet owns its container's DOM and registers its own pan/zoom
  * listeners, so the map is created and driven outside Angular's zone.
@@ -89,30 +94,54 @@ function rejectSpikes(pts: VelocityPoint[]): VelocityPoint[] {
 })
 export class MapComponent implements OnDestroy {
 	readonly data = input<VelocityData | null>(null);
+	/** True when the displayed day is today AND the Map tab is active —
+	 *  poll for the latest fix and keep the marker live. */
+	readonly live = input<boolean>(false);
 	readonly mapRef = viewChild<ElementRef<HTMLDivElement>>("map");
 
-	/** Wall-clock time of the most recent fix — empty when the day has
-	 *  no location data. */
+	/** Most recent fix from polling — null when not live or not yet
+	 *  loaded. */
+	private readonly liveFix = signal<LatestFix | null>(null);
+
+	/** Wall-clock time of the current position — the live fix if
+	 *  polling, else the last fix of the displayed day. */
 	readonly lastSeen = computed(() => {
-		const pts = this.data()?.points;
-		if (!pts || pts.length === 0) return "";
-		return new Date(pts[pts.length - 1].ts * 1000).toLocaleTimeString("en-GB", {
-			hour: "2-digit",
-			minute: "2-digit",
-		});
+		const ts = this.liveFix()?.ts ?? this.data()?.points?.at(-1)?.ts;
+		if (ts === undefined) return "";
+		return new Date(ts * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 	});
 
 	private readonly zone = inject(NgZone);
+	private readonly health = inject(HealthService);
 	private map: L.Map | null = null;
-	private trackLayer: L.LayerGroup | null = null;
+	private layer: L.LayerGroup | null = null;
 	private resizeObs: ResizeObserver | null = null;
+	/** The `data` reference the view was last fitted to — guards against
+	 *  re-fitting (and yanking the view) on every 15s poll. */
+	private fittedTo: VelocityData | null | undefined = undefined;
 
 	constructor() {
+		// Poll for the latest fix while live; stop and clear when not.
+		effect((onCleanup) => {
+			if (!this.live()) {
+				this.liveFix.set(null);
+				return;
+			}
+			const poll = (): void => {
+				void this.health.getLatestFix().then((f) => this.liveFix.set(f));
+			};
+			poll();
+			const id = setInterval(poll, POLL_MS);
+			onCleanup(() => clearInterval(id));
+		});
+
+		// Redraw when the day's data or the live fix changes.
 		effect(() => {
 			const data = this.data();
+			const fix = this.liveFix();
 			const el = this.mapRef();
 			if (!el) return;
-			this.zone.runOutsideAngular(() => this.render(el.nativeElement, data));
+			this.zone.runOutsideAngular(() => this.render(el.nativeElement, data, fix));
 		});
 	}
 
@@ -121,9 +150,9 @@ export class MapComponent implements OnDestroy {
 		this.map?.remove();
 	}
 
-	private render(el: HTMLElement, data: VelocityData | null): void {
+	private render(el: HTMLElement, data: VelocityData | null, fix: LatestFix | null): void {
 		let map = this.map;
-		let layer = this.trackLayer;
+		let layer = this.layer;
 		if (!map || !layer) {
 			map = L.map(el, { attributionControl: true });
 			L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -136,16 +165,12 @@ export class MapComponent implements OnDestroy {
 			this.resizeObs = new ResizeObserver(() => this.map?.invalidateSize());
 			this.resizeObs.observe(el);
 			this.map = map;
-			this.trackLayer = layer;
+			this.layer = layer;
 		}
 		layer.clearLayers();
 
 		const points = data?.points ?? [];
 		const segments = data?.segments ?? [];
-		if (points.length === 0) {
-			map.setView([51.505, -0.12], 11);
-			return;
-		}
 
 		// Build the display track from the classified segments.
 		const track: DisplayPoint[] = [];
@@ -160,10 +185,6 @@ export class MapComponent implements OnDestroy {
 			} else {
 				for (const p of rejectSpikes(inSeg)) track.push({ lat: p.lat, lon: p.lon, mode });
 			}
-		}
-		if (track.length === 0) {
-			map.setView([51.505, -0.12], 11);
-			return;
 		}
 
 		// One polyline per consecutive same-mode run; each run reaches
@@ -198,21 +219,34 @@ export class MapComponent implements OnDestroy {
 				.addTo(layer);
 		}
 
-		// The most recent position, emphasised — the "where are they
-		// now" marker this tab exists for.
-		const last = track[track.length - 1];
-		L.circleMarker([last.lat, last.lon], {
-			radius: 9,
-			color: "#ffffff",
-			weight: 3,
-			fillColor: "#7c3aed",
-			fillOpacity: 1,
-		})
-			.bindPopup(`Last seen ${this.lastSeen()}`)
-			.addTo(layer);
+		// Current position — the live fix when polling, else the day's
+		// last track point. Emphasised: this is the "where are they
+		// now" marker the tab exists for.
+		const pos = fix ?? track.at(-1) ?? null;
+		if (pos) {
+			L.circleMarker([pos.lat, pos.lon], {
+				radius: 9,
+				color: "#ffffff",
+				weight: 3,
+				fillColor: "#7c3aed",
+				fillOpacity: 1,
+			})
+				.bindPopup(`Last seen ${this.lastSeen()}`)
+				.addTo(layer);
+		}
 
-		map.fitBounds(L.latLngBounds(track.map((d) => [d.lat, d.lon] as L.LatLngTuple)), {
-			padding: [24, 24],
-		});
+		// Fit the view once per day — never on a mere poll, which would
+		// keep yanking the map while the viewer is panning around.
+		if (data !== this.fittedTo) {
+			this.fittedTo = data;
+			const bounds = track.map((d) => [d.lat, d.lon] as L.LatLngTuple);
+			if (bounds.length > 0) {
+				map.fitBounds(L.latLngBounds(bounds), { padding: [24, 24] });
+			} else if (pos) {
+				map.setView([pos.lat, pos.lon], 14);
+			} else {
+				map.setView([51.505, -0.12], 11);
+			}
+		}
 	}
 }

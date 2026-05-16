@@ -109,6 +109,15 @@ export interface VelocityData {
   states?: DayState[];
 }
 
+/** The most recent location fix — for the live "where are they now"
+ *  marker on the Map tab. */
+export interface LatestFix {
+  lat: number;
+  lon: number;
+  ts: number;
+  accuracy: number | null;
+}
+
 export interface UserInfo {
   userId: string;
   displayName: string;
@@ -220,6 +229,20 @@ export class HealthService {
     const res = await this.fetch(`/api/velocity?date=${date}&tz=${encodeURIComponent(tz)}`);
     if (!res.ok) throw new Error("Failed to fetch velocity data");
     return res.json();
+  }
+
+  /** The most recent location fix, for the live map marker. Returns
+   *  null when there is no fix to show (no PhoneTrack data, or — for a
+   *  share viewer — today is outside the share window). Never throws:
+   *  a failed poll just leaves the marker where it was. */
+  async getLatestFix(): Promise<LatestFix | null> {
+    try {
+      const res = await this.fetch(`/api/location/latest`);
+      if (!res.ok) return null;
+      return (await res.json()) as LatestFix | null;
+    } catch {
+      return null;
+    }
   }
 
   /** Fire-and-forget — sets PhoneTrack's visualisation date filter to a

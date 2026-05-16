@@ -93,7 +93,7 @@
 			<ng-template matTabContent>
 				<div class="tab-content">
 					<div class="section">
-						<app-map [data]="velocity()" />
+						<app-map [data]="velocity()" [live]="isToday() && view() === 'map'" />
 					</div>
 				</div>
 			</ng-template>
