@@ -9,7 +9,7 @@ Lives at https://health.xinutec.org.
 src/                            backend (Hono + Kysely + MariaDB)
 frontend/                       Angular SPA (Material)
 tests/                          backend tests (vitest)
-scripts/                        utility scripts (deploy.sh, golden.sh, prod-db.sh)
+scripts/                        utility scripts (deploy.sh, verify.sh, golden.sh, prod-db.sh)
 docs/                           cross-cutting docs and proposals
 ├── ideas.md                    Small future-considerations: heuristic
 │                               refinements and UX tweaks that aren't
@@ -37,6 +37,7 @@ docs/                           cross-cutting docs and proposals
 | Command | What it does |
 |---|---|
 | `npm run verify` | Typecheck (back + front) → schema-types check → format → Biome lint (back) → ESLint (front) → tests. Run before every commit. |
+| `scripts/verify.sh` | Thin wrapper that runs `npm run verify` under a `nix-shell` shebang, so the full check runs directly on a machine without npm on PATH (e.g. the Mac mini). `deploy.sh` already runs verify itself — this is for running it standalone. |
 | `npm test` | Just the backend test suite. |
 | `npm run analyze -- YYYY-MM-DD` | Run the day-analysis CLI. Needs DB + Nextcloud env — easiest via `scripts/prod-db.sh` (below). |
 | `npm run golden` | Golden-day regression check — runs the classification pipeline against a curated set of real days and diffs the day-state timeline against blessed baselines. Run around large classification changes; `npm run golden -- --bless` updates baselines. The corpus under `tests/golden/` is local-only (gitignored). |
