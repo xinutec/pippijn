@@ -13,7 +13,7 @@ import {
 import { MatCardModule } from "@angular/material/card";
 import { MatCheckboxModule } from "@angular/material/checkbox";
 import * as L from "leaflet";
-import { HealthService, type LatestFix, type VelocityData, type VelocityPoint } from "../../services/health.service";
+import type { LatestFix, VelocityData, VelocityPoint } from "../../services/health.service";
 
 /** Track colour per transport mode — distinct hues from the app
  *  palette, so a glance at the line shows how the day was travelled. */
@@ -26,9 +26,6 @@ const MODE_COLORS: Record<string, string> = {
 	stationary: "#94a3b8",
 };
 const DEFAULT_COLOR = "#94a3b8";
-
-/** How often to poll for the latest fix while the live marker is on. */
-const POLL_MS = 15_000;
 
 /** A vertex of the rendered track: a position plus the mode it
  *  belongs to (used to colour the polyline). */
@@ -77,11 +74,12 @@ function rejectSpikes(pts: VelocityPoint[]): VelocityPoint[] {
  * with lone teleport spikes dropped. Every raw fix stays in the data —
  * this only changes what is drawn.
  *
- * When `live` is set (the user is viewing today), the component polls
- * for the most recent PhoneTrack fix every {@link POLL_MS} ms and
- * keeps the emphasised "current position" marker on it — so a viewer
- * watches the marker move in near-real-time. The map view is fitted
- * once per day (not on every poll), so polling never yanks the view.
+ * The `liveFix` input carries the most recent PhoneTrack fix — polled
+ * and cached by the dashboard, which outlives this component (the Map
+ * tab is lazily torn down and rebuilt on every visit). When set, it
+ * drives the emphasised "current position" marker. The map view is
+ * fitted once per day; with the follow toggle on it instead recentres
+ * on each new fix.
  *
  * Leaflet owns its container's DOM and registers its own pan/zoom
  * listeners, so the map is created and driven outside Angular's zone.
@@ -95,19 +93,19 @@ function rejectSpikes(pts: VelocityPoint[]): VelocityPoint[] {
 })
 export class MapComponent implements OnDestroy {
 	readonly data = input<VelocityData | null>(null);
-	/** True when the displayed day is today AND the Map tab is active —
-	 *  poll for the latest fix and keep the marker live. */
+	/** True when the displayed day is today — live updates apply, so
+	 *  the follow toggle is meaningful. */
 	readonly live = input<boolean>(false);
+	/** Most recent PhoneTrack fix, supplied by the dashboard (which
+	 *  owns the polling + caching). Drives the live "current position"
+	 *  marker. */
+	readonly liveFix = input<LatestFix | null>(null);
 	readonly mapRef = viewChild<ElementRef<HTMLDivElement>>("map");
 
 	/** When checked, recentre the map on the live marker as each new
 	 *  fix arrives. Off by default — auto-panning is opt-in so it never
 	 *  yanks the view from under someone reading the map. */
 	readonly follow = signal(false);
-
-	/** Most recent fix from polling — null when not live or not yet
-	 *  loaded. */
-	private readonly liveFix = signal<LatestFix | null>(null);
 
 	/** Wall-clock time of the current position — the live fix if
 	 *  polling, else the last fix of the displayed day. */
@@ -118,7 +116,6 @@ export class MapComponent implements OnDestroy {
 	});
 
 	private readonly zone = inject(NgZone);
-	private readonly health = inject(HealthService);
 	private map: L.Map | null = null;
 	private layer: L.LayerGroup | null = null;
 	private resizeObs: ResizeObserver | null = null;
@@ -130,20 +127,6 @@ export class MapComponent implements OnDestroy {
 	private fittedTo: VelocityData | null | undefined = undefined;
 
 	constructor() {
-		// Poll for the latest fix while live; stop and clear when not.
-		effect((onCleanup) => {
-			if (!this.live()) {
-				this.liveFix.set(null);
-				return;
-			}
-			const poll = (): void => {
-				void this.health.getLatestFix().then((f) => this.liveFix.set(f));
-			};
-			poll();
-			const id = setInterval(poll, POLL_MS);
-			onCleanup(() => clearInterval(id));
-		});
-
 		// Redraw when the day's data or the live fix changes.
 		effect(() => {
 			const data = this.data();

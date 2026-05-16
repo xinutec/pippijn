@@ -89,7 +89,7 @@
 					<div class="day-body-wrap">
 						<div class="day-body" [class.stale]="dayLoading()">
 							<div class="section">
-								<app-map [data]="velocity()" [live]="isToday() && view() === 'map'" />
+								<app-map [data]="velocity()" [live]="isToday()" [liveFix]="liveFix()" />
 							</div>
 						</div>
 						@if (dayLoading()) {

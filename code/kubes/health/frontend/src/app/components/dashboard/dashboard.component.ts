@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from "@angular/core";
+import { Component, OnDestroy, OnInit, computed, effect, inject, signal } from "@angular/core";
 import { ActivatedRoute, Router } from "@angular/router";
 import { Subscription } from "rxjs";
 import { MatButtonModule } from "@angular/material/button";
@@ -8,11 +8,20 @@ import {
 	type ActivityDay,
 	HealthService,
 	type HeartRatePoint,
+	type LatestFix,
 	type SleepLog,
 	type SleepStage,
 	type VelocityData,
 } from "../../services/health.service";
 import { browserTimezone, formatDateInTz, todayLocal } from "../../time-utils";
+
+/** How often to poll for the latest PhoneTrack fix while today's Map
+ *  tab is open. */
+const LIVE_POLL_MS = 15_000;
+
+/** localStorage key for the last live fix — lets the Map tab show a
+ *  position immediately after a reload, before the first poll. */
+const LIVE_FIX_CACHE_KEY = "health:live-fix";
 import { logBootContext } from "../../client-diagnostics";
 import { DayNavComponent } from "../day-nav/day-nav.component";
 import { HeartrateChartComponent } from "../heartrate-chart/heartrate-chart.component";
@@ -74,6 +83,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	readonly fitbitLinked = signal(false);
 	readonly loading = signal(true);
 	readonly dayLoading = signal(false);
+	/** Most recent PhoneTrack fix — drives the Map tab's live marker.
+	 *  Owned here, not in MapComponent, so it survives the Map tab
+	 *  being torn down and rebuilt on each visit. */
+	readonly liveFix = signal<LatestFix | null>(null);
 
 	readonly health = inject(HealthService);
 	private readonly route = inject(ActivatedRoute);
@@ -83,6 +96,67 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	/** True iff this dashboard instance is rendering a share URL.
 	 *  Set in ngOnInit from the route's `:token` param. */
 	private isShareView = false;
+
+	constructor() {
+		// Seed the live marker from the last cached fix so the Map tab
+		// shows a position immediately on load — before the first poll
+		// returns — rather than snapping in from the path's end.
+		const cached = this.readCachedFix();
+		if (cached) this.liveFix.set(cached);
+
+		// Poll for the latest PhoneTrack fix while today's Map tab is
+		// open. This lives on the dashboard, not MapComponent: the Map
+		// tab is lazily (re)created on every visit, so holding the fix
+		// here is what stops it resetting — and flickering — on each
+		// tab switch.
+		effect((onCleanup) => {
+			if (!this.isToday()) {
+				// A past day has no live marker.
+				this.liveFix.set(null);
+				return;
+			}
+			// Off the Map tab: keep the last fix, just stop polling.
+			if (this.view() !== "map") return;
+			const poll = (): void => {
+				void this.health.getLatestFix().then((f) => {
+					this.liveFix.set(f);
+					if (f) this.cacheLiveFix(f);
+				});
+			};
+			poll();
+			const id = setInterval(poll, LIVE_POLL_MS);
+			onCleanup(() => clearInterval(id));
+		});
+	}
+
+	/** Read the last live fix from localStorage. Honoured only when it
+	 *  is from today — the live marker is a "today" concept, and a
+	 *  stale fix shown with just a time-of-day would mislead. */
+	private readCachedFix(): LatestFix | null {
+		try {
+			const raw = localStorage.getItem(LIVE_FIX_CACHE_KEY);
+			if (raw === null) return null;
+			const f = JSON.parse(raw) as LatestFix;
+			if (typeof f?.lat !== "number" || typeof f?.lon !== "number" || typeof f?.ts !== "number") {
+				return null;
+			}
+			if (formatDateInTz(new Date(f.ts * 1000), browserTimezone()) !== todayLocal()) return null;
+			return f;
+		} catch {
+			return null;
+		}
+	}
+
+	/** Persist the latest fix so a reload can seed the marker before
+	 *  the first poll. Silent if localStorage is unavailable. */
+	private cacheLiveFix(f: LatestFix): void {
+		try {
+			localStorage.setItem(LIVE_FIX_CACHE_KEY, JSON.stringify(f));
+		} catch {
+			// localStorage disabled (private mode) — in-memory state
+			// still works; only cross-reload memory is lost.
+		}
+	}
 
 	/** Validate a `?date=YYYY-MM-DD` query parameter. Rejects
 	 *  malformed strings and future dates (the timeline never
