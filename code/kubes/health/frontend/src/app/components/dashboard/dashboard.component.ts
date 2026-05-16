@@ -2,7 +2,6 @@ import { Component, OnDestroy, OnInit, inject, signal } from "@angular/core";
 import { ActivatedRoute, Router } from "@angular/router";
 import { Subscription } from "rxjs";
 import { MatButtonModule } from "@angular/material/button";
-import { MatIconModule } from "@angular/material/icon";
 import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";
 import { MatTabsModule } from "@angular/material/tabs";
 import {
@@ -15,6 +14,7 @@ import {
 } from "../../services/health.service";
 import { browserTimezone, formatDateInTz, todayLocal } from "../../time-utils";
 import { logBootContext } from "../../client-diagnostics";
+import { DayNavComponent } from "../day-nav/day-nav.component";
 import { HeartrateChartComponent } from "../heartrate-chart/heartrate-chart.component";
 import { HypnogramComponent } from "../hypnogram/hypnogram.component";
 import { IntradayHrComponent } from "../intraday-hr/intraday-hr.component";
@@ -42,9 +42,9 @@ import { TimelineComponent } from "../timeline/timeline.component";
 	standalone: true,
 	imports: [
 		MatButtonModule,
-		MatIconModule,
 		MatProgressSpinnerModule,
 		MatTabsModule,
+		DayNavComponent,
 		SummaryCardsComponent,
 		HypnogramComponent,
 		IntradayHrComponent,

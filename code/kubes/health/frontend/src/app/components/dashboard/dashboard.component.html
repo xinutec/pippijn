@@ -21,25 +21,12 @@
 		class="view-tabs">
 		<mat-tab label="Day">
 			<div class="tab-content">
-				<div class="day-nav">
-					@if (canGoLeft()) {
-						<button mat-icon-button (click)="changeDay(-1)" aria-label="Previous day">
-							<mat-icon>chevron_left</mat-icon>
-						</button>
-					} @else {
-						<span class="day-nav-spacer" aria-hidden="true"></span>
-					}
-					<span class="day-label" [class.loading]="dayLoading()">
-						{{ formatDisplayDate() }}
-					</span>
-					@if (canGoRight()) {
-						<button mat-icon-button (click)="changeDay(1)" aria-label="Next day">
-							<mat-icon>chevron_right</mat-icon>
-						</button>
-					} @else {
-						<span class="day-nav-spacer" aria-hidden="true"></span>
-					}
-				</div>
+				<app-day-nav
+					[label]="formatDisplayDate()"
+					[loading]="dayLoading()"
+					[canPrev]="canGoLeft()"
+					[canNext]="canGoRight()"
+					(navigate)="changeDay($event)" />
 
 				<!--
 					The cards render unconditionally — `dayLoading()` only
@@ -92,6 +79,12 @@
 		<mat-tab label="Map">
 			<ng-template matTabContent>
 				<div class="tab-content">
+					<app-day-nav
+						[label]="formatDisplayDate()"
+						[loading]="dayLoading()"
+						[canPrev]="canGoLeft()"
+						[canNext]="canGoRight()"
+						(navigate)="changeDay($event)" />
 					<div class="section">
 						<app-map [data]="velocity()" [live]="isToday() && view() === 'map'" />
 					</div>
