@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, inject, signal } from "@angular/core";
+import { Component, OnDestroy, OnInit, computed, inject, signal } from "@angular/core";
 import { ActivatedRoute, Router } from "@angular/router";
 import { Subscription } from "rxjs";
 import { MatButtonModule } from "@angular/material/button";
@@ -60,6 +60,8 @@ import { TimelineComponent } from "../timeline/timeline.component";
 })
 export class DashboardComponent implements OnInit, OnDestroy {
 	readonly view = signal<"today" | "trends" | "map">("today");
+	/** Tab index for `<mat-tab-group [selectedIndex]>`, derived from `view`. */
+	readonly tabIndex = computed(() => (this.view() === "today" ? 0 : this.view() === "trends" ? 1 : 2));
 	readonly selectedDate = signal(todayLocal());
 	readonly activity = signal<ActivityDay[]>([]);
 	readonly sleep = signal<SleepLog[]>([]);
@@ -90,6 +92,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
 		if (raw > todayLocal()) return null;
 		return raw;
+	}
+
+	/** Validate a `?tab=` query parameter. Null (absent or junk) lets
+	 *  the caller fall back to the default tab. */
+	private parseTabParam(raw: string | null): "today" | "trends" | "map" | null {
+		return raw === "today" || raw === "trends" || raw === "map" ? raw : null;
 	}
 
 	async ngOnInit(): Promise<void> {
@@ -126,10 +134,20 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		const initial = this.parseDateParam(this.route.snapshot.queryParamMap.get("date"));
 		if (initial !== null) this.selectedDate.set(initial);
 
+		// Restore the active tab from `?tab=` so reload — and share
+		// links like `/share/<token>?tab=map` — open on the right tab.
+		const initialTab = this.parseTabParam(this.route.snapshot.queryParamMap.get("tab"));
+		if (initialTab !== null) this.view.set(initialTab);
+
 		// Browser back/forward + in-app navigation: react to query-param
 		// changes. The chevron buttons call router.navigate, which fires
 		// this subscription, which calls loadData.
 		this.querySub = this.route.queryParamMap.subscribe(async (params) => {
+			// Tab changes (incl. browser back/forward) are cheap — just
+			// switch the view, no data reload.
+			const tab = this.parseTabParam(params.get("tab"));
+			if (tab !== null && tab !== this.view()) this.view.set(tab);
+			// Date changes trigger a data reload.
 			const next = this.parseDateParam(params.get("date")) ?? todayLocal();
 			if (next === this.selectedDate()) return;
 			this.selectedDate.set(next);
@@ -204,6 +222,19 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		void this.router.navigate([], {
 			relativeTo: this.route,
 			queryParams,
+			queryParamsHandling: "merge",
+		});
+	}
+
+	/** Switch tabs and mirror the choice into `?tab=` so reload and
+	 *  share links keep it. "today" is the default — omitted for a
+	 *  clean URL, same as `?date=` omits the current day. */
+	changeTab(index: number): void {
+		const tab = index === 0 ? "today" : index === 1 ? "trends" : "map";
+		this.view.set(tab);
+		void this.router.navigate([], {
+			relativeTo: this.route,
+			queryParams: { tab: tab === "today" ? null : tab },
 			queryParamsHandling: "merge",
 		});
 	}

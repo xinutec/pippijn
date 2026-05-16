@@ -16,7 +16,8 @@
 	</div>
 } @else {
 	<mat-tab-group
-		(selectedIndexChange)="view.set($event === 0 ? 'today' : $event === 1 ? 'trends' : 'map')"
+		[selectedIndex]="tabIndex()"
+		(selectedIndexChange)="changeTab($event)"
 		[backgroundColor]="'primary'"
 		class="view-tabs">
 		<mat-tab label="Day">
