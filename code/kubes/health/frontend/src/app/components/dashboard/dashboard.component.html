@@ -85,8 +85,17 @@
 						[canPrev]="canGoLeft()"
 						[canNext]="canGoRight()"
 						(navigate)="changeDay($event)" />
-					<div class="section">
-						<app-map [data]="velocity()" [live]="isToday() && view() === 'map'" />
+					<div class="day-body-wrap">
+						<div class="day-body" [class.stale]="dayLoading()">
+							<div class="section">
+								<app-map [data]="velocity()" [live]="isToday() && view() === 'map'" />
+							</div>
+						</div>
+						@if (dayLoading()) {
+							<div class="day-body-overlay" aria-hidden="true">
+								<mat-spinner diameter="32"></mat-spinner>
+							</div>
+						}
 					</div>
 				</div>
 			</ng-template>
