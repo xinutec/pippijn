@@ -201,7 +201,13 @@ async function mineUser(userId: string, days: number): Promise<void> {
 		}
 	}
 
-	const stats = aggregateModeStats(allLabeled);
+	// Exclude cycling from the mined signatures. The user cycles only
+	// rarely, so almost every minute the heuristic labels "cycling" is a
+	// mislabelled slow drive or brisk walk. A cycling row would let the
+	// re-classifier flip yet more segments into phantom cycling — a
+	// feedback loop. Genuine cycling is recognised by positive evidence
+	// (gateCycling), not by a mined signature.
+	const stats = aggregateModeStats(allLabeled).filter((s) => s.mode !== "cycling");
 	stats.sort((a, b) => b.sampleCount - a.sampleCount);
 	console.log(`\nUser ${userId}:`);
 	for (const s of stats) {

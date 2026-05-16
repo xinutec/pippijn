@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	aggregateModeStats,
 	correctModeBySignature,
+	gateCycling,
 	labelMinuteByHeuristic,
 	type MinuteObservation,
 	type ModeStats,
@@ -489,14 +490,17 @@ describe("correctModeBySignature", () => {
 		expect(r.changed).toBe(true);
 	});
 
-	it("fixes cycling-mislabeled-as-driving (HR + speed dispositive)", () => {
-		// 18 km/h with no steps and HR 130 — cycling, not slow driving.
+	it("never flips a segment INTO cycling, even when cycling fits best", () => {
+		// 18 km/h, no steps, HR 130 looks bicycle-shaped — but the user
+		// cycles only rarely and the mined cycling signature is bogus, so
+		// the re-classifier must never pick cycling as a target. Genuine
+		// cycling is preserved by gateCycling on positive evidence, not by
+		// a signature flip.
 		const r = correctModeBySignature(
 			{ mode: "driving", confidenceMargin: 1.5, obsHr: 130, obsCadence: 0, obsSpeed: 18 },
 			USER_STATS,
 		);
-		expect(r.mode).toBe("cycling");
-		expect(r.changed).toBe(true);
+		expect(r.mode).not.toBe("cycling");
 	});
 
 	it("leaves a clear driving segment alone (high speed, low HR, no steps)", () => {
@@ -641,14 +645,52 @@ describe("correctModeBySignature", () => {
 		expect(r.mode).toBe("walking");
 		expect(r.changed).toBe(true);
 	});
+});
 
-	it("STILL flips driving to cycling when HR + speed match cycling", () => {
-		// Regression check on the other cross-class case.
-		const r = correctModeBySignature(
-			{ mode: "driving", confidenceMargin: 1.5, obsHr: 130, obsCadence: 0, obsSpeed: 18 },
-			USER_STATS,
-		);
+describe("gateCycling", () => {
+	// The user cycles only rarely; the classifier over-produces cycling.
+	// A "cycling" segment is kept only with genuine evidence — cycle-band
+	// speed AND no walking step cadence (pedalling does not register a
+	// sustained step rhythm). Otherwise it is demoted.
+
+	it("keeps a segment with genuine cycling evidence", () => {
+		// ~18 km/h with near-zero cadence — a real bicycle ride. This is
+		// the true-positive the gate must not over-correct.
+		const r = gateCycling({ mode: "cycling", obsCadence: 2, obsSpeed: 18 });
+		expect(r.changed).toBe(false);
 		expect(r.mode).toBe("cycling");
+	});
+
+	it("keeps genuine cycling when no cadence data is available", () => {
+		const r = gateCycling({ mode: "cycling", obsCadence: null, obsSpeed: 20 });
+		expect(r.changed).toBe(false);
+		expect(r.mode).toBe("cycling");
+	});
+
+	it("demotes a slow 'cycling' segment to walking", () => {
+		// 3.6 km/h with real step cadence — a walk the biometric
+		// re-classifier wrongly flipped to cycling.
+		const r = gateCycling({ mode: "cycling", obsCadence: 33, obsSpeed: 3.6 });
 		expect(r.changed).toBe(true);
+		expect(r.mode).toBe("walking");
+	});
+
+	it("demotes 'cycling' with walking cadence to walking, even at cycle speed", () => {
+		// 14 km/h but 90 steps/min — the step counter says on foot.
+		const r = gateCycling({ mode: "cycling", obsCadence: 90, obsSpeed: 14 });
+		expect(r.changed).toBe(true);
+		expect(r.mode).toBe("walking");
+	});
+
+	it("demotes too-fast 'cycling' to driving", () => {
+		const r = gateCycling({ mode: "cycling", obsCadence: 0, obsSpeed: 55 });
+		expect(r.changed).toBe(true);
+		expect(r.mode).toBe("driving");
+	});
+
+	it("leaves non-cycling segments untouched", () => {
+		const r = gateCycling({ mode: "walking", obsCadence: 110, obsSpeed: 5 });
+		expect(r.changed).toBe(false);
+		expect(r.mode).toBe("walking");
 	});
 });

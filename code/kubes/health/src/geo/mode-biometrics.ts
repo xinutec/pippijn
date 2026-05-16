@@ -178,6 +178,14 @@ const CADENCE_VETO_MAX_SPEED_KMH = 15;
  *  of these modes is biologically implausible. */
 const LOW_CADENCE_MODES = new Set(["cycling", "driving", "train", "plane"]);
 
+/** Modes the re-classifier must never select as a flip *target*. The
+ *  user cycles only rarely and any mined cycling signature is bogus
+ *  (learned from the classifier's own mislabels), so flipping a segment
+ *  *into* cycling would propagate the error. Cycling is still scored for
+ *  the *current* mode — a cycling segment can be vetoed out — and
+ *  genuine cycling is preserved by `gateCycling` on positive evidence. */
+const NEVER_FLIP_TARGET = new Set(["cycling"]);
+
 /** Speed ceilings used to filter biomechanically implausible flip targets
  *  in the LL-based re-classification. At 80 km/h, walking and cycling are
  *  not real alternatives no matter how the per-modality log-likelihoods
@@ -228,6 +236,7 @@ export function vetoImplausibleHr(
 	let best: { mode: string; score: number } | null = null;
 	for (const s of stats) {
 		if (s.mode === seg.mode) continue;
+		if (NEVER_FLIP_TARGET.has(s.mode)) continue;
 		const sc = scoreModeLogLikelihood(obs, s);
 		if (best === null || sc > best.score) best = { mode: s.mode, score: sc };
 	}
@@ -276,11 +285,47 @@ export function vetoImplausibleCadence(
 	let best: { mode: string; score: number } | null = null;
 	for (const s of stats) {
 		if (s.mode === seg.mode) continue;
+		if (NEVER_FLIP_TARGET.has(s.mode)) continue;
 		const sc = scoreModeLogLikelihood(obs, s);
 		if (best === null || sc > best.score) best = { mode: s.mode, score: sc };
 	}
 	if (best === null) return { mode: seg.mode, changed: false };
 	return { mode: best.mode, changed: true };
+}
+
+/** Minimum sustained speed (km/h) for a segment to be plausibly
+ *  cycling. Below this it is walking pace, not a bicycle. */
+const CYCLING_MIN_SPEED_KMH = 12;
+
+/** Maximum sustained speed (km/h) for cycling. Above this the segment
+ *  is a motor vehicle, not a bicycle. */
+const CYCLING_MAX_SPEED_KMH = 35;
+
+/** Observed step cadence (spm) at or above which a "cycling" segment is
+ *  really on foot — pedalling does not register a sustained step rhythm. */
+const CYCLING_MAX_CADENCE_SPM = 20;
+
+/**
+ * Hard-evidence gate for cycling. The user cycles only rarely, while the
+ * classifier over-produces cycling (a feedback loop in signature
+ * mining), so a "cycling" segment is kept only with genuine evidence:
+ * sustained cycle-band speed AND no walking step cadence. A segment that
+ * fails is demoted — to driving when it is too fast for a bicycle,
+ * otherwise to walking.
+ *
+ * Returns no-change for any non-cycling segment.
+ */
+export function gateCycling(seg: { mode: string; obsCadence: number | null; obsSpeed: number | null }): {
+	mode: string;
+	changed: boolean;
+} {
+	if (seg.mode !== "cycling") return { mode: seg.mode, changed: false };
+	const speed = seg.obsSpeed;
+	const speedOk = speed !== null && speed >= CYCLING_MIN_SPEED_KMH && speed <= CYCLING_MAX_SPEED_KMH;
+	const cadenceOk = seg.obsCadence === null || seg.obsCadence < CYCLING_MAX_CADENCE_SPM;
+	if (speedOk && cadenceOk) return { mode: "cycling", changed: false };
+	const demoted = speed !== null && speed > CYCLING_MAX_SPEED_KMH ? "driving" : "walking";
+	return { mode: demoted, changed: true };
 }
 
 /**
@@ -334,6 +379,10 @@ export function correctModeBySignature(
 			currentScore = score;
 			currentFound = true;
 		}
+		// Never flip a segment INTO cycling (see NEVER_FLIP_TARGET). The
+		// current mode is still scored above so a cycling segment can be
+		// vetoed *out*; cycling just cannot be a destination.
+		if (s.mode !== seg.mode && NEVER_FLIP_TARGET.has(s.mode)) continue;
 		// Don't consider sit-modes as flip targets when the current mode
 		// is also a sit-mode — they're biometrically equivalent.
 		if (SIT_MODES.has(seg.mode) && SIT_MODES.has(s.mode) && s.mode !== seg.mode) continue;

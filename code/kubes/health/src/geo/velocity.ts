@@ -24,7 +24,7 @@ import { localSolarHour } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
-import { correctModeBySignature, type ModeStats } from "./mode-biometrics.js";
+import { correctModeBySignature, gateCycling, type ModeStats } from "./mode-biometrics.js";
 import {
 	bestPlace,
 	commonCity,
@@ -285,6 +285,17 @@ function applyBiometricSignature(
 		{ mode: currentMode, confidenceMargin: seg.confidenceMargin, obsHr, obsCadence, obsSpeed },
 		modeStats,
 	);
+	const effectiveMode = r.changed ? r.mode : currentMode;
+	// Hard-evidence gate: a segment still labelled "cycling" is kept only
+	// with genuine cycling evidence; otherwise it is demoted.
+	const gate = gateCycling({ mode: effectiveMode, obsCadence, obsSpeed });
+	if (gate.changed) {
+		return {
+			...seg,
+			refinedMode: gate.mode,
+			refinedReason: `cycling demoted to ${gate.mode} — no hard cycling evidence`,
+		};
+	}
 	if (!r.changed) return seg;
 	return {
 		...seg,
