@@ -122,6 +122,9 @@ export class MapComponent implements OnDestroy {
 	private map: L.Map | null = null;
 	private layer: L.LayerGroup | null = null;
 	private resizeObs: ResizeObserver | null = null;
+	private recenterControl: L.Control | null = null;
+	/** Latest position the recentre control should jump to. */
+	private currentPos: { lat: number; lon: number } | null = null;
 	/** The `data` reference the view was last fitted to — guards against
 	 *  re-fitting (and yanking the view) on every 15s poll. */
 	private fittedTo: VelocityData | null | undefined = undefined;
@@ -154,6 +157,29 @@ export class MapComponent implements OnDestroy {
 	ngOnDestroy(): void {
 		this.resizeObs?.disconnect();
 		this.map?.remove();
+	}
+
+	/** A Leaflet corner control that recentres the map on the current
+	 *  position — the one-shot counterpart to the follow toggle. Zooms
+	 *  in to at least street level if currently zoomed further out. */
+	private buildRecenterControl(map: L.Map): L.Control {
+		const control = new L.Control({ position: "topright" });
+		control.onAdd = (): HTMLElement => {
+			const container = L.DomUtil.create("div", "leaflet-bar");
+			const btn = L.DomUtil.create("a", "", container) as HTMLAnchorElement;
+			btn.href = "#";
+			btn.title = "Centre on current location";
+			btn.setAttribute("role", "button");
+			btn.setAttribute("aria-label", "Centre on current location");
+			btn.textContent = "◎";
+			L.DomEvent.on(btn, "click", L.DomEvent.stop);
+			L.DomEvent.on(btn, "click", () => {
+				const p = this.currentPos;
+				if (p) map.setView([p.lat, p.lon], Math.max(map.getZoom(), 15));
+			});
+			return container;
+		};
+		return control;
 	}
 
 	private render(el: HTMLElement, data: VelocityData | null, fix: LatestFix | null): void {
@@ -254,6 +280,18 @@ export class MapComponent implements OnDestroy {
 			})
 				.bindPopup(`Last seen ${this.lastSeen()}`)
 				.addTo(layer);
+		}
+
+		// Corner "recentre" control — a one-shot jump to the current
+		// position, the manual counterpart to the follow toggle. Shown
+		// only while there is a position to jump to.
+		this.currentPos = pos;
+		if (pos && !this.recenterControl) {
+			this.recenterControl = this.buildRecenterControl(map);
+			this.recenterControl.addTo(map);
+		} else if (!pos && this.recenterControl) {
+			this.recenterControl.remove();
+			this.recenterControl = null;
 		}
 
 		// View placement. In follow mode, recentre on the live marker as
