@@ -175,15 +175,15 @@ export async function syncSleep(
 			const canonicalLogId = existing[0]?.log_id !== undefined ? asFitbitSleepLogId(existing[0].log_id) : log.logId;
 
 			const rows = parseSleepStages(log.levels.data, userId, canonicalLogId, tzSource);
+			// Replace this log's stages wholesale: delete, then insert. An
+			// upsert alone can add or update rows but never *remove* stale
+			// ones, so a botched historical merge (overlapping synthesized +
+			// tz-mismatched halves) could not self-heal on re-sync. Deleting
+			// first means every sync rewrites the log's stages cleanly.
+			await conn.query(`DELETE FROM sleep_stages WHERE user_id = ? AND sleep_log_id = ?`, [userId, canonicalLogId]);
 			await conn.batch(
-				// COALESCE-preserve `tz`/`ts_utc` so backfill CLI can later upgrade NULL.
 				`INSERT INTO sleep_stages (user_id, sleep_log_id, ts, stage, duration_seconds, tz, ts_utc)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           stage = VALUES(stage),
-           duration_seconds = VALUES(duration_seconds),
-           tz = COALESCE(tz, VALUES(tz)),
-           ts_utc = COALESCE(ts_utc, VALUES(ts_utc))`,
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
 				rows,
 			);
 		}
