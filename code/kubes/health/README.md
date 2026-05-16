@@ -9,7 +9,7 @@ Lives at https://health.xinutec.org.
 src/                            backend (Hono + Kysely + MariaDB)
 frontend/                       Angular SPA (Material)
 tests/                          backend tests (vitest)
-scripts/                        utility scripts (incl. deploy.sh)
+scripts/                        utility scripts (deploy.sh, golden.sh, prod-db.sh)
 docs/                           cross-cutting docs and proposals
 ├── ideas.md                    Small future-considerations: heuristic
 │                               refinements and UX tweaks that aren't
@@ -38,8 +38,10 @@ docs/                           cross-cutting docs and proposals
 |---|---|
 | `npm run verify` | Typecheck (back + front) → schema-types check → format → Biome lint (back) → ESLint (front) → tests. Run before every commit. |
 | `npm test` | Just the backend test suite. |
-| `npm run analyze -- YYYY-MM-DD` | Run the day-analysis CLI locally (needs DB + Nextcloud env vars). |
-| `bash scripts/deploy.sh -m "msg"` | Full deploy: verify → stage `code/kubes/health/` → commit → push → wait for CI → kubectl rollout on isis. See the script header for `-F file` usage and prerequisites. |
+| `npm run analyze -- YYYY-MM-DD` | Run the day-analysis CLI. Needs DB + Nextcloud env — easiest via `scripts/prod-db.sh` (below). |
+| `npm run golden` | Golden-day regression check — runs the classification pipeline against a curated set of real days and diffs the day-state timeline against blessed baselines. Run around large classification changes; `npm run golden -- --bless` updates baselines. The corpus under `tests/golden/` is local-only (gitignored). |
+| `scripts/prod-db.sh <cmd>` | Run a command against the prod health-db: opens an SSH tunnel and exports the DB + Nextcloud env from the running pod, then runs `<cmd>`. e.g. `scripts/prod-db.sh node dist/cli/analyze-day.js 2026-05-15 pippijn Europe/London`. |
+| `bash scripts/deploy.sh -m "msg"` | Full deploy: verify → stage `code/kubes/health/` → commit → push → wait for CI (capped at 15 min) → kubectl rollout on isis. See the script header for `-F file` usage and prerequisites. |
 
 ## Deployment
 
