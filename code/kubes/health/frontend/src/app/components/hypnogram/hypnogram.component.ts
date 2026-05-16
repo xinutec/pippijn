@@ -46,11 +46,18 @@ export class HypnogramComponent {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      // Compute time range (local time, not UTC)
+      // Compute time range (local time, not UTC). Each stage runs until
+      // the NEXT stage begins — Fitbit's stages partition the night.
+      // duration_seconds is unreliable: at a timezone boundary a watch
+      // clock shift can inflate it (one travel night stored an 86-min
+      // "wake" where only 26 min was real), which would draw stages
+      // overlapping. Derive every stage end from the next stage's
+      // start; only the final stage falls back to its own duration.
       const firstTime = localEpoch(data[0].ts);
-      const lastStage = data[data.length - 1];
-      const lastTime = localEpoch(lastStage.ts) + lastStage.duration_seconds * 1000;
-      const totalMs = lastTime - firstTime;
+      const stageEnds = data.map((s, i) =>
+        i < data.length - 1 ? localEpoch(data[i + 1].ts) : localEpoch(s.ts) + s.duration_seconds * 1000,
+      );
+      const totalMs = stageEnds[stageEnds.length - 1] - firstTime;
 
       // Set canvas size
       const dpr = window.devicePixelRatio || 1;
@@ -82,9 +89,10 @@ export class HypnogramComponent {
       }
 
       // Draw each stage as a filled rectangle in its lane
-      for (const stage of data) {
+      for (let i = 0; i < data.length; i++) {
+        const stage = data[i];
         const stageStart = localEpoch(stage.ts);
-        const stageEnd = stageStart + stage.duration_seconds * 1000;
+        const stageEnd = stageEnds[i];
 
         const x1 = ((stageStart - firstTime) / totalMs) * w;
         const x2 = ((stageEnd - firstTime) / totalMs) * w;
@@ -107,7 +115,7 @@ export class HypnogramComponent {
         const prevLevel = STAGE_Y[prev.stage] ?? 2;
         const currLevel = STAGE_Y[curr.stage] ?? 2;
         if (prevLevel !== currLevel) {
-          const prevEnd = localEpoch(prev.ts) + prev.duration_seconds * 1000;
+          const prevEnd = stageEnds[i - 1];
           const x = ((prevEnd - firstTime) / totalMs) * w;
           const y1 = padTop + prevLevel * laneH + laneH / 2;
           const y2 = padTop + currLevel * laneH + laneH / 2;
