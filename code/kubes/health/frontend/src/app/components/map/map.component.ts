@@ -11,6 +11,7 @@ import {
 	viewChild,
 } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
+import { MatCheckboxModule } from "@angular/material/checkbox";
 import * as L from "leaflet";
 import { HealthService, type LatestFix, type VelocityData, type VelocityPoint } from "../../services/health.service";
 
@@ -88,7 +89,7 @@ function rejectSpikes(pts: VelocityPoint[]): VelocityPoint[] {
 @Component({
 	selector: "app-map",
 	standalone: true,
-	imports: [MatCardModule],
+	imports: [MatCardModule, MatCheckboxModule],
 	templateUrl: "./map.component.html",
 	styleUrl: "./map.component.scss",
 })
@@ -98,6 +99,11 @@ export class MapComponent implements OnDestroy {
 	 *  poll for the latest fix and keep the marker live. */
 	readonly live = input<boolean>(false);
 	readonly mapRef = viewChild<ElementRef<HTMLDivElement>>("map");
+
+	/** When checked, recentre the map on the live marker as each new
+	 *  fix arrives. Off by default — auto-panning is opt-in so it never
+	 *  yanks the view from under someone reading the map. */
+	readonly follow = signal(false);
 
 	/** Most recent fix from polling — null when not live or not yet
 	 *  loaded. */
@@ -219,6 +225,21 @@ export class MapComponent implements OnDestroy {
 				.addTo(layer);
 		}
 
+		// The live fix runs ahead of the classified track — the day's
+		// segments only catch up once classification re-runs. Join the
+		// track's last point to the live marker with a dashed connector
+		// so the marker isn't drawn floating, detached from the path.
+		const tail = track.at(-1);
+		if (fix && tail) {
+			L.polyline(
+				[
+					[tail.lat, tail.lon],
+					[fix.lat, fix.lon],
+				],
+				{ color: "#7c3aed", weight: 3, opacity: 0.7, dashArray: "4 6" },
+			).addTo(layer);
+		}
+
 		// Current position — the live fix when polling, else the day's
 		// last track point. Emphasised: this is the "where are they
 		// now" marker the tab exists for.
@@ -235,9 +256,18 @@ export class MapComponent implements OnDestroy {
 				.addTo(layer);
 		}
 
-		// Fit the view once per day — never on a mere poll, which would
-		// keep yanking the map while the viewer is panning around.
-		if (data !== this.fittedTo) {
+		// View placement. In follow mode, recentre on the live marker as
+		// each fix arrives (zoom untouched, so the viewer keeps the zoom
+		// they chose). Otherwise fit the day's track once — never on a
+		// mere poll, which would keep yanking the map while panning.
+		// `haveView` guards the very first render: panTo needs a map that
+		// already has a view, so the first placement always goes through
+		// the fit branch below.
+		const haveView = this.fittedTo !== undefined;
+		if (this.follow() && fix && haveView) {
+			map.panTo([fix.lat, fix.lon], { animate: true });
+			this.fittedTo = data;
+		} else if (data !== this.fittedTo) {
 			this.fittedTo = data;
 			const bounds = track.map((d) => [d.lat, d.lon] as L.LatLngTuple);
 			if (bounds.length > 0) {

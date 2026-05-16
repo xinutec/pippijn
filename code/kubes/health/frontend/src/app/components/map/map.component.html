@@ -10,4 +10,12 @@
 		</span>
 	</mat-card-header>
 	<div #map class="map-canvas"></div>
+	<div class="map-controls">
+		<mat-checkbox
+			[checked]="follow()"
+			[disabled]="!live()"
+			(change)="follow.set($event.checked)">
+			Follow live location
+		</mat-checkbox>
+	</div>
 </mat-card>
