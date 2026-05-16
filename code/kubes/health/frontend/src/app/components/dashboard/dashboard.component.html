@@ -16,7 +16,7 @@
 	</div>
 } @else {
 	<mat-tab-group
-		(selectedIndexChange)="view.set($event === 0 ? 'today' : 'trends')"
+		(selectedIndexChange)="view.set($event === 0 ? 'today' : $event === 1 ? 'trends' : 'map')"
 		[backgroundColor]="'primary'"
 		class="view-tabs">
 		<mat-tab label="Day">
@@ -88,6 +88,15 @@
 					<app-sleep-chart [sleep]="sleep()" />
 				</div>
 			</div>
+		</mat-tab>
+		<mat-tab label="Map">
+			<ng-template matTabContent>
+				<div class="tab-content">
+					<div class="section">
+						<app-map [data]="velocity()" />
+					</div>
+				</div>
+			</ng-template>
 		</mat-tab>
 	</mat-tab-group>
 }

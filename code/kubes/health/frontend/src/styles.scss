@@ -1,4 +1,8 @@
 @import '@angular/material/prebuilt-themes/purple-green.css';
+/* Leaflet's stylesheet must be global — it targets .leaflet-* classes
+ * on elements Leaflet creates at runtime, which component-scoped
+ * (encapsulated) styles would never match. */
+@import 'leaflet/dist/leaflet.css';
 
 * {
   margin: 0;

@@ -1,0 +1,13 @@
+<mat-card>
+	<mat-card-header>
+		<mat-card-title>Map</mat-card-title>
+		<span class="meta">
+			@if (lastSeen()) {
+				Last seen {{ lastSeen() }}
+			} @else {
+				No location data for this day
+			}
+		</span>
+	</mat-card-header>
+	<div #map class="map-canvas"></div>
+</mat-card>

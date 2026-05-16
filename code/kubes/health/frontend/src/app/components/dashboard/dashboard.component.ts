@@ -18,6 +18,7 @@ import { logBootContext } from "../../client-diagnostics";
 import { HeartrateChartComponent } from "../heartrate-chart/heartrate-chart.component";
 import { HypnogramComponent } from "../hypnogram/hypnogram.component";
 import { IntradayHrComponent } from "../intraday-hr/intraday-hr.component";
+import { MapComponent } from "../map/map.component";
 import { SleepChartComponent } from "../sleep-chart/sleep-chart.component";
 import { SpeedChartComponent } from "../speed-chart/speed-chart.component";
 import { StepsChartComponent } from "../steps-chart/steps-chart.component";
@@ -49,6 +50,7 @@ import { TimelineComponent } from "../timeline/timeline.component";
 		IntradayHrComponent,
 		SpeedChartComponent,
 		TimelineComponent,
+		MapComponent,
 		StepsChartComponent,
 		HeartrateChartComponent,
 		SleepChartComponent,
@@ -57,7 +59,7 @@ import { TimelineComponent } from "../timeline/timeline.component";
 	styleUrl: "./dashboard.component.scss",
 })
 export class DashboardComponent implements OnInit, OnDestroy {
-	readonly view = signal<"today" | "trends">("today");
+	readonly view = signal<"today" | "trends" | "map">("today");
 	readonly selectedDate = signal(todayLocal());
 	readonly activity = signal<ActivityDay[]>([]);
 	readonly sleep = signal<SleepLog[]>([]);
