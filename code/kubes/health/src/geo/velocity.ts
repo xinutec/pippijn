@@ -44,6 +44,7 @@ import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
+import { annotateUndergroundRuns } from "./underground-rail.js";
 
 /** Format a unix-second instant as a `YYYY-MM-DD HH:MM:SS` UTC DATETIME
  *  string for filtering against `ts_utc` columns. */
@@ -650,6 +651,12 @@ export async function computeVelocity(
 
 	const withStations = await annotateRailRuns(merged, points);
 
+	// Underground reconstruction: a tube ride leaves only coarse
+	// cell-network fixes, which annotateRailRuns cannot resolve. Mine
+	// those coarse fixes (from the raw, pre-Kalman track) to identify the
+	// line and split the swallowing walk into walk → train → walk.
+	const withUnderground = await time("undergroundRail", annotateUndergroundRuns(withStations, inDay));
+
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
 	// location (centroid for stationary, midpoint for moving). Lets the UI
@@ -659,7 +666,7 @@ export async function computeVelocity(
 	// gap segments).
 	const homeTz = (await getSyncState(userId, "home_tz")) ?? "Europe/Amsterdam";
 	const withDisplayTz = timeSync("displayTz", () =>
-		withStations.map((s): EnrichedSegment => {
+		withUnderground.map((s): EnrichedSegment => {
 			const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
 			if (segPoints.length === 0) {
 				return { ...s, displayTz: homeTz };

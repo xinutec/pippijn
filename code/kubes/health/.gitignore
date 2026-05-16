@@ -8,3 +8,8 @@ docs/archive/
 # synthetic fixtures committed under tests/fixtures/synthetic/
 # instead (TODO — Phase 1 deliverable still to be built).
 tests/fixtures/days/
+
+# Golden-day regression corpus: real prod days + their blessed
+# day-state baselines. Real coords / place names / journeys — local
+# only, never committed. Run via `npm run golden` (see golden-check.js).
+tests/golden/
