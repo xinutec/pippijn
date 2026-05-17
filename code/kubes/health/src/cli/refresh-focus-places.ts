@@ -26,15 +26,7 @@ import {
 	sleepHoursOf,
 	uniqueDayCount,
 } from "../geo/focus-places.js";
-import { bestPlace, type NearbyLandmark, nearbyLandmarks } from "../geo/osm.js";
-import {
-	amenityLabelFor,
-	type ClusterStat,
-	cleanVenueKind,
-	kindPrior,
-	mineDwellModel,
-	nameCluster,
-} from "../geo/place-naming.js";
+import { bestPlace, nearbyLandmarks, pickBestLandmark } from "../geo/osm.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -136,12 +128,11 @@ async function refreshOne(userId: string): Promise<void> {
 	const hasFitbitSleep = fitbitSleepWindows.length > 0;
 	console.log(`[${userId}] loaded ${fitbitSleepWindows.length} Fitbit sleep windows for mining`);
 
-	// Name each cluster by scoring every nearby OSM venue by its distance
-	// to the cluster's accuracy-weighted centroid, the user's propensity
-	// for that kind of venue, and how well this cluster's per-visit dwell
-	// fits that kind — see geo/place-naming.ts. A confident pick is
-	// stored as the venue name; an ambiguous one is hedged
-	// "winner / runner-up" so the timeline shows the real uncertainty.
+	// Label each cluster by the best OSM venue near its accuracy-weighted
+	// centroid. `pickBestLandmark` ranks by venue type (amenity > shop >
+	// …) then distance, so a restaurant beats an adjacent clothing shop.
+	// The centroid already pools every fix from every stay, weighted by
+	// GPS accuracy.
 	//
 	// Skip clusters that look residential (Fitbit-confirmed sleep_hours
 	// above the threshold): the runtime labeller uses the OSM
@@ -150,14 +141,6 @@ async function refreshOne(userId: string): Promise<void> {
 	const RESIDENCE_SLEEP_THRESHOLD_H = 5;
 	const tMine = Date.now();
 	const amenityLabels = new Map<number, string | null>();
-
-	// Pass 1 — fetch each non-residential cluster's OSM venue candidates.
-	// A cluster feeds the mined models only when its kind is unambiguous
-	// (`cleanVenueKind` — every nearby venue agrees); a dense mixed
-	// parade is still named in pass 2, but never pollutes the models it
-	// is scored against.
-	const candidatesByCluster = new Map<number, { landmarks: NearbyLandmark[]; visitLengthSec: number }>();
-	const stats: ClusterStat[] = [];
 	for (const c of result.clusters) {
 		const clusterSleepH = hasFitbitSleep ? sleepHoursFromFitbit(c.stays, fitbitSleepWindows) : sleepHoursOf(c);
 		if (clusterSleepH >= RESIDENCE_SLEEP_THRESHOLD_H) {
@@ -165,21 +148,13 @@ async function refreshOne(userId: string): Promise<void> {
 			continue;
 		}
 		const landmarks = await nearbyLandmarks(c.centroidLat, c.centroidLon);
-		const visitLengthSec = c.totalDwellSec / c.stays.length;
-		candidatesByCluster.set(c.id, { landmarks, visitLengthSec });
-		const kind = cleanVenueKind(landmarks);
-		if (kind !== null) stats.push({ kind, totalDwellSec: c.totalDwellSec, visitLengthSec });
-	}
-
-	// The user's behavioural models, mined from their own clusters:
-	// P(kind) — how their out-of-home time splits across venue kinds —
-	// and P(dwell | kind) — how long a visit to each kind tends to last.
-	const prior = kindPrior(stats);
-	const dwellModel = mineDwellModel(stats);
-
-	// Pass 2 — name each cluster against those models.
-	for (const [id, { landmarks, visitLengthSec }] of candidatesByCluster) {
-		amenityLabels.set(id, amenityLabelFor(nameCluster(landmarks, prior, dwellModel, visitLengthSec)));
+		const best = landmarks.length > 0 ? pickBestLandmark(landmarks) : null;
+		// Only amenity / tourism / leisure / shop name a venue;
+		// pedestrian-ways and place-quarters do not.
+		const isVenue =
+			best !== null &&
+			(best.type === "amenity" || best.type === "tourism" || best.type === "leisure" || best.type === "shop");
+		amenityLabels.set(c.id, isVenue ? best.name : null);
 	}
 	console.log(
 		`[${userId}] amenity mining: ${[...amenityLabels.values()].filter((v) => v !== null).length}/${

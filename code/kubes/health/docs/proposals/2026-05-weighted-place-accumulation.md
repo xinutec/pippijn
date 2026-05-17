@@ -241,3 +241,34 @@ user's GPS/Fitbit data: a one-time user confirmation, or a name
 arriving from another stream (e.g. a calendar event). Both are out of
 scope here. The goal of this proposal is to make the unaided guess as
 good — and as honest — as the data allows.
+
+## Outcome (2026-05-17)
+
+Phases 1–2 shipped and stand: accuracy-weighted centroids and the
+365-day DELETE-recompute window.
+
+Phase 4 (§5–§6) was implemented and **reverted**. The multi-signal
+namer dropped `pickBestLandmark`'s fixed type priority (amenity > shop)
+for a mined `P(kind)` prior and a `P(dwell | kind)` likelihood. Two
+things broke it:
+
+- `P(dwell | kind)` **cannot be mined from `focus_places`.** The
+  clustering's 10-minute `STAY_MIN_DURATION_SEC` floor censors short
+  visits, so a quick-venue stop never becomes a focus_place at all —
+  every focus_place is a linger by construction. The mined dwell model
+  came out flat (every kind ~40–75 min, σ ≈ 1.2): no discrimination.
+  Mining from clean (unambiguous) clusters did not help — the censoring
+  is upstream of the clustering.
+- With the dwell tie-breaker dead, naming fell back to distance ×
+  `P(kind)`, and `P(kind)` is shop-heavy (most clusters sit near
+  shops), so it ranks shops above restaurants. Real labels regressed —
+  a restaurant became a hedge between adjacent clothing shops; an
+  overnight home became a fountain monument. The golden-day check
+  caught it, 0/6.
+
+Naming was reverted to the Phase-1 pooled-centroid `pickBestLandmark`,
+whose amenity > shop priority is a simple, correct heuristic. §5–§6 are
+kept as the design record. A future Phase 4 must source the dwell
+signal from data that is **not** censored to ≥10-minute stays — the raw
+Owntracks fix stream — not from `focus_places`. Do not retry dwell
+mining from `focus_places`.

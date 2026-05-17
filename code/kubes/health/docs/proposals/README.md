@@ -20,4 +20,4 @@ the `status` frontmatter updated.
 |---|---|---|
 | `2026-05-scored-classification.md` | active | Replace today's rule-cascade classification with factor-decomposed scoring + commute-history prior; staged path with optional HMM escalation at the end |
 | `2026-05-utc-three-tier.md` | active | Add `ts_utc` + `tz_source` columns to Fitbit intraday tables; three-tier `ts`/`ts_utc`/`tz_source` framing keeps the verbatim Fitbit response immutable while making `ts_utc` recomputable |
-| `2026-05-weighted-place-accumulation.md` | active | Focus-places: inverse-variance accuracy-weighted centroids + 365-day DELETE-recompute window (reproducible, no accumulator); Phase 1+2 shipped. Phase 4 replaces the coin-flip nearest-OSM-node label with history-informed multi-signal naming |
+| `2026-05-weighted-place-accumulation.md` | active | Focus-places: inverse-variance accuracy-weighted centroids + 365-day DELETE-recompute window — Phase 1+2 shipped. Phase 4 (multi-signal naming) attempted and reverted: dwell signal unmineable from focus_places — see the proposal's Outcome |
