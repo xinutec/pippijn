@@ -1,115 +1,104 @@
 import { describe, expect, it } from "vitest";
-import type { Stay } from "../src/geo/focus-places.js";
 import type { NearbyLandmark } from "../src/geo/osm.js";
-import { amenityLabelFor, clusterVisitPattern, nameCluster, type VisitPattern } from "../src/geo/place-naming.js";
+import { amenityLabelFor, kindPrior, nameCluster, nearestVenueKind } from "../src/geo/place-naming.js";
 
 function lm(name: string, type: NearbyLandmark["type"], subtype: string, distanceM: number): NearbyLandmark {
 	return { name, type, subtype, distanceM };
 }
 
-// A long-dwell, mostly-morning, frequently-visited pattern — a café /
-// work-spot signature.
-const cafePattern: VisitPattern = { visitCount: 12, medianDwellSec: 90 * 60, morningFraction: 0.8 };
-// A short midday-stop pattern.
-const quickPattern: VisitPattern = { visitCount: 8, medianDwellSec: 12 * 60, morningFraction: 0.3 };
+// A user who spends far more time in cafés than fast food.
+const cafeUser = kindPrior([
+	{ kind: "linger", dwellSec: 100_000 },
+	{ kind: "quick", dwellSec: 5_000 },
+]);
+// The mirror image.
+const fastFoodUser = kindPrior([
+	{ kind: "linger", dwellSec: 5_000 },
+	{ kind: "quick", dwellSec: 100_000 },
+]);
+
+describe("kindPrior", () => {
+	it("weights kinds by the user's dwell share", () => {
+		const p = kindPrior([
+			{ kind: "linger", dwellSec: 90 },
+			{ kind: "quick", dwellSec: 10 },
+		]);
+		expect(p.get("linger")).toBeGreaterThan(p.get("quick") ?? 0);
+	});
+
+	it("smooths an unseen kind to small-but-nonzero, not impossible", () => {
+		const clinical = cafeUser.get("clinical") ?? 0;
+		expect(clinical).toBeGreaterThan(0);
+		expect(clinical).toBeLessThan(cafeUser.get("linger") ?? 0);
+	});
+
+	it("falls back to a uniform prior with no history", () => {
+		const p = kindPrior([]);
+		expect(p.get("linger")).toBeCloseTo(0.2, 5);
+		expect(p.get("clinical")).toBeCloseTo(0.2, 5);
+	});
+});
+
+describe("nearestVenueKind", () => {
+	it("returns the kind of the nearest venue", () => {
+		expect(nearestVenueKind([lm("Far Café", "amenity", "cafe", 30), lm("Near Shop", "shop", "convenience", 8)])).toBe(
+			"quick",
+		);
+	});
+
+	it("ignores non-venue features and returns null when there are none", () => {
+		expect(nearestVenueKind([lm("A Footpath", "highway", "pedestrian", 3)])).toBeNull();
+	});
+});
 
 describe("nameCluster", () => {
-	it("prefers a café over a closer fast-food for a long-dwell pattern", () => {
+	it("a café-heavy user gets the café over a closer fast-food", () => {
 		const r = nameCluster(
-			[lm("Fried Chicken Co", "amenity", "fast_food", 8), lm("Some Café", "amenity", "cafe", 14)],
-			cafePattern,
+			[lm("A Fast Food", "amenity", "fast_food", 8), lm("A Café", "amenity", "cafe", 14)],
+			cafeUser,
 		);
-		expect(r.label).toBe("Some Café");
-		expect(r.ambiguous).toBe(false);
+		expect(r.label).toBe("A Café");
 	});
 
-	it("a name cue overrides a mis-tag — a fast_food named '...Coffee' reads as a café", () => {
-		// Both OSM-tagged fast_food; only the coffee-named one is really
-		// a café, and it wins for a long-dwell pattern despite being further.
+	it("a fast-food-heavy user gets the fast-food", () => {
 		const r = nameCluster(
-			[lm("Burger Stop", "amenity", "fast_food", 8), lm("Bean Counter Coffee", "amenity", "fast_food", 14)],
-			cafePattern,
+			[lm("A Fast Food", "amenity", "fast_food", 8), lm("A Café", "amenity", "cafe", 14)],
+			fastFoodUser,
 		);
-		expect(r.label).toBe("Bean Counter Coffee");
+		expect(r.label).toBe("A Fast Food");
 	});
 
-	it("flags ambiguity when two plausible venues score close", () => {
-		const r = nameCluster([lm("Cafe One", "amenity", "cafe", 12), lm("Cafe Two", "amenity", "cafe", 14)], cafePattern);
+	it("flags ambiguity when two same-kind venues score close", () => {
+		const r = nameCluster([lm("Cafe One", "amenity", "cafe", 12), lm("Cafe Two", "amenity", "cafe", 14)], cafeUser);
 		expect(r.ambiguous).toBe(true);
 		expect(r.ranked).toHaveLength(2);
 	});
 
-	it("rejects a clinic for a frequently-visited long-dwell place", () => {
-		const r = nameCluster([lm("A Dentist", "amenity", "dentist", 6), lm("A Café", "amenity", "cafe", 20)], cafePattern);
-		expect(r.label).toBe("A Café");
-	});
-
-	it("prefers fast-food over a café for a short-stop pattern", () => {
-		const r = nameCluster(
-			[lm("Quick Bite", "amenity", "fast_food", 10), lm("Slow Café", "amenity", "cafe", 10)],
-			quickPattern,
-		);
-		expect(r.label).toBe("Quick Bite");
-	});
-
 	it("returns a null label when there are no venue candidates", () => {
-		const r = nameCluster([lm("A Footpath", "highway", "pedestrian", 5)], cafePattern);
+		const r = nameCluster([lm("A Footpath", "highway", "pedestrian", 5)], cafeUser);
 		expect(r.label).toBeNull();
 		expect(r.ranked).toHaveLength(0);
-	});
-});
-
-describe("clusterVisitPattern", () => {
-	function mkStay(startUtc: string, dwellMin: number): Stay {
-		const startTs = Math.floor(Date.parse(startUtc) / 1000);
-		return {
-			startTs,
-			endTs: startTs + dwellMin * 60,
-			centroidLat: 50.0,
-			centroidLon: 5.0,
-			pointCount: 6,
-			durationSec: dwellMin * 60,
-			weight: 1,
-		};
-	}
-
-	it("summarises visit count, median dwell, and morning fraction", () => {
-		// 3 morning starts, 1 afternoon; dwells 60 / 90 / 90 / 120 min.
-		const stays: Stay[] = [
-			mkStay("2026-02-09T08:00:00Z", 60),
-			mkStay("2026-02-10T08:00:00Z", 90),
-			mkStay("2026-02-11T08:00:00Z", 90),
-			mkStay("2026-02-12T14:00:00Z", 120),
-		];
-		const p = clusterVisitPattern(stays);
-		expect(p.visitCount).toBe(4);
-		expect(p.medianDwellSec).toBe(90 * 60);
-		expect(p.morningFraction).toBe(0.75);
-	});
-
-	it("handles an empty cluster", () => {
-		expect(clusterVisitPattern([])).toEqual({ visitCount: 0, medianDwellSec: 0, morningFraction: 0 });
 	});
 });
 
 describe("amenityLabelFor", () => {
 	it("returns the plain name for a confident pick", () => {
 		const naming = nameCluster(
-			[lm("Fried Chicken Co", "amenity", "fast_food", 8), lm("Some Café", "amenity", "cafe", 14)],
-			cafePattern,
+			[lm("A Fast Food", "amenity", "fast_food", 8), lm("A Café", "amenity", "cafe", 14)],
+			cafeUser,
 		);
-		expect(amenityLabelFor(naming)).toBe("Some Café");
+		expect(amenityLabelFor(naming)).toBe("A Café");
 	});
 
 	it("hedges 'winner / runner-up' for an ambiguous pick", () => {
 		const naming = nameCluster(
 			[lm("Cafe One", "amenity", "cafe", 12), lm("Cafe Two", "amenity", "cafe", 14)],
-			cafePattern,
+			cafeUser,
 		);
 		expect(amenityLabelFor(naming)).toBe("Cafe One / Cafe Two");
 	});
 
 	it("returns null when there is no venue candidate", () => {
-		expect(amenityLabelFor(nameCluster([lm("A Footpath", "highway", "pedestrian", 5)], cafePattern))).toBeNull();
+		expect(amenityLabelFor(nameCluster([lm("A Footpath", "highway", "pedestrian", 5)], cafeUser))).toBeNull();
 	});
 });

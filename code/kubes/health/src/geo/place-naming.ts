@@ -4,37 +4,35 @@
  *
  * The old naming took the single nearest OSM venue to the cluster
  * centroid. Where venues pack within GPS error that is a coin-flip, and
- * it ignores everything the cluster's visit history says about *what
- * kind* of place it is.
+ * it ignores everything the user's history says about what kind of
+ * place they actually frequent.
  *
- * This scores every nearby venue by
- *     score(v) = w_dist(v) · w_type(v) · w_name(v)
- * — soft distance falloff, type-plausibility against the visit pattern,
- * and a name cue that rescues mis-tagged venues. When the top two score
- * too close the result is flagged `ambiguous`: the caller should not
- * assert a confident (and probably wrong) name.
+ * This scores every nearby venue by  score(v) = w_dist(v) · w_type(v):
+ *  - w_dist: a soft Gaussian falloff from the cluster's weighted
+ *    centroid — a venue a little further out is not crushed.
+ *  - w_type: the *user's own* historical propensity for that kind of
+ *    venue, mined from how their out-of-home dwell time splits across
+ *    café / fast-food / clinical / … clusters. Behavioural data — not a
+ *    hand-tuned or language-dependent assumption.
+ *
+ * OSM's `subtype` is trusted verbatim for the venue kind: it is a
+ * language-neutral controlled vocabulary (`amenity=cafe` is `cafe`
+ * worldwide). There is no name-string second-guessing — that cannot be
+ * done language-neutrally, and a genuine OSM mis-tag is an upstream
+ * data bug, not something to paper over here.
  *
  * Pure module — no DB, no I/O.
  */
 
-import { localSolarHour, type Stay } from "./focus-places.js";
 import type { NearbyLandmark } from "./osm.js";
 
-/** Behavioural signature of a focus-place cluster — distilled to the
- *  few features that discriminate one venue kind from another. */
-export interface VisitPattern {
-	visitCount: number;
-	/** Median stay duration, seconds. */
-	medianDwellSec: number;
-	/** Fraction of visits whose start falls in local 06:00–12:00. */
-	morningFraction: number;
-}
+/** Coarse venue kind — the unit the behavioural prior is keyed on. */
+export type VenueKind = "linger" | "quick" | "clinical" | "evening" | "other";
 
-/** Coarse venue kind — the unit the type-plausibility table works in. */
-type VenueKind = "linger" | "quick" | "clinical" | "evening" | "other";
+const KINDS: readonly VenueKind[] = ["linger", "quick", "clinical", "evening", "other"];
 
-/** OSM subtype → venue kind. Enumerated, not pattern-matched, so the
- *  mapping is auditable and easy to extend. */
+/** OSM subtype → venue kind. OSM subtypes are a language-neutral
+ *  controlled vocabulary; this is the only place kinds are assigned. */
 const SUBTYPE_KIND: Record<string, VenueKind> = {
 	cafe: "linger",
 	coffee_shop: "linger",
@@ -55,23 +53,20 @@ const SUBTYPE_KIND: Record<string, VenueKind> = {
 	nightclub: "evening",
 };
 
-/** Names that mark a place as a café whatever OSM tagged it — OSM
- *  routinely tags coffee shops as `fast_food`. A name cue overrides the
- *  subtype, so a mis-tagged café is not scored as a burger counter. */
-const CAFE_NAME = /\b(coffee|caf[eé]|espresso|roaster)/i;
-
 /** OSM `type`s that name an actual venue; place/highway are not venues. */
 const VENUE_TYPES = new Set<NearbyLandmark["type"]>(["amenity", "tourism", "leisure", "shop"]);
 /** σ of the soft distance falloff — roughly a converged cluster's
  *  positional uncertainty. A venue 2σ (30 m) out still scores ~14%. */
 const DIST_SIGMA_M = 15;
-/** Above this median dwell a stay is "lingering", not a quick stop. */
-const LONG_DWELL_SEC = 45 * 60;
 /** The top score must beat the runner-up by this factor to be asserted;
  *  otherwise the place is flagged ambiguous. */
 const AMBIGUITY_MARGIN = 1.3;
-/** A name-cue-confirmed venue edges an inferred one of equal geometry. */
-const NAME_BOOST = 1.15;
+/** Additive smoothing on the kind prior, so a kind the user has no
+ *  history at is unlikely — not impossible. */
+const PRIOR_SMOOTHING = 0.02;
+
+/** The user's behavioural propensity for each venue kind — P(kind). */
+export type KindPrior = ReadonlyMap<VenueKind, number>;
 
 export interface ScoredCandidate {
 	name: string;
@@ -91,48 +86,38 @@ export interface PlaceNaming {
 	ranked: ScoredCandidate[];
 }
 
-function median(xs: number[]): number {
-	const s = [...xs].sort((a, b) => a - b);
-	return s[Math.floor(s.length / 2)];
-}
-
-/** Distil a cluster's stays into the features the namer scores against. */
-export function clusterVisitPattern(stays: Stay[]): VisitPattern {
-	if (stays.length === 0) return { visitCount: 0, medianDwellSec: 0, morningFraction: 0 };
-	const morning = stays.filter((s) => {
-		const h = localSolarHour(s.startTs, s.centroidLon);
-		return h >= 6 && h < 12;
-	}).length;
-	return {
-		visitCount: stays.length,
-		medianDwellSec: median(stays.map((s) => s.durationSec)),
-		morningFraction: morning / stays.length,
-	};
-}
-
 function venueKind(c: NearbyLandmark): VenueKind {
-	if (CAFE_NAME.test(c.name)) return "linger"; // a name cue overrides a mis-tag
 	return SUBTYPE_KIND[c.subtype] ?? "other";
 }
 
-/** Plausibility that a venue of this kind is the place the cluster's
- *  visit pattern describes. Hand-tuned; 1.0 = a natural fit. */
-function kindPlausibility(kind: VenueKind, p: VisitPattern): number {
-	const longDwell = p.medianDwellSec >= LONG_DWELL_SEC;
-	const morning = p.morningFraction >= 0.5;
-	switch (kind) {
-		case "linger":
-			return longDwell ? 1.0 : 0.55;
-		case "quick":
-			return longDwell ? 0.25 : 1.0;
-		case "clinical":
-			// Nobody racks up many "frequent" dentist appointments.
-			return p.visitCount >= 5 ? 0.1 : 0.5;
-		case "evening":
-			return morning ? 0.15 : 0.85;
-		default:
-			return 0.5;
+/** The venue kind of the nearest OSM venue to a cluster — its
+ *  *provisional* kind, used only as raw material for the prior. Null
+ *  when no venue is nearby. */
+export function nearestVenueKind(candidates: NearbyLandmark[]): VenueKind | null {
+	const venues = candidates.filter((c) => VENUE_TYPES.has(c.type));
+	if (venues.length === 0) return null;
+	return venueKind(venues.reduce((a, b) => (b.distanceM < a.distanceM ? b : a)));
+}
+
+/**
+ * Mine the per-user kind prior: each entry is one cluster's provisional
+ * venue kind and its total dwell. P(kind) is dwell summed by kind and
+ * normalised, with additive smoothing. With no history it is uniform.
+ */
+export function kindPrior(entries: { kind: VenueKind; dwellSec: number }[]): KindPrior {
+	const dwell = new Map<VenueKind, number>(KINDS.map((k) => [k, 0]));
+	for (const e of entries) dwell.set(e.kind, (dwell.get(e.kind) ?? 0) + e.dwellSec);
+	const total = [...dwell.values()].reduce((a, b) => a + b, 0);
+	const prior = new Map<VenueKind, number>();
+	if (total === 0) {
+		for (const k of KINDS) prior.set(k, 1 / KINDS.length);
+		return prior;
 	}
+	const norm = 1 + PRIOR_SMOOTHING * KINDS.length;
+	for (const k of KINDS) {
+		prior.set(k, ((dwell.get(k) ?? 0) / total + PRIOR_SMOOTHING) / norm);
+	}
+	return prior;
 }
 
 function distWeight(distanceM: number): number {
@@ -140,19 +125,18 @@ function distWeight(distanceM: number): number {
 }
 
 /**
- * Name a focus-place cluster by scoring every nearby OSM venue against
- * the cluster's converged position *and* its behavioural pattern,
- * instead of taking the single nearest node.
+ * Name a focus-place cluster by scoring every nearby OSM venue by its
+ * distance to the cluster's converged centroid and the user's
+ * behavioural propensity for that kind of venue.
  */
-export function nameCluster(candidates: NearbyLandmark[], pattern: VisitPattern): PlaceNaming {
+export function nameCluster(candidates: NearbyLandmark[], prior: KindPrior): PlaceNaming {
 	const ranked: ScoredCandidate[] = candidates
 		.filter((c) => VENUE_TYPES.has(c.type))
 		.map((c) => ({
 			name: c.name,
 			subtype: c.subtype,
 			distanceM: c.distanceM,
-			score:
-				distWeight(c.distanceM) * kindPlausibility(venueKind(c), pattern) * (CAFE_NAME.test(c.name) ? NAME_BOOST : 1.0),
+			score: distWeight(c.distanceM) * (prior.get(venueKind(c)) ?? 0),
 		}))
 		.sort((a, b) => b.score - a.score);
 

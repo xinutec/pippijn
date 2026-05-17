@@ -26,8 +26,8 @@ import {
 	sleepHoursOf,
 	uniqueDayCount,
 } from "../geo/focus-places.js";
-import { bestPlace, nearbyLandmarks } from "../geo/osm.js";
-import { amenityLabelFor, clusterVisitPattern, nameCluster } from "../geo/place-naming.js";
+import { bestPlace, type NearbyLandmark, nearbyLandmarks } from "../geo/osm.js";
+import { amenityLabelFor, kindPrior, nameCluster, nearestVenueKind, type VenueKind } from "../geo/place-naming.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -129,12 +129,12 @@ async function refreshOne(userId: string): Promise<void> {
 	const hasFitbitSleep = fitbitSleepWindows.length > 0;
 	console.log(`[${userId}] loaded ${fitbitSleepWindows.length} Fitbit sleep windows for mining`);
 
-	// Name each cluster by scoring every nearby OSM venue against the
-	// cluster's accuracy-weighted centroid AND its visit pattern (dwell,
-	// time-of-day, frequency) — see geo/place-naming.ts. A confident pick
-	// is stored as the venue name; an ambiguous one is hedged as
-	// "winner / runner-up" so the timeline shows the real uncertainty
-	// instead of a coin-flip between adjacent venues.
+	// Name each cluster by scoring every nearby OSM venue by its distance
+	// to the cluster's accuracy-weighted centroid AND the user's own
+	// behavioural propensity for that kind of venue — see
+	// geo/place-naming.ts. A confident pick is stored as the venue name;
+	// an ambiguous one is hedged "winner / runner-up" so the timeline
+	// shows the real uncertainty, not a coin-flip.
 	//
 	// Skip clusters that look residential (Fitbit-confirmed sleep_hours
 	// above the threshold): the runtime labeller uses the OSM
@@ -143,6 +143,11 @@ async function refreshOne(userId: string): Promise<void> {
 	const RESIDENCE_SLEEP_THRESHOLD_H = 5;
 	const tMine = Date.now();
 	const amenityLabels = new Map<number, string | null>();
+
+	// Pass 1 — fetch each non-residential cluster's OSM venue candidates,
+	// and note its provisional kind (the nearest venue) for the prior.
+	const candidatesByCluster = new Map<number, NearbyLandmark[]>();
+	const priorEntries: { kind: VenueKind; dwellSec: number }[] = [];
 	for (const c of result.clusters) {
 		const clusterSleepH = hasFitbitSleep ? sleepHoursFromFitbit(c.stays, fitbitSleepWindows) : sleepHoursOf(c);
 		if (clusterSleepH >= RESIDENCE_SLEEP_THRESHOLD_H) {
@@ -150,8 +155,19 @@ async function refreshOne(userId: string): Promise<void> {
 			continue;
 		}
 		const landmarks = await nearbyLandmarks(c.centroidLat, c.centroidLon);
-		const naming = nameCluster(landmarks, clusterVisitPattern(c.stays));
-		amenityLabels.set(c.id, amenityLabelFor(naming));
+		candidatesByCluster.set(c.id, landmarks);
+		const kind = nearestVenueKind(landmarks);
+		if (kind !== null) priorEntries.push({ kind, dwellSec: c.totalDwellSec });
+	}
+
+	// The user's behavioural prior — how their out-of-home dwell time
+	// splits across venue kinds. "Far more time in cafés than fast food"
+	// becomes a number that breaks naming ties.
+	const prior = kindPrior(priorEntries);
+
+	// Pass 2 — name each cluster against that prior.
+	for (const [id, landmarks] of candidatesByCluster) {
+		amenityLabels.set(id, amenityLabelFor(nameCluster(landmarks, prior)));
 	}
 	console.log(
 		`[${userId}] amenity mining: ${[...amenityLabels.values()].filter((v) => v !== null).length}/${

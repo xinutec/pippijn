@@ -144,28 +144,30 @@ correct centroid still gets a coin-flip nearest-node label (Problem §4,
 Evidence update). Replace the nearest-node pick with a scored candidate
 set: take **every** OSM venue within range as a candidate, and score
 
-  `score(v) = w_dist(v) · w_type(v) · w_name(v)`
+  `score(v) = w_dist(v) · w_type(v)`
 
 - `w_dist(v)` — a *soft* distance falloff (Gaussian, σ ≈ the cluster's
   positional uncertainty, ~10–15 m) from the weighted centroid to `v`.
   Soft, not nearest-wins: a venue 14 m out is not crushed by one 8 m
   out when both sit inside the error bar.
-- `w_type(v)` — plausibility of `v`'s amenity type given the cluster's
-  *behavioural* signature: visit count, typical dwell, time-of-day,
-  weekday/weekend mix (all already derived for `classifyCluster`). A
-  dozen long weekday-morning visits score café / coffee_shop /
-  coworking / restaurant high, `fast_food` low, dentist / clinic /
-  pharmacy very low — nobody has a dozen "frequent" dentist
-  appointments. A hand-tuned table maps pattern → type plausibility.
-- `w_name(v)` — lexical cues in the venue *name* ("Coffee", "Café",
-  known coffee chains). This rescues venues OSM has mis-tagged: a coffee
-  shop tagged `fast_food` is still recognisable by its name.
+- `w_type(v)` — the *user's own* historical propensity for `v`'s kind of
+  venue. OSM's `subtype` gives the kind (café / fast-food / clinical /
+  …) and is trusted verbatim — it is a language-neutral controlled
+  vocabulary. The weight is mined each refresh from how the user's
+  out-of-home dwell time splits across kinds: a user who spends far more
+  time in cafés than fast-food gives café-kind venues a much higher
+  `w_type`. Behavioural data, not a hand-tuned or language-dependent
+  assumption.
 
-This makes the cluster's history do the *naming*, not just the
-positioning — the answer to "I go here a lot, that should be a magnet":
-the raw name string is not in the user's data, but the visit *pattern*
-and venue *type* are, and they discriminate café from fast-food from
-clinic.
+This makes the user's history do the *naming*, not just the
+positioning. The string "café" is never in the user's GPS data — but
+the *pattern of where they spend time* is, and a per-user kind prior
+distils it.
+
+OSM tags are trusted as given: no name-string second-guessing, which
+cannot be done language-neutrally. A genuine OSM mis-tag (a coffee shop
+tagged `fast_food`) is an upstream data bug to fix in OSM, not to paper
+over with locale-specific heuristics in our code.
 
 **Honesty gate.** When the top candidate's score does not clearly beat
 the runner-up, the place is *ambiguous*. Rather than commit one name (or
