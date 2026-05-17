@@ -34,7 +34,9 @@
  *     route's own vertices so it hugs the track through curves.
  */
 
+import { linesAtPoint } from "./osm.js";
 import { queryRouteGeometry } from "./osm-local.js";
+import { COARSE_ACCURACY_M, COARSE_ACCURACY_MAX_M } from "./underground-rail.js";
 import type { EnrichedSegment } from "./velocity.js";
 
 /** A geographic point. */
@@ -49,6 +51,10 @@ export interface SnapFix {
 	ts: number;
 	lat: number;
 	lon: number;
+	/** Reported GPS accuracy radius, metres. Used to drop fixes whose
+	 *  position is too uncertain to map-match. Optional — a fix with no
+	 *  reported accuracy is treated as usable. */
+	accuracy?: number | null;
 }
 
 /** One vertex of a snapped path: a point on the track with an
@@ -310,10 +316,80 @@ interface Bbox {
  *  Injected so the pipeline step is testable without a database. */
 export type RouteGeometryLookup = (bbox: Bbox, lineName: string) => Promise<Array<{ coords: LatLon[] }>>;
 
+/** Looks up the rail/metro line names whose track passes near a point.
+ *  Injected so the pipeline step is testable without a database. */
+export type LinesLookup = (lat: number, lon: number) => Promise<Set<string>>;
+
 /** Margin (m) added around the fix bounding box so the fetched line
  *  geometry comfortably brackets the journey on both sides — coarse
  *  fixes can sit a few hundred metres off the actual track. */
 const CORRIDOR_MARGIN_M = 600;
+
+/** Max median offset (m) of a run's raw fixes from the route chosen
+ *  for it. Above this the line is almost certainly mis-identified;
+ *  a confidently-wrong snapped track is worse than none, so the run
+ *  is left raw. Generous — real underground fixes scatter to a few
+ *  hundred metres even on the correct line. */
+const MAX_MEDIAN_OFFSET_M = 600;
+
+/**
+ * Extract the rail line from an `annotateRailRuns`-style wayName.
+ *
+ * Rail runs are labelled `<board> → <alight>`, with an optional
+ * ` · <line>` suffix when one line is known to serve both ends. This
+ * recovers that line. `lastIndexOf` is used so a station name that
+ * itself contains ` · ` cannot be mistaken for the line — the line is
+ * always the final suffix. Returns null when there is no suffix.
+ */
+export function parseRailLine(wayName: string | null | undefined): string | null {
+	if (!wayName) return null;
+	const i = wayName.lastIndexOf(" · ");
+	if (i === -1) return null;
+	const line = wayName.slice(i + 3).trim();
+	return line.length > 0 ? line : null;
+}
+
+/** Median of a numeric array (0 for empty). */
+function median(xs: readonly number[]): number {
+	if (xs.length === 0) return 0;
+	const s = [...xs].sort((a, b) => a - b);
+	return s[Math.floor(s.length / 2)];
+}
+
+/** Median perpendicular offset (m) of a set of fixes from a route —
+ *  how well the route fits the fixes. */
+function medianFixOffset(fixes: readonly SnapFix[], route: readonly LatLon[]): number {
+	const offsets: number[] = [];
+	for (const f of fixes) {
+		const proj = projectOntoPolyline({ lat: f.lat, lon: f.lon }, route);
+		if (proj) offsets.push(proj.offsetM);
+	}
+	return median(offsets);
+}
+
+/**
+ * Identify the line of a train run from OSM when neither the
+ * `railLine` field nor the wayName names it: intersect the lines that
+ * serve the run's first and last well-located fix.
+ *
+ * A singleton intersection is unambiguous. Two parallel lines that
+ * both serve the endpoints (e.g. lines sharing a trunk corridor) snap
+ * acceptably onto either track, so the first is taken. An empty
+ * intersection — a genuine multi-line journey with no single track —
+ * yields null, and the run is left unsnapped.
+ */
+async function mineRailLine(fixes: readonly SnapFix[], linesLookup: LinesLookup): Promise<string | null> {
+	const sorted = [...fixes].sort((a, b) => a.ts - b.ts);
+	const good = sorted.filter((f) => f.accuracy == null || f.accuracy < COARSE_ACCURACY_M);
+	const ends = good.length >= 2 ? good : sorted;
+	const first = ends[0];
+	const last = ends[ends.length - 1];
+	const [aLines, bLines] = await Promise.all([linesLookup(first.lat, first.lon), linesLookup(last.lat, last.lon)]);
+	for (const l of aLines) {
+		if (bLines.has(l)) return l;
+	}
+	return null;
+}
 
 /** Axis-aligned bbox enclosing all `fixes`, expanded by `marginM`. */
 function corridorBbox(fixes: readonly SnapFix[], marginM: number): Bbox {
@@ -333,48 +409,84 @@ function corridorBbox(fixes: readonly SnapFix[], marginM: number): Bbox {
 }
 
 /**
- * Attach a derived `snappedPath` to confidently-classified train
- * segments that ran on a known line.
+ * Attach a derived `snappedPath` to train segments that ran on an
+ * identifiable line.
  *
- * For each `train` segment carrying a `railLine` (set by
- * {@link ./underground-rail.ts} only when the line was positively
- * identified — itself the confidence gate), this fetches the line's
- * OSM geometry over the journey corridor, stitches it into a route,
- * and map-matches the segment's raw fixes onto it.
+ * For each `train` segment the line is resolved in three escalating
+ * ways: the structured `railLine` field (set by underground
+ * reconstruction); the ` · <line>` suffix `annotateRailRuns` writes
+ * into the wayName; or, failing both, mined from OSM at the run's
+ * endpoints ({@link mineRailLine}). With a line in hand the segment's
+ * OSM track geometry is fetched, stitched into connected components,
+ * and the component the fixes best hug is map-matched onto.
+ *
+ * Fixes whose accuracy radius exceeds {@link COARSE_ACCURACY_MAX_M}
+ * are dropped first — a multi-km radius is noise, not weak signal.
+ * When even the best-fitting component sits far off the fixes
+ * ({@link MAX_MEDIAN_OFFSET_M}) the line is taken to be mis-identified
+ * and the run is left raw: a confidently-wrong track is worse than no
+ * snap.
  *
  * The result is purely *additive*: `snappedPath` is a derived render
  * layer, recomputed each run. Raw fixes are never mutated. A segment
- * is left untouched whenever the inference is not safe — no identified
- * line, no OSM geometry for it, too few fixes, or a route that fails
- * to stitch — so the map simply falls back to the raw track.
+ * is left untouched whenever the inference is not safe, so the map
+ * simply falls back to the raw track.
  */
 export async function annotateSnappedPaths(
 	segments: readonly EnrichedSegment[],
 	rawFixes: readonly SnapFix[],
 	geometryLookup: RouteGeometryLookup = (bbox, lineName) => queryRouteGeometry(bbox, lineName),
+	linesLookup: LinesLookup = (lat, lon) => linesAtPoint(lat, lon, 250),
 ): Promise<EnrichedSegment[]> {
 	const result: EnrichedSegment[] = [];
 	for (const seg of segments) {
-		if (seg.mode !== "train" || !seg.railLine) {
+		if (seg.mode !== "train") {
 			result.push(seg);
 			continue;
 		}
-		const fixes = rawFixes.filter((f) => f.ts >= seg.startTs && f.ts <= seg.endTs);
+		// Fixes in the window, minus the positionally-useless: a fix
+		// with a multi-km accuracy radius carries no real location and
+		// would only corrupt the route fit and the snapped geometry.
+		const fixes = rawFixes.filter(
+			(f) => f.ts >= seg.startTs && f.ts <= seg.endTs && (f.accuracy == null || f.accuracy <= COARSE_ACCURACY_MAX_M),
+		);
 		if (fixes.length < 2) {
+			result.push(seg);
+			continue;
+		}
+
+		const line = seg.railLine ?? parseRailLine(seg.wayName) ?? (await mineRailLine(fixes, linesLookup));
+		if (!line) {
 			result.push(seg);
 			continue;
 		}
 
 		let ways: Array<{ coords: LatLon[] }>;
 		try {
-			ways = await geometryLookup(corridorBbox(fixes, CORRIDOR_MARGIN_M), seg.railLine);
+			ways = await geometryLookup(corridorBbox(fixes, CORRIDOR_MARGIN_M), line);
 		} catch {
 			result.push(seg);
 			continue;
 		}
 
-		const route = stitchWays(ways.map((w) => w.coords))[0];
-		if (!route || route.length < 2) {
+		// Pick the stitched component the fixes actually hug. A line's
+		// OSM geometry in the corridor fragments into many ways — double
+		// track, branches, sidings, parallel freight tracks — so the
+		// longest component is often not the one travelled. Choosing by
+		// best fit also rejects a mis-identified line: if no component
+		// fits within MAX_MEDIAN_OFFSET_M the run is left raw, since a
+		// confidently-wrong track is worse than no snap.
+		let route: readonly LatLon[] | null = null;
+		let bestOffset = Number.POSITIVE_INFINITY;
+		for (const component of stitchWays(ways.map((w) => w.coords))) {
+			if (component.length < 2) continue;
+			const offset = medianFixOffset(fixes, component);
+			if (offset < bestOffset) {
+				bestOffset = offset;
+				route = component;
+			}
+		}
+		if (!route || bestOffset > MAX_MEDIAN_OFFSET_M) {
 			result.push(seg);
 			continue;
 		}
@@ -384,7 +496,7 @@ export async function annotateSnappedPaths(
 			result.push(seg);
 			continue;
 		}
-		result.push({ ...seg, snappedPath: snapped });
+		result.push({ ...seg, railLine: line, snappedPath: snapped });
 	}
 	return result;
 }

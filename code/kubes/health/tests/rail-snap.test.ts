@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import {
 	annotateSnappedPaths,
 	type LatLon,
+	parseRailLine,
 	projectOntoPolyline,
 	type SnapFix,
 	snapFixesToRoute,
@@ -202,6 +203,22 @@ function seg(partial: Partial<EnrichedSegment> & { startTs: number; endTs: numbe
 	};
 }
 
+describe("parseRailLine", () => {
+	it("extracts the line from a station-pair wayName's ` · ` suffix", () => {
+		expect(parseRailLine("Aaa → Bbb · North London line")).toBe("North London line");
+	});
+
+	it("handles a station name that itself contains an ampersand", () => {
+		expect(parseRailLine("Aaa & Ccc → Bbb · Jubilee")).toBe("Jubilee");
+	});
+
+	it("returns null when there is no line suffix", () => {
+		expect(parseRailLine("Aaa → Bbb")).toBeNull();
+		expect(parseRailLine(undefined)).toBeNull();
+		expect(parseRailLine("")).toBeNull();
+	});
+});
+
 describe("annotateSnappedPaths", () => {
 	// A dense synthetic line running due east, the way OSM would store it.
 	const line = [at(0, 0), at(0, 200), at(0, 400), at(0, 600), at(0, 800), at(0, 1000)];
@@ -209,6 +226,12 @@ describe("annotateSnappedPaths", () => {
 		(name: string, ways: LatLon[][]) =>
 		async (_bbox: unknown, lineName: string): Promise<Array<{ coords: LatLon[] }>> =>
 			lineName === name ? ways.map((w) => ({ coords: w })) : [];
+	/** A linesLookup stub that always returns the given line set. */
+	const linesAlways =
+		(...names: string[]) =>
+		async (): Promise<Set<string>> =>
+			new Set(names);
+	const noLines = async (): Promise<Set<string>> => new Set<string>();
 
 	const trainFixes: SnapFix[] = [
 		{ ts: 1100, ...at(40, 100) },
@@ -219,7 +242,7 @@ describe("annotateSnappedPaths", () => {
 
 	it("attaches a snapped path to a confident train segment on a known line", async () => {
 		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train", railLine: "TestLine" })];
-		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("TestLine", [line]));
+		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("TestLine", [line]), noLines);
 		expect(out[0].snappedPath).toBeDefined();
 		expect((out[0].snappedPath ?? []).length).toBeGreaterThanOrEqual(2);
 		for (const p of out[0].snappedPath ?? []) {
@@ -227,21 +250,77 @@ describe("annotateSnappedPaths", () => {
 		}
 	});
 
-	it("leaves a train segment with no identified line untouched", async () => {
-		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train" })];
-		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("TestLine", [line]));
+	it("resolves the line from the wayName when the railLine field is unset", async () => {
+		// annotateRailRuns labels overground runs "A → B · Line" but
+		// never fills railLine — the line must be recovered from there.
+		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train", wayName: "Aaa → Bbb · TestLine" })];
+		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("TestLine", [line]), noLines);
+		expect(out[0].snappedPath).toBeDefined();
+		expect(out[0].railLine).toBe("TestLine");
+	});
+
+	it("mines the line via linesLookup when the wayName carries none", async () => {
+		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train", wayName: "Aaa → Bbb" })];
+		const out = await annotateSnappedPaths(
+			segments,
+			trainFixes,
+			lookupFor("TestLine", [line]),
+			linesAlways("TestLine"),
+		);
+		expect(out[0].snappedPath).toBeDefined();
+		expect(out[0].railLine).toBe("TestLine");
+	});
+
+	it("leaves a train segment with no resolvable line untouched", async () => {
+		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train", wayName: "Aaa → Bbb" })];
+		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("TestLine", [line]), noLines);
 		expect(out[0].snappedPath).toBeUndefined();
 	});
 
 	it("leaves non-train segments untouched", async () => {
 		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "walking", railLine: "TestLine" })];
-		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("TestLine", [line]));
+		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("TestLine", [line]), noLines);
 		expect(out[0].snappedPath).toBeUndefined();
 	});
 
 	it("leaves the segment untouched when the line has no OSM geometry", async () => {
 		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train", railLine: "TestLine" })];
-		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("OtherLine", [line]));
+		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("OtherLine", [line]), noLines);
 		expect(out[0].snappedPath).toBeUndefined();
+	});
+
+	it("rejects a route that does not fit the fixes (wrong line guard)", async () => {
+		// The geometry lookup returns a line tens of km away from the
+		// fixes — a mis-identified line. The snapped path must not be
+		// attached: a confidently-wrong line is worse than no snap.
+		const farLine = [at(60_000, 0), at(60_000, 1000)];
+		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train", railLine: "TestLine" })];
+		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("TestLine", [farLine]), noLines);
+		expect(out[0].snappedPath).toBeUndefined();
+	});
+
+	it("picks the stitched component the fixes hug, not the longest", async () => {
+		// A line's geometry stitches into several disconnected pieces.
+		// The longest is far away; a shorter one runs along the fixes.
+		// The snap must follow the near piece, not merely the longest.
+		const farLong = [at(60_000, 0), at(60_000, 500), at(60_000, 1000), at(60_000, 1500), at(60_000, 2000)];
+		const nearShort = [at(0, 0), at(0, 400), at(0, 800), at(0, 1100)];
+		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train", railLine: "TestLine" })];
+		const out = await annotateSnappedPaths(segments, trainFixes, lookupFor("TestLine", [farLong, nearShort]), noLines);
+		expect(out[0].snappedPath).toBeDefined();
+		for (const p of out[0].snappedPath ?? []) {
+			expect(projectOntoPolyline(p, nearShort)?.offsetM ?? 999).toBeLessThan(2);
+		}
+	});
+
+	it("ignores a wildly-inaccurate outlier fix", async () => {
+		// A fix with a multi-km accuracy radius carries no usable
+		// position. Left in, it would balloon the route-fit offsets and
+		// suppress the snap; it must be dropped before snapping.
+		const fixes: SnapFix[] = [...trainFixes, { ts: 1500, ...at(80_000, 80_000), accuracy: 9000 }];
+		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train", railLine: "TestLine" })];
+		const out = await annotateSnappedPaths(segments, fixes, lookupFor("TestLine", [line]), noLines);
+		expect(out[0].snappedPath).toBeDefined();
+		expect((out[0].snappedPath ?? []).length).toBeGreaterThanOrEqual(2);
 	});
 });
