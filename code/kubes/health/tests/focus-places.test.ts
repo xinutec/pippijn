@@ -6,16 +6,13 @@ import {
 	clusterStays,
 	detectFocusPlaces,
 	detectStays,
-	fixWeight,
 	localSolarDayOfWeek,
 	localSolarHour,
 	pickWinningAmenity,
 	type RawPoint,
 	type Stay,
 	uniqueDayCount,
-	weightedCentroid,
 } from "../src/geo/focus-places.js";
-import { haversineMeters } from "../src/geo/place-snap.js";
 
 // Helpers
 function offset(lat: number, lon: number, north: number, east: number): { lat: number; lon: number } {
@@ -141,20 +138,18 @@ function stay(day: number, hour: number, lat: number, lon: number): Stay {
 		centroidLon: lon,
 		pointCount: 6,
 		durationSec: 1800,
-		weight: 1,
 	};
 }
 
 function makeCluster(stays: Stay[]): Cluster {
 	const totalDwell = stays.reduce((s, x) => s + x.durationSec, 0);
-	const totalWeight = stays.reduce((s, x) => s + x.weight, 0);
 	let cLat = 0;
 	let cLon = 0;
 	for (const s of stays) {
 		cLat += (s.centroidLat * s.durationSec) / totalDwell;
 		cLon += (s.centroidLon * s.durationSec) / totalDwell;
 	}
-	return { id: 1, centroidLat: cLat, centroidLon: cLon, stays, totalDwellSec: totalDwell, totalWeight };
+	return { id: 1, centroidLat: cLat, centroidLon: cLon, stays, totalDwellSec: totalDwell };
 }
 
 describe("classifyCluster", () => {
@@ -170,7 +165,6 @@ describe("classifyCluster", () => {
 				centroidLon: HOME_LON,
 				pointCount: 8,
 				durationSec: 8 * 3600,
-				weight: 1,
 			});
 		}
 		const cls = classifyCluster(makeCluster(stays));
@@ -191,7 +185,6 @@ describe("classifyCluster", () => {
 				centroidLon: HOME_LON + 0.01,
 				pointCount: 8,
 				durationSec: 8 * 3600,
-				weight: 1,
 			});
 		}
 		const cls = classifyCluster(makeCluster(stays));
@@ -210,7 +203,6 @@ describe("classifyCluster", () => {
 				centroidLon: HOME_LON,
 				pointCount: 8,
 				durationSec: 8 * 3600,
-				weight: 1,
 			});
 		}
 		const cls = classifyCluster(makeCluster(stays));
@@ -234,7 +226,6 @@ describe("classifyCluster", () => {
 				centroidLon: HOME_LON,
 				pointCount: 6,
 				durationSec: 3600,
-				weight: 1,
 			});
 		}
 		const cls = classifyCluster(makeCluster(stays));
@@ -281,12 +272,10 @@ describe("assignDisplayNames", () => {
 				centroidLon: HOME_LON,
 				pointCount: 8,
 				durationSec: 8 * 3600,
-				weight: 1,
 			});
 		}
 		const totalDwell = stays.reduce((s, x) => s + x.durationSec, 0);
-		const totalWeight = stays.reduce((s, x) => s + x.weight, 0);
-		return { id, centroidLat: HOME_LAT, centroidLon: HOME_LON, stays, totalDwellSec: totalDwell, totalWeight };
+		return { id, centroidLat: HOME_LAT, centroidLon: HOME_LON, stays, totalDwellSec: totalDwell };
 	}
 
 	function workLikeCluster(id: number): Cluster {
@@ -304,12 +293,10 @@ describe("assignDisplayNames", () => {
 				centroidLon: workLon,
 				pointCount: 8,
 				durationSec: 8 * 3600,
-				weight: 1,
 			});
 		}
 		const totalDwell = stays.reduce((s, x) => s + x.durationSec, 0);
-		const totalWeight = stays.reduce((s, x) => s + x.weight, 0);
-		return { id, centroidLat: workLat, centroidLon: workLon, stays, totalDwellSec: totalDwell, totalWeight };
+		return { id, centroidLat: workLat, centroidLon: workLon, stays, totalDwellSec: totalDwell };
 	}
 
 	it("assigns Home to the cluster with the most overnight + wide span", () => {
@@ -329,14 +316,7 @@ describe("assignDisplayNames", () => {
 	it("returns empty when no cluster qualifies (single short stay)", () => {
 		// One 30-min daytime stay — not enough overnight, not enough weekday-daytime
 		const s: Stay = stay(0, 14, HOME_LAT, HOME_LON);
-		const c: Cluster = {
-			id: 1,
-			centroidLat: HOME_LAT,
-			centroidLon: HOME_LON,
-			stays: [s],
-			totalDwellSec: 1800,
-			totalWeight: s.weight,
-		};
+		const c: Cluster = { id: 1, centroidLat: HOME_LAT, centroidLon: HOME_LON, stays: [s], totalDwellSec: 1800 };
 		expect(assignDisplayNames([c]).size).toBe(0);
 	});
 
@@ -363,7 +343,6 @@ describe("assignDisplayNames", () => {
 				centroidLon: HOME_LON,
 				pointCount: 6,
 				durationSec: 8 * 3600,
-				weight: 1,
 			});
 		}
 		const c: Cluster = {
@@ -372,7 +351,6 @@ describe("assignDisplayNames", () => {
 			centroidLon: HOME_LON,
 			stays,
 			totalDwellSec: 32 * 3600,
-			totalWeight: stays.reduce((s, x) => s + x.weight, 0),
 		};
 		const names = assignDisplayNames([c]);
 		expect(names.get(1)).toBe("Stay");
@@ -388,7 +366,6 @@ describe("assignDisplayNames", () => {
 				centroidLon: HOME_LON,
 				pointCount: 6,
 				durationSec: 6 * 3600,
-				weight: 1,
 			},
 		];
 		const c: Cluster = {
@@ -397,7 +374,6 @@ describe("assignDisplayNames", () => {
 			centroidLon: HOME_LON,
 			stays,
 			totalDwellSec: 6 * 3600,
-			totalWeight: stays.reduce((s, x) => s + x.weight, 0),
 		};
 		const names = assignDisplayNames([c]);
 		expect(names.has(1)).toBe(false);
@@ -414,7 +390,6 @@ describe("assignDisplayNames", () => {
 				centroidLon: HOME_LON,
 				pointCount: 3,
 				durationSec: 3600,
-				weight: 1,
 			});
 		}
 		const c: Cluster = {
@@ -423,7 +398,6 @@ describe("assignDisplayNames", () => {
 			centroidLon: HOME_LON,
 			stays,
 			totalDwellSec: stays.length * 3600,
-			totalWeight: stays.reduce((s, x) => s + x.weight, 0),
 		};
 		const names = assignDisplayNames([c]);
 		expect(names.has(1)).toBe(false);
@@ -451,7 +425,7 @@ describe("detectFocusPlaces", () => {
 
 describe("pickWinningAmenity", () => {
 	// For each cluster we aggregate per-visit OSM amenity lookups across
-	// the user's history. Time-weighted: a 2-hour stay at Cafe X
+	// the user's history. Time-weighted: a 2-hour stay at Bairro Alto
 	// counts more than a 5-min stop. Picks a clear winner only when the
 	// data is decisive — otherwise returns null so the per-visit OSM
 	// picker stays in charge as a fallback.
@@ -459,14 +433,14 @@ describe("pickWinningAmenity", () => {
 	const opts = { minWeight: 60 * 30, minFraction: 0.5 };
 
 	it("picks the majority-vote amenity when one clearly dominates", () => {
-		// 7 visits to Cafe X, all 60-min, totaling 7 × 60 = 420 min.
-		// 1 noisy visit landed at Neighbour Shop (the shop next door),
-		// 15 min. Cafe X fraction = 420 / 435 = 97% → wins.
+		// 7 visits to Bairro Alto, all 60-min, totaling 7 × 60 = 420 min.
+		// 1 noisy visit landed at Kruidentuin (the cannabis shop next door),
+		// 15 min. Bairro Alto fraction = 420 / 435 = 97% → wins.
 		const votes = new Map<string, number>([
-			["Cafe X", 7 * 60 * 60],
-			["Neighbour Shop", 15 * 60],
+			["Bairro Alto", 7 * 60 * 60],
+			["Kruidentuin", 15 * 60],
 		]);
-		expect(pickWinningAmenity(votes, opts)).toBe("Cafe X");
+		expect(pickWinningAmenity(votes, opts)).toBe("Bairro Alto");
 	});
 
 	it("returns null when no amenity has enough total weight", () => {
@@ -503,70 +477,5 @@ describe("pickWinningAmenity", () => {
 			["A", 60 * 5], // 5 minutes total
 		]);
 		expect(pickWinningAmenity(votes, { minWeight: 60 * 30, minFraction: 0.5 })).toBeNull();
-	});
-});
-
-describe("fixWeight", () => {
-	it("weights a precise fix far above a noisy one (inverse-variance)", () => {
-		// 10 m vs 100 m → weight ratio ≈ (100/10)² = 100×.
-		expect(fixWeight(10) / fixWeight(100)).toBeCloseTo(100, 0);
-	});
-
-	it("clamps over-optimistic accuracy to the floor", () => {
-		// 1 m and 5 m both clamp to the 5 m floor → equal weight.
-		expect(fixWeight(1)).toBe(fixWeight(5));
-	});
-
-	it("treats a null accuracy as the conservative default", () => {
-		expect(fixWeight(null)).toBe(fixWeight(50));
-	});
-});
-
-describe("weightedCentroid", () => {
-	it("is pulled to the precise fixes, not the noisy crowd", () => {
-		// One precise fix on the origin; ten noisy fixes 80 m east. A
-		// plain mean would sit ~73 m east (10/11 of the way); the
-		// inverse-variance centroid stays within metres of the origin.
-		const origin = { lat: 50.0, lon: 5.0 };
-		const east = offset(origin.lat, origin.lon, 0, 80);
-		const fixes: RawPoint[] = [
-			{ ts: 0, lat: origin.lat, lon: origin.lon, accuracy: 5 },
-			...Array.from({ length: 10 }, (_, i) => ({
-				ts: i + 1,
-				lat: east.lat,
-				lon: east.lon,
-				accuracy: 150,
-			})),
-		];
-		const c = weightedCentroid(fixes);
-		expect(haversineMeters(c.lat, c.lon, origin.lat, origin.lon)).toBeLessThan(10);
-	});
-});
-
-describe("detectFocusPlaces — accuracy weighting", () => {
-	it("resolves the cluster centroid to the precise venue despite a noisy spread", () => {
-		// Venue A (the true place) and venue B 60 m east. Every visit is
-		// 6 precise fixes on A plus 6 noisy fixes spread around B. A
-		// plain mean would land between the two; the accuracy-weighted
-		// centroid must resolve to A and clearly reject B.
-		const A = { lat: 50.0, lon: 5.0 };
-		const B = offset(A.lat, A.lon, 0, 60);
-		const pts: RawPoint[] = [];
-		for (let d = 0; d < 8; d++) {
-			const start = at(d, 10);
-			for (let k = 0; k < 6; k++) {
-				pts.push({ ts: start + k * 120, lat: A.lat, lon: A.lon, accuracy: 8 });
-			}
-			for (let k = 0; k < 6; k++) {
-				const j = offset(B.lat, B.lon, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20);
-				pts.push({ ts: start + 720 + k * 120, lat: j.lat, lon: j.lon, accuracy: 160 });
-			}
-		}
-		pts.sort((a, b) => a.ts - b.ts);
-		const result = detectFocusPlaces(pts);
-		expect(result.clusters.length).toBeGreaterThanOrEqual(1);
-		const c = result.clusters[0];
-		expect(haversineMeters(c.centroidLat, c.centroidLon, A.lat, A.lon)).toBeLessThan(15);
-		expect(haversineMeters(c.centroidLat, c.centroidLon, B.lat, B.lon)).toBeGreaterThan(40);
 	});
 });

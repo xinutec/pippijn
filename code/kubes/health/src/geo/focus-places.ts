@@ -11,7 +11,7 @@
  *      their median centroid for ≥ STAY_MIN_DURATION_SEC. No max-gap rule;
  *      the radius check breaks the window when the phone moves elsewhere.
  *   2. clusterStays — greedy, plus a post-merge pass to combine drifting
- *      cluster fragments. Centroid is an accuracy-weighted mean of fixes.
+ *      cluster fragments. Centroid is dwell-weighted average.
  *   3. classifyCluster — assign a coarse label (home/work/hotel/frequent/...)
  *      from time-of-day + date-span heuristics. Labels are advisory.
  */
@@ -22,12 +22,6 @@ export const STAY_RADIUS_M = 100;
 export const STAY_MIN_DURATION_SEC = 10 * 60; // 10 min — short enough to catch cafes
 export const ACCURACY_FILTER_M = 200;
 export const CLUSTER_RADIUS_M = 150;
-/** A fix reported more accurate than this is treated as exactly this
- *  accurate — GPS does not realistically do better, and it bounds the
- *  1/σ² weight against a near-zero denominator. */
-export const ACCURACY_FLOOR_M = 5;
-/** Assumed σ for a fix whose device did not report an accuracy. */
-export const ACCURACY_DEFAULT_M = 50;
 
 export interface RawPoint {
 	ts: number;
@@ -43,9 +37,6 @@ export interface Stay {
 	centroidLon: number;
 	pointCount: number;
 	durationSec: number;
-	/** Σ of the inverse-variance weights of this stay's fixes. The
-	 *  cluster centroid combines stay centroids by this. */
-	weight: number;
 }
 
 export interface Cluster {
@@ -54,9 +45,6 @@ export interface Cluster {
 	centroidLon: number;
 	stays: Stay[];
 	totalDwellSec: number;
-	/** Σ of member stays' `weight` — the denominator of the
-	 *  accuracy-weighted cluster centroid. */
-	totalWeight: number;
 }
 
 export type ClusterLabel = "home" | "work" | "hotel" | "frequent" | "one-off" | "other";
@@ -87,31 +75,6 @@ function maxDistFromCentroid(points: RawPoint[], lat: number, lon: number): numb
 	return max;
 }
 
-/** Inverse-variance weight for a fix — a more accurate fix counts far
- *  more. Reported accuracy is the GPS 1σ radius, so weight ∝ 1/σ². A
- *  null (unreported) accuracy gets a conservative default σ. */
-export function fixWeight(accuracy: number | null): number {
-	const sigma = Math.max(accuracy ?? ACCURACY_DEFAULT_M, ACCURACY_FLOOR_M);
-	return 1 / (sigma * sigma);
-}
-
-/** Accuracy-weighted mean position of a non-empty set of fixes, plus
- *  the total weight Σw. Precise fixes dominate; a noisy crowd barely
- *  shifts the result. Clusters combine stay centroids by Σw, so the
- *  per-stay total travels with the centroid. */
-export function weightedCentroid(points: RawPoint[]): { lat: number; lon: number; weight: number } {
-	let sw = 0;
-	let sLat = 0;
-	let sLon = 0;
-	for (const p of points) {
-		const w = fixWeight(p.accuracy);
-		sw += w;
-		sLat += w * p.lat;
-		sLon += w * p.lon;
-	}
-	return { lat: sLat / sw, lon: sLon / sw, weight: sw };
-}
-
 export function detectStays(points: RawPoint[]): Stay[] {
 	const stays: Stay[] = [];
 	let i = 0;
@@ -130,7 +93,7 @@ export function detectStays(points: RawPoint[]): Stay[] {
 		}
 		const slice = points.slice(i, bestJ);
 		if (slice.length >= 2) {
-			const c = weightedCentroid(slice);
+			const c = medianCentroid(slice);
 			const duration = slice[slice.length - 1].ts - slice[0].ts;
 			if (duration >= STAY_MIN_DURATION_SEC) {
 				stays.push({
@@ -140,7 +103,6 @@ export function detectStays(points: RawPoint[]): Stay[] {
 					centroidLon: c.lon,
 					pointCount: slice.length,
 					durationSec: duration,
-					weight: c.weight,
 				});
 				i = bestJ;
 				continue;
@@ -174,7 +136,6 @@ export function clusterStays(stays: Stay[]): Cluster[] {
 				centroidLon: stay.centroidLon,
 				stays: [stay],
 				totalDwellSec: stay.durationSec,
-				totalWeight: stay.weight,
 			});
 		}
 	}
@@ -207,18 +168,16 @@ export function clusterStays(stays: Stay[]): Cluster[] {
 function addStayToCluster(c: Cluster, stay: Stay): void {
 	c.stays.push(stay);
 	c.totalDwellSec += stay.durationSec;
-	const oldWeight = c.totalWeight;
-	c.totalWeight += stay.weight;
-	c.centroidLat = (c.centroidLat * oldWeight + stay.centroidLat * stay.weight) / c.totalWeight;
-	c.centroidLon = (c.centroidLon * oldWeight + stay.centroidLon * stay.weight) / c.totalWeight;
+	const oldWeight = c.totalDwellSec - stay.durationSec;
+	c.centroidLat = (c.centroidLat * oldWeight + stay.centroidLat * stay.durationSec) / c.totalDwellSec;
+	c.centroidLon = (c.centroidLon * oldWeight + stay.centroidLon * stay.durationSec) / c.totalDwellSec;
 }
 
 function mergeCluster(into: Cluster, other: Cluster): void {
-	const totalW = into.totalWeight + other.totalWeight;
-	into.centroidLat = (into.centroidLat * into.totalWeight + other.centroidLat * other.totalWeight) / totalW;
-	into.centroidLon = (into.centroidLon * into.totalWeight + other.centroidLon * other.totalWeight) / totalW;
-	into.totalWeight = totalW;
-	into.totalDwellSec += other.totalDwellSec;
+	const totalAfter = into.totalDwellSec + other.totalDwellSec;
+	into.centroidLat = (into.centroidLat * into.totalDwellSec + other.centroidLat * other.totalDwellSec) / totalAfter;
+	into.centroidLon = (into.centroidLon * into.totalDwellSec + other.centroidLon * other.totalDwellSec) / totalAfter;
+	into.totalDwellSec = totalAfter;
 	for (const s of other.stays) into.stays.push(s);
 }
 

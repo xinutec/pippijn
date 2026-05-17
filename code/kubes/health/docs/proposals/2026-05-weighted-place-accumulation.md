@@ -1,5 +1,6 @@
 ---
-status: active
+status: paused
+paused-reason: All phases implemented and fully reverted 2026-05-17 (see Outcome). Kept as the investigation record.
 created: 2026-05-17
 updated: 2026-05-17
 ---
@@ -244,31 +245,44 @@ good — and as honest — as the data allows.
 
 ## Outcome (2026-05-17)
 
-Phases 1–2 shipped and stand: accuracy-weighted centroids and the
-365-day DELETE-recompute window.
+All of Phases 1, 2, and 4 were implemented, deployed, and then **fully
+reverted**. Nothing from this proposal shipped. The value delivered was
+the investigation recorded here, not code.
 
-Phase 4 (§5–§6) was implemented and **reverted**. The multi-signal
-namer dropped `pickBestLandmark`'s fixed type priority (amenity > shop)
-for a mined `P(kind)` prior and a `P(dwell | kind)` likelihood. Two
-things broke it:
+**Phase 4 (§5–§6) — multi-signal naming.** The namer dropped
+`pickBestLandmark`'s fixed type priority (amenity > shop) for a mined
+`P(kind)` prior and a `P(dwell | kind)` likelihood. `P(dwell | kind)`
+**cannot be mined from `focus_places`**: the clustering's 10-minute
+`STAY_MIN_DURATION_SEC` floor censors short visits, so a quick-venue
+stop never becomes a focus_place — every focus_place is a linger by
+construction, and the mined dwell model came out flat (no
+discrimination). Mining from clean clusters did not help; the censoring
+is upstream of the clustering. With the dwell tie-breaker dead, naming
+fell back to distance × a shop-heavy `P(kind)` and regressed real
+labels. The golden check caught it, 0/6.
 
-- `P(dwell | kind)` **cannot be mined from `focus_places`.** The
-  clustering's 10-minute `STAY_MIN_DURATION_SEC` floor censors short
-  visits, so a quick-venue stop never becomes a focus_place at all —
-  every focus_place is a linger by construction. The mined dwell model
-  came out flat (every kind ~40–75 min, σ ≈ 1.2): no discrimination.
-  Mining from clean (unambiguous) clusters did not help — the censoring
-  is upstream of the clustering.
-- With the dwell tie-breaker dead, naming fell back to distance ×
-  `P(kind)`, and `P(kind)` is shop-heavy (most clusters sit near
-  shops), so it ranks shops above restaurants. Real labels regressed —
-  a restaurant became a hedge between adjacent clothing shops; an
-  overnight home became a fountain monument. The golden-day check
-  caught it, 0/6.
+**Phase 1 — accuracy-weighted centroids.** Phase 1 replaced the stay
+centroid's `medianCentroid` with an inverse-variance `weightedCentroid`.
+A median is outlier-robust; an inverse-variance weighted mean is not —
+and it weights by *reported* GPS accuracy, which is unreliable (a fix
+can claim 5 m and be 50 m off). A few confidently-wrong indoor fixes
+dragged a residential cluster's centroid off its building; `bestPlace`
+then reverse-geocoded the moved centroid to a neighbouring fountain
+instead of the home address — a sleep location labelled a monument.
+Golden caught that too. Weighting by a confidence signal that lies,
+with no outlier-robustness, is worse than the plain median.
 
-Naming was reverted to the Phase-1 pooled-centroid `pickBestLandmark`,
-whose amenity > shop priority is a simple, correct heuristic. §5–§6 are
-kept as the design record. A future Phase 4 must source the dwell
-signal from data that is **not** censored to ≥10-minute stays — the raw
-Owntracks fix stream — not from `focus_places`. Do not retry dwell
-mining from `focus_places`.
+**Phase 2 — 365-day window.** Sound in isolation, but only meaningful
+as a step toward the naming goal, which failed. Reverted with the rest.
+
+Everything is back to the pre-proposal pipeline (median centroids,
+per-stay-vote amenity naming, 180-day window) — golden green. §1–§6
+remain as the design record. Hard-won constraints for any future
+attempt:
+
+- Do **not** retry dwell mining from `focus_places` — it is censored to
+  ≥10-minute stays. The short visits are only in the raw Owntracks fix
+  stream.
+- Do **not** weight a centroid by reported GPS accuracy. If a weighted
+  centroid is wanted it must be outlier-robust (a weighted median, or
+  trimming by observed scatter) — the plain median already is.

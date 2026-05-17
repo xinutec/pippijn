@@ -30,7 +30,6 @@ function stay(startTs: number, endTs: number): Stay {
 		centroidLon: 5.86,
 		pointCount: 1,
 		durationSec: endTs - startTs,
-		weight: 1,
 	};
 }
 
