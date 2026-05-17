@@ -30,10 +30,10 @@ import { bestPlace, type NearbyLandmark, nearbyLandmarks } from "../geo/osm.js";
 import {
 	amenityLabelFor,
 	type ClusterStat,
+	cleanVenueKind,
 	kindPrior,
 	mineDwellModel,
 	nameCluster,
-	nearestVenueKind,
 } from "../geo/place-naming.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
@@ -151,9 +151,11 @@ async function refreshOne(userId: string): Promise<void> {
 	const tMine = Date.now();
 	const amenityLabels = new Map<number, string | null>();
 
-	// Pass 1 — fetch each non-residential cluster's OSM venue candidates,
-	// and record a stat (provisional kind, dwell, per-visit length) that
-	// feeds the mined behavioural models.
+	// Pass 1 — fetch each non-residential cluster's OSM venue candidates.
+	// A cluster feeds the mined models only when its kind is unambiguous
+	// (`cleanVenueKind` — every nearby venue agrees); a dense mixed
+	// parade is still named in pass 2, but never pollutes the models it
+	// is scored against.
 	const candidatesByCluster = new Map<number, { landmarks: NearbyLandmark[]; visitLengthSec: number }>();
 	const stats: ClusterStat[] = [];
 	for (const c of result.clusters) {
@@ -165,7 +167,7 @@ async function refreshOne(userId: string): Promise<void> {
 		const landmarks = await nearbyLandmarks(c.centroidLat, c.centroidLon);
 		const visitLengthSec = c.totalDwellSec / c.stays.length;
 		candidatesByCluster.set(c.id, { landmarks, visitLengthSec });
-		const kind = nearestVenueKind(landmarks);
+		const kind = cleanVenueKind(landmarks);
 		if (kind !== null) stats.push({ kind, totalDwellSec: c.totalDwellSec, visitLengthSec });
 	}
 

@@ -3,10 +3,10 @@ import type { NearbyLandmark } from "../src/geo/osm.js";
 import {
 	amenityLabelFor,
 	type ClusterStat,
+	cleanVenueKind,
 	kindPrior,
 	mineDwellModel,
 	nameCluster,
-	nearestVenueKind,
 } from "../src/geo/place-naming.js";
 
 function lm(name: string, type: NearbyLandmark["type"], subtype: string, distanceM: number): NearbyLandmark {
@@ -100,15 +100,22 @@ describe("nameCluster", () => {
 	});
 });
 
-describe("nearestVenueKind", () => {
-	it("returns the kind of the nearest venue", () => {
-		expect(nearestVenueKind([lm("Far Café", "amenity", "cafe", 30), lm("Near Shop", "shop", "convenience", 8)])).toBe(
-			"quick",
-		);
+describe("cleanVenueKind", () => {
+	it("returns the kind when every nearby venue agrees", () => {
+		expect(cleanVenueKind([lm("Cafe A", "amenity", "cafe", 8), lm("Cafe B", "amenity", "cafe", 18)])).toBe("linger");
 	});
 
-	it("ignores non-venue features and returns null when there are none", () => {
-		expect(nearestVenueKind([lm("A Footpath", "highway", "pedestrian", 3)])).toBeNull();
+	it("returns null for a mixed parade", () => {
+		expect(cleanVenueKind([lm("A Cafe", "amenity", "cafe", 8), lm("A Bakery", "shop", "bakery", 12)])).toBeNull();
+	});
+
+	it("ignores venues beyond the clean radius", () => {
+		// A bakery 40 m out is too far to make the café cluster ambiguous.
+		expect(cleanVenueKind([lm("A Cafe", "amenity", "cafe", 8), lm("Far Bakery", "shop", "bakery", 40)])).toBe("linger");
+	});
+
+	it("returns null when no venue is within the clean radius", () => {
+		expect(cleanVenueKind([lm("Distant Cafe", "amenity", "cafe", 60)])).toBeNull();
 	});
 });
 

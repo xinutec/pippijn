@@ -10,8 +10,11 @@
  *    for that kind of venue — nobody spends 90 minutes in a bakery.
  *
  * Both P(kind) and P(dwell | kind) are mined each refresh from the
- * user's own clusters — behavioural data, nothing hand-tuned or
- * language-dependent. OSM's `subtype` is trusted verbatim for the venue
+ * user's *unambiguous* clusters — those where every nearby venue is
+ * one kind — so a dense mixed parade, which cannot supply a trustworthy
+ * kind label, never pollutes the models (it is still scored against
+ * them). Behavioural data, nothing hand-tuned or language-dependent.
+ * OSM's `subtype` is trusted verbatim for the venue
  * kind: a language-neutral controlled vocabulary, no name-string
  * second-guessing. A genuine OSM mis-tag is an upstream data bug.
  *
@@ -52,6 +55,10 @@ const VENUE_TYPES = new Set<NearbyLandmark["type"]>(["amenity", "tourism", "leis
 /** σ of the soft distance falloff — roughly a converged cluster's
  *  positional uncertainty. A venue 2σ (30 m) out still scores ~14%. */
 const DIST_SIGMA_M = 15;
+/** A cluster's kind counts as *unambiguous* — and so may feed the
+ *  mined models — only when every OSM venue within this radius shares
+ *  one kind. A dense mixed parade fails this and is excluded. */
+const CLEAN_RADIUS_M = 25;
 /** The top score must beat the runner-up by this factor to be asserted;
  *  otherwise the place is flagged ambiguous. */
 const AMBIGUITY_MARGIN = 1.3;
@@ -107,13 +114,17 @@ function venueKind(c: NearbyLandmark): VenueKind {
 	return SUBTYPE_KIND[c.subtype] ?? "other";
 }
 
-/** The venue kind of the nearest OSM venue to a cluster — its
- *  *provisional* kind, used only as raw material for the mined models.
- *  Null when no venue is nearby. */
-export function nearestVenueKind(candidates: NearbyLandmark[]): VenueKind | null {
-	const venues = candidates.filter((c) => VENUE_TYPES.has(c.type));
-	if (venues.length === 0) return null;
-	return venueKind(venues.reduce((a, b) => (b.distanceM < a.distanceM ? b : a)));
+/** A cluster's venue kind, but only when it is *unambiguous*: every OSM
+ *  venue within `CLEAN_RADIUS_M` of the centroid shares one kind. Null
+ *  for a dense mixed parade (café + bakery + clinic all in range) or an
+ *  empty neighbourhood. Only unambiguous clusters feed the mined
+ *  models, so a parade — whose true kind we cannot know — cannot
+ *  pollute them. */
+export function cleanVenueKind(candidates: NearbyLandmark[]): VenueKind | null {
+	const near = candidates.filter((c) => VENUE_TYPES.has(c.type) && c.distanceM <= CLEAN_RADIUS_M);
+	if (near.length === 0) return null;
+	const kinds = new Set(near.map(venueKind));
+	return kinds.size === 1 ? [...kinds][0] : null;
 }
 
 /**

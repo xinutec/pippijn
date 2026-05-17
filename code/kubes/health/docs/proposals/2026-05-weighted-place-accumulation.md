@@ -163,10 +163,16 @@ set: take **every** OSM venue within range as a candidate, and score
   long-dwell cluster's score for "quick" venues collapses. This is the
   per-cluster behavioural signal that `P(kind)` alone cannot capture.
 
-Both priors are behavioural data, not hand-tuned or language-dependent
-assumptions. This makes the user's history do the *naming*, not just
-the positioning: the string "café" is never in the user's GPS data —
-but the pattern of where they spend time, and for how long, is.
+Both priors are mined only from *unambiguous* clusters — those where
+every nearby OSM venue is the same kind — so a dense mixed parade,
+whose true kind cannot be known, never pollutes them (it is still
+scored against them). Mining from "nearest venue" instead poisons the
+models: in dense areas the nearest venue is whatever shop is closest,
+so every kind's dwell distribution collapses together. They are
+behavioural data, not hand-tuned or language-dependent assumptions.
+This makes the user's history do the *naming*, not just the
+positioning: the string "café" is never in the user's GPS data — but
+the pattern of where they spend time, and for how long, is.
 
 OSM tags are trusted as given: no name-string second-guessing, which
 cannot be done language-neutrally. A genuine OSM mis-tag (a coffee shop
