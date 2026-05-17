@@ -6,7 +6,7 @@
  *
  * Run manually for now (will become a weekly cron once stable):
  *   node dist/cli/refresh-focus-places.js              # all users with NC linked
- *   node dist/cli/refresh-focus-places.js <user_id>    # one user, default 90d
+ *   node dist/cli/refresh-focus-places.js <user_id>    # one user, default 365d
  *   node dist/cli/refresh-focus-places.js <user_id> 90 # one user, explicit days
  */
 
@@ -21,7 +21,6 @@ import {
 	classifyCluster,
 	detectFocusPlaces,
 	type FitbitSleepWindow,
-	pickWinningAmenity,
 	type RawPoint,
 	sleepHoursFromFitbit,
 	sleepHoursOf,
@@ -60,7 +59,7 @@ const config = z
 		},
 	});
 
-const DEFAULT_LOOKBACK_DAYS = 180;
+const DEFAULT_LOOKBACK_DAYS = 365;
 const FETCH_CHUNK_DAYS = 7;
 
 const argUserId = process.argv[2] ?? null;
@@ -129,16 +128,16 @@ async function refreshOne(userId: string): Promise<void> {
 	const hasFitbitSleep = fitbitSleepWindows.length > 0;
 	console.log(`[${userId}] loaded ${fitbitSleepWindows.length} Fitbit sleep windows for mining`);
 
-	// Mine per-cluster amenity label by aggregating OSM picks across all
-	// the cluster's stays (time-weighted). A cluster the user has visited
-	// many times converges on the true venue even when single-visit GPS
-	// noise would have flipped the picker to an adjacent venue.
+	// Label each cluster by the nearest OSM venue to its accuracy-
+	// weighted centroid — one lookup per cluster, not a per-stay vote.
+	// The centroid already pools every fix from every stay, weighted by
+	// GPS accuracy, so a dense parade of venues no longer splits the
+	// decision across adjacent shops.
 	//
-	// Skip mining for clusters that look residential (Fitbit-confirmed
-	// sleep_hours above the residency threshold). For those, the
-	// runtime labeller falls through to the OSM residential-address
-	// lookup, and `amenity_label` is unused — populating it would just
-	// be dead data that an old code path could mis-pick up.
+	// Skip clusters that look residential (Fitbit-confirmed sleep_hours
+	// above the threshold): the runtime labeller uses the OSM
+	// residential-address lookup for those, and `amenity_label` would be
+	// dead data that an old code path could mis-pick up.
 	const RESIDENCE_SLEEP_THRESHOLD_H = 5;
 	const tMine = Date.now();
 	const amenityLabels = new Map<number, string | null>();
@@ -148,24 +147,14 @@ async function refreshOne(userId: string): Promise<void> {
 			amenityLabels.set(c.id, null);
 			continue;
 		}
-		const votes = new Map<string, number>();
-		for (const s of c.stays) {
-			const landmarks = await nearbyLandmarks(s.centroidLat, s.centroidLon);
-			if (landmarks.length === 0) continue;
-			const best = pickBestLandmark(landmarks);
-			// Only count amenity / tourism / leisure / shop as a vote.
-			// Skip pedestrian-way and place-quarter results — those aren't
-			// venues, and including them dilutes the signal.
-			if (best.type !== "amenity" && best.type !== "tourism" && best.type !== "leisure" && best.type !== "shop") {
-				continue;
-			}
-			votes.set(best.name, (votes.get(best.name) ?? 0) + s.durationSec);
-		}
-		const winner = pickWinningAmenity(votes, {
-			minWeight: 60 * 30, // at least 30 min of total cluster dwell
-			minFraction: 0.5, // winner must take majority of the vote
-		});
-		amenityLabels.set(c.id, winner);
+		const landmarks = await nearbyLandmarks(c.centroidLat, c.centroidLon);
+		const best = landmarks.length > 0 ? pickBestLandmark(landmarks) : null;
+		// Only amenity / tourism / leisure / shop count as a venue label;
+		// pedestrian-ways and place-quarters are not venues.
+		const isVenue =
+			best !== null &&
+			(best.type === "amenity" || best.type === "tourism" || best.type === "leisure" || best.type === "shop");
+		amenityLabels.set(c.id, isVenue ? best.name : null);
 	}
 	console.log(
 		`[${userId}] amenity mining: ${[...amenityLabels.values()].filter((v) => v !== null).length}/${
