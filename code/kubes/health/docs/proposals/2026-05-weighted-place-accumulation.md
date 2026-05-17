@@ -144,25 +144,29 @@ correct centroid still gets a coin-flip nearest-node label (Problem §4,
 Evidence update). Replace the nearest-node pick with a scored candidate
 set: take **every** OSM venue within range as a candidate, and score
 
-  `score(v) = w_dist(v) · w_type(v)`
+  `score(v) = w_dist(v) · P(kind) · P(dwell | kind)`
 
 - `w_dist(v)` — a *soft* distance falloff (Gaussian, σ ≈ the cluster's
   positional uncertainty, ~10–15 m) from the weighted centroid to `v`.
   Soft, not nearest-wins: a venue 14 m out is not crushed by one 8 m
   out when both sit inside the error bar.
-- `w_type(v)` — the *user's own* historical propensity for `v`'s kind of
+- `P(kind)` — the *user's own* global propensity for `v`'s kind of
   venue. OSM's `subtype` gives the kind (café / fast-food / clinical /
-  …) and is trusted verbatim — it is a language-neutral controlled
-  vocabulary. The weight is mined each refresh from how the user's
-  out-of-home dwell time splits across kinds: a user who spends far more
-  time in cafés than fast-food gives café-kind venues a much higher
-  `w_type`. Behavioural data, not a hand-tuned or language-dependent
-  assumption.
+  …) and is trusted verbatim — a language-neutral controlled vocabulary.
+  Mined each refresh from how the user's out-of-home dwell time splits
+  across kinds: someone who spends far more time in cafés than fast-food
+  gives café-kind venues a higher prior.
+- `P(dwell | kind)` — how well *this cluster's* per-visit dwell fits
+  each kind: a per-kind log-normal mined from the user's clusters. A
+  90-minute visit is intrinsically implausible for a bakery or a
+  fast-food counter, however much shopping the user does — so a
+  long-dwell cluster's score for "quick" venues collapses. This is the
+  per-cluster behavioural signal that `P(kind)` alone cannot capture.
 
-This makes the user's history do the *naming*, not just the
-positioning. The string "café" is never in the user's GPS data — but
-the *pattern of where they spend time* is, and a per-user kind prior
-distils it.
+Both priors are behavioural data, not hand-tuned or language-dependent
+assumptions. This makes the user's history do the *naming*, not just
+the positioning: the string "café" is never in the user's GPS data —
+but the pattern of where they spend time, and for how long, is.
 
 OSM tags are trusted as given: no name-string second-guessing, which
 cannot be done language-neutrally. A genuine OSM mis-tag (a coffee shop

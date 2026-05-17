@@ -2,31 +2,25 @@
  * Multi-signal naming for focus-place clusters (proposal
  * 2026-05-weighted-place-accumulation.md, Phase 4 §5).
  *
- * The old naming took the single nearest OSM venue to the cluster
- * centroid. Where venues pack within GPS error that is a coin-flip, and
- * it ignores everything the user's history says about what kind of
- * place they actually frequent.
+ * Scores every nearby OSM venue by
+ *     score(v) = w_dist(v) · P(kind) · P(dwell | kind)
+ *  - w_dist: soft Gaussian falloff from the cluster's weighted centroid.
+ *  - P(kind): the user's global propensity for that kind of venue.
+ *  - P(dwell | kind): how plausible this cluster's per-visit dwell is
+ *    for that kind of venue — nobody spends 90 minutes in a bakery.
  *
- * This scores every nearby venue by  score(v) = w_dist(v) · w_type(v):
- *  - w_dist: a soft Gaussian falloff from the cluster's weighted
- *    centroid — a venue a little further out is not crushed.
- *  - w_type: the *user's own* historical propensity for that kind of
- *    venue, mined from how their out-of-home dwell time splits across
- *    café / fast-food / clinical / … clusters. Behavioural data — not a
- *    hand-tuned or language-dependent assumption.
- *
- * OSM's `subtype` is trusted verbatim for the venue kind: it is a
- * language-neutral controlled vocabulary (`amenity=cafe` is `cafe`
- * worldwide). There is no name-string second-guessing — that cannot be
- * done language-neutrally, and a genuine OSM mis-tag is an upstream
- * data bug, not something to paper over here.
+ * Both P(kind) and P(dwell | kind) are mined each refresh from the
+ * user's own clusters — behavioural data, nothing hand-tuned or
+ * language-dependent. OSM's `subtype` is trusted verbatim for the venue
+ * kind: a language-neutral controlled vocabulary, no name-string
+ * second-guessing. A genuine OSM mis-tag is an upstream data bug.
  *
  * Pure module — no DB, no I/O.
  */
 
 import type { NearbyLandmark } from "./osm.js";
 
-/** Coarse venue kind — the unit the behavioural prior is keyed on. */
+/** Coarse venue kind — the unit the behavioural priors are keyed on. */
 export type VenueKind = "linger" | "quick" | "clinical" | "evening" | "other";
 
 const KINDS: readonly VenueKind[] = ["linger", "quick", "clinical", "evening", "other"];
@@ -64,9 +58,32 @@ const AMBIGUITY_MARGIN = 1.3;
 /** Additive smoothing on the kind prior, so a kind the user has no
  *  history at is unlikely — not impossible. */
 const PRIOR_SMOOTHING = 0.02;
+/** Floor on the mined log-dwell spread — a numerical regulariser so a
+ *  user whose clusters happen to share a dwell does not get a
+ *  degenerate, zero-width dwell likelihood. */
+const DWELL_SIGMA_FLOOR = 0.25;
+
+/** One cluster's contribution to the mined behavioural models: its
+ *  provisional venue kind, total dwell, and mean per-visit length. */
+export interface ClusterStat {
+	kind: VenueKind;
+	totalDwellSec: number;
+	visitLengthSec: number;
+}
 
 /** The user's behavioural propensity for each venue kind — P(kind). */
 export type KindPrior = ReadonlyMap<VenueKind, number>;
+
+/** Per-kind log-normal model of per-visit dwell length, mined from the
+ *  user's clusters: how long a visit to each kind of venue tends to be. */
+export interface DwellModel {
+	/** Mean of ln(visit-length seconds) per kind. */
+	meanLogByKind: ReadonlyMap<VenueKind, number>;
+	/** Pooled within-kind standard deviation of ln(visit-length). */
+	sigmaLog: number;
+	/** Fallback mean for a kind the user has no history at. */
+	globalMeanLog: number;
+}
 
 export interface ScoredCandidate {
 	name: string;
@@ -91,8 +108,8 @@ function venueKind(c: NearbyLandmark): VenueKind {
 }
 
 /** The venue kind of the nearest OSM venue to a cluster — its
- *  *provisional* kind, used only as raw material for the prior. Null
- *  when no venue is nearby. */
+ *  *provisional* kind, used only as raw material for the mined models.
+ *  Null when no venue is nearby. */
 export function nearestVenueKind(candidates: NearbyLandmark[]): VenueKind | null {
 	const venues = candidates.filter((c) => VENUE_TYPES.has(c.type));
 	if (venues.length === 0) return null;
@@ -100,13 +117,13 @@ export function nearestVenueKind(candidates: NearbyLandmark[]): VenueKind | null
 }
 
 /**
- * Mine the per-user kind prior: each entry is one cluster's provisional
- * venue kind and its total dwell. P(kind) is dwell summed by kind and
- * normalised, with additive smoothing. With no history it is uniform.
+ * Mine the per-user kind prior: P(kind) is each cluster's total dwell
+ * summed by venue kind and normalised, with additive smoothing. With no
+ * history it is uniform.
  */
-export function kindPrior(entries: { kind: VenueKind; dwellSec: number }[]): KindPrior {
+export function kindPrior(stats: ClusterStat[]): KindPrior {
 	const dwell = new Map<VenueKind, number>(KINDS.map((k) => [k, 0]));
-	for (const e of entries) dwell.set(e.kind, (dwell.get(e.kind) ?? 0) + e.dwellSec);
+	for (const s of stats) dwell.set(s.kind, (dwell.get(s.kind) ?? 0) + s.totalDwellSec);
 	const total = [...dwell.values()].reduce((a, b) => a + b, 0);
 	const prior = new Map<VenueKind, number>();
 	if (total === 0) {
@@ -120,24 +137,76 @@ export function kindPrior(entries: { kind: VenueKind; dwellSec: number }[]): Kin
 	return prior;
 }
 
+/**
+ * Mine the per-kind dwell model: for each venue kind, the mean of
+ * ln(per-visit length) across the user's clusters of that kind, plus a
+ * single pooled within-kind spread. With no history the model is inert
+ * (every dwell scores 1).
+ */
+export function mineDwellModel(stats: ClusterStat[]): DwellModel {
+	if (stats.length === 0) {
+		return { meanLogByKind: new Map(), sigmaLog: Number.POSITIVE_INFINITY, globalMeanLog: 0 };
+	}
+	const logsByKind = new Map<VenueKind, number[]>();
+	const allLogs: number[] = [];
+	for (const s of stats) {
+		const x = Math.log(s.visitLengthSec);
+		allLogs.push(x);
+		let arr = logsByKind.get(s.kind);
+		if (!arr) {
+			arr = [];
+			logsByKind.set(s.kind, arr);
+		}
+		arr.push(x);
+	}
+	const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+	const meanLogByKind = new Map<VenueKind, number>();
+	for (const [k, xs] of logsByKind) meanLogByKind.set(k, mean(xs));
+	const globalMeanLog = mean(allLogs);
+	// Pooled within-kind variance — one spread, robust to kinds the user
+	// has only a cluster or two of.
+	let ss = 0;
+	for (const s of stats) {
+		const d = Math.log(s.visitLengthSec) - (meanLogByKind.get(s.kind) ?? globalMeanLog);
+		ss += d * d;
+	}
+	return { meanLogByKind, sigmaLog: Math.max(Math.sqrt(ss / stats.length), DWELL_SIGMA_FLOOR), globalMeanLog };
+}
+
 function distWeight(distanceM: number): number {
 	return Math.exp(-(distanceM * distanceM) / (2 * DIST_SIGMA_M * DIST_SIGMA_M));
 }
 
+/** P(this cluster's per-visit dwell | the venue is of this kind). */
+function dwellWeight(visitLengthSec: number, kind: VenueKind, model: DwellModel): number {
+	const mu = model.meanLogByKind.get(kind) ?? model.globalMeanLog;
+	const d = Math.log(visitLengthSec) - mu;
+	return Math.exp(-(d * d) / (2 * model.sigmaLog * model.sigmaLog));
+}
+
 /**
  * Name a focus-place cluster by scoring every nearby OSM venue by its
- * distance to the cluster's converged centroid and the user's
- * behavioural propensity for that kind of venue.
+ * distance to the cluster's converged centroid, the user's propensity
+ * for that kind of venue, and how well this cluster's per-visit dwell
+ * fits that kind.
  */
-export function nameCluster(candidates: NearbyLandmark[], prior: KindPrior): PlaceNaming {
+export function nameCluster(
+	candidates: NearbyLandmark[],
+	prior: KindPrior,
+	dwellModel: DwellModel,
+	visitLengthSec: number,
+): PlaceNaming {
 	const ranked: ScoredCandidate[] = candidates
 		.filter((c) => VENUE_TYPES.has(c.type))
-		.map((c) => ({
-			name: c.name,
-			subtype: c.subtype,
-			distanceM: c.distanceM,
-			score: distWeight(c.distanceM) * (prior.get(venueKind(c)) ?? 0),
-		}))
+		.map((c) => {
+			const kind = venueKind(c);
+			return {
+				name: c.name,
+				subtype: c.subtype,
+				distanceM: c.distanceM,
+				score: distWeight(c.distanceM) * (prior.get(kind) ?? 0) * dwellWeight(visitLengthSec, kind, dwellModel),
+			};
+		})
 		.sort((a, b) => b.score - a.score);
 
 	if (ranked.length === 0) return { label: null, ambiguous: false, ranked };
