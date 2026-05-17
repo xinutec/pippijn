@@ -10,7 +10,7 @@ updated: 2026-05-17
 
 The focus-places pipeline (`refresh-focus-places.ts` → `focus-places.ts`)
 locates each recurring place by clustering PhoneTrack stays, and labels it
-by the nearest OSM venue. Three design choices make it fragile when venues
+by the nearest OSM venue. Four design choices make it fragile when venues
 are densely packed:
 
 1. **Per-fix accuracy is a binary gate, not a weight.**
@@ -33,11 +33,13 @@ are densely packed:
    itself is correct and kept (see Design §4); the window *length* is
    the bug.
 
-The amenity-label mining compounds (1)+(2): it picks one nearest venue
-*per stay* from that stay's noisy centroid and majority-votes. When
-several venues sit within GPS error of each other, the per-stay picks
-scatter across them and the vote has no majority — or a stale low-visit
-snapshot picks the wrong neighbour.
+4. **Naming is a single nearest-node lookup.** The label is the nearest
+   OSM venue to the cluster centroid. That treats OSM as ground truth
+   for *identity* — but OSM POI nodes are imprecisely placed (often
+   10–20 m off the real shopfront), sometimes mis-tagged (a coffee shop
+   tagged `fast_food`), and ambiguous where venues pack within GPS
+   error. One geometric lookup is far too weak to carry "what is this
+   place", and it uses none of the cluster's behavioural history.
 
 ## Evidence
 
@@ -65,6 +67,17 @@ component to average down.
 Conclusion: the math already works — we throw away the two things that
 make it work. We gate accuracy instead of weighting by it, and we window
 history instead of accumulating it.
+
+**Update — Phase 1 shipped.** With weighted centroids live, the example
+cluster's centroid moved from 80 m to **14 m from the café and 45 m
+from the clinic** — the clinic mislabel is gone, exactly as predicted.
+But the label then landed on a **fast-food outlet** whose OSM node sits
+~8 m from the converged centroid — nearer than the café's node at
+~14 m. The user has never visited that outlet. This is the naming
+defect (Problem §4): the centroid is now right, but a nearest-node pick
+among venues packed within GPS error is a coin-flip, and it ignores
+that a dozen long weekday-morning visits are wildly implausible for a
+fast-food counter. Phase 4 addresses it.
 
 ## Principle
 
@@ -124,6 +137,61 @@ a bounded raw-fix window keeps `focus_places` a pure function of (raw
 PhoneTrack history, current code): change the algorithm, re-run,
 everything updates. Reproducibility outweighs unbounded convergence.
 
+### 5. Multi-signal candidate-scored naming (Phase 4)
+
+Phase 1 fixes *where* the cluster is; it does not fix *what it is*. A
+correct centroid still gets a coin-flip nearest-node label (Problem §4,
+Evidence update). Replace the nearest-node pick with a scored candidate
+set: take **every** OSM venue within range as a candidate, and score
+
+  `score(v) = w_dist(v) · w_type(v) · w_name(v)`
+
+- `w_dist(v)` — a *soft* distance falloff (Gaussian, σ ≈ the cluster's
+  positional uncertainty, ~10–15 m) from the weighted centroid to `v`.
+  Soft, not nearest-wins: a venue 14 m out is not crushed by one 8 m
+  out when both sit inside the error bar.
+- `w_type(v)` — plausibility of `v`'s amenity type given the cluster's
+  *behavioural* signature: visit count, typical dwell, time-of-day,
+  weekday/weekend mix (all already derived for `classifyCluster`). A
+  dozen long weekday-morning visits score café / coffee_shop /
+  coworking / restaurant high, `fast_food` low, dentist / clinic /
+  pharmacy very low — nobody has a dozen "frequent" dentist
+  appointments. A hand-tuned table maps pattern → type plausibility.
+- `w_name(v)` — lexical cues in the venue *name* ("Coffee", "Café",
+  known coffee chains). This rescues venues OSM has mis-tagged: a coffee
+  shop tagged `fast_food` is still recognisable by its name.
+
+This makes the cluster's history do the *naming*, not just the
+positioning — the answer to "I go here a lot, that should be a magnet":
+the raw name string is not in the user's data, but the visit *pattern*
+and venue *type* are, and they discriminate café from fast-food from
+clinic.
+
+**Honesty gate.** When the top candidate's score does not clearly beat
+the runner-up, the place is *ambiguous*: store the ranked top-N rather
+than commit one name, so the UI can show "café near X (likely <top>)"
+instead of a confident wrong label. A confident wrong label is worse
+than an honest hedge — it is the actual bug being fixed.
+
+### 6. Split fused multi-venue clusters (Phase 4)
+
+The stay-clustering radius merges venues tens of metres apart into one
+cluster, so a single focus-place can host visits to several distinct
+real places (a café and a clinic in one parade). No single label is
+correct for such a cluster.
+
+Detect and split: within a focus-place, sub-cluster the per-visit
+weighted centroids at a tighter radius; if they separate into stable
+sub-modes — especially when the sub-modes also differ in *visit
+character* (dwell length, time-of-day, frequency) — emit them as
+distinct places. A clinic visited twice for ~2 h is a different place
+from a café visited ten times for ~1.5 h, even 50 m away.
+
+This is the harder, lower-confidence half of Phase 4: GPS noise means
+sub-modes overlap and will not always separate cleanly. Where a fused
+cluster cannot be split, §5's honesty gate applies — name it by the
+dominant candidate with the alternatives surfaced.
+
 ## Phasing
 
 - **Phase 1 — weighting (`w_acc` only).** Items 1–3: accuracy-weighted
@@ -137,15 +205,23 @@ everything updates. Reproducibility outweighs unbounded convergence.
 - **Phase 3 — optional.** `w_still` + Fitbit-confirmed stay *detection* —
   thread Fitbit steps/HR into the pipeline as a stationarity signal,
   both as a centroid weight and inside `detectStays`.
+- **Phase 4 — multi-signal naming + cluster splitting.** Design §5 and
+  §6. Replaces the nearest-node label with history-informed candidate
+  scoring plus an honesty gate; splits fused multi-venue clusters where
+  the data allows. The substantive naming fix — no manual entry. Schema:
+  store the ranked candidates / an `ambiguous` marker. §5 (naming) is
+  the higher-confidence half and can ship before §6 (splitting).
 
-## What this does not solve
+## Residual limits
 
-Weighting sharpens the *centroid*; it does not separate venues closer
-together than the converged precision. After many visits a centroid is
-good to a few metres — enough to distinguish venues tens of metres
-apart, not metres apart. And the stay-clustering radius merges genuinely
-distinct venues (a café and a clinic in one parade) into a single
-cluster, so one cluster can legitimately host visits to several venues.
-Venue-level disambiguation within a cluster needs a different signal —
-visit duration / time-of-day priors, or manual place pinning — and is
-out of scope here.
+Even with Phases 1–4, naming a place stays probabilistic. Multi-signal
+scoring (§5) is a best *guess*: where OSM's node is badly mis-placed, or
+two candidates share type, pattern *and* name cues, the data simply does
+not determine which the user means. Splitting (§6) cannot separate
+sub-modes that overlap within GPS noise. The honesty gate makes these
+cases surface as "likely X" with alternatives rather than a false
+certainty — but a *guaranteed* name needs a signal from outside the
+user's GPS/Fitbit data: a one-time user confirmation, or a name
+arriving from another stream (e.g. a calendar event). Both are out of
+scope here. The goal of this proposal is to make the unaided guess as
+good — and as honest — as the data allows.

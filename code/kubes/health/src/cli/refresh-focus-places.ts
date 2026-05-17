@@ -26,7 +26,8 @@ import {
 	sleepHoursOf,
 	uniqueDayCount,
 } from "../geo/focus-places.js";
-import { bestPlace, nearbyLandmarks, pickBestLandmark } from "../geo/osm.js";
+import { bestPlace, nearbyLandmarks } from "../geo/osm.js";
+import { clusterVisitPattern, nameCluster } from "../geo/place-naming.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -128,11 +129,11 @@ async function refreshOne(userId: string): Promise<void> {
 	const hasFitbitSleep = fitbitSleepWindows.length > 0;
 	console.log(`[${userId}] loaded ${fitbitSleepWindows.length} Fitbit sleep windows for mining`);
 
-	// Label each cluster by the nearest OSM venue to its accuracy-
-	// weighted centroid — one lookup per cluster, not a per-stay vote.
-	// The centroid already pools every fix from every stay, weighted by
-	// GPS accuracy, so a dense parade of venues no longer splits the
-	// decision across adjacent shops.
+	// Name each cluster by scoring every nearby OSM venue against the
+	// cluster's accuracy-weighted centroid AND its visit pattern (dwell,
+	// time-of-day, frequency) — see geo/place-naming.ts. When the top
+	// candidates score too close the result is ambiguous and we store no
+	// label rather than assert a coin-flip between adjacent venues.
 	//
 	// Skip clusters that look residential (Fitbit-confirmed sleep_hours
 	// above the threshold): the runtime labeller uses the OSM
@@ -148,13 +149,8 @@ async function refreshOne(userId: string): Promise<void> {
 			continue;
 		}
 		const landmarks = await nearbyLandmarks(c.centroidLat, c.centroidLon);
-		const best = landmarks.length > 0 ? pickBestLandmark(landmarks) : null;
-		// Only amenity / tourism / leisure / shop count as a venue label;
-		// pedestrian-ways and place-quarters are not venues.
-		const isVenue =
-			best !== null &&
-			(best.type === "amenity" || best.type === "tourism" || best.type === "leisure" || best.type === "shop");
-		amenityLabels.set(c.id, isVenue ? best.name : null);
+		const naming = nameCluster(landmarks, clusterVisitPattern(c.stays));
+		amenityLabels.set(c.id, naming.ambiguous ? null : naming.label);
 	}
 	console.log(
 		`[${userId}] amenity mining: ${[...amenityLabels.values()].filter((v) => v !== null).length}/${
