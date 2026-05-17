@@ -27,7 +27,7 @@ import {
 	uniqueDayCount,
 } from "../geo/focus-places.js";
 import { bestPlace, nearbyLandmarks } from "../geo/osm.js";
-import { clusterVisitPattern, nameCluster } from "../geo/place-naming.js";
+import { amenityLabelFor, clusterVisitPattern, nameCluster } from "../geo/place-naming.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -131,9 +131,10 @@ async function refreshOne(userId: string): Promise<void> {
 
 	// Name each cluster by scoring every nearby OSM venue against the
 	// cluster's accuracy-weighted centroid AND its visit pattern (dwell,
-	// time-of-day, frequency) — see geo/place-naming.ts. When the top
-	// candidates score too close the result is ambiguous and we store no
-	// label rather than assert a coin-flip between adjacent venues.
+	// time-of-day, frequency) — see geo/place-naming.ts. A confident pick
+	// is stored as the venue name; an ambiguous one is hedged as
+	// "winner / runner-up" so the timeline shows the real uncertainty
+	// instead of a coin-flip between adjacent venues.
 	//
 	// Skip clusters that look residential (Fitbit-confirmed sleep_hours
 	// above the threshold): the runtime labeller uses the OSM
@@ -150,7 +151,7 @@ async function refreshOne(userId: string): Promise<void> {
 		}
 		const landmarks = await nearbyLandmarks(c.centroidLat, c.centroidLon);
 		const naming = nameCluster(landmarks, clusterVisitPattern(c.stays));
-		amenityLabels.set(c.id, naming.ambiguous ? null : naming.label);
+		amenityLabels.set(c.id, amenityLabelFor(naming));
 	}
 	console.log(
 		`[${userId}] amenity mining: ${[...amenityLabels.values()].filter((v) => v !== null).length}/${

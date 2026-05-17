@@ -168,10 +168,14 @@ and venue *type* are, and they discriminate café from fast-food from
 clinic.
 
 **Honesty gate.** When the top candidate's score does not clearly beat
-the runner-up, the place is *ambiguous*: store the ranked top-N rather
-than commit one name, so the UI can show "café near X (likely <top>)"
-instead of a confident wrong label. A confident wrong label is worse
-than an honest hedge — it is the actual bug being fixed.
+the runner-up, the place is *ambiguous*. Rather than commit one name (or
+blank it), the stored `amenity_label` is hedged as "winner / runner-up"
+— the timeline then shows both candidates instead of a confident
+coin-flip. A confident wrong label is worse than an honest hedge; it is
+the actual bug being fixed. (Storing the full ranked candidate set as
+structured data, for a richer UI than a hedged string, is deferred
+until such a UI exists — `focus_places` is recomputed every refresh, so
+the column costs nothing to add later.)
 
 ### 6. Split fused multi-venue clusters (Phase 4)
 
@@ -207,10 +211,10 @@ dominant candidate with the alternatives surfaced.
   both as a centroid weight and inside `detectStays`.
 - **Phase 4 — multi-signal naming + cluster splitting.** Design §5 and
   §6. Replaces the nearest-node label with history-informed candidate
-  scoring plus an honesty gate; splits fused multi-venue clusters where
-  the data allows. The substantive naming fix — no manual entry. Schema:
-  store the ranked candidates / an `ambiguous` marker. §5 (naming) is
-  the higher-confidence half and can ship before §6 (splitting).
+  scoring plus an honesty gate (an ambiguous result is stored as a
+  hedged "winner / runner-up" label — no schema change). Splits fused
+  multi-venue clusters where the data allows. The substantive naming
+  fix — no manual entry. §5 (naming) ships before §6 (splitting).
 
 ## Residual limits
 

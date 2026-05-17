@@ -160,3 +160,17 @@ export function nameCluster(candidates: NearbyLandmark[], pattern: VisitPattern)
 	const ambiguous = ranked.length > 1 && ranked[0].score / ranked[1].score < AMBIGUITY_MARGIN;
 	return { label: ranked[0].name, ambiguous, ranked };
 }
+
+/**
+ * The string to store as a cluster's `amenity_label`. A confident pick
+ * is just its name; an ambiguous one is hedged as "winner / runner-up"
+ * so the timeline shows the genuine uncertainty rather than committing
+ * to a coin-flip between adjacent venues. Null when there is no
+ * candidate at all.
+ */
+export function amenityLabelFor(naming: PlaceNaming): string | null {
+	if (naming.label === null) return null;
+	// `ambiguous` is only set when a runner-up exists (see nameCluster).
+	if (naming.ambiguous) return `${naming.label} / ${naming.ranked[1].name}`;
+	return naming.label;
+}

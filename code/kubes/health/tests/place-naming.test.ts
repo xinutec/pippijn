@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Stay } from "../src/geo/focus-places.js";
 import type { NearbyLandmark } from "../src/geo/osm.js";
-import { clusterVisitPattern, nameCluster, type VisitPattern } from "../src/geo/place-naming.js";
+import { amenityLabelFor, clusterVisitPattern, nameCluster, type VisitPattern } from "../src/geo/place-naming.js";
 
 function lm(name: string, type: NearbyLandmark["type"], subtype: string, distanceM: number): NearbyLandmark {
 	return { name, type, subtype, distanceM };
@@ -89,5 +89,27 @@ describe("clusterVisitPattern", () => {
 
 	it("handles an empty cluster", () => {
 		expect(clusterVisitPattern([])).toEqual({ visitCount: 0, medianDwellSec: 0, morningFraction: 0 });
+	});
+});
+
+describe("amenityLabelFor", () => {
+	it("returns the plain name for a confident pick", () => {
+		const naming = nameCluster(
+			[lm("Fried Chicken Co", "amenity", "fast_food", 8), lm("Some Café", "amenity", "cafe", 14)],
+			cafePattern,
+		);
+		expect(amenityLabelFor(naming)).toBe("Some Café");
+	});
+
+	it("hedges 'winner / runner-up' for an ambiguous pick", () => {
+		const naming = nameCluster(
+			[lm("Cafe One", "amenity", "cafe", 12), lm("Cafe Two", "amenity", "cafe", 14)],
+			cafePattern,
+		);
+		expect(amenityLabelFor(naming)).toBe("Cafe One / Cafe Two");
+	});
+
+	it("returns null when there is no venue candidate", () => {
+		expect(amenityLabelFor(nameCluster([lm("A Footpath", "highway", "pedestrian", 5)], cafePattern))).toBeNull();
 	});
 });
