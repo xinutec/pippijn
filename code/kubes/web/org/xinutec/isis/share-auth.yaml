@@ -1,7 +1,8 @@
 # HTTP basic auth for the dicom-scan share on isis.xinutec.org.
 # Scoped to /share/share-cc58ab5c727c4a25 only (brain-tumour imaging +
 # medical documents); the rest of the host stays open via isis-ingress.
-# Pattern copied from code/kubes/radicale/06-ingress.yaml.
+# Uses the standard ingress-nginx basic-auth annotations (auth-type,
+# auth-secret) with the credentials in the Secret below.
 ---
 apiVersion: v1
 kind: Secret
