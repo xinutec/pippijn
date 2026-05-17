@@ -258,6 +258,7 @@ export async function annotateUndergroundRuns(
 			place: undefined,
 			city: undefined,
 			wayName: `${recon.boardingStation} → ${recon.alightingStation} · ${recon.line}`,
+			railLine: recon.line,
 			refinedReason: `underground reconstruction (${runFixes.length} coarse fixes on ${recon.line})`,
 		});
 		if (keepPost) result.push({ ...host, startTs: trainEnd });

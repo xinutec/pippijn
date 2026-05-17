@@ -715,3 +715,89 @@ export async function queryLines(
 		>,
 	}));
 }
+
+/** Rail/metro line subtypes — the `railway=*` values that carry
+ *  trains. Mirrors the filter `linesAtPoint` uses. */
+const RAIL_LINE_SUBTYPES = ["rail", "subway", "light_rail", "tram", "narrow_gauge"];
+
+/** A single rail way's geometry, ready for rail-snap to stitch into a
+ *  route. `coords` is the way's ordered vertex list. */
+export interface RailWayGeometry {
+	osm_id: number;
+	name: string | null;
+	subtype: string | null;
+	coords: Array<{ lat: number; lon: number }>;
+}
+
+/**
+ * Parse a `LINESTRING(...)` WKT string — the form `ST_AsText(geom)`
+ * returns a stored way as — into an ordered {lat,lon} vertex list.
+ *
+ * WKT coordinate order is `x y` = `lon lat` (the reverse of how we
+ * name them), matching how `parseOverpassElement` builds the WKT we
+ * store. Non-LINESTRING input (a POINT, `LINESTRING EMPTY`, garbage)
+ * yields an empty array rather than throwing.
+ */
+export function parseLineStringWkt(wkt: string): Array<{ lat: number; lon: number }> {
+	const m = wkt.trim().match(/^LINESTRING\s*\((.+)\)$/i);
+	if (!m) return [];
+	const out: Array<{ lat: number; lon: number }> = [];
+	for (const pair of m[1].split(",")) {
+		const [lon, lat] = pair.trim().split(/\s+/).map(Number);
+		if (Number.isFinite(lat) && Number.isFinite(lon)) out.push({ lat, lon });
+	}
+	return out;
+}
+
+/**
+ * Build the Kysely query for {@link queryRouteGeometry}. Exported so
+ * the SQL-compilation tests can assert it stays index-accelerated.
+ *
+ * Selects rail ways of one named line whose geometry intersects the
+ * journey corridor `bbox`. `MBRIntersects` against the bbox polygon
+ * uses the SPATIAL index — the same reason `buildLinesQuery` does.
+ * The geometry comes back as WKT via `ST_AsText` for
+ * {@link parseLineStringWkt}.
+ */
+export function buildLineGeometryQuery(
+	k: typeof db extends () => infer K ? K : never,
+	bbox: { minLat: number; maxLat: number; minLon: number; maxLon: number },
+	lineName: string,
+	subtypes: string[] = RAIL_LINE_SUBTYPES,
+) {
+	const poly = `POLYGON((${bbox.minLon} ${bbox.minLat},${bbox.maxLon} ${bbox.minLat},${bbox.maxLon} ${bbox.maxLat},${bbox.minLon} ${bbox.maxLat},${bbox.minLon} ${bbox.minLat}))`;
+	const bboxGeom = sql`ST_GeomFromText(${poly}, 4326)`;
+	return k
+		.selectFrom("osm_lines")
+		.select(["osm_id", "subtype", "name", sql<string>`ST_AsText(geom)`.as("geom_wkt")])
+		.where("feature_type", "=", "railway")
+		.where("name", "=", lineName)
+		.where("subtype", "in", subtypes)
+		.where(sql<boolean>`MBRIntersects(geom, ${bboxGeom})`)
+		.limit(500);
+}
+
+/**
+ * Fetch the track geometry of a named rail line within a journey
+ * corridor. Returns one {@link RailWayGeometry} per OSM way; the
+ * caller (`rail-snap`) stitches them into a continuous route.
+ *
+ * Reads only the local mirror — no Overpass. Coverage is the caller's
+ * responsibility; in practice the `railway` box is already populated
+ * because `linesAtPoint` ran over the same corridor during
+ * classification.
+ */
+export async function queryRouteGeometry(
+	bbox: { minLat: number; maxLat: number; minLon: number; maxLon: number },
+	lineName: string,
+): Promise<RailWayGeometry[]> {
+	const rows = await buildLineGeometryQuery(db(), bbox, lineName).execute();
+	return rows
+		.map((r) => ({
+			osm_id: Number(r.osm_id),
+			name: r.name,
+			subtype: r.subtype,
+			coords: parseLineStringWkt(r.geom_wkt),
+		}))
+		.filter((w) => w.coords.length >= 2);
+}
