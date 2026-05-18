@@ -64,9 +64,20 @@ const config = z
 		},
 	});
 
-/** Days back to scan. 180 covers every regularly-travelled route while
- *  keeping the nightly job to a sane length. Tunable via argv. */
-const DEFAULT_WINDOW_DAYS = 180;
+/**
+ * Days back to scan. Deliberately short.
+ *
+ * Each day is processed by `computeVelocity`, whose classification
+ * lazily fetches OSM geometry for any area not yet in the local mirror.
+ * Recent days are in already-travelled, already-covered areas, so they
+ * are cheap; reaching months back hits old trips to uncovered cities,
+ * and a single dense-city Overpass fetch can take 10+ minutes. A short
+ * window keeps the nightly job to a few minutes and still catches every
+ * regularly-travelled route (a commute recurs well within three weeks).
+ * Tunable via argv — but widening it past recent history reintroduces
+ * the OSM-backfill cost.
+ */
+const DEFAULT_WINDOW_DAYS = 21;
 const windowDays = Number.parseInt(process.argv[2] ?? "", 10) || DEFAULT_WINDOW_DAYS;
 
 initPool(config.db);
