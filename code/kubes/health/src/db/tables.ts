@@ -255,18 +255,6 @@ export interface OsmLinesTable {
 	geom: string; // WKT LINESTRING
 }
 
-/** OSM route-relation membership: which rail/metro line(s) a track
- *  way belongs to. A line's ways frequently carry the line name only
- *  on the route relation, not the way — this maps way → route so
- *  `queryRouteGeometry` can assemble the line's complete geometry.
- *  One row per (way, route); a way shared by two lines gets two. */
-export interface OsmWayRoutesTable {
-	/** BIGINT — see OsmLinesTable.osm_id on the precision caveat. */
-	osm_way_id: bigint;
-	route_name: string;
-	route_type: string;
-}
-
 export interface ModeBiometricsTable {
 	user_id: string;
 	mode: string;
@@ -352,7 +340,6 @@ export interface Database {
 	osm_coverage: OsmCoverageTable;
 	osm_points: OsmPointsTable;
 	osm_lines: OsmLinesTable;
-	osm_way_routes: OsmWayRoutesTable;
 	focus_places: FocusPlacesTable;
 	mode_biometrics: ModeBiometricsTable;
 	schema_migrations: SchemaMigrationsTable;

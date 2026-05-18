@@ -76,14 +76,6 @@ export interface TrackSegment {
    *  experienced them" — morning in one tz, evening in another
    *  on a travel day. */
   displayTz?: string;
-  /** Identified rail/metro line, set when a train run is matched to a
-   *  known line. */
-  railLine?: string;
-  /** Derived geometry: this train segment's raw fixes map-matched onto
-   *  the identified line's OSM track. Present only for train segments
-   *  on a known line; the map renders it as a distinct (inferred)
-   *  layer in place of the raw zigzag. */
-  snappedPath?: { ts: number; lat: number; lon: number }[];
 }
 
 export interface DayState {

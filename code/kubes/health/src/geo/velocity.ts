@@ -41,7 +41,6 @@ import {
 } from "./osm.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
-import { annotateSnappedPaths, type SnappedPoint } from "./rail-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
@@ -359,8 +358,6 @@ export interface EnrichedSegment extends TrackSegment {
 	refinedReason?: string;
 	displayTz?: string; // IANA tz to render the segment'\''s timestamps in (frontend uses this instead of browser tz)
 	biometrics?: BiometricEnrichment;
-	railLine?: string; // identified rail/metro line — set by underground reconstruction
-	snappedPath?: SnappedPoint[]; // derived: this segment's raw fixes map-matched onto the line's OSM track
 }
 
 export interface VelocityResult {
@@ -676,13 +673,6 @@ export async function computeVelocity(
 	// mislabelled with the nearest focus place.
 	const withBoarding = await time("boardingPlatform", absorbBoardingPlatform(withUnderground, points));
 
-	// Rail-snap: for train segments on a positively-identified line,
-	// map-match the raw fixes onto the line's OSM track and attach the
-	// result as a derived `snappedPath`. Purely additive — the raw
-	// track is untouched; the frontend renders the snapped path as a
-	// separate, visibly-inferred layer. See src/geo/rail-snap.ts.
-	const withSnapped = await time("railSnap", annotateSnappedPaths(withBoarding, inDay));
-
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
 	// location (centroid for stationary, midpoint for moving). Lets the UI
@@ -692,7 +682,7 @@ export async function computeVelocity(
 	// gap segments).
 	const homeTz = (await getSyncState(userId, "home_tz")) ?? "Europe/Amsterdam";
 	const withDisplayTz = timeSync("displayTz", () =>
-		withSnapped.map((s): EnrichedSegment => {
+		withBoarding.map((s): EnrichedSegment => {
 			const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
 			if (segPoints.length === 0) {
 				return { ...s, displayTz: homeTz };
