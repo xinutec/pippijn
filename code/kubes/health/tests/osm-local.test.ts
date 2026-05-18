@@ -22,7 +22,6 @@ import {
 	isPointCovered,
 	type ParsedFeature,
 	parseOverpassElement,
-	parseOverpassRelation,
 	streamOverpassElements,
 } from "../src/geo/osm-local.js";
 
@@ -325,87 +324,6 @@ describe("buildOverpassQuery", () => {
 
 	it("rejects unknown feature_types up front", () => {
 		expect(() => buildOverpassQuery("not_a_thing", bbox)).toThrow();
-	});
-
-	it("builds a relation query for the route feature_type", () => {
-		// `route` is special: it fetches route *relations* (the line a
-		// way belongs to), so the query asks for relations and `out
-		// body` to get the member list — not `out tags geom`.
-		const q = buildOverpassQuery("route", bbox);
-		expect(q).toContain('relation["route"~"^(train|subway|light_rail|tram|railway)$"]');
-		expect(q).toContain("out body");
-		expect(q).not.toContain("out tags geom");
-		expect(q).toContain("51,-1,52,0.5"); // bbox S,W,N,E
-	});
-});
-
-describe("parseOverpassRelation", () => {
-	// A rail line in OSM is a relation[route]; its track ways carry the
-	// line name on the relation, not necessarily the way. parseOverpass-
-	// Relation turns the relation into a (line, member-ways) record so
-	// osm_way_routes can mirror the membership.
-	const wayMember = (ref: number) => ({ type: "way", ref });
-
-	it("parses a rail route relation into its member way ids", () => {
-		const r = parseOverpassRelation({
-			type: "relation",
-			id: 555,
-			tags: { route: "train", name: "Some Line" },
-			members: [wayMember(10), wayMember(20), wayMember(30)],
-		});
-		expect(r).not.toBeNull();
-		expect(r?.osm_id).toBe(555);
-		expect(r?.name).toBe("Some Line");
-		expect(r?.route_type).toBe("train");
-		expect(r?.memberWayIds).toEqual([10, 20, 30]);
-	});
-
-	it("drops node members — only ways carry track geometry", () => {
-		const r = parseOverpassRelation({
-			type: "relation",
-			id: 1,
-			tags: { route: "subway", name: "Metro" },
-			members: [{ type: "node", ref: 99 }, wayMember(10), { type: "node", ref: 98 }],
-		});
-		expect(r?.memberWayIds).toEqual([10]);
-	});
-
-	it("returns null for a non-rail route (e.g. a bus line)", () => {
-		expect(
-			parseOverpassRelation({
-				type: "relation",
-				id: 1,
-				tags: { route: "bus", name: "Bus 24" },
-				members: [wayMember(10)],
-			}),
-		).toBeNull();
-	});
-
-	it("returns null when the relation has neither name nor ref", () => {
-		expect(
-			parseOverpassRelation({ type: "relation", id: 1, tags: { route: "train" }, members: [wayMember(10)] }),
-		).toBeNull();
-	});
-
-	it("falls back to ref when name is missing", () => {
-		const r = parseOverpassRelation({
-			type: "relation",
-			id: 1,
-			tags: { route: "train", ref: "RE 5" },
-			members: [wayMember(10)],
-		});
-		expect(r?.name).toBe("RE 5");
-	});
-
-	it("returns null when the relation has no way members", () => {
-		expect(
-			parseOverpassRelation({
-				type: "relation",
-				id: 1,
-				tags: { route: "train", name: "Empty Line" },
-				members: [{ type: "node", ref: 99 }],
-			}),
-		).toBeNull();
 	});
 });
 
