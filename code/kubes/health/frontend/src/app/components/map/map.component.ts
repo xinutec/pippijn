@@ -27,12 +27,15 @@ const MODE_COLORS: Record<string, string> = {
 };
 const DEFAULT_COLOR = "#94a3b8";
 
-/** A vertex of the rendered track: a position plus the mode it
- *  belongs to (used to colour the polyline). */
+/** A vertex of the rendered track: a position, the mode it belongs to
+ *  (used to colour the polyline), and whether it is an *inferred*
+ *  vertex — a train run drawn on the OSM rail track rather than from
+ *  measured GPS fixes. Inferred runs are drawn dashed. */
 interface DisplayPoint {
 	lat: number;
 	lon: number;
 	mode: string;
+	snapped: boolean;
 }
 
 function equirectMeters(aLat: number, aLon: number, bLat: number, bLon: number): number {
@@ -191,28 +194,42 @@ export class MapComponent implements OnDestroy {
 		const track: DisplayPoint[] = [];
 		for (const seg of segments) {
 			const mode = seg.refinedMode ?? seg.mode;
+			// A train run that snapped to the rail network carries a
+			// snappedPath — the journey drawn on the OSM track. Render
+			// that inferred geometry in place of the raw zigzag. It can
+			// span a GPS-dark window with no points of its own, so this
+			// branch comes before the inSeg emptiness check.
+			if (mode === "train" && seg.snappedPath && seg.snappedPath.length >= 2) {
+				for (const p of seg.snappedPath) track.push({ lat: p.lat, lon: p.lon, mode, snapped: true });
+				continue;
+			}
 			const inSeg = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
 			if (inSeg.length === 0) continue;
 			if (mode === "stationary") {
 				const lat = inSeg.reduce((a, p) => a + p.lat, 0) / inSeg.length;
 				const lon = inSeg.reduce((a, p) => a + p.lon, 0) / inSeg.length;
-				track.push({ lat, lon, mode });
+				track.push({ lat, lon, mode, snapped: false });
 			} else {
-				for (const p of rejectSpikes(inSeg)) track.push({ lat: p.lat, lon: p.lon, mode });
+				for (const p of rejectSpikes(inSeg)) track.push({ lat: p.lat, lon: p.lon, mode, snapped: false });
 			}
 		}
 
-		// One polyline per consecutive same-mode run; each run reaches
-		// back to the previous run's last point so the line is
-		// continuous across mode changes.
+		// One polyline per consecutive run of the same mode AND the same
+		// measured/inferred kind; each run reaches back to the previous
+		// run's last point so the line stays continuous across the
+		// change. Inferred (snapped) runs are drawn dashed.
 		let runStart = 0;
 		for (let i = 1; i <= track.length; i++) {
-			if (i < track.length && track[i].mode === track[runStart].mode) continue;
+			if (i < track.length && track[i].mode === track[runStart].mode && track[i].snapped === track[runStart].snapped) {
+				continue;
+			}
 			const from = runStart > 0 ? runStart - 1 : runStart;
-			L.polyline(
-				track.slice(from, i).map((d) => [d.lat, d.lon] as L.LatLngTuple),
-				{ color: MODE_COLORS[track[runStart].mode] ?? DEFAULT_COLOR, weight: 4, opacity: 0.9 },
-			).addTo(layer);
+			L.polyline(track.slice(from, i).map((d) => [d.lat, d.lon] as L.LatLngTuple), {
+				color: MODE_COLORS[track[runStart].mode] ?? DEFAULT_COLOR,
+				weight: 4,
+				opacity: 0.9,
+				...(track[runStart].snapped ? { dashArray: "6 6" } : {}),
+			}).addTo(layer);
 			runStart = i;
 		}
 

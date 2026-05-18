@@ -65,6 +65,7 @@ import pick from "stream-json/filters/pick.js";
 import streamArray from "stream-json/streamers/stream-array.js";
 import { db } from "../db/pool.js";
 import { overpassFetch } from "./osm-overpass.js";
+import type { OsmLine, OsmStation, OsmWayRoute, RailGeometry } from "./rail-snap.js";
 
 /** A coverage row as read from the DB. */
 export interface CoverageRow {
@@ -838,4 +839,113 @@ export async function queryLines(
 			string
 		>,
 	}));
+}
+
+// ============================================================================
+// Rail corridor — the self-contained geometry bundle the rail-snap
+// algorithm runs on. The same query backs both the live velocity
+// pipeline and `capture-railsnap-fixture`, so a captured test fixture
+// is exactly what production sees — no drift between test and reality.
+// ============================================================================
+
+/** An axis-aligned lat/lon bounding box. */
+export interface CorridorBbox {
+	minLat: number;
+	maxLat: number;
+	minLon: number;
+	maxLon: number;
+}
+
+/** Parse a `LINESTRING(lon lat,...)` WKT string — the form
+ *  `ST_AsText(geom)` returns — into an ordered `[lat, lon]` list. WKT
+ *  coordinate order is `x y` = `lon lat`. Non-LINESTRING input yields
+ *  an empty array rather than throwing. */
+export function parseLineStringWkt(wkt: string): Array<[number, number]> {
+	const m = wkt.trim().match(/^LINESTRING\s*\((.+)\)$/i);
+	if (!m) return [];
+	const out: Array<[number, number]> = [];
+	for (const pair of m[1].split(",")) {
+		const [lon, lat] = pair.trim().split(/\s+/).map(Number);
+		if (Number.isFinite(lat) && Number.isFinite(lon)) out.push([lat, lon]);
+	}
+	return out;
+}
+
+/** Parse a `POINT(lon lat)` WKT string into `{lat, lon}`, or null. */
+export function parsePointWkt(wkt: string): { lat: number; lon: number } | null {
+	const m = wkt.trim().match(/^POINT\s*\(([^)]+)\)$/i);
+	if (!m) return null;
+	const [lon, lat] = m[1].trim().split(/\s+/).map(Number);
+	return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+}
+
+/** The bbox as a closed-ring POLYGON WKT for an MBR spatial filter. */
+function bboxPolygonWkt(b: CorridorBbox): string {
+	return `POLYGON((${b.minLon} ${b.minLat},${b.maxLon} ${b.minLat},${b.maxLon} ${b.maxLat},${b.minLon} ${b.maxLat},${b.minLon} ${b.minLat}))`;
+}
+
+/**
+ * Read the rail geometry — rail ways, route-relation membership, and
+ * stations — for a bounding box straight from the local OSM mirror.
+ *
+ * Returns the self-contained {@link RailGeometry} the station-anchored
+ * rail-snap algorithm consumes. No network: the mirror is already
+ * populated for travelled areas by the classification pipeline's
+ * `linesAtPoint` / `nearbyStations` calls.
+ */
+export async function queryRailCorridor(bbox: CorridorBbox): Promise<RailGeometry> {
+	const poly = bboxPolygonWkt(bbox);
+
+	const lineRows = (
+		await sql<{ osm_id: bigint; name: string | null; subtype: string | null; wkt: string }>`
+			SELECT osm_id, name, subtype, ST_AsText(geom) AS wkt
+			FROM osm_lines
+			WHERE feature_type = 'railway'
+			  AND MBRIntersects(geom, ST_GeomFromText(${poly}, 4326))
+			LIMIT 8000
+		`.execute(db())
+	).rows;
+	const lines: OsmLine[] = [];
+	for (const r of lineRows) {
+		const coords = parseLineStringWkt(r.wkt);
+		if (coords.length >= 2) lines.push({ osmId: Number(r.osm_id), name: r.name, subtype: r.subtype, coords });
+	}
+
+	const stationRows = (
+		await sql<{ name: string | null; subtype: string | null; wkt: string }>`
+			SELECT name, subtype, ST_AsText(geom) AS wkt
+			FROM osm_points
+			WHERE feature_type = 'railway'
+			  AND subtype IN ('station', 'halt', 'stop', 'subway_entrance', 'tram_stop')
+			  AND MBRIntersects(geom, ST_GeomFromText(${poly}, 4326))
+			LIMIT 4000
+		`.execute(db())
+	).rows;
+	const stations: OsmStation[] = [];
+	for (const r of stationRows) {
+		const p = parsePointWkt(r.wkt);
+		if (p) stations.push({ name: r.name, subtype: r.subtype, lat: p.lat, lon: p.lon });
+	}
+
+	// Route-relation membership for the captured ways — the signal that
+	// completes a line's geometry when a way carries the line name only
+	// on its route relation.
+	const wayIds = lines.map((l) => l.osmId);
+	let wayRoutes: OsmWayRoute[] = [];
+	if (wayIds.length > 0) {
+		const routeRows = (
+			await sql<{ osm_way_id: bigint; route_name: string; route_type: string }>`
+				SELECT osm_way_id, route_name, route_type
+				FROM osm_way_routes
+				WHERE osm_way_id IN (${sql.join(wayIds)})
+			`.execute(db())
+		).rows;
+		wayRoutes = routeRows.map((r) => ({
+			wayId: Number(r.osm_way_id),
+			routeName: r.route_name,
+			routeType: r.route_type,
+		}));
+	}
+
+	return { lines, wayRoutes, stations };
 }
