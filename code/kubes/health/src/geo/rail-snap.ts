@@ -122,6 +122,75 @@ function metersBetween(aLat: number, aLon: number, bLat: number, bLon: number): 
 	return Math.hypot(dLat, dLon);
 }
 
+/** Fix-cloud weighting — see {@link snapTrainSegment}. Within
+ *  CLOUD_NEAR_M of a historic fix an edge is unpenalised; beyond
+ *  CLOUD_FAR_M it carries the full CLOUD_MAX_PENALTY multiplier;
+ *  it ramps linearly between. */
+const CLOUD_NEAR_M = 150;
+const CLOUD_FAR_M = 500;
+const CLOUD_MAX_PENALTY = 25;
+
+/** Below this many historic fixes the corridor is too thin to trust —
+ *  the run is left un-snapped and the map draws the raw track. */
+const MIN_CLOUD_FIXES = 12;
+
+/** A grid-hashed cloud of historic GPS fixes for fast nearest-fix
+ *  distance queries. The cell is CLOUD_FAR_M, so the 3×3 neighbourhood
+ *  of any point contains every fix within CLOUD_FAR_M of it. */
+class FixCloud {
+	private readonly cLat: number;
+	private readonly cLon: number;
+	private readonly buckets = new Map<string, Array<{ lat: number; lon: number }>>();
+
+	constructor(fixes: ReadonlyArray<{ lat: number; lon: number }>) {
+		const lat0 = fixes.length > 0 ? fixes[0].lat : 0;
+		this.cLat = CLOUD_FAR_M / 111_320;
+		this.cLon = CLOUD_FAR_M / (111_320 * Math.cos((lat0 * Math.PI) / 180));
+		for (const f of fixes) {
+			const key = `${Math.floor(f.lat / this.cLat)},${Math.floor(f.lon / this.cLon)}`;
+			const b = this.buckets.get(key);
+			if (b) b.push(f);
+			else this.buckets.set(key, [f]);
+		}
+	}
+
+	/** Distance (m) to the nearest historic fix, capped at CLOUD_FAR_M. */
+	nearestDist(lat: number, lon: number): number {
+		const baseLat = Math.floor(lat / this.cLat);
+		const baseLon = Math.floor(lon / this.cLon);
+		let best = CLOUD_FAR_M;
+		for (let dLat = -1; dLat <= 1; dLat++) {
+			for (let dLon = -1; dLon <= 1; dLon++) {
+				const b = this.buckets.get(`${baseLat + dLat},${baseLon + dLon}`);
+				if (!b) continue;
+				for (const f of b) {
+					const d = metersBetween(lat, lon, f.lat, f.lon);
+					if (d < best) best = d;
+				}
+			}
+		}
+		return best;
+	}
+}
+
+/** Edge-weight multiplier from how far an edge sits from the historic
+ *  fix cloud. This is what routes the graph search down the line the
+ *  user's past journeys actually traced rather than the geometrically
+ *  shortest path between the two stations. */
+function cloudPenalty(distToCloudM: number): number {
+	if (distToCloudM <= CLOUD_NEAR_M) return 1;
+	if (distToCloudM >= CLOUD_FAR_M) return CLOUD_MAX_PENALTY;
+	return 1 + (CLOUD_MAX_PENALTY - 1) * ((distToCloudM - CLOUD_NEAR_M) / (CLOUD_FAR_M - CLOUD_NEAR_M));
+}
+
+/** Metric length of an edge multiplied by its fix-cloud penalty — the
+ *  weight Dijkstra minimises. The raw metric length is still used for
+ *  gap-bridging thresholds and time interpolation. */
+function edgeWeight(aLat: number, aLon: number, bLat: number, bLon: number, cloud: FixCloud): number {
+	const dist = metersBetween(aLat, aLon, bLat, bLon);
+	return dist * cloudPenalty(cloud.nearestDist((aLat + bLat) / 2, (aLon + bLon) / 2));
+}
+
 /**
  * Parse a train segment's station-pair `wayName` into its parts.
  *
@@ -175,7 +244,7 @@ interface RailGraph {
  * gap-bridge edges between nearby vertices of different ways (see
  * {@link GAP_BRIDGE_M}). Only train-carrying subtypes are included.
  */
-function buildRailGraph(lines: OsmLine[]): RailGraph {
+function buildRailGraph(lines: OsmLine[], cloud: FixCloud): RailGraph {
 	const vertices: Array<{ lat: number; lon: number }> = [];
 	const adj: Array<Array<{ to: number; w: number }>> = [];
 	const idByKey = new Map<string, number>();
@@ -204,14 +273,14 @@ function buildRailGraph(lines: OsmLine[]): RailGraph {
 		let prevLon = 0;
 		for (const [lat, lon] of line.coords) {
 			const id = vertexId(lat, lon);
-			if (prev >= 0) addEdge(prev, id, metersBetween(prevLat, prevLon, lat, lon));
+			if (prev >= 0) addEdge(prev, id, edgeWeight(prevLat, prevLon, lat, lon, cloud));
 			prev = id;
 			prevLat = lat;
 			prevLon = lon;
 		}
 	}
 
-	bridgeGaps(vertices, adj);
+	bridgeGaps(vertices, adj, cloud);
 	return { vertices, adj };
 }
 
@@ -221,7 +290,11 @@ function buildRailGraph(lines: OsmLine[]): RailGraph {
  * Candidate pairs are found via a coarse grid hash so this stays linear
  * in vertex count rather than quadratic.
  */
-function bridgeGaps(vertices: Array<{ lat: number; lon: number }>, adj: Array<Array<{ to: number; w: number }>>): void {
+function bridgeGaps(
+	vertices: Array<{ lat: number; lon: number }>,
+	adj: Array<Array<{ to: number; w: number }>>,
+	cloud: FixCloud,
+): void {
 	if (vertices.length === 0) return;
 	// Grid cell ≈ GAP_BRIDGE_M on a side. A pair within the threshold is
 	// always in the same or an adjacent cell.
@@ -250,9 +323,10 @@ function bridgeGaps(vertices: Array<{ lat: number; lon: number }>, adj: Array<Ar
 				for (const j of b) {
 					// Each unordered pair once; skip vertices already adjacent.
 					if (j <= i) continue;
-					const w = metersBetween(v.lat, v.lon, vertices[j].lat, vertices[j].lon);
-					if (w > GAP_BRIDGE_M) continue;
+					const gap = metersBetween(v.lat, v.lon, vertices[j].lat, vertices[j].lon);
+					if (gap > GAP_BRIDGE_M) continue;
 					if (adj[i].some((e) => e.to === j)) continue;
+					const w = edgeWeight(v.lat, v.lon, vertices[j].lat, vertices[j].lon, cloud);
 					adj[i].push({ to: j, w });
 					adj[j].push({ to: i, w });
 				}
@@ -380,14 +454,27 @@ export function interpolateTimes(
 /**
  * Snap a confident train segment onto the rail network.
  *
+ * `corridorFixes` is the cloud of historic GPS fixes for this route —
+ * the union of every past journey between the same two stations. The
+ * graph search is weighted to follow that cloud (see {@link cloudPenalty}),
+ * so the snapped path traces the line actually ridden rather than the
+ * geometrically-shortest path, which would happily cut across a line
+ * the user never takes.
+ *
  * Returns the rail path from the boarding to the alighting station,
  * time-interpolated across the segment window — or null when the
- * segment cannot be snapped: the label is not a station pair, a station
+ * segment cannot be snapped: the historic corridor is too thin
+ * ({@link MIN_CLOUD_FIXES}), the label is not a station pair, a station
  * name is unknown to the OSM mirror, a station is too far from any rail
  * line, or the two stations are disconnected in the captured geometry.
- * A null result means "draw the raw fixes" — never a degenerate path.
+ * A null result means "draw the raw fixes" — never a degenerate or
+ * confidently-wrong path.
  */
-export function snapTrainSegment(seg: TrainSegment, geo: RailGeometry): SnapResult | null {
+export function snapTrainSegment(
+	seg: TrainSegment,
+	geo: RailGeometry,
+	corridorFixes: ReadonlyArray<{ lat: number; lon: number }>,
+): SnapResult | null {
 	const parsed = parseRailWayName(seg.wayName);
 	if (!parsed) return null;
 
@@ -395,7 +482,12 @@ export function snapTrainSegment(seg: TrainSegment, geo: RailGeometry): SnapResu
 	const alight = resolveStation(parsed.alight, geo.stations);
 	if (!board || !alight || board.name === alight.name) return null;
 
-	const graph = buildRailGraph(geo.lines);
+	// Without enough historic fixes there is no trustworthy corridor —
+	// leave the run un-snapped rather than draw a guessed line.
+	if (corridorFixes.length < MIN_CLOUD_FIXES) return null;
+	const cloud = new FixCloud(corridorFixes);
+
+	const graph = buildRailGraph(geo.lines, cloud);
 	if (graph.vertices.length === 0) return null;
 
 	const fromV = nearestVertex(graph, board);

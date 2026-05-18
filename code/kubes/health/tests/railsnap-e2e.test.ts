@@ -34,6 +34,7 @@ const FIXTURE_URL = new URL("./fixtures/railsnap/2026-05-17-pippijn.json", impor
 interface Fixture {
 	schema: string;
 	segments: Array<{ startTs: number; endTs: number; mode: string; refinedMode: string | null; wayName: string | null }>;
+	rawFixes: Array<{ ts: number; lat: number; lon: number }>;
 	osmLines: RailGeometry["lines"];
 	osmWayRoutes: RailGeometry["wayRoutes"];
 	osmStations: RailGeometry["stations"];
@@ -88,7 +89,10 @@ describe.skipIf(fixture === null)("rail-snap E2E — real captured day", () => {
 		// Label comes from gitignored fixture data at runtime — the
 		// committed source carries no real place names.
 		describe(`train segment: ${wayName}`, () => {
-			const result = snapTrainSegment({ startTs: seg.startTs, endTs: seg.endTs, wayName }, geo);
+			// The historic corridor: this run's own GPS fixes. The
+			// snapper weights its path to follow them.
+			const corridorFixes = fx.rawFixes.filter((f) => f.ts >= seg.startTs && f.ts <= seg.endTs);
+			const result = snapTrainSegment({ startTs: seg.startTs, endTs: seg.endTs, wayName }, geo, corridorFixes);
 
 			/** Fail loudly if the segment did not snap — every other
 			 *  assertion here is meaningless without a path. */
@@ -145,6 +149,25 @@ describe.skipIf(fixture === null)("rail-snap E2E — real captured day", () => {
 			it("does not wander — path length is a sane multiple of the station crow-flies", () => {
 				const r = snapped();
 				expect(pathLengthM(r.path)).toBeLessThan(3 * distM(r.board, r.alight));
+			});
+
+			it("follows the historic corridor — the path hugs the real journey's fixes", () => {
+				// Route fidelity: the snapped path should trace the line
+				// actually ridden, not a geometrically-shorter cut across a
+				// line the user never takes. Every vertex bar the station
+				// endpoints should sit within reach of a corridor fix.
+				const p = snapped().path;
+				const interior = p.slice(1, -1);
+				const offCorridor = interior.filter((pt) => {
+					let nearest = Number.POSITIVE_INFINITY;
+					for (const f of corridorFixes) {
+						const d = distM(pt, f);
+						if (d < nearest) nearest = d;
+					}
+					return nearest > 500;
+				});
+				// Allow a little slack for sparse-fix stretches (underground).
+				expect(offCorridor.length).toBeLessThan(0.2 * interior.length);
 			});
 		});
 	}

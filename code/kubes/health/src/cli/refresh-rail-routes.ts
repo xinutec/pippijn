@@ -91,13 +91,22 @@ function ymdNDaysAgo(n: number): string {
 
 type Geometry = Array<{ lat: number; lon: number }>;
 
+/** A route's accumulated historic data: the pooled GPS fixes from
+ *  every journey on it, plus a representative segment for the snap
+ *  call (the stored geometry carries no timestamps, so any instance's
+ *  segment will do). */
+interface RouteAccumulator {
+	fixes: Array<{ lat: number; lon: number }>;
+	seg: { startTs: number; endTs: number; wayName: string };
+}
+
 /**
- * Walk a user's window day by day, newest first, and compute the
- * snapped geometry of every distinct train route. First success for a
- * route wins (newest instance — freshest OSM); routes that fail to snap
- * are retried on older days. Results are accumulated into `routes`.
+ * Pass 1 — walk a user's window day by day and pool, per route, the
+ * union of GPS fixes across every journey on that route. That pooled
+ * cloud is the historic corridor the snapper weights its path onto, so
+ * the drawn line follows the route actually ridden.
  */
-async function collectUserRoutes(userId: string, tz: string, routes: Map<string, Geometry>): Promise<void> {
+async function collectRouteFixes(userId: string, tz: string, byRoute: Map<string, RouteAccumulator>): Promise<void> {
 	for (let offset = 0; offset <= windowDays; offset++) {
 		const date = ymdNDaysAgo(offset);
 		let result: Awaited<ReturnType<typeof computeVelocity>>;
@@ -109,17 +118,17 @@ async function collectUserRoutes(userId: string, tz: string, routes: Map<string,
 		}
 		for (const seg of result.segments) {
 			if ((seg.refinedMode ?? seg.mode) !== "train" || !seg.wayName) continue;
-			if (routes.has(seg.wayName)) continue; // route already resolved this run
-			const fixes = result.points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
-			if (fixes.length === 0) continue;
-			const geo = await queryRailCorridor(fixes);
-			const snapped = snapTrainSegment({ startTs: seg.startTs, endTs: seg.endTs, wayName: seg.wayName }, geo);
-			if (snapped) {
-				routes.set(
-					seg.wayName,
-					snapped.path.map((p) => ({ lat: p.lat, lon: p.lon })),
-				);
-				console.log(`  resolved route → ${snapped.path.length} pts (from ${date})`);
+			const inWin = result.points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+			if (inWin.length === 0) continue;
+			const fixes = inWin.map((p) => ({ lat: p.lat, lon: p.lon }));
+			const acc = byRoute.get(seg.wayName);
+			if (acc) {
+				acc.fixes.push(...fixes);
+			} else {
+				byRoute.set(seg.wayName, {
+					fixes,
+					seg: { startTs: seg.startTs, endTs: seg.endTs, wayName: seg.wayName },
+				});
 			}
 		}
 	}
@@ -130,14 +139,31 @@ if (users.length === 0) {
 	console.log("No users with Nextcloud linked.");
 }
 
-const routes = new Map<string, Geometry>();
+// Pass 1: pool the historic fix cloud for every route.
+const byRoute = new Map<string, RouteAccumulator>();
 for (const u of users) {
 	const tz = (await getSyncState(u.user_id, "home_tz")) ?? "Europe/London";
 	console.log(`[${u.user_id}] scanning ${windowDays}-day window (tz=${tz})`);
 	try {
-		await collectUserRoutes(u.user_id, tz, routes);
+		await collectRouteFixes(u.user_id, tz, byRoute);
 	} catch (e) {
 		console.error(`[${u.user_id}] route scan failed:`, e);
+	}
+}
+
+// Pass 2: snap each route along its pooled historic corridor.
+const routes = new Map<string, Geometry>();
+for (const [key, acc] of byRoute) {
+	const geo = await queryRailCorridor(acc.fixes);
+	const snapped = snapTrainSegment(acc.seg, geo, acc.fixes);
+	if (snapped) {
+		routes.set(
+			key,
+			snapped.path.map((p) => ({ lat: p.lat, lon: p.lon })),
+		);
+		console.log(`  resolved route → ${snapped.path.length} pts (${acc.fixes.length} historic fixes)`);
+	} else {
+		console.log(`  route left un-snapped (${acc.fixes.length} historic fixes — thin or disconnected)`);
 	}
 }
 
