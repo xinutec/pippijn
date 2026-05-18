@@ -675,11 +675,16 @@ export async function computeVelocity(
 	// mislabelled with the nearest focus place.
 	const withBoarding = await time("boardingPlatform", absorbBoardingPlatform(withUnderground, points));
 
+	// Absorb a transit interchange — a run of short stationary segments
+	// between a train and onward movement — into the preceding train,
+	// so it doesn't surface as a phantom place-stay. See absorbInterchanges.
+	const withInterchanges = timeSync("interchange", () => absorbInterchanges(withBoarding));
+
 	// Rail-snap: attach the precomputed rail-track geometry to each
 	// train run whose route is in rail_route_cache (filled offline by
 	// refresh-rail-routes). One indexed lookup — purely additive, the
 	// raw track is untouched. See annotateSnappedPaths.
-	const withSnapped = await time("railSnap", annotateSnappedPaths(withBoarding));
+	const withSnapped = await time("railSnap", annotateSnappedPaths(withInterchanges));
 
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
@@ -1466,6 +1471,65 @@ export async function absorbBoardingPlatform(
 		if (absorbed.has(idx)) continue;
 		const newStart = extendTo.get(idx);
 		out.push(newStart !== undefined ? { ...segments[idx], startTs: newStart } : segments[idx]);
+	}
+	return out;
+}
+
+/** Longest a single stationary segment can be and still count as part
+ *  of a transit interchange rather than a genuine stay. A platform-to-
+ *  platform change or a wait for the next train runs minutes; a real
+ *  stop is longer — and a real stay would also have coalesced with its
+ *  neighbours in mergeAdjacentStays. */
+const INTERCHANGE_SEGMENT_MAX_S = 8 * 60;
+
+/**
+ * Absorb a transit interchange into the train it follows.
+ *
+ * A run of short `stationary` segments immediately after a `train`
+ * segment and followed by further movement is not a stay — it is the
+ * interchange between trains: a platform-to-platform walk, a wait, or
+ * an underground hop the classifier read as stationary because the
+ * scattered fixes have little net displacement. Left alone each gets a
+ * spurious place label — whatever OSM venue is nearest the noisy
+ * underground centroid. This extends the preceding train over the run
+ * and drops the run's segments, so the journey reads train → onward
+ * with no phantom stop.
+ *
+ * Only fires for a run *between a train and another moving segment*. A
+ * short stationary that ends the day, or that sits before a longer
+ * stay, is left as a stay.
+ */
+export function absorbInterchanges(segments: EnrichedSegment[]): EnrichedSegment[] {
+	const modeOf = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
+	const out: EnrichedSegment[] = [];
+	let i = 0;
+	while (i < segments.length) {
+		const seg = segments[i];
+		if (modeOf(seg) !== "train") {
+			out.push(seg);
+			i++;
+			continue;
+		}
+		// Collect the run of short stationary segments following the train.
+		let runEnd = i + 1;
+		while (
+			runEnd < segments.length &&
+			modeOf(segments[runEnd]) === "stationary" &&
+			segments[runEnd].endTs - segments[runEnd].startTs <= INTERCHANGE_SEGMENT_MAX_S
+		) {
+			runEnd++;
+		}
+		// Absorb only when the run is non-empty AND the journey continues
+		// past it with a moving segment — a run that ends the day, or is
+		// stopped by a longer stationary stay, is not an interchange.
+		const continues = runEnd < segments.length && modeOf(segments[runEnd]) !== "stationary";
+		if (runEnd > i + 1 && continues) {
+			out.push({ ...seg, endTs: segments[runEnd - 1].endTs });
+			i = runEnd;
+			continue;
+		}
+		out.push(seg);
+		i++;
 	}
 	return out;
 }
