@@ -22,10 +22,10 @@
  */
 
 import { z } from "zod";
-import { initPool, withConnection } from "../db/pool.js";
+import { db, initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import { linesAtPoint } from "../geo/osm.js";
-import { queryRouteGeometry } from "../geo/osm-local.js";
+import { buildRouteNamesQuery, queryRouteGeometry } from "../geo/osm-local.js";
 import { parseRailLine, projectOntoPolyline, snapFixesToRoute, stitchWays } from "../geo/rail-snap.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { COARSE_ACCURACY_M, COARSE_ACCURACY_MAX_M } from "../geo/underground-rail.js";
@@ -156,8 +156,15 @@ for (const s of trainSegs) {
 	// Fixes annotateSnappedPaths actually snaps: window minus the
 	// positionally-useless (accuracy radius beyond the coarse ceiling).
 	const fixes = inWin.filter((p) => p.accuracy == null || p.accuracy <= COARSE_ACCURACY_MAX_M);
+	// Mirror annotateSnappedPaths: snap from the accurate fixes when
+	// there is a backbone of them (>= 5), else fall back to all usable.
+	const goodFixes = fixes.filter((p) => p.accuracy == null || p.accuracy < COARSE_ACCURACY_M);
+	const snapFixes = goodFixes.length >= 5 ? goodFixes : fixes;
 	console.log(
 		`    fixes: ${inWin.length} in window, ${inWin.length - fixes.length} dropped >${COARSE_ACCURACY_MAX_M}m  accuracy p50=${aq.p50.toFixed(0)}m p90=${aq.p90.toFixed(0)}m max=${aq.max.toFixed(0)}m  coarse=${inWin.filter((p) => isCoarse(p.accuracy)).length}`,
+	);
+	console.log(
+		`    snap set: ${snapFixes.length} ${snapFixes === goodFixes ? "accurate fixes (backbone)" : "usable fixes (no accurate backbone)"}`,
 	);
 	console.log(`    pipeline snappedPath: ${s.snappedPath ? `${s.snappedPath.length} pts` : "MISSING"}`);
 
@@ -202,6 +209,16 @@ for (const s of trainSegs) {
 	const dLon = 600 / (111_000 * Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180));
 	const bbox = { minLat: minLat - dLat, maxLat: maxLat + dLat, minLon: minLon - dLon, maxLon: maxLon + dLon };
 
+	// Show the way-name → route-relation bridge: a renamed line's ways
+	// and relation carry different names, so this is what makes the
+	// relation's full geometry reachable.
+	const bridged = await buildRouteNamesQuery(db(), bbox, line).execute();
+	console.log(
+		bridged.length > 0
+			? `    route relations bridged from way name: {${bridged.map((b) => b.route_name).join(", ")}}`
+			: "    route relations bridged from way name: (none — way name not a member of any fetched relation)",
+	);
+
 	const ways = await queryRouteGeometry(bbox, line);
 	const vertexTotal = ways.reduce((n, w) => n + w.coords.length, 0);
 	console.log(`    OSM geometry: ${ways.length} ways, ${vertexTotal} vertices in corridor`);
@@ -222,7 +239,7 @@ for (const s of trainSegs) {
 
 	const medianOffset = (route: { lat: number; lon: number }[]): number => {
 		const offs: number[] = [];
-		for (const p of fixes) {
+		for (const p of snapFixes) {
 			const proj = projectOntoPolyline({ lat: p.lat, lon: p.lon }, route);
 			if (proj) offs.push(proj.offsetM);
 		}
@@ -247,7 +264,7 @@ for (const s of trainSegs) {
 	}
 
 	const snapped = snapFixesToRoute(
-		fixes.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon })),
+		snapFixes.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon })),
 		best.c,
 	);
 	console.log(

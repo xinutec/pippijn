@@ -332,6 +332,11 @@ const CORRIDOR_MARGIN_M = 600;
  *  hundred metres even on the correct line. */
 const MAX_MEDIAN_OFFSET_M = 600;
 
+/** Minimum count of accurate (sub-coarse) fixes for a run to snap
+ *  from those alone. Below this there is no usable backbone, so the
+ *  snap falls back to every usable fix — coarse ones included. */
+const MIN_GOOD_FIXES = 5;
+
 /**
  * Extract the rail line from an `annotateRailRuns`-style wayName.
  *
@@ -461,6 +466,16 @@ export async function annotateSnappedPaths(
 			continue;
 		}
 
+		// Snap from the *accurate* fixes when there is a backbone of
+		// them. A coarse cell-network fix can sit ~1 km off the track —
+		// it would both fail the route-fit guard and jitter the snapped
+		// geometry. Fall back to all usable fixes only when there is no
+		// good-fix backbone: a fully-underground run leaves nothing
+		// better to anchor to, and a rough coarse-fix snap still beats
+		// the raw zigzag.
+		const goodFixes = fixes.filter((f) => f.accuracy == null || f.accuracy < COARSE_ACCURACY_M);
+		const snapFixes = goodFixes.length >= MIN_GOOD_FIXES ? goodFixes : fixes;
+
 		let ways: Array<{ coords: LatLon[] }>;
 		try {
 			ways = await geometryLookup(corridorBbox(fixes, CORRIDOR_MARGIN_M), line);
@@ -480,7 +495,7 @@ export async function annotateSnappedPaths(
 		let bestOffset = Number.POSITIVE_INFINITY;
 		for (const component of stitchWays(ways.map((w) => w.coords))) {
 			if (component.length < 2) continue;
-			const offset = medianFixOffset(fixes, component);
+			const offset = medianFixOffset(snapFixes, component);
 			if (offset < bestOffset) {
 				bestOffset = offset;
 				route = component;
@@ -491,7 +506,7 @@ export async function annotateSnappedPaths(
 			continue;
 		}
 
-		const snapped = snapFixesToRoute(fixes, route);
+		const snapped = snapFixesToRoute(snapFixes, route);
 		if (snapped.length < 2) {
 			result.push(seg);
 			continue;

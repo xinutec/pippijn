@@ -484,6 +484,21 @@ const MIGRATIONS: readonly string[] = [
 	`ALTER TABLE steps_intraday      ADD INDEX IF NOT EXISTS idx_si_user_ts_utc  (user_id, ts_utc)`,
 	`ALTER TABLE sleep_stages        ADD INDEX IF NOT EXISTS idx_sst_user_ts_utc (user_id, ts_utc)`,
 
+	// v37: OSM route-relation membership. A rail/metro line in OSM is a
+	// `relation[route]`; its track ways frequently carry the line name
+	// only on that relation, not on the way itself. Storing
+	// way → route-name membership lets `queryRouteGeometry` assemble a
+	// line's *complete* geometry instead of the fragmentary subset of
+	// ways that happen to be name-tagged. One row per (way, route): a
+	// way shared by two lines gets two rows.
+	`CREATE TABLE IF NOT EXISTS osm_way_routes (
+    osm_way_id BIGINT NOT NULL,
+    route_name VARCHAR(255) NOT NULL,
+    route_type VARCHAR(32) NOT NULL,
+    PRIMARY KEY (osm_way_id, route_name),
+    INDEX idx_route_name (route_name)
+  )`,
+
 	// Future migrations go here.
 ];
 

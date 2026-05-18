@@ -323,4 +323,47 @@ describe("annotateSnappedPaths", () => {
 		expect(out[0].snappedPath).toBeDefined();
 		expect((out[0].snappedPath ?? []).length).toBeGreaterThanOrEqual(2);
 	});
+
+	// Accurate fixes (sub-100 m accuracy) hug the line; coarse
+	// cell-network fixes scatter ~3 km off it.
+	const goodOnTrack: SnapFix[] = [100, 250, 400, 550, 700, 850].map((east, i) => ({
+		ts: 1100 + i * 100,
+		...at(15, east),
+		accuracy: 30,
+	}));
+	const coarseOffTrack: SnapFix[] = Array.from({ length: 10 }, (_, i) => ({
+		ts: 1120 + i * 70,
+		...at(3000, 100 + i * 80),
+		accuracy: 400,
+	}));
+
+	it("snaps from the accurate fixes when coarse ones scatter far off-track", async () => {
+		// 6 accurate fixes on the line + 10 coarse fixes 3 km off it.
+		// The snap must follow the accurate backbone — the coarse
+		// fixes' median offset alone would fail the route-fit guard.
+		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train", railLine: "TestLine" })];
+		const out = await annotateSnappedPaths(
+			segments,
+			[...goodOnTrack, ...coarseOffTrack],
+			lookupFor("TestLine", [line]),
+			noLines,
+		);
+		expect(out[0].snappedPath).toBeDefined();
+		for (const p of out[0].snappedPath ?? []) {
+			expect(projectOntoPolyline(p, line)?.offsetM ?? 999).toBeLessThan(2);
+		}
+	});
+
+	it("falls back to all fixes when there is no accurate-fix backbone", async () => {
+		// Only 4 accurate fixes — below the backbone threshold — so the
+		// coarse fixes are kept and their scatter fails the guard.
+		const segments = [seg({ startTs: 1000, endTs: 2000, mode: "train", railLine: "TestLine" })];
+		const out = await annotateSnappedPaths(
+			segments,
+			[...goodOnTrack.slice(0, 4), ...coarseOffTrack],
+			lookupFor("TestLine", [line]),
+			noLines,
+		);
+		expect(out[0].snappedPath).toBeUndefined();
+	});
 });

@@ -17,7 +17,12 @@ import { Kysely, sql } from "kysely";
 import { MariadbDialect } from "kysely-mariadb";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../src/db/tables.js";
-import { buildLineGeometryQuery, parseLineStringWkt } from "../src/geo/osm-local.js";
+import {
+	buildLineGeometryQuery,
+	buildRouteNamesQuery,
+	parseLineStringWkt,
+	parseOverpassRelation,
+} from "../src/geo/osm-local.js";
 
 function compileOnlyKysely(): Kysely<Database> {
 	return new Kysely<Database>({ dialect: new MariadbDialect({ mariadb: {} as never }) });
@@ -52,30 +57,98 @@ describe("parseLineStringWkt", () => {
 describe("buildLineGeometryQuery", () => {
 	const bbox = { minLat: 50.0, maxLat: 50.5, minLon: 5.0, maxLon: 5.5 };
 
-	it("filters by exact line name", () => {
-		const q = buildLineGeometryQuery(compileOnlyKysely(), bbox, "Northern");
+	it("matches ways by any of the supplied line names", () => {
+		const q = buildLineGeometryQuery(compileOnlyKysely(), bbox, ["Northern", "Mildmay line"]);
 		const { sql: compiled, parameters } = q.compile();
-		expect(compiled).toContain("`name` =");
+		expect(compiled).toContain("`name` in");
 		expect(parameters).toContain("Northern");
+		expect(parameters).toContain("Mildmay line");
 	});
 
 	it("uses MBRIntersects so the spatial index covers the corridor bbox", () => {
-		const q = buildLineGeometryQuery(compileOnlyKysely(), bbox, "Northern");
+		const q = buildLineGeometryQuery(compileOnlyKysely(), bbox, ["Northern"]);
 		const { sql: compiled } = q.compile();
 		expect(compiled).toContain("MBRIntersects");
 	});
 
 	it("selects the geometry as WKT via ST_AsText", () => {
-		const q = buildLineGeometryQuery(compileOnlyKysely(), bbox, "Northern");
+		const q = buildLineGeometryQuery(compileOnlyKysely(), bbox, ["Northern"]);
 		const { sql: compiled } = q.compile();
 		expect(compiled).toContain("ST_AsText");
 	});
 
 	it("restricts to rail-class features", () => {
-		const q = buildLineGeometryQuery(compileOnlyKysely(), bbox, "Northern");
+		const q = buildLineGeometryQuery(compileOnlyKysely(), bbox, ["Northern"]);
 		const { sql: compiled, parameters } = q.compile();
 		expect(compiled).toContain("`feature_type` =");
 		expect(parameters).toContain("railway");
+	});
+
+	it("also matches ways via route-relation membership (osm_way_routes)", () => {
+		// A line's track ways often carry the line name only on the
+		// route relation. The query must additionally pull ways that
+		// are members of a relation named for the line.
+		const q = buildLineGeometryQuery(compileOnlyKysely(), bbox, ["Northern"]);
+		const { sql: compiled } = q.compile();
+		expect(compiled).toContain("osm_way_routes");
+	});
+});
+
+describe("buildRouteNamesQuery", () => {
+	const bbox = { minLat: 50.0, maxLat: 50.5, minLon: 5.0, maxLon: 5.5 };
+
+	it("bridges a way name to its route-relation names via osm_way_routes", () => {
+		const q = buildRouteNamesQuery(compileOnlyKysely(), bbox, "North London line");
+		const { sql: compiled, parameters } = q.compile();
+		expect(compiled).toContain("osm_way_routes");
+		expect(compiled).toContain("`route_name`");
+		expect(parameters).toContain("North London line");
+	});
+
+	it("stays index-accelerated via MBRIntersects on the corridor bbox", () => {
+		const q = buildRouteNamesQuery(compileOnlyKysely(), bbox, "North London line");
+		const { sql: compiled } = q.compile();
+		expect(compiled).toContain("MBRIntersects");
+	});
+});
+
+describe("parseOverpassRelation", () => {
+	it("extracts name, route type and the way members of a rail route", () => {
+		const r = parseOverpassRelation({
+			type: "relation",
+			id: 42,
+			tags: { type: "route", route: "subway", name: "Test Line" },
+			members: [
+				{ type: "way", ref: 100, role: "" },
+				{ type: "node", ref: 200, role: "stop" },
+				{ type: "way", ref: 101, role: "" },
+			],
+		});
+		expect(r).not.toBeNull();
+		expect(r?.name).toBe("Test Line");
+		expect(r?.route_type).toBe("subway");
+		// Node members are dropped — only way members carry track.
+		expect(r?.memberWayIds).toEqual([100, 101]);
+	});
+
+	it("falls back to ref when the relation has no name", () => {
+		const r = parseOverpassRelation({
+			type: "relation",
+			id: 7,
+			tags: { type: "route", route: "train", ref: "NLL" },
+			members: [{ type: "way", ref: 1, role: "" }],
+		});
+		expect(r?.name).toBe("NLL");
+	});
+
+	it("returns null for a non-rail route, no route tag, no name, or no way members", () => {
+		const base = { type: "relation" as const, id: 1, members: [{ type: "way" as const, ref: 1, role: "" }] };
+		expect(parseOverpassRelation({ ...base, tags: { route: "bus", name: "Bus 9" } })).toBeNull();
+		expect(parseOverpassRelation({ ...base, tags: { name: "No route tag" } })).toBeNull();
+		expect(parseOverpassRelation({ ...base, tags: { route: "subway" } })).toBeNull();
+		expect(
+			parseOverpassRelation({ type: "relation", id: 1, tags: { route: "subway", name: "Empty" }, members: [] }),
+		).toBeNull();
 	});
 });
 
