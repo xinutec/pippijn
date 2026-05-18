@@ -65,7 +65,7 @@ import pick from "stream-json/filters/pick.js";
 import streamArray from "stream-json/streamers/stream-array.js";
 import { db } from "../db/pool.js";
 import { overpassFetch } from "./osm-overpass.js";
-import type { OsmLine, OsmStation, OsmWayRoute, RailGeometry } from "./rail-snap.js";
+import type { OsmLine, OsmStation, RailGeometry } from "./rail-snap.js";
 
 /** A coverage row as read from the DB. */
 export interface CoverageRow {
@@ -629,11 +629,21 @@ export async function ensureCovered(lat: number, lon: number, radiusM: number, f
 	// relation, not on its individual track ways. Whenever rail
 	// geometry is ensured for an area, also mirror the route-relation
 	// membership into osm_way_routes so it fills alongside the railway
-	// coverage — no separate backfill job. The route fetch self-checks
-	// its own coverage row, so this is a cheap no-op once an area is
-	// done. featureType is "route" here, so this does not recurse.
+	// coverage — no separate backfill job.
+	//
+	// Fire-and-forget, deliberately not awaited: a route Overpass query
+	// is heavy (a relation's member list spans a whole line — 130 s+ in
+	// practice) and *nothing in the request path consumes osm_way_routes
+	// yet* — the rail snapper ignores route membership. Awaiting it here
+	// put 130 s+ on every railway lookup and blew a rail-day velocity
+	// computation out to minutes. Let the mirror fill in the background
+	// instead; the route fetch self-checks its own coverage row, so it
+	// is a no-op once an area is done. featureType is "route", so this
+	// does not recurse.
 	if (featureType === "railway") {
-		await ensureCovered(lat, lon, radiusM, "route");
+		void ensureCovered(lat, lon, radiusM, "route").catch((e) => {
+			console.warn("background osm_way_routes mirror fetch failed:", e);
+		});
 	}
 
 	const coverage = await readCoverage(featureType);
@@ -884,16 +894,48 @@ function bboxPolygonWkt(b: CorridorBbox): string {
 	return `POLYGON((${b.minLon} ${b.minLat},${b.maxLon} ${b.minLat},${b.maxLon} ${b.maxLat},${b.minLon} ${b.maxLat},${b.minLon} ${b.minLat}))`;
 }
 
+/** Margin (m) added around a train run's fixes when reading its rail
+ *  corridor — wide enough that the line and both stations fall inside
+ *  the box even where the fixes scatter off the track. */
+const RAIL_CORRIDOR_MARGIN_M = 1500;
+
+/** A {lat,lon} box around `fixes`, expanded by RAIL_CORRIDOR_MARGIN_M.
+ *  Null when `fixes` is empty. */
+function corridorBox(fixes: Array<{ lat: number; lon: number }>): CorridorBbox | null {
+	if (fixes.length === 0) return null;
+	let minLat = Number.POSITIVE_INFINITY;
+	let maxLat = Number.NEGATIVE_INFINITY;
+	let minLon = Number.POSITIVE_INFINITY;
+	let maxLon = Number.NEGATIVE_INFINITY;
+	for (const f of fixes) {
+		minLat = Math.min(minLat, f.lat);
+		maxLat = Math.max(maxLat, f.lat);
+		minLon = Math.min(minLon, f.lon);
+		maxLon = Math.max(maxLon, f.lon);
+	}
+	const dLat = RAIL_CORRIDOR_MARGIN_M / 111_320;
+	const dLon = RAIL_CORRIDOR_MARGIN_M / (111_320 * Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180));
+	return { minLat: minLat - dLat, maxLat: maxLat + dLat, minLon: minLon - dLon, maxLon: maxLon + dLon };
+}
+
 /**
- * Read the rail geometry — rail ways, route-relation membership, and
- * stations — for a bounding box straight from the local OSM mirror.
+ * Read the rail geometry — rail ways and stations — covering a fix
+ * track straight from the local OSM mirror.
  *
  * Returns the self-contained {@link RailGeometry} the station-anchored
- * rail-snap algorithm consumes. No network: the mirror is already
- * populated for travelled areas by the classification pipeline's
- * `linesAtPoint` / `nearbyStations` calls.
+ * rail-snap algorithm consumes. This is a heavy spatial scan of the
+ * ~1M-row osm_lines table (~10-15 s) and is run **offline only** — by
+ * the refresh-rail-routes CLI, never on the request path. No network:
+ * the mirror is already populated for travelled areas by the
+ * classification pipeline.
+ *
+ * `wayRoutes` is returned empty: the snapper does not consume route
+ * membership. When line disambiguation is built it will need its own
+ * name-bounded query.
  */
-export async function queryRailCorridor(bbox: CorridorBbox): Promise<RailGeometry> {
+export async function queryRailCorridor(fixes: Array<{ lat: number; lon: number }>): Promise<RailGeometry> {
+	const bbox = corridorBox(fixes);
+	if (!bbox) return { lines: [], wayRoutes: [], stations: [] };
 	const poly = bboxPolygonWkt(bbox);
 
 	const lineRows = (
@@ -902,7 +944,7 @@ export async function queryRailCorridor(bbox: CorridorBbox): Promise<RailGeometr
 			FROM osm_lines
 			WHERE feature_type = 'railway'
 			  AND MBRIntersects(geom, ST_GeomFromText(${poly}, 4326))
-			LIMIT 8000
+			LIMIT 12000
 		`.execute(db())
 	).rows;
 	const lines: OsmLine[] = [];
@@ -927,25 +969,5 @@ export async function queryRailCorridor(bbox: CorridorBbox): Promise<RailGeometr
 		if (p) stations.push({ name: r.name, subtype: r.subtype, lat: p.lat, lon: p.lon });
 	}
 
-	// Route-relation membership for the captured ways — the signal that
-	// completes a line's geometry when a way carries the line name only
-	// on its route relation.
-	const wayIds = lines.map((l) => l.osmId);
-	let wayRoutes: OsmWayRoute[] = [];
-	if (wayIds.length > 0) {
-		const routeRows = (
-			await sql<{ osm_way_id: bigint; route_name: string; route_type: string }>`
-				SELECT osm_way_id, route_name, route_type
-				FROM osm_way_routes
-				WHERE osm_way_id IN (${sql.join(wayIds)})
-			`.execute(db())
-		).rows;
-		wayRoutes = routeRows.map((r) => ({
-			wayId: Number(r.osm_way_id),
-			routeName: r.route_name,
-			routeType: r.route_type,
-		}));
-	}
-
-	return { lines, wayRoutes, stations };
+	return { lines, wayRoutes: [], stations };
 }

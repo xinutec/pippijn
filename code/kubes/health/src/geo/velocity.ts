@@ -39,10 +39,9 @@ import {
 	rejectImplausibleDriving,
 	reverseGeocode,
 } from "./osm.js";
-import { type CorridorBbox, queryRailCorridor } from "./osm-local.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
-import { type SnappedPoint, snapTrainSegment } from "./rail-snap.js";
+import { interpolateTimes, type SnappedPoint } from "./rail-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
@@ -676,11 +675,11 @@ export async function computeVelocity(
 	// mislabelled with the nearest focus place.
 	const withBoarding = await time("boardingPlatform", absorbBoardingPlatform(withUnderground, points));
 
-	// Rail-snap: for each train run with a station-pair label, draw the
-	// journey on the OSM rail track instead of the raw GPS zigzag. The
-	// snapped path is attached as a derived `snappedPath` — purely
-	// additive, the raw track is untouched. See annotateSnappedPaths.
-	const withSnapped = await time("railSnap", annotateSnappedPaths(withBoarding, inDay));
+	// Rail-snap: attach the precomputed rail-track geometry to each
+	// train run whose route is in rail_route_cache (filled offline by
+	// refresh-rail-routes). One indexed lookup — purely additive, the
+	// raw track is untouched. See annotateSnappedPaths.
+	const withSnapped = await time("railSnap", annotateSnappedPaths(withBoarding));
 
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
@@ -1471,57 +1470,49 @@ export async function absorbBoardingPlatform(
 	return out;
 }
 
-/** Margin (m) around a train run's fixes when reading its OSM rail
- *  corridor — wide enough that the full line and both stations sit
- *  inside the box even where the fixes scatter off the track. Kept in
- *  step with `capture-railsnap-fixture`'s CORRIDOR_MARGIN_M so a
- *  captured fixture matches what the pipeline reads. */
-const RAIL_CORRIDOR_MARGIN_M = 1500;
-
-/** A {lat,lon} bounding box around `pts`, expanded by `marginM`.
- *  Null when `pts` is empty. */
-function corridorBbox(pts: Array<{ lat: number; lon: number }>, marginM: number): CorridorBbox | null {
-	if (pts.length === 0) return null;
-	let minLat = Number.POSITIVE_INFINITY;
-	let maxLat = Number.NEGATIVE_INFINITY;
-	let minLon = Number.POSITIVE_INFINITY;
-	let maxLon = Number.NEGATIVE_INFINITY;
-	for (const p of pts) {
-		minLat = Math.min(minLat, p.lat);
-		maxLat = Math.max(maxLat, p.lat);
-		minLon = Math.min(minLon, p.lon);
-		maxLon = Math.max(maxLon, p.lon);
-	}
-	const dLat = marginM / 111_000;
-	const dLon = marginM / (111_000 * Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180));
-	return { minLat: minLat - dLat, maxLat: maxLat + dLat, minLon: minLon - dLon, maxLon: maxLon + dLon };
-}
-
 /**
- * Attach a `snappedPath` to every train segment that can be drawn on
- * the rail track.
+ * Attach a `snappedPath` to every train segment whose route is in the
+ * precomputed cache.
  *
- * For each train run with a `<board> → <alight>` label, reads the OSM
- * rail corridor around the run's fixes and runs the station-anchored
- * snapper ({@link snapTrainSegment}). Purely additive: the raw track is
- * never touched; a run that cannot be snapped — unknown station,
- * geometry disconnected in the local mirror — simply keeps no
- * `snappedPath` and the frontend draws its raw fixes. The fixes are
- * used only to bound the corridor query, never to drive the geometry.
+ * The snapped rail geometry is expensive to compute (a heavy OSM
+ * spatial scan) so it is never computed on the request path. The
+ * `refresh-rail-routes` CLI computes it offline and stores it in
+ * `rail_route_cache`, keyed by the train run's `<board> → <alight>`
+ * label. Here we do one indexed lookup, attach the geometry, and
+ * interpolate the segment's time window along it. A train run whose
+ * route is not yet cached simply keeps no `snappedPath` and the
+ * frontend draws its raw fixes — it becomes snapped once the cron has
+ * run. Purely additive: the raw track and day-state timeline are
+ * untouched.
  */
-export async function annotateSnappedPaths(
-	segments: EnrichedSegment[],
-	rawFixes: Array<{ ts: number; lat: number; lon: number }>,
-): Promise<EnrichedSegment[]> {
-	return Promise.all(
-		segments.map(async (seg): Promise<EnrichedSegment> => {
-			if ((seg.refinedMode ?? seg.mode) !== "train" || !seg.wayName) return seg;
-			const inWin = rawFixes.filter((f) => f.ts >= seg.startTs && f.ts <= seg.endTs);
-			const bbox = corridorBbox(inWin, RAIL_CORRIDOR_MARGIN_M);
-			if (!bbox) return seg;
-			const geo = await queryRailCorridor(bbox);
-			const snapped = snapTrainSegment({ startTs: seg.startTs, endTs: seg.endTs, wayName: seg.wayName }, geo);
-			return snapped ? { ...seg, snappedPath: snapped.path } : seg;
-		}),
-	);
+export async function annotateSnappedPaths(segments: EnrichedSegment[]): Promise<EnrichedSegment[]> {
+	const keys = [
+		...new Set(
+			segments.filter((s) => (s.refinedMode ?? s.mode) === "train" && s.wayName).map((s) => s.wayName as string),
+		),
+	];
+	if (keys.length === 0) return segments;
+
+	const rows = await db()
+		.selectFrom("rail_route_cache")
+		.select(["route_key", "geometry_json"])
+		.where("route_key", "in", keys)
+		.execute();
+	const geomByKey = new Map<string, Array<{ lat: number; lon: number }>>();
+	for (const r of rows) {
+		try {
+			const geom = JSON.parse(r.geometry_json) as Array<{ lat: number; lon: number }>;
+			if (Array.isArray(geom) && geom.length >= 2) geomByKey.set(r.route_key, geom);
+		} catch {
+			// A malformed cache row is non-fatal — skip it; the run draws raw.
+		}
+	}
+	if (geomByKey.size === 0) return segments;
+
+	return segments.map((seg): EnrichedSegment => {
+		if ((seg.refinedMode ?? seg.mode) !== "train" || !seg.wayName) return seg;
+		const geom = geomByKey.get(seg.wayName);
+		if (!geom) return seg;
+		return { ...seg, snappedPath: interpolateTimes(geom, seg.startTs, seg.endTs) };
+	});
 }

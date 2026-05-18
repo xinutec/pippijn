@@ -314,6 +314,17 @@ export interface FocusPlacesTable {
 	refreshed_at: Generated<Date>;
 }
 
+/** Precomputed snapped rail geometry — the polyline a train run is
+ *  drawn on, keyed by its `<board> → <alight>` station-pair label.
+ *  Filled offline by the refresh-rail-routes CLI; the velocity
+ *  pipeline only reads it. `geometry_json` is a JSON array of
+ *  `{lat, lon}` vertices. Pure cache — safe to truncate and rebuild. */
+export interface RailRouteCacheTable {
+	route_key: string;
+	geometry_json: string;
+	computed_at: Generated<Date>;
+}
+
 // The full database interface — Kysely uses this to type-check every query
 export interface Database {
 	tokens: TokensTable;
@@ -342,5 +353,6 @@ export interface Database {
 	osm_lines: OsmLinesTable;
 	focus_places: FocusPlacesTable;
 	mode_biometrics: ModeBiometricsTable;
+	rail_route_cache: RailRouteCacheTable;
 	schema_migrations: SchemaMigrationsTable;
 }

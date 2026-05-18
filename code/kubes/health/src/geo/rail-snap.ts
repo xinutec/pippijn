@@ -351,10 +351,20 @@ function nearestVertex(graph: RailGraph, p: { lat: number; lon: number }): { id:
 	return bestId < 0 ? null : { id: bestId, distM: bestD };
 }
 
-/** Interpolate the segment's `[startTs, endTs]` window linearly along
- *  the path by cumulative distance: endpoints land exactly on the
- *  window bounds, interior points fall by how far along they are. */
-function interpolateTimes(coords: Array<{ lat: number; lon: number }>, startTs: number, endTs: number): SnappedPoint[] {
+/**
+ * Interpolate the segment's `[startTs, endTs]` window linearly along
+ * the path by cumulative distance: endpoints land exactly on the
+ * window bounds, interior points fall by how far along they are.
+ *
+ * Exported so the velocity pipeline can apply a precomputed route
+ * geometry (which has no timestamps of its own) to a specific train
+ * segment's time window.
+ */
+export function interpolateTimes(
+	coords: Array<{ lat: number; lon: number }>,
+	startTs: number,
+	endTs: number,
+): SnappedPoint[] {
 	const cum: number[] = [0];
 	for (let i = 1; i < coords.length; i++) {
 		cum.push(cum[i - 1] + metersBetween(coords[i - 1].lat, coords[i - 1].lon, coords[i].lat, coords[i].lon));

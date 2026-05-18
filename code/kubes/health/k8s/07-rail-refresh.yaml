@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: health-rail-refresh
+  namespace: health
+spec:
+  # Daily at 05:00 UTC — quiet time. Runs after the weekly focus
+  # refresh (04:00 Sun) so a fresh home_tz is available, but does not
+  # depend on it. Daily cadence keeps a newly-travelled route's snapped
+  # geometry no more than a day stale.
+  schedule: "0 5 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 5400
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: refresh
+              image: xinutec/health-sync:latest
+              command: ["node", "dist/cli/refresh-rail-routes.js"]
+              env:
+                - name: DB_HOST
+                  value: health-db
+                - name: DB_NAME
+                  value: health
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_PASSWORD
+                - name: NC_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: NC_CLIENT_ID
+                - name: NC_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: NC_CLIENT_SECRET
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
