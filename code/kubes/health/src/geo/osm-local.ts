@@ -210,20 +210,64 @@ export function parseOverpassElement(el: OverpassElement): ParsedFeature | null 
 	};
 }
 
+/** OSM `route=*` values that denote a rail/metro line whose member
+ *  ways are passenger track. `railway` covers physical-line relations,
+ *  the others passenger-service routes — both reference track ways. */
+const ROUTE_TYPES = new Set(["train", "subway", "light_rail", "tram", "railway"]);
+
+/** An Overpass relation element (subset we use). `members` comes back
+ *  with `out body`. */
+interface OverpassRelation {
+	type: "relation";
+	id: number;
+	tags?: Record<string, string>;
+	members?: Array<{ type: string; ref: number; role?: string }>;
+}
+
+/** A parsed OSM route relation — a rail/metro line plus the track
+ *  ways that compose it. */
+export interface ParsedRoute {
+	osm_id: number;
+	name: string;
+	route_type: string;
+	memberWayIds: number[];
+}
+
+/**
+ * Translate an Overpass route relation into a {@link ParsedRoute}, or
+ * null when it is not a usable rail/metro line: a non-rail route, no
+ * `route` tag, no name (nor `ref`), or no way members. Node members
+ * (stops, platforms) are dropped — only ways carry track geometry.
+ */
+export function parseOverpassRelation(el: OverpassRelation): ParsedRoute | null {
+	const tags = el.tags ?? {};
+	const routeType = tags.route;
+	if (!routeType || !ROUTE_TYPES.has(routeType)) return null;
+	const name = tags.name ?? tags.ref ?? null;
+	if (!name) return null;
+	const memberWayIds = (el.members ?? []).filter((m) => m.type === "way").map((m) => m.ref);
+	if (memberWayIds.length === 0) return null;
+	return { osm_id: el.id, name, route_type: routeType, memberWayIds };
+}
+
 /**
  * Build the Overpass query body for one feature_type over a bbox.
  *
  * The query language uses `(south, west, north, east)` for bbox in
- * `out:json` mode. We ask for nodes AND ways AND lookup geometry
- * because rail/road features are linear and need the polyline; the
- * single `out tags geom;` line returns both per-element tags and the
- * way's vertex list.
+ * `out:json` mode. For geometry feature_types we ask for nodes AND
+ * ways with `out tags geom;` (per-element tags + the way's vertices).
+ * The `route` feature_type is different: it fetches route *relations*
+ * with `out body;` so the member-way list comes back — no geometry,
+ * since the ways' polylines arrive via the `railway` fetch.
  */
 export function buildOverpassQuery(
 	featureType: string,
 	bbox: { minLat: number; maxLat: number; minLon: number; maxLon: number },
 ): string {
 	const b = `${bbox.minLat},${bbox.minLon},${bbox.maxLat},${bbox.maxLon}`;
+	if (featureType === "route") {
+		return `[out:json][timeout:25];\n(\n  relation["route"~"^(train|subway|light_rail|tram|railway)$"](${b});\n);\nout body;`;
+	}
 	// Per feature_type, the tag filters that should land in this bucket
 	// when we'd later parse the result. Multiple node/way queries are
 	// combined via Overpass union syntax `(...)`. Each feature_type is
@@ -389,6 +433,10 @@ async function fetchAndStore(
 	featureType: string,
 	bbox: { minLat: number; maxLat: number; minLon: number; maxLon: number },
 ): Promise<void> {
+	if (featureType === "route") {
+		await fetchAndStoreRoutes(bbox);
+		return;
+	}
 	const t0 = Date.now();
 	const query = buildOverpassQuery(featureType, bbox);
 	const res = await overpassFetch(query);
@@ -422,6 +470,71 @@ async function fetchAndStore(
 	console.log(
 		`osm-local fetched ${featureType} bbox=${bbox.minLat.toFixed(3)},${bbox.minLon.toFixed(3)}→${bbox.maxLat.toFixed(3)},${bbox.maxLon.toFixed(3)} elements=${count} points=${pointsTotal} lines=${linesTotal} ttfb=${fetchStartMs}ms total=${totalMs}ms`,
 	);
+}
+
+/**
+ * Fetch the route relations covering `bbox` and store their way
+ * membership into `osm_way_routes`.
+ *
+ * Route relations carry no geometry — only tags and a member-way list
+ * — so the response is far smaller than the way/landmark geometry
+ * payloads, and a plain `res.json()` parse is safe here (no streaming
+ * needed). A relation's member list spans the whole line, so member
+ * rows for ways well outside `bbox` are stored too; that is harmless
+ * and means a later corridor finds the membership already present.
+ */
+async function fetchAndStoreRoutes(bbox: {
+	minLat: number;
+	maxLat: number;
+	minLon: number;
+	maxLon: number;
+}): Promise<void> {
+	const t0 = Date.now();
+	const res = await overpassFetch(buildOverpassQuery("route", bbox));
+	if (!res.ok) {
+		console.warn(`osm-local route fetch bbox ${JSON.stringify(bbox)} returned ${res.status}`);
+		return;
+	}
+	const data = (await res.json()) as { elements?: unknown[] };
+	const routes: ParsedRoute[] = [];
+	for (const el of data.elements ?? []) {
+		if ((el as { type?: string }).type !== "relation") continue;
+		const parsed = parseOverpassRelation(el as OverpassRelation);
+		if (parsed) routes.push(parsed);
+	}
+	const memberRows = await upsertRouteMembers(routes);
+
+	await db()
+		.insertInto("osm_coverage")
+		.values({
+			min_lat: bbox.minLat,
+			max_lat: bbox.maxLat,
+			min_lon: bbox.minLon,
+			max_lon: bbox.maxLon,
+			feature_type: "route",
+		})
+		.execute();
+
+	console.log(
+		`osm-local fetched route bbox=${bbox.minLat.toFixed(3)},${bbox.minLon.toFixed(3)}→${bbox.maxLat.toFixed(3)},${bbox.maxLon.toFixed(3)} routes=${routes.length} members=${memberRows} total=${Date.now() - t0}ms`,
+	);
+}
+
+/** Insert (way, route) membership rows, skipping any already present
+ *  (`INSERT IGNORE` — the PK is the pair). Returns the row count. */
+async function upsertRouteMembers(routes: ParsedRoute[]): Promise<number> {
+	const rows = routes.flatMap((r) =>
+		r.memberWayIds.map((wayId) => ({ osm_way_id: wayId, route_name: r.name, route_type: r.route_type })),
+	);
+	const BATCH = 500;
+	for (let i = 0; i < rows.length; i += BATCH) {
+		const values = rows
+			.slice(i, i + BATCH)
+			.map((r) => sql`(${r.osm_way_id}, ${r.route_name}, ${r.route_type})`)
+			.reduce((acc, frag, idx) => (idx === 0 ? frag : sql`${acc}, ${frag}`));
+		await sql`INSERT IGNORE INTO osm_way_routes (osm_way_id, route_name, route_type) VALUES ${values}`.execute(db());
+	}
+	return rows.length;
 }
 
 /** Bulk-upsert a batch of features into one of the geometry tables.
@@ -511,6 +624,17 @@ async function hasLocalData(lat: number, lon: number, radiusM: number, featureTy
 }
 
 export async function ensureCovered(lat: number, lon: number, radiusM: number, featureType: string): Promise<void> {
+	// A rail line's name frequently lives only on its OSM route
+	// relation, not on its individual track ways. Whenever rail
+	// geometry is ensured for an area, also mirror the route-relation
+	// membership into osm_way_routes so it fills alongside the railway
+	// coverage — no separate backfill job. The route fetch self-checks
+	// its own coverage row, so this is a cheap no-op once an area is
+	// done. featureType is "route" here, so this does not recurse.
+	if (featureType === "railway") {
+		await ensureCovered(lat, lon, radiusM, "route");
+	}
+
 	const coverage = await readCoverage(featureType);
 	if (decideCoverage({ lat, lon, radiusM }, coverage, Date.now()) === "covered") return;
 
