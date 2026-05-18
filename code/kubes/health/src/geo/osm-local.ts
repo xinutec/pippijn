@@ -564,6 +564,10 @@ export interface LocalFeatureResult {
 	name: string | null;
 	distance_m: number;
 	tags: Record<string, string>;
+	/** True when the query point lies inside this feature's geometry
+	 *  bounding box. Only meaningful for line/area features (a stay
+	 *  inside a building footprint); always false for point features. */
+	encloses: boolean;
 }
 
 /**
@@ -631,6 +635,8 @@ export async function queryPoints(
 		subtype: r.subtype,
 		name: r.name,
 		distance_m: Number(r.distance_m),
+		// A point feature has no interior — it never encloses a stay.
+		encloses: false,
 		// MariaDB's JSON column type may return either a string (legacy
 		// driver) or a parsed object (driver auto-parses). Handle both.
 		tags: (r.tags_json ? (typeof r.tags_json === "string" ? JSON.parse(r.tags_json) : r.tags_json) : {}) as Record<
@@ -676,6 +682,10 @@ export function buildLinesQuery(
 			"name",
 			"tags_json",
 			sql<number>`ST_Distance(geom, ${point})`.as("distance_deg"),
+			// Whether the query point sits inside this way's bounding
+			// box — a cheap "is the stay inside this footprint" test,
+			// computed on the rows the MBR pre-filter already narrowed.
+			sql<number>`MBRContains(geom, ${point})`.as("encloses"),
 		])
 		.where("feature_type", "=", featureType)
 		// MBR pre-filter — without this, ST_Distance is computed
@@ -706,6 +716,7 @@ export async function queryLines(
 		subtype: r.subtype,
 		name: r.name,
 		distance_m: Number(r.distance_deg) * mPerDeg,
+		encloses: Number(r.encloses) === 1,
 		// MariaDB's JSON column type may return either a string (legacy
 		// driver) or a parsed object (driver auto-parses). Handle both.
 		tags: (r.tags_json ? (typeof r.tags_json === "string" ? JSON.parse(r.tags_json) : r.tags_json) : {}) as Record<

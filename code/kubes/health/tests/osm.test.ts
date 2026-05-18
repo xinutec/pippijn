@@ -263,6 +263,37 @@ describe("pickBestLandmark", () => {
 		const best = pickBestLandmark(landmarks);
 		expect(best.name).toBe("Place A");
 	});
+
+	it("prefers an enclosing institution over a closer point amenity", () => {
+		// A long dwell inside a hospital: the hospital footprint encloses
+		// the GPS centroid, but a small venue's point sits nearer the
+		// centroid. The enclosing institution must win — you are in the
+		// hospital, not at the cafe whose node happens to be closer.
+		const landmarks: NearbyLandmark[] = [
+			{ name: "Corner Cafe", type: "amenity", subtype: "cafe", distanceM: 8 },
+			{ name: "City Hospital", type: "amenity", subtype: "hospital", distanceM: 55, enclosing: true },
+		];
+		expect(pickBestLandmark(landmarks).name).toBe("City Hospital");
+	});
+
+	it("does not prefer the institution when it does not enclose the stay", () => {
+		// Same hospital, but the centroid is outside its footprint — the
+		// nearer venue is the right call. Guards against "hospital always
+		// wins" regardless of where the stay actually was.
+		const landmarks: NearbyLandmark[] = [
+			{ name: "Corner Cafe", type: "amenity", subtype: "cafe", distanceM: 8 },
+			{ name: "City Hospital", type: "amenity", subtype: "hospital", distanceM: 55 },
+		];
+		expect(pickBestLandmark(landmarks).name).toBe("Corner Cafe");
+	});
+
+	it("falls through to distance when two institutions both enclose", () => {
+		const landmarks: NearbyLandmark[] = [
+			{ name: "Far Hospital", type: "amenity", subtype: "hospital", distanceM: 90, enclosing: true },
+			{ name: "Near University", type: "amenity", subtype: "university", distanceM: 20, enclosing: true },
+		];
+		expect(pickBestLandmark(landmarks).name).toBe("Near University");
+	});
 });
 
 describe("filterLandmarks", () => {

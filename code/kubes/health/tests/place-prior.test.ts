@@ -146,6 +146,41 @@ describe("pickBestPlace", () => {
 		expect(r?.winner.id).toBe(1);
 	});
 
+	function oneOff(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
+		return {
+			id: 70,
+			centroidLat: 51.5,
+			centroidLon: -0.12,
+			radiusM: 25,
+			uniqueDays: 1,
+			totalDwellSec: 3600,
+			sleepHours: 0,
+			displayName: null,
+			amenityLabel: "Some Cafe",
+			...overrides,
+		};
+	}
+	// 200 m due east of (51.5, -0.12).
+	const seg200mEast = { lat: 51.5, lon: -0.12 + 200 / (111_320 * Math.cos((51.5 * Math.PI) / 180)) };
+
+	it("a one-off place does not capture a stay 200 m away", () => {
+		// A place visited on a single day has earned no GPS-noise
+		// tolerance: a stay 200 m off it is a different place, and
+		// pickBestPlace must return null so the caller falls through to
+		// a fresh OSM lookup rather than stamp the one-off's mined label
+		// on an unrelated stay.
+		expect(pickBestPlace([oneOff()], seg200mEast.lat, seg200mEast.lon, { isSleepWindow: false })).toBeNull();
+	});
+
+	it("an established place still captures a stay within GPS-noise range", () => {
+		// Same 200 m offset, but a place visited on many separate days:
+		// noise of this size around a well-known place is expected, so
+		// the match must hold.
+		const established = oneOff({ id: 71, uniqueDays: 60, totalDwellSec: 60 * 8 * 3600 });
+		const r = pickBestPlace([established], seg200mEast.lat, seg200mEast.lon, { isSleepWindow: false });
+		expect(r?.winner.id).toBe(71);
+	});
+
 	it("picks the geographically-closer place even when its prior is much weaker", () => {
 		// Demonstrates the likelihood DOES overpower the prior when the
 		// distance signal is strong. Home is 1 km off, an unfrequented

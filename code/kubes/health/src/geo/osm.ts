@@ -286,16 +286,21 @@ export async function reverseGeocode(lat: number, lon: number, zoom = 18): Promi
 }
 
 /**
- * Look up a stationary place. Strategy:
+ * Look up a stationary place. Strategy, in order:
  *
- * 1. Detailed building-level Nominatim (zoom 18) — catches venues with addresses
- *    (Brasserie Vermeer, Hotel X). Use it directly if it returns a specific venue.
- * 2. If the building lookup is just a residential address, query Overpass for
- *    named landmarks (amenity/tourism/leisure/shop/place/named pedestrian area)
- *    within 100 m. The GPS centroid often lands on a residential building next
- *    door to a square/park/plaza; this surfaces the landmark instead.
- * 3. Area-level Nominatim (zoom 16) as a softer fallback for places where the
- *    landmark is only known to Nominatim.
+ * 0. If the centroid sits inside a large institution's mapped footprint
+ *    (hospital, university, …), name the stay after that institution.
+ *    A long dwell inside a hospital is the hospital — not a cafe that
+ *    Nominatim or a nearer POI node would otherwise name, since those
+ *    point venues often share the institution's site.
+ * 1. Detailed building-level Nominatim (zoom 18) — catches venues with
+ *    addresses (Brasserie Vermeer, Hotel X). Used directly if it
+ *    returns a specific venue.
+ * 2. Otherwise the best nearby Overpass landmark within 100 m. The GPS
+ *    centroid often lands on a residential building next door to a
+ *    square/park/venue; this surfaces the landmark instead.
+ * 3. Area-level Nominatim (zoom 16) as a softer fallback for places
+ *    where the landmark is only known to Nominatim.
  * 4. Last resort: return the residential address from step 1.
  */
 export interface BestPlaceOptions {
@@ -305,12 +310,31 @@ export interface BestPlaceOptions {
 	preferResidential?: boolean;
 }
 
+/** Carry a Nominatim result's address (city, road) onto a landmark
+ *  result so the timeline can still group consecutive stays by city. */
+function withAddressFrom(result: NominatimResult, detailed: NominatimResult | null): NominatimResult {
+	if (detailed) result.address = { ...detailed.address, ...result.address };
+	return result;
+}
+
 export async function bestPlace(
 	lat: number,
 	lon: number,
 	opts: BestPlaceOptions = {},
 ): Promise<NominatimResult | null> {
+	// Fetch nearby landmarks up front. A stay whose centroid sits inside
+	// a large institution's mapped footprint is a stay *in* that
+	// institution, and that outranks even a Nominatim point-venue at the
+	// same coordinate — Nominatim happily names a stay after a cafe that
+	// shares the institution's site.
+	const landmarks = await nearbyLandmarks(lat, lon, 100);
+	const bestLandmark = landmarks.length > 0 ? pickBestLandmark(landmarks) : null;
 	const detailed = await reverseGeocode(lat, lon, 18);
+
+	if (bestLandmark?.enclosing) {
+		return withAddressFrom(landmarkToResult(bestLandmark), detailed);
+	}
+
 	if (detailed && hasSpecificVenue(detailed)) return detailed;
 
 	// Overnight stays: trust the residential address from zoom 18 over any
@@ -319,16 +343,8 @@ export async function bestPlace(
 		return detailed;
 	}
 
-	const landmarks = await nearbyLandmarks(lat, lon, 100);
-	if (landmarks.length > 0) {
-		// Carry over the Nominatim address (city, road, etc.) so the
-		// timeline UI can group by city even when the place name comes
-		// from an Overpass landmark rather than the address itself.
-		const result = landmarkToResult(pickBestLandmark(landmarks));
-		if (detailed) {
-			result.address = { ...detailed.address, ...result.address };
-		}
-		return result;
+	if (bestLandmark) {
+		return withAddressFrom(landmarkToResult(bestLandmark), detailed);
 	}
 
 	// No specific venue and no nearby landmark — fall back to the address if we have one
@@ -367,7 +383,20 @@ export interface NearbyLandmark {
 	type: "amenity" | "tourism" | "leisure" | "shop" | "place" | "highway";
 	subtype: string; // "restaurant", "park", "square", "pedestrian", etc.
 	distanceM: number;
+	/** True when this landmark is a large institution whose mapped
+	 *  footprint encloses the query point — see {@link LARGE_INSTITUTION_SUBTYPES}.
+	 *  A stay whose centroid falls inside such a footprint is a stay
+	 *  *in* the institution, not at a nearer point POI. */
+	enclosing?: boolean;
 }
+
+/** `amenity` values for institutions large enough that a stay whose
+ *  GPS centroid lands inside their mapped footprint is a stay *in* the
+ *  institution. When OSM maps one of these as an area and the centroid
+ *  falls within it, it outranks any nearer point-amenity — a long
+ *  dwell inside a hospital is the hospital, not the cafe next door
+ *  whose node happens to sit closer to the noisy GPS centroid. */
+export const LARGE_INSTITUTION_SUBTYPES = new Set(["hospital", "university", "college"]);
 
 const LANDMARK_PRIORITY: Record<NearbyLandmark["type"], number> = {
 	amenity: 5,
@@ -380,6 +409,12 @@ const LANDMARK_PRIORITY: Record<NearbyLandmark["type"], number> = {
 
 export function pickBestLandmark(landmarks: NearbyLandmark[]): NearbyLandmark {
 	return [...landmarks].sort((a, b) => {
+		// An institution whose footprint encloses the stay outranks
+		// everything else, regardless of which node is nearer the GPS
+		// centroid (see NearbyLandmark.enclosing).
+		const ea = a.enclosing === true;
+		const eb = b.enclosing === true;
+		if (ea !== eb) return ea ? -1 : 1;
 		const pa = LANDMARK_PRIORITY[a.type];
 		const pb = LANDMARK_PRIORITY[b.type];
 		if (pa !== pb) return pb - pa;
@@ -462,7 +497,12 @@ export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): 
 		// picker resolves precedence via LANDMARK_PRIORITY.
 		const tags = f.tags;
 		for (const k of ["amenity", "tourism", "leisure", "shop", "place"] as const) {
-			if (tags[k]) landmarks.push({ name, type: k, subtype: tags[k], distanceM: f.distance_m });
+			if (tags[k]) {
+				// A large institution mapped as an area whose footprint
+				// encloses the query point outranks nearer point POIs.
+				const enclosing = k === "amenity" && f.encloses && LARGE_INSTITUTION_SUBTYPES.has(tags[k]);
+				landmarks.push({ name, type: k, subtype: tags[k], distanceM: f.distance_m, enclosing });
+			}
 		}
 		if (tags.highway === "pedestrian") {
 			landmarks.push({ name, type: "highway", subtype: "pedestrian", distanceM: f.distance_m });

@@ -5,10 +5,11 @@
  * (the user's mined long-term clusters), this module picks the most
  * likely place by combining:
  *
- *   - Log-likelihood on distance: Gaussian centred at the place's
- *     stored centroid, σ = the place's empirical radius. So a fix
- *     two empirical-σ off-centre takes a -2 hit; a fix five σ off
- *     is essentially zero probability.
+ *   - Log-likelihood on distance: a Gaussian centred at the place's
+ *     stored centroid. σ is the place's empirical radius, floored to
+ *     a GPS-noise tolerance — wide for an established place, tight for
+ *     a sparse one (see the SIGMA_FLOOR_* constants). A fix two σ
+ *     off-centre takes a -2 hit; five σ off is ~zero probability.
  *   - Log-prior on visit frequency: log(unique_days + 1). A place
  *     you've been to 200 times beats one you've been to once,
  *     all else equal.
@@ -51,21 +52,36 @@ export interface PlaceCandidate {
 	amenityLabel: string | null;
 }
 
-/** Lower bound on the distance σ for the place-likelihood Gaussian.
+/** The distance σ for the place-likelihood Gaussian is `radius_m`
+ *  floored to a GPS-noise tolerance that the place has *earned* by
+ *  being visited. The floor slides continuously between two bounds as
+ *  visit-days accumulate — there is no hard "established / not" step.
  *
- *  focus_places.radius_m is the spread of the clustering algorithm's
- *  centroid estimate (~25 m for a single-storey building). The
- *  spread of typical GPS fixes when a user is AT that place is much
- *  larger — indoor multipath, building corners, the user walking
- *  in and out, accuracy variations across the day. Production data
- *  shows day-of fix clusters routinely sit 100–200 m from a known
- *  place's centroid even when the user definitively didn't leave.
+ *  `SIGMA_FLOOR_MAX_M` — the floor a thoroughly-established place
+ *  converges to. focus_places.radius_m is the spread of the
+ *  clustering centroid estimate (~25 m for a single building); the
+ *  spread of day-of GPS fixes when a user is genuinely AT a place is
+ *  much larger — indoor multipath, building corners, walking in and
+ *  out. Production data shows day-of clusters routinely sit 100–200 m
+ *  from a known place's centroid, so a place we are confident about
+ *  gets a 100 m σ floor and the Gaussian doesn't collapse to ~0 for
+ *  ordinary noise distances.
  *
- *  We treat the place's `radius_m` as a lower bound on σ but floor
- *  it at 100 m so the Gaussian doesn't go to ~0 for ordinary
- *  GPS-noise distances. The frequency + time priors then drive
- *  the final ranking. */
-const SIGMA_FLOOR_M = 100;
+ *  `SIGMA_FLOOR_MIN_M` — the floor for a place seen on a single day.
+ *  It has earned no benefit of the doubt: a tight σ so it cannot
+ *  capture a stay that merely falls in the same neighbourhood. With
+ *  only the wide floor, the −8 posterior floor let even a once-visited
+ *  place reach ~4σ ≈ 400 m and stamp its one-off mined label onto
+ *  unrelated stays hundreds of metres away. */
+const SIGMA_FLOOR_MAX_M = 100;
+const SIGMA_FLOOR_MIN_M = 40;
+
+/** e-folding constant (in distinct visit-days) for how fast a place's
+ *  σ floor climbs from MIN toward MAX. At `1 + TAU` visit-days the
+ *  floor has closed ~63 % of the MIN→MAX gap. 10 days ⇒ a place
+ *  visited a couple of weeks' worth of days is most of the way to the
+ *  full established tolerance; a one-off sits at the minimum. */
+const SIGMA_ESTABLISH_TAU_DAYS = 10;
 
 /** Don't pick a place whose best score is worse than this many
  *  log-points below "fix sits exactly at the centroid + max
@@ -80,7 +96,14 @@ export function scorePlaceForSegment(
 	options: { isSleepWindow: boolean },
 ): number {
 	const distM = haversineMeters(candidate.centroidLat, candidate.centroidLon, segCentroidLat, segCentroidLon);
-	const sigma = Math.max(SIGMA_FLOOR_M, candidate.radiusM);
+	// The GPS-noise σ floor is earned, continuously: a place's tolerance
+	// climbs from MIN toward MAX as distinct visit-days accumulate, with
+	// no hard "established" step. A one-off place sits at the minimum
+	// and cannot reach far past its own footprint; a place visited over
+	// many days converges on the full tolerance.
+	const establishedness = 1 - Math.exp(-Math.max(0, candidate.uniqueDays - 1) / SIGMA_ESTABLISH_TAU_DAYS);
+	const sigmaFloor = SIGMA_FLOOR_MIN_M + (SIGMA_FLOOR_MAX_M - SIGMA_FLOOR_MIN_M) * establishedness;
+	const sigma = Math.max(sigmaFloor, candidate.radiusM);
 	// log-likelihood under Gaussian, constant terms dropped (we argmax).
 	const logLikelihood = -(distM * distM) / (2 * sigma * sigma);
 
