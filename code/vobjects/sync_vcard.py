@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 import subprocess
 import sys
-import vobject
+import vobject  # type: ignore[import-untyped]
 import vtypes
 
 

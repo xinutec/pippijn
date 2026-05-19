@@ -5,6 +5,7 @@ import json
 import os
 import pprint
 import urllib.parse
+from typing import Any
 
 # Reference Daily Intake
 RDI_TABLE = "mamm9dpys1j1znw"
@@ -29,7 +30,8 @@ MEALS_LINK_INGREDIENTS = "cc9wqhoe8nfb18o"
 MEALS_LINK_DISHES = "c055jl2zkxeup5z"
 
 
-def process_nutrients(rdi, ingredient_amount, ingredient):
+def process_nutrients(rdi: dict[str, Any], ingredient_amount: Any,
+                      ingredient: dict[str, Any]) -> dict[str, Any]:
     """Compute all nutrients for an ingredient based on the amount."""
     nutrients = {"Amount (g)": ingredient_amount}
     for k, v in ingredient.items():
@@ -41,7 +43,7 @@ def process_nutrients(rdi, ingredient_amount, ingredient):
     return nutrients
 
 
-def sum_amounts(total, ingredients):
+def sum_amounts(total: dict[str, Any], ingredients: Any) -> None:
     """Sum up all the amounts and RDI values of all nutrients to a total."""
     for ingredient in ingredients:
         for k, v in ingredient.items():
@@ -52,30 +54,30 @@ def sum_amounts(total, ingredients):
                 total[k]["RDI"] += v["RDI"]
 
 
-def compute_total(ingredients):
+def compute_total(ingredients: tuple[Any, ...]) -> tuple[Any, ...]:
     """Create a new Total ingredient and add it to the end of the ingredients."""
     total = {"Name": "Total", "Amount (g)": None}
     sum_amounts(total, ingredients)
     return ingredients + (total,)
 
 
-def sort_by_amount(ingredients):
+def sort_by_amount(ingredients: Any) -> tuple[Any, ...]:
     return tuple(sorted(ingredients, reverse=True, key=lambda ingredient: ingredient["Amount (g)"]))
 
 
 class HealthDb:
-    def __init__(self):
+    def __init__(self) -> None:
         self.conn = http.client.HTTPSConnection("nocodb.xinutec.org")
         self.headers = {'xc-token': os.environ["NOCODB_TOKEN"]}
 
-    def get(self, url: str):
+    def get(self, url: str) -> Any:
         """GET a URL and JSON-decode the success-response."""
         self.conn.request("GET", url, headers=self.headers)
 
         res = self.conn.getresponse()
         return json.loads(res.read().decode("utf-8"))["list"]
 
-    def list_table_records(self, table: str, view: str = "", fields: tuple[str] = tuple(), key: str = "Id", sort_key: str = ""):
+    def list_table_records(self, table: str, view: str = "", fields: tuple[str, ...] = tuple(), key: str = "Id", sort_key: str = "") -> dict[Any, Any]:
         """Retrieve records from a specified table/view, create a dict keyed by a given column."""
         fields_encoded = ",".join(map(urllib.parse.quote_plus, fields))
         return {
@@ -84,7 +86,7 @@ class HealthDb:
                 f"/api/v2/tables/{table}/records?offset=0&limit=1000&viewId={view}&fields={fields_encoded}&sort={sort_key}")
         }
 
-    def list_linked_records(self, table: str, link_field_id: str, record_id: int, key: str = "Id"):
+    def list_linked_records(self, table: str, link_field_id: str, record_id: int, key: str = "Id") -> dict[Any, Any]:
         """Retrieve list of linked records for a specific Link field and Record ID."""
         return {
             rec[key]: rec
@@ -92,7 +94,7 @@ class HealthDb:
                 f"/api/v2/tables/{table}/links/{link_field_id}/records/{record_id}")
         }
 
-    def today(self):
+    def today(self) -> tuple[Any, Any, Any]:
         """Compute nutrient intake for the current day."""
         rdi = self.list_table_records(
             RDI_TABLE,
@@ -127,7 +129,7 @@ class HealthDb:
         return table, next(iter(meals.values()))["Date"], tuple(rdi.keys()) + ("Amount (g)",)
 
 
-def format_amount(amount):
+def format_amount(amount: Any) -> str:
     """Render an amount or amount with RDI to string."""
     if isinstance(amount, dict):
         rdi = int(round(amount['RDI'] * 100, 0))
@@ -138,13 +140,13 @@ def format_amount(amount):
         return ""
 
 
-def nutrient_order(nutrient_names, k):
+def nutrient_order(nutrient_names: tuple[Any, ...], k: str) -> int:
     if k not in nutrient_names:
         raise ValueError(f"`{k}` not in nutrient names")
     return -nutrient_names.index(k)
 
 
-def print_ingredients(ingredients, nutrient_names):
+def print_ingredients(ingredients: Any, nutrient_names: Any) -> None:
     keys = sorted(
         (k for k in ingredients[0].keys() if k not in ("Name", "UpdatedAt")),
         key=lambda k: nutrient_order(nutrient_names, k),
@@ -164,7 +166,7 @@ def print_ingredients(ingredients, nutrient_names):
                          for ingredient in ingredients))
 
 
-def main():
+def main() -> None:
     db = HealthDb()
 
     total = {"Name": "Total"}

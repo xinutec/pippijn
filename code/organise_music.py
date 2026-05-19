@@ -11,7 +11,7 @@ UNKNOWN_ARTIST = "Unknown Artist"
 UNKNOWN_ALBUM = "Unknown Album"
 
 
-def tag(line: str) -> bool:
+def tag(line: str) -> str:
     return line[:line.index(" ")]
 
 

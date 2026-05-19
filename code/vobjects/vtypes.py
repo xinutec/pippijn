@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 import pprint
-import vobject
+import vobject  # type: ignore[import-untyped]
 
 from typing import List
 from typing import Optional
@@ -160,7 +160,8 @@ class Card:
         return card
 
 def from_string(s: str) -> List[Card]:
-    return eval(s)
+    cards: List[Card] = eval(s)
+    return cards
 
 def to_string(cards: List[Card]) -> str:
     pp = pprint.PrettyPrinter(indent=2, width=900)

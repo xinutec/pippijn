@@ -40,7 +40,7 @@ import subprocess
 # LOGIC
 # ==========================================
 
-def get_derangement(names):
+def get_derangement(names: list[str]) -> dict[str, str]:
     """Generates a mapping where no one is assigned to themselves."""
     while True:
         shuffled = names[:]
@@ -48,7 +48,7 @@ def get_derangement(names):
         if all(x != y for x, y in zip(names, shuffled)):
             return dict(zip(names, shuffled))
 
-def create_configmap(secret_data):
+def create_configmap(secret_data: dict[str, dict[str, str]]) -> str:
     """Generates the Kubernetes ConfigMap YAML."""
     
     # We embed the JSON data directly into the HTML or a separate JSON file in the ConfigMap
@@ -346,10 +346,10 @@ data:
 """
     return yaml
 
-def indent(text, spaces):
+def indent(text: str, spaces: int) -> str:
     return "\n".join(" " * spaces + line for line in text.splitlines())
 
-def send_email(to_email, name, code, password):
+def send_email(to_email: str, name: str, code: str, password: str) -> None:
     subject = "Jouw Sinterklaas Surprise Lootje"
     body = f"""Hallo {name},
 
@@ -383,7 +383,7 @@ De Sint
     except Exception as e:
         print(f"FAILED to send email to {name}: {e}")
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Sinterklaas Surprise Manager")
     parser.add_argument("--send-email", action="store_true", help="Actually send the emails to participants.")
     parser.add_argument("--smoke-test", action="store_true", help="Send email ONLY to Pippijn for testing.")
