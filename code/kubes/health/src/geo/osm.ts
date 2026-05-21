@@ -407,7 +407,19 @@ const LANDMARK_PRIORITY: Record<NearbyLandmark["type"], number> = {
 	highway: 1,
 };
 
+/** Metres of extra distance one full `LANDMARK_PRIORITY` level "buys".
+ *  A higher-priority landmark out-ranks a lower-priority one only while
+ *  it is within roughly this much farther; beyond that gap the nearer
+ *  feature wins. Without this, type priority is absolute and a café
+ *  (`amenity`) out-ranks a park (`leisure`) the stay is sitting in,
+ *  purely because "cafe" is a higher-priority tag. Tunable. */
+const PRIORITY_DISTANCE_SCALE_M = 40;
+
 export function pickBestLandmark(landmarks: NearbyLandmark[]): NearbyLandmark {
+	// Rank = type priority traded off against distance — each priority
+	// level is worth PRIORITY_DISTANCE_SCALE_M metres, so a higher tag
+	// wins only while it is not dramatically farther than a lower one.
+	const rank = (l: NearbyLandmark): number => LANDMARK_PRIORITY[l.type] - l.distanceM / PRIORITY_DISTANCE_SCALE_M;
 	return [...landmarks].sort((a, b) => {
 		// An institution whose footprint encloses the stay outranks
 		// everything else, regardless of which node is nearer the GPS
@@ -415,9 +427,9 @@ export function pickBestLandmark(landmarks: NearbyLandmark[]): NearbyLandmark {
 		const ea = a.enclosing === true;
 		const eb = b.enclosing === true;
 		if (ea !== eb) return ea ? -1 : 1;
-		const pa = LANDMARK_PRIORITY[a.type];
-		const pb = LANDMARK_PRIORITY[b.type];
-		if (pa !== pb) return pb - pa;
+		const ra = rank(a);
+		const rb = rank(b);
+		if (ra !== rb) return rb - ra;
 		return a.distanceM - b.distanceM;
 	})[0];
 }

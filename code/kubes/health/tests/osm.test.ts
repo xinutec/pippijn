@@ -294,6 +294,27 @@ describe("pickBestLandmark", () => {
 		];
 		expect(pickBestLandmark(landmarks).name).toBe("Near University");
 	});
+
+	it("does not let a far higher-priority venue out-rank a much closer one", () => {
+		// The motivating bug: a café (amenity) ~95 m off vs a park
+		// (leisure) the stay is actually sitting in, 5 m away. Type
+		// priority must not override a distance gap that large.
+		const landmarks: NearbyLandmark[] = [
+			{ name: "Distant Cafe", type: "amenity", subtype: "cafe", distanceM: 95 },
+			{ name: "Adjacent Park", type: "leisure", subtype: "park", distanceM: 5 },
+		];
+		expect(pickBestLandmark(landmarks).name).toBe("Adjacent Park");
+	});
+
+	it("still prefers a higher-priority venue when it is only slightly farther", () => {
+		// A café 30 m off vs a park 10 m off — the café is a real venue
+		// and not dramatically farther, so type priority still wins.
+		const landmarks: NearbyLandmark[] = [
+			{ name: "Corner Cafe", type: "amenity", subtype: "cafe", distanceM: 30 },
+			{ name: "Small Park", type: "leisure", subtype: "park", distanceM: 10 },
+		];
+		expect(pickBestLandmark(landmarks).name).toBe("Corner Cafe");
+	});
 });
 
 describe("filterLandmarks", () => {
