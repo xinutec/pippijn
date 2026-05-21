@@ -16,7 +16,7 @@
 		<mat-card-content>
 			@if (loading()) {
 				<mat-spinner diameter="32"></mat-spinner>
-			} @else if (status(); as s) {
+			} @else if (health.shareStatus(); as s) {
 				@if (s.active && s.url) {
 					<mat-form-field appearance="outline" class="full-width">
 						<mat-label>Share link</mat-label>
@@ -50,7 +50,7 @@
 				<p class="error">{{ e }}</p>
 			}
 		</mat-card-content>
-		@if (status(); as s) {
+		@if (health.shareStatus(); as s) {
 			<mat-card-actions align="end">
 				@if (s.active) {
 					<button mat-button color="warn" (click)="revoke()">Revoke</button>

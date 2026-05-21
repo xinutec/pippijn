@@ -167,6 +167,11 @@ export class HealthService {
    *  the recipient is authenticated as the owner (read-only,
    *  date-windowed — enforced server-side). Null in owner mode. */
   readonly shareToken = signal<string | null>(null);
+  /** The owner's share-link status, or null until first loaded.
+   *  Held on the service so the toolbar quick-copy button and the
+   *  settings page read one source of truth — creating, rotating or
+   *  revoking a share anywhere updates the toolbar immediately. */
+  readonly shareStatus = signal<ShareStatus | null>(null);
   private readonly connection = inject(ConnectionStateService);
 
   /** All HTTP calls go through here so the connection-state service
@@ -271,6 +276,14 @@ export class HealthService {
     return res.json();
   }
 
+  /** Fetch the share status and publish it on the `shareStatus`
+   *  signal. Throws on failure — the settings page surfaces the
+   *  error; the toolbar loader ignores it (a missing quick-copy
+   *  button is harmless). */
+  async refreshShareStatus(): Promise<void> {
+    this.shareStatus.set(await this.getShareStatus());
+  }
+
   async createOrRotateShare(daysBack: number): Promise<ShareStatus> {
     const res = await this.fetch("/api/share", {
       method: "POST",
@@ -278,12 +291,15 @@ export class HealthService {
       body: JSON.stringify({ daysBack }),
     });
     if (!res.ok) throw new Error(`share create failed: ${res.status}`);
-    return res.json();
+    const status = (await res.json()) as ShareStatus;
+    this.shareStatus.set(status);
+    return status;
   }
 
   async revokeShare(): Promise<void> {
     const res = await this.fetch("/api/share", { method: "DELETE" });
     if (!res.ok && res.status !== 204) throw new Error(`share revoke failed: ${res.status}`);
+    this.shareStatus.set({ active: false });
   }
 
   /** Diagnostic logging: post `event` + arbitrary `data` to the

@@ -13,14 +13,12 @@
 
 import { TestBed } from "@angular/core/testing";
 import { describe, expect, it, beforeEach } from "vitest";
-import { provideNoopAnimations } from "@angular/platform-browser/animations";
 import { ReauthBannerComponent } from "./reauth-banner.component";
 import { ConnectionStateService } from "../../services/connection-state.service";
 
 function setup() {
 	TestBed.configureTestingModule({
 		imports: [ReauthBannerComponent],
-		providers: [provideNoopAnimations()],
 	});
 	const fixture = TestBed.createComponent(ReauthBannerComponent);
 	const connection = TestBed.inject(ConnectionStateService);

@@ -8,7 +8,7 @@ import { MatInputModule } from "@angular/material/input";
 import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";
 import { MatSnackBar, MatSnackBarModule } from "@angular/material/snack-bar";
 import { MatTooltipModule } from "@angular/material/tooltip";
-import { HealthService, type ShareStatus } from "../../services/health.service";
+import { HealthService } from "../../services/health.service";
 
 /**
  * Settings page. Today: just the share-link section.
@@ -45,7 +45,6 @@ export class SettingsComponent implements OnInit {
 	readonly health = inject(HealthService);
 	private readonly snackBar = inject(MatSnackBar);
 	readonly loading = signal(true);
-	readonly status = signal<ShareStatus | null>(null);
 	readonly error = signal<string | null>(null);
 	daysInput = 7;
 
@@ -57,7 +56,7 @@ export class SettingsComponent implements OnInit {
 		this.error.set(null);
 		this.loading.set(true);
 		try {
-			this.status.set(await this.health.getShareStatus());
+			await this.health.refreshShareStatus();
 		} catch (e) {
 			this.error.set((e as Error).message);
 		} finally {
@@ -68,8 +67,7 @@ export class SettingsComponent implements OnInit {
 	async create(): Promise<void> {
 		this.error.set(null);
 		try {
-			const s = await this.health.createOrRotateShare(this.daysInput);
-			this.status.set(s);
+			await this.health.createOrRotateShare(this.daysInput);
 		} catch (e) {
 			this.error.set((e as Error).message);
 		}
@@ -78,8 +76,7 @@ export class SettingsComponent implements OnInit {
 	async rotate(currentDays: number): Promise<void> {
 		this.error.set(null);
 		try {
-			const s = await this.health.createOrRotateShare(currentDays);
-			this.status.set(s);
+			await this.health.createOrRotateShare(currentDays);
 		} catch (e) {
 			this.error.set((e as Error).message);
 		}
@@ -89,7 +86,6 @@ export class SettingsComponent implements OnInit {
 		this.error.set(null);
 		try {
 			await this.health.revokeShare();
-			this.status.set({ active: false });
 		} catch (e) {
 			this.error.set((e as Error).message);
 		}
