@@ -71,7 +71,7 @@ function sinceDate(days: number): string {
  *  sessions: max(sinceDate(days), shareViewer.from), so the share's
  *  date window strictly caps the multi-day read regardless of how
  *  large `days` is. */
-function sinceDateForSession(session: { shareViewer?: { from: string; to: string } }, days: number): string {
+export function sinceDateForSession(session: { shareViewer?: { from: string; to: string } }, days: number): string {
 	const owner = sinceDate(days);
 	if (!session.shareViewer) return owner;
 	return owner < session.shareViewer.from ? session.shareViewer.from : owner;
@@ -80,7 +80,10 @@ function sinceDateForSession(session: { shareViewer?: { from: string; to: string
 /** True iff a single-day request for `date` should be rejected
  *  because the session is a share-viewer and the date is outside
  *  the share window. */
-function isDateOutsideShareWindow(session: { shareViewer?: { from: string; to: string } }, date: string): boolean {
+export function isDateOutsideShareWindow(
+	session: { shareViewer?: { from: string; to: string } },
+	date: string,
+): boolean {
 	if (!session.shareViewer) return false;
 	return date < session.shareViewer.from || date > session.shareViewer.to;
 }
