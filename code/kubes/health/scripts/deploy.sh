@@ -49,7 +49,15 @@ case "${1:-}" in
 esac
 
 cleanup() {
-	[[ "$CLEANUP_MSG_FILE" -eq 1 && -f "$MSG_FILE" ]] && rm -f "$MSG_FILE"
+	# Preserve the script's real exit status. Under `set -e`, an EXIT
+	# trap whose last command fails clobbers the exit code — and on a
+	# `-F` run CLEANUP_MSG_FILE is 0, so the `[[ ]]` test below is
+	# false, which used to turn every successful deploy into exit 1.
+	local rc=$?
+	if [[ "$CLEANUP_MSG_FILE" -eq 1 && -f "$MSG_FILE" ]]; then
+		rm -f "$MSG_FILE"
+	fi
+	return "$rc"
 }
 trap cleanup EXIT
 
