@@ -2,7 +2,7 @@ import { TestBed } from "@angular/core/testing";
 import { signal } from "@angular/core";
 import { provideRouter } from "@angular/router";
 import { beforeEach, describe, expect, it } from "vitest";
-import { type ActivityDay, HealthService, type SleepLog } from "../../services/health.service";
+import { type ActivityDay, HealthService, type SleepLog, type VelocityData } from "../../services/health.service";
 import { DashboardComponent } from "./dashboard.component";
 
 // Hand-rolled mock — no spy library needed for these read-only methods.
@@ -140,5 +140,112 @@ describe("DashboardComponent.loadData — date matching", () => {
 		await cmp.loadData();
 
 		expect(cmp.latestSleep()).toBeNull();
+	});
+});
+
+/** A promise whose resolution the test triggers by hand — lets a test
+ *  interleave the overlapping loadData calls that a fast burst of
+ *  day-navigation produces, deterministically. */
+interface Deferred<T> {
+	promise: Promise<T>;
+	resolve: (value: T) => void;
+}
+function deferred<T>(): Deferred<T> {
+	let resolve: (value: T) => void = () => {};
+	const promise = new Promise<T>((r) => {
+		resolve = r;
+	});
+	return { promise, resolve };
+}
+
+/** HealthService mock whose `getVelocity` is deferred per date: the
+ *  test holds each day's promise and resolves it when it chooses, so
+ *  load-completion order is fully under the test's control. */
+function makeRaceMock(): { health: HealthService; pending: Map<string, Deferred<VelocityData>> } {
+	const pending = new Map<string, Deferred<VelocityData>>();
+	const health = {
+		user: signal(null),
+		shareToken: signal(null),
+		checkAuth: async () => true,
+		getActivity: async () => [],
+		getSleep: async () => [],
+		getSleepStages: async () => [],
+		getHeartRateIntraday: async () => [],
+		getVelocity: (date: string) => {
+			const d = deferred<VelocityData>();
+			pending.set(date, d);
+			return d.promise;
+		},
+	} as unknown as HealthService;
+	return { health, pending };
+}
+
+describe("DashboardComponent — concurrent day navigation", () => {
+	beforeEach(() => {
+		TestBed.configureTestingModule({
+			imports: [DashboardComponent],
+			providers: [
+				provideRouter([{ path: "**", children: [] }]),
+				{ provide: HealthService, useValue: makeHealthMock() },
+			],
+		});
+	});
+
+	it("drops a day's data when the user navigated away before it loaded", async () => {
+		const { health, pending } = makeRaceMock();
+		TestBed.overrideProvider(HealthService, { useValue: health });
+		const cmp = TestBed.createComponent(DashboardComponent).componentInstance;
+
+		cmp.selectedDate.set("2026-05-14");
+		const inFlight = cmp.loadData(); // load starts for 2026-05-14
+		cmp.selectedDate.set("2026-05-10"); // user moves on while it is in flight
+
+		const d14 = pending.get("2026-05-14");
+		if (!d14) throw new Error("expected a getVelocity call for 2026-05-14");
+		d14.resolve({ points: [], segments: [] } as unknown as VelocityData);
+		await inFlight;
+
+		// The 2026-05-14 batch came back after the user left that day —
+		// it must not overwrite the current day's state.
+		expect(cmp.velocity()).toBeNull();
+	});
+
+	it("keeps the landed-on day's data when an earlier day's load resolves last", async () => {
+		const { health, pending } = makeRaceMock();
+		TestBed.overrideProvider(HealthService, { useValue: health });
+		const cmp = TestBed.createComponent(DashboardComponent).componentInstance;
+
+		cmp.selectedDate.set("2026-05-14");
+		const loadLeaving = cmp.loadData(); // the day being left
+		cmp.selectedDate.set("2026-05-10");
+		const loadLanded = cmp.loadData(); // the day the user landed on
+
+		const velLeaving = { points: [], segments: [] } as unknown as VelocityData;
+		const velLanded = { points: [], segments: [] } as unknown as VelocityData;
+		const dLeaving = pending.get("2026-05-14");
+		const dLanded = pending.get("2026-05-10");
+		if (!dLeaving || !dLanded) throw new Error("expected getVelocity calls for both days");
+		// Out of order: the landed-on day returns first, the older day's
+		// slower request returns last.
+		dLanded.resolve(velLanded);
+		dLeaving.resolve(velLeaving);
+		await Promise.all([loadLeaving, loadLanded]);
+
+		expect(cmp.velocity()).toBe(velLanded);
+	});
+
+	it("steps one day per changeDay call in a fast burst", () => {
+		const { health } = makeRaceMock();
+		TestBed.overrideProvider(HealthService, { useValue: health });
+		const cmp = TestBed.createComponent(DashboardComponent).componentInstance;
+
+		cmp.selectedDate.set("2026-05-14");
+		// Four clicks with no chance for a router round-trip in between.
+		cmp.changeDay(-1);
+		cmp.changeDay(-1);
+		cmp.changeDay(-1);
+		cmp.changeDay(-1);
+
+		expect(cmp.selectedDate()).toBe("2026-05-10");
 	});
 });

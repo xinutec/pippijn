@@ -213,24 +213,19 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		const initialTab = this.parseTabParam(this.route.snapshot.queryParamMap.get("tab"));
 		if (initialTab !== null) this.view.set(initialTab);
 
-		// Browser back/forward + in-app navigation: react to query-param
-		// changes. The chevron buttons call router.navigate, which fires
-		// this subscription, which calls loadData.
-		this.querySub = this.route.queryParamMap.subscribe(async (params) => {
+		// React to query-param changes the app did not initiate itself:
+		// browser back/forward and direct URL edits. Chevron clicks go
+		// through changeDay, which applies the day directly — the guard
+		// below then makes this a no-op for them.
+		this.querySub = this.route.queryParamMap.subscribe((params) => {
 			// Tab changes (incl. browser back/forward) are cheap — just
 			// switch the view, no data reload.
 			const tab = this.parseTabParam(params.get("tab"));
 			if (tab !== null && tab !== this.view()) this.view.set(tab);
-			// Date changes trigger a data reload.
+			// Date changes trigger a data reload via goToDay.
 			const next = this.parseDateParam(params.get("date")) ?? todayLocal();
 			if (next === this.selectedDate()) return;
-			this.selectedDate.set(next);
-			this.dayLoading.set(true);
-			try {
-				await this.loadData();
-			} finally {
-				this.dayLoading.set(false);
-			}
+			void this.goToDay(next);
 		});
 
 		// Fire-and-forget: keep PhoneTrack's visualisation filter aligned
@@ -261,6 +256,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
 				this.health.getVelocity(date).catch(() => null),
 			]);
 
+			// A burst of day-navigation fires overlapping loadData calls.
+			// If the user moved to another day while these requests were
+			// in flight, drop this now-stale batch instead of letting it
+			// overwrite the current day's data.
+			if (this.selectedDate() !== date) return;
+
 			this.activity.set(activity);
 			this.sleep.set(sleep);
 			this.sleepStages.set(stages);
@@ -280,7 +281,21 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		}
 	}
 
-	async changeDay(delta: number): Promise<void> {
+	/** Switch the dashboard to `date`: apply it to state immediately,
+	 *  then load that day's data. `loadData` discards its own result
+	 *  if the user navigates on before it returns, so a fast burst of
+	 *  navigation settles on the last day actually selected. */
+	private async goToDay(date: string): Promise<void> {
+		this.selectedDate.set(date);
+		this.dayLoading.set(true);
+		try {
+			await this.loadData();
+		} finally {
+			this.dayLoading.set(false);
+		}
+	}
+
+	changeDay(delta: number): void {
 		const d = new Date(this.selectedDate() + "T12:00:00"); // noon to avoid DST edge
 		d.setDate(d.getDate() + delta);
 		const newDate = formatDateInTz(d, browserTimezone());
@@ -288,10 +303,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		const left = this.leftEdge();
 		if (left !== null && newDate < left) return;
 		if (newDate === this.selectedDate()) return;
-		// Router navigation with relativeTo: this.route preserves the
-		// active path (`/` or `/share/<token>`) and only rewrites the
-		// query string. The queryParamMap subscription above picks
-		// up the change and calls loadData.
+		// Apply the step immediately so a fast burst of clicks each
+		// computes from the correct day, not a stale one.
+		void this.goToDay(newDate);
+		// Sync the URL too (relativeTo: this.route keeps `/` or
+		// `/share/<token>` and only rewrites the query string) so
+		// reload / share / browser-back stay in step. The queryParamMap
+		// subscription sees selectedDate already at newDate and skips a
+		// duplicate load.
 		const queryParams = newDate === todayLocal() ? { date: null } : { date: newDate };
 		void this.router.navigate([], {
 			relativeTo: this.route,
