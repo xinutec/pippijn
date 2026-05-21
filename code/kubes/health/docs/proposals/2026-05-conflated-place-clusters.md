@@ -1,7 +1,7 @@
 ---
 status: active
 created: 2026-05-21
-updated: 2026-05-21
+updated: 2026-05-22
 ---
 
 # Proposal — disambiguating co-located places by time-of-day
@@ -38,10 +38,12 @@ badly when distinct places sit close together:
 
 The 2026-05-20 golden day reconstructed one such cluster:
 
-- One `focus_place`, `frequent`, `uniqueDays = 14`, ~34 h dwell —
-  actually **two** real places ~115 m apart: a café and a residence the
-  user visits repeatedly, mostly in the evening (and the café a few
-  times, in the daytime).
+- One `focus_place`, `frequent`, ~36 h dwell over 17 stays — actually
+  **two** real places: a residence visited on 14 separate evenings and
+  a café visited 3 times across 2 daytimes. Their stay-centroid lobes
+  sit only ~45 m apart (measured from the captured fixture; the
+  residence's own GPS scatter spans ~75 m), so the spatial gap alone
+  is well inside one place's noise.
 - `clusterStays` (150 m) merged café-visits and residence-visits; the
   amenity vote landed on the café. (`pickBestLandmark` also ranks the
   café's `amenity` tag above a closer park's `leisure` tag regardless
@@ -90,9 +92,10 @@ bug — for two runtime reasons:
   scores a stay against every `focus_place` with a Gaussian on distance
   whose σ floor reaches 100 m — `place-prior.ts` deliberately widened it
   there to tolerate 100–200 m of day-of GPS scatter. Two `focus_places`
-  115 m apart are within ~1 σ; the distance term separates them by well
-  under one log-point. Which wins is then decided by the frequency/time
-  priors on a thin, noise-fragile margin — not robustly by geometry.
+  ~45 m apart are deep inside one σ; the distance term separates them by
+  a fraction of a log-point. Which wins is then decided by the
+  frequency/time priors on a thin, noise-fragile margin — not robustly
+  by geometry.
 
 - **Even when the runtime picks the residence lobe, it still mislabels
   it.** A naively split residence lobe still has `sleep_hours = 0`
@@ -132,32 +135,51 @@ and replaces — the current binary sleep/awake time signal
 fall out of the histogram. Schema change: one column on `focus_places`
 (cheap — the table is DELETE+INSERT-rebuilt nightly).
 
-### 2. Split a conflated cluster on the joint (space, time-of-day)
-distribution
+### 2. Split a conflated cluster on time-of-day
 
-After `clusterStays`, run a `splitCluster` pass on each cluster:
+After `clusterStays`, run a `splitCluster` pass on each cluster.
+Time-of-day is the separating signal. Each member stay is embedded by
+its time-of-day alone — the stay's midpoint local-solar hour as a
+unit-circle angle, so 23:00 and 01:00 sit near each other. A
+deterministic 2-means fit on that circle produces two candidate lobes,
+which must clear three gates — *all* of them — to be accepted:
 
-- Represent each member stay by its median centroid **and** its
-  time-of-day, standardised (z-scored) so the split is not hostage to
-  an arbitrary metres-per-hour weighting. Time-of-day is circular —
-  represent it so 23:00 and 01:00 are near (e.g. as a unit-circle
-  angle).
-- Test the member stays for bimodality with a **model-selection**
-  criterion — fit one component vs two and accept two only when it
-  clearly beats one (silhouette / gap-style margin) — not a hard
-  sub-radius cliff. A genuine single noisy place is unimodal and the
-  test rejects the split.
-- Split only when the two components are each *substantial* (≥ a small
-  visit-day floor — enough to reject splitting off a single outlier
-  visit, low enough not to fold a real 3–4-visit café lobe into the
-  residence) and are separated by a real margin in space **or**
-  time-of-day.
+1. **Bimodality.** The two lobes are separated by an empty band of time
+   ≥ ~1.5 h wide: no visit falls between them. A genuine daytime mode
+   and evening mode have such a gap; a place visited at one consistent
+   time, or diffusely across the day, does not — 2-means still cuts it,
+   but the two halves touch.
+2. **Substantiality.** Each lobe has ≥ 2 distinct visit-days — a place
+   visited on two separate days has recurred; a lone outlier visit
+   (one day) cannot split off.
+3. **Spatial distinctness.** The two lobes' centroids are ≥ ~30 m
+   apart. This is what separates a genuine café + residence from a
+   *single* place visited at two times of day (a home arrived in the
+   evening, left in the morning): the latter is temporally bimodal too,
+   but its two lobes share one location.
 
-Because café-daytime and residence-evening are ~6–8 h apart in
-time-of-day, the joint distribution is clearly bimodal even though the
-~115 m spatial gap alone is marginal. The split is therefore robust
-*because* it does not depend on the spatial gap — that is the whole
-point of carrying the temporal dimension.
+**Why time-of-day alone, not the joint (space, time) distribution.**
+The first cut of this design embedded each stay in a standardised joint
+(x, y, time-of-day) feature space and clustered that. It failed against
+the real captured cluster: a residence's own ~75 m of indoor-GPS
+scatter, z-scored to unit variance, competes with — and overpowered —
+the café/residence time gap, so 2-means split the residence's spatial
+noise instead of separating café from residence. Clustering on
+time-of-day alone removes that failure mode; space earns its place as
+gate 3, a veto, not as a clustering dimension.
+
+A model-selection silhouette was likewise tried for gate 1 and
+rejected: 2-means cutting one unimodal spread of visit times scores a
+silhouette ~0.5, indistinguishable from a weak genuine bimodality. The
+width of the empty band between the lobes is the signal that actually
+separates "one mode, cut in half" from "two modes."
+
+The gate thresholds are calibrated against the real captured fixture
+(see Testing): the conflated café + residence has a ~2.8 h between-lobe
+time gap and ~45 m between lobe centroids; the Home cluster's two
+time-of-day lobes sit ~2 m apart. Because café-daytime and
+residence-evening are several hours apart, the split is robust *because*
+it does not depend on the marginal spatial gap.
 
 ### 3. Runtime: time-of-day discrimination in `pickBestPlace`
 

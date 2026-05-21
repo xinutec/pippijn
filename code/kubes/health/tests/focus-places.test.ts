@@ -6,11 +6,17 @@ import {
 	clusterStays,
 	detectFocusPlaces,
 	detectStays,
+	HOUR_BUCKETS,
+	hourProfileForRange,
+	hourProfileOf,
 	localSolarDayOfWeek,
 	localSolarHour,
+	parseHourProfile,
 	pickWinningAmenity,
 	type RawPoint,
 	type Stay,
+	serializeHourProfile,
+	splitCluster,
 	uniqueDayCount,
 } from "../src/geo/focus-places.js";
 
@@ -477,5 +483,151 @@ describe("pickWinningAmenity", () => {
 			["A", 60 * 5], // 5 minutes total
 		]);
 		expect(pickWinningAmenity(votes, { minWeight: 60 * 30, minFraction: 0.5 })).toBeNull();
+	});
+});
+
+describe("hourProfileOf / hourProfileForRange", () => {
+	// All test stays sit at lon 0 so local-solar hour == UTC hour and the
+	// bucket indices read directly off the UTC clock the `at()` builder uses.
+	function lonZeroStay(startTs: number, durationSec: number): Stay {
+		return { startTs, endTs: startTs + durationSec, centroidLat: 0, centroidLon: 0, pointCount: 6, durationSec };
+	}
+
+	it("puts all weight in one bucket for a stay that stays inside one hour", () => {
+		// 13:00–13:50 — every 30-min sample lands in hour 13.
+		const c = makeCluster([lonZeroStay(at(0, 13), 50 * 60)]);
+		const p = hourProfileOf(c);
+		expect(p).toHaveLength(HOUR_BUCKETS);
+		expect(p[13]).toBeCloseTo(1, 5);
+		expect(p.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 5);
+	});
+
+	it("spreads weight evenly across the hours a long stay covers", () => {
+		// 18:00–23:30 — 30-min samples land 2-per-hour in hours 18..23.
+		const c = makeCluster([lonZeroStay(at(0, 18), 5.5 * 3600)]);
+		const p = hourProfileOf(c);
+		for (let h = 18; h <= 23; h++) expect(p[h]).toBeCloseTo(1 / 6, 5);
+		expect(p[12]).toBe(0);
+		expect(p.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 5);
+	});
+
+	it("aggregates a cluster's stays — a daytime visit and an evening visit are both visible", () => {
+		// One daytime café-length stay, one long evening stay.
+		const c = makeCluster([lonZeroStay(at(0, 14), 60 * 60), lonZeroStay(at(1, 20), 60 * 60)]);
+		const p = hourProfileOf(c);
+		expect(p[14]).toBeGreaterThan(0);
+		expect(p[20]).toBeGreaterThan(0);
+		expect(p.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 5);
+	});
+
+	it("hourProfileForRange buckets a single time range", () => {
+		const p = hourProfileForRange(at(0, 9), at(0, 9) + 110 * 60, 0);
+		expect(p).toHaveLength(HOUR_BUCKETS);
+		expect(p[9]).toBeGreaterThan(0);
+		expect(p[10]).toBeGreaterThan(0);
+		expect(p[11]).toBe(0);
+		expect(p.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 5);
+	});
+});
+
+describe("serializeHourProfile / parseHourProfile", () => {
+	it("round-trips a profile through permille serialisation", () => {
+		const c = makeCluster([
+			{ startTs: at(0, 20), endTs: at(0, 20) + 3600, centroidLat: 0, centroidLon: 0, pointCount: 6, durationSec: 3600 },
+		]);
+		const profile = hourProfileOf(c);
+		const restored = parseHourProfile(serializeHourProfile(profile));
+		expect(restored).not.toBeNull();
+		for (let h = 0; h < HOUR_BUCKETS; h++) expect(restored?.[h]).toBeCloseTo(profile[h], 2);
+	});
+
+	it("serialises to a compact comma-joined string of 24 integers", () => {
+		const s = serializeHourProfile(new Array(HOUR_BUCKETS).fill(1 / HOUR_BUCKETS));
+		expect(s.split(",")).toHaveLength(HOUR_BUCKETS);
+		expect(s.length).toBeLessThan(127);
+	});
+
+	it("parseHourProfile returns null for null, empty, or wrong-length input", () => {
+		expect(parseHourProfile(null)).toBeNull();
+		expect(parseHourProfile("")).toBeNull();
+		expect(parseHourProfile("1,2,3")).toBeNull();
+	});
+});
+
+describe("splitCluster", () => {
+	const BASE_LAT = 51.5;
+	const BASE_LON = 0; // local solar hour == UTC hour
+
+	// Deterministic pseudo-random in [-1, 1) from an integer seed — keeps
+	// the synthetic scatter realistic but the test reproducible.
+	function rand(seed: number): number {
+		const x = Math.sin(seed * 12.9898) * 43758.5453;
+		return 2 * (x - Math.floor(x)) - 1;
+	}
+	/** A stay on `day` starting near `hour`, `eastM` metres east of base,
+	 *  with ±`jitterM` of GPS scatter, lasting `durMin` minutes. */
+	function mkStay(seed: number, day: number, hour: number, eastM: number, jitterM: number, durMin: number): Stay {
+		const p = offset(BASE_LAT, BASE_LON, rand(seed) * jitterM, eastM + rand(seed + 100) * jitterM);
+		const startTs = at(day, hour, Math.floor((rand(seed + 200) + 1) * 25));
+		return {
+			startTs,
+			endTs: startTs + durMin * 60,
+			centroidLat: p.lat,
+			centroidLon: p.lon,
+			pointCount: 8,
+			durationSec: durMin * 60,
+		};
+	}
+
+	it("does not split a single GPS-noisy place (no-regression)", () => {
+		// 14 evening visits to one residence — real ±60 m GPS scatter,
+		// consistent evening times. A single noisy place must stay one.
+		const stays: Stay[] = [];
+		for (let i = 0; i < 14; i++) stays.push(mkStay(i, i, 19, 0, 60, 180));
+		const result = splitCluster(makeCluster(stays));
+		expect(result).toHaveLength(1);
+		expect(result[0].stays).toHaveLength(14);
+	});
+
+	it("splits a conflated café + residence cluster", () => {
+		const stays: Stay[] = [];
+		// 6 daytime café visits ~13:00, ~90 min, at base.
+		for (let i = 0; i < 6; i++) stays.push(mkStay(i, i, 13, 0, 20, 90));
+		// 14 evening residence visits ~20:00, ~5 h, 115 m east.
+		for (let i = 0; i < 14; i++) stays.push(mkStay(i + 50, i, 20, 115, 20, 300));
+		const result = splitCluster(makeCluster(stays));
+		expect(result).toHaveLength(2);
+		expect(result.map((c) => c.stays.length).sort((x, y) => x - y)).toEqual([6, 14]);
+		// Each lobe is temporally coherent — all daytime or all evening.
+		for (const lobe of result) {
+			const hours = lobe.stays.map((s) => localSolarHour(s.startTs, BASE_LON));
+			const allDaytime = hours.every((h) => h >= 11 && h <= 15);
+			const allEvening = hours.every((h) => h >= 18 && h <= 22);
+			expect(allDaytime || allEvening).toBe(true);
+		}
+	});
+
+	it("splits an asymmetric cluster without folding the small 3-visit lobe", () => {
+		const stays: Stay[] = [];
+		for (let i = 0; i < 14; i++) stays.push(mkStay(i, i, 20, 115, 20, 300));
+		for (let i = 0; i < 3; i++) stays.push(mkStay(i + 50, i * 4, 13, 0, 20, 90));
+		const result = splitCluster(makeCluster(stays));
+		expect(result).toHaveLength(2);
+		expect(result.map((c) => c.stays.length).sort((x, y) => x - y)).toEqual([3, 14]);
+	});
+
+	it("does not split off a single outlier visit (substantiality floor)", () => {
+		const stays: Stay[] = [];
+		for (let i = 0; i < 14; i++) stays.push(mkStay(i, i, 20, 0, 50, 180));
+		// One lone outlier — far away, different time. Its lobe is 1 day.
+		stays.push(mkStay(99, 7, 4, 400, 5, 120));
+		expect(splitCluster(makeCluster(stays))).toHaveLength(1);
+	});
+
+	it("does not split a cluster with too few unique days", () => {
+		// Three visit-days cannot form two lobes of ≥ SPLIT_MIN_LOBE_DAYS each.
+		const stays: Stay[] = [];
+		for (let i = 0; i < 3; i++) stays.push(mkStay(i, i, 13, 0, 20, 90));
+		expect(splitCluster(makeCluster(stays))).toHaveLength(1);
 	});
 });

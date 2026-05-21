@@ -181,6 +181,189 @@ function mergeCluster(into: Cluster, other: Cluster): void {
 	for (const s of other.stays) into.stays.push(s);
 }
 
+// --- Cluster splitting: separate two co-located places by time-of-day ---
+
+/** Minimum distinct visit-days a split-off lobe must have. Below this a
+ *  candidate lobe is a single stray visit, not a place. Two: a place
+ *  visited on two separate days has recurred — the real captured café
+ *  lobe is exactly this (3 visits across 2 days). One genuine outlier
+ *  visit (1 day) is still rejected. */
+export const SPLIT_MIN_LOBE_DAYS = 2;
+
+/** The two time-of-day lobes must be separated by an empty band at
+ *  least this many hours wide — no visit falls between them. This is
+ *  the bimodality test: a genuine daytime mode and evening mode have
+ *  a real gap between them, whereas k-means cutting one continuous
+ *  spread of visits leaves the two halves touching. Calibrated against
+ *  the real captured café+residence cluster (~2.8 h between lobes). */
+const SPLIT_MIN_TIME_GAP_HOURS = 1.5;
+
+/** A split is kept only when the two time-of-day lobes sit at
+ *  spatially distinct places — their centroids at least this far
+ *  apart. Below this the cluster is one place visited at two times of
+ *  day (a home arrived in the evening, left in the morning), not two
+ *  places — and must not split. Calibrated against real data: the
+ *  captured Home cluster's two time-of-day lobes are ~2 m apart, the
+ *  captured café + residence lobes ~45 m apart. */
+const SPLIT_MARGIN_M = 30;
+
+const KMEANS_MAX_ITERS = 50;
+
+/** Build a cluster from a set of stays — dwell-weighted centroid, like
+ *  `clusterStays`. `id` is a placeholder; the caller re-assigns it. */
+function clusterFromStays(stays: Stay[]): Cluster {
+	let totalDwellSec = 0;
+	let lat = 0;
+	let lon = 0;
+	for (const s of stays) {
+		totalDwellSec += s.durationSec;
+		lat += s.centroidLat * s.durationSec;
+		lon += s.centroidLon * s.durationSec;
+	}
+	return { id: 0, centroidLat: lat / totalDwellSec, centroidLon: lon / totalDwellSec, stays, totalDwellSec };
+}
+
+function sqDist(a: readonly number[], b: readonly number[]): number {
+	let s = 0;
+	for (let i = 0; i < a.length; i++) {
+		const d = a[i] - b[i];
+		s += d * d;
+	}
+	return s;
+}
+
+function meanVec(pts: number[][], assign: number[], label: number, fallback: number[]): number[] {
+	const sum = new Array<number>(fallback.length).fill(0);
+	let count = 0;
+	for (let i = 0; i < pts.length; i++) {
+		if (assign[i] !== label) continue;
+		count++;
+		for (let d = 0; d < sum.length; d++) sum[d] += pts[i][d];
+	}
+	return count === 0 ? fallback : sum.map((v) => v / count);
+}
+
+/** Deterministic 2-means: initialise on the farthest-apart pair, then
+ *  Lloyd iterations to convergence. Returns a 0/1 label per point. */
+function kmeans2(pts: number[][]): number[] {
+	const n = pts.length;
+	let iA = 0;
+	let iB = 1;
+	let far = -1;
+	for (let i = 0; i < n; i++) {
+		for (let j = i + 1; j < n; j++) {
+			const d = sqDist(pts[i], pts[j]);
+			if (d > far) {
+				far = d;
+				iA = i;
+				iB = j;
+			}
+		}
+	}
+	let cA = [...pts[iA]];
+	let cB = [...pts[iB]];
+	const assign = new Array<number>(n).fill(0);
+	for (let iter = 0; iter < KMEANS_MAX_ITERS; iter++) {
+		let changed = false;
+		for (let i = 0; i < n; i++) {
+			const a = sqDist(pts[i], cA) <= sqDist(pts[i], cB) ? 0 : 1;
+			if (a !== assign[i]) {
+				assign[i] = a;
+				changed = true;
+			}
+		}
+		cA = meanVec(pts, assign, 0, cA);
+		cB = meanVec(pts, assign, 1, cB);
+		if (!changed) break;
+	}
+	return assign;
+}
+
+/** The width, in hours, of the smaller of the two empty time-of-day
+ *  bands separating the two lobes around the 24-hour circle. Large
+ *  when the lobes are a genuine daytime mode and evening mode with a
+ *  real gap between them; near zero when k-means has merely cut one
+ *  continuous spread of visit times (the two halves still touch). */
+function minBetweenLobeGapHours(stays: Stay[], assign: number[], lon: number): number {
+	const order = stays
+		.map((s, i) => ({ h: localSolarHourFractional((s.startTs + s.endTs) / 2, lon), label: assign[i] }))
+		.sort((a, b) => a.h - b.h);
+	let minGap = 24;
+	for (let i = 0; i < order.length; i++) {
+		const cur = order[i];
+		const nxt = order[(i + 1) % order.length];
+		if (cur.label === nxt.label) continue;
+		const gap = (((nxt.h - cur.h) % 24) + 24) % 24;
+		if (gap < minGap) minGap = gap;
+	}
+	return minGap;
+}
+
+/**
+ * Split a focus cluster into two when it conflates two co-located
+ * places — most often a daytime café and an evening residence less
+ * than CLUSTER_RADIUS_M apart, fused by `clusterStays`.
+ *
+ * Time-of-day is the separating signal. The visits are clustered by
+ * their circular time-of-day alone (a stay's midpoint solar hour as a
+ * unit-circle angle); a deterministic 2-means fit then has to clear
+ * three gates, all of them, to be accepted:
+ *
+ *   1. The two time-of-day lobes are genuinely bimodal — separated by
+ *      an empty band ≥ SPLIT_MIN_TIME_GAP_HOURS wide. A place visited
+ *      at one consistent time, or diffusely across the day, has no
+ *      such gap: k-means cuts it but the two halves still touch.
+ *   2. Both lobes are substantial — ≥ SPLIT_MIN_LOBE_DAYS distinct
+ *      visit-days, so a single stray visit cannot split off.
+ *   3. The two time-of-day lobes sit at spatially distinct places —
+ *      centroids ≥ SPLIT_MARGIN_M apart. This is what separates a
+ *      genuine café + residence from a *single* place visited at two
+ *      times of day (a home arrived in the evening, left in the
+ *      morning): the latter is temporally bimodal too, but its two
+ *      lobes share one location, so it must not split.
+ *
+ * Clustering on time-of-day rather than the joint (space, time)
+ * distribution is deliberate: a residence's own ~100 m of indoor-GPS
+ * scatter, standardised into a joint feature space, competes with —
+ * and on real data overpowers — the café/residence time gap. Space
+ * earns its place as gate 3, not as a clustering dimension.
+ *
+ * Pure; one binary split per cluster (no recursion).
+ */
+export function splitCluster(cluster: Cluster): Cluster[] {
+	const stays = cluster.stays;
+	// Can't form two ≥SPLIT_MIN_LOBE_DAYS lobes without twice that many days.
+	if (uniqueDayCount(stays, cluster.centroidLon) < 2 * SPLIT_MIN_LOBE_DAYS) return [cluster];
+
+	// Circular time-of-day embedding: each stay's midpoint solar hour as
+	// a unit-circle angle, so 23:00 and 01:00 sit near each other.
+	const tfeats = stays.map((s) => {
+		const ang = (localSolarHourFractional((s.startTs + s.endTs) / 2, cluster.centroidLon) / 24) * 2 * Math.PI;
+		return [Math.cos(ang), Math.sin(ang)];
+	});
+
+	const assign = kmeans2(tfeats);
+	const lobeA = stays.filter((_, i) => assign[i] === 0);
+	const lobeB = stays.filter((_, i) => assign[i] === 1);
+	if (lobeA.length === 0 || lobeB.length === 0) return [cluster];
+
+	const a = clusterFromStays(lobeA);
+	const b = clusterFromStays(lobeB);
+	const spatialGap = haversineMeters(a.centroidLat, a.centroidLon, b.centroidLat, b.centroidLon);
+	const daysA = uniqueDayCount(lobeA, cluster.centroidLon);
+	const daysB = uniqueDayCount(lobeB, cluster.centroidLon);
+
+	// Gate 1 — the two lobes are a genuine daytime/evening bimodality,
+	// separated by an empty band, not k-means cutting one spread of times.
+	if (minBetweenLobeGapHours(stays, assign, cluster.centroidLon) < SPLIT_MIN_TIME_GAP_HOURS) return [cluster];
+	// Gate 2 — each lobe is a place, not a stray visit.
+	if (daysA < SPLIT_MIN_LOBE_DAYS || daysB < SPLIT_MIN_LOBE_DAYS) return [cluster];
+	// Gate 3 — the two time-of-day lobes are at spatially distinct places.
+	if (spatialGap < SPLIT_MARGIN_M) return [cluster];
+
+	return [a, b];
+}
+
 // --- Classification ---
 
 /**
@@ -204,6 +387,72 @@ export function localSolarDayOfWeek(ts: number, lon: number): number {
 	const d = new Date(localTs * 1000);
 	// getUTCDay returns 0=Sun ... 6=Sat; shift to 0=Mon ... 6=Sun
 	return (d.getUTCDay() + 6) % 7;
+}
+
+/** Local solar hour as a continuous value in [0, 24) — like
+ *  `localSolarHour` but not floored. Used by `splitCluster` for a
+ *  circular time-of-day embedding that needs sub-hour resolution. */
+export function localSolarHourFractional(ts: number, lon: number): number {
+	const d = new Date(ts * 1000);
+	const utcMinutes = d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60;
+	const local = utcMinutes + (lon / 15) * 60;
+	const wrapped = ((local % (24 * 60)) + 24 * 60) % (24 * 60);
+	return wrapped / 60;
+}
+
+/** Number of buckets in an hour-of-day dwell profile — one per local
+ *  solar hour. */
+export const HOUR_BUCKETS = 24;
+
+const HOUR_PROFILE_STEP_SEC = 30 * 60;
+
+/** Accumulate a normalised HOUR_BUCKETS-element dwell histogram over a
+ *  set of time ranges, keyed by local solar hour. Samples every 30 min,
+ *  consistently with `sumHourBucket` / `weekdayDaytimeHours`. The
+ *  returned array sums to 1 (all-zero only for genuinely empty input). */
+function hourHistogram(ranges: readonly { startTs: number; endTs: number }[], lon: number): number[] {
+	const buckets = new Array<number>(HOUR_BUCKETS).fill(0);
+	for (const r of ranges) {
+		for (let t = r.startTs; t <= r.endTs; t += HOUR_PROFILE_STEP_SEC) {
+			buckets[localSolarHour(t, lon)] += 1;
+		}
+	}
+	const total = buckets.reduce((s, b) => s + b, 0);
+	return total === 0 ? buckets : buckets.map((b) => b / total);
+}
+
+/** The cluster's hour-of-day dwell profile — where, across the local
+ *  solar clock, this place's visits spend their time. Mined once per
+ *  nightly refresh; a pure function of the cluster's stays. Generalises
+ *  (and is meant to replace) the binary sleep/awake time signal. */
+export function hourProfileOf(cluster: Cluster): number[] {
+	return hourHistogram(cluster.stays, cluster.centroidLon);
+}
+
+/** The hour-of-day profile of a single [startTs, endTs] stay — the
+ *  runtime counterpart of `hourProfileOf`, used to score a day's stay
+ *  against each focus_place's mined profile. */
+export function hourProfileForRange(startTs: number, endTs: number, lon: number): number[] {
+	return hourHistogram([{ startTs, endTs }], lon);
+}
+
+/** Serialise an hour-of-day profile to a compact column value: 24
+ *  permille integers, comma-joined. Round-trips through
+ *  `parseHourProfile` to ~0.1 % precision — fine for a soft scoring
+ *  signal whose runtime term adds an ε floor anyway. */
+export function serializeHourProfile(profile: number[]): string {
+	return profile.map((f) => Math.round(f * 1000)).join(",");
+}
+
+/** Parse a stored hour-of-day profile back to fractions. Returns null
+ *  for a missing or malformed value (e.g. a row written before the
+ *  column existed) — callers treat null as "no time-of-day signal". */
+export function parseHourProfile(s: string | null): number[] | null {
+	if (!s) return null;
+	const parts = s.split(",");
+	if (parts.length !== HOUR_BUCKETS) return null;
+	const out = parts.map((p) => Number(p) / 1000);
+	return out.some((n) => Number.isNaN(n)) ? null : out;
 }
 
 function ymdLocal(ts: number, lon: number): string {
@@ -455,7 +704,14 @@ export interface PlaceDetectionResult {
 export function detectFocusPlaces(points: RawPoint[]): PlaceDetectionResult {
 	const filtered = points.filter((p) => p.accuracy === null || p.accuracy <= ACCURACY_FILTER_M);
 	const stays = detectStays(filtered);
-	const clusters = clusterStays(stays);
+	// clusterStays merges by distance alone; splitCluster then separates
+	// any cluster that fused two co-located places of different character
+	// (a daytime café and an evening residence). Re-id after the split so
+	// every cluster — merged or split — carries a unique id.
+	const clusters = clusterStays(stays).flatMap(splitCluster);
+	clusters.forEach((c, i) => {
+		c.id = i + 1;
+	});
 	clusters.sort((a, b) => b.totalDwellSec - a.totalDwellSec);
 	return { stays, clusters };
 }

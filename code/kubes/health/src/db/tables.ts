@@ -311,6 +311,10 @@ export interface FocusPlacesTable {
 	display_name: string | null;
 	sleep_hours: number | null;
 	amenity_label: string | null;
+	/** Hour-of-day dwell profile — 24 comma-joined permille integers, or
+	 *  NULL on rows written before the column existed. Parsed by
+	 *  `parseHourProfile`; consumed by the runtime place scorer. */
+	hour_profile: string | null;
 	refreshed_at: Generated<Date>;
 }
 

@@ -514,6 +514,17 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (route_key)
   )`,
 
+	// Hour-of-day dwell profile on focus_places. A normalised 24-bucket
+	// histogram of where, across the local solar clock, a place's visits
+	// spend their time — stored as 24 comma-joined permille integers.
+	// Generalises the binary sleep_hours/awake split: it lets the runtime
+	// place scorer route a stay to the right one of two co-located places
+	// (a daytime café vs an evening residence) by time-of-day, where the
+	// ~100 m distance term cannot. Mined fresh each nightly refresh; NULL
+	// on rows written before this column existed (the runtime treats NULL
+	// as "no time-of-day signal").
+	`ALTER TABLE focus_places ADD COLUMN IF NOT EXISTS hour_profile VARCHAR(127) NULL`,
+
 	// Future migrations go here.
 ];
 

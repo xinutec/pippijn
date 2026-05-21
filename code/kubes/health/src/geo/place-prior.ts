@@ -13,22 +13,22 @@
  *   - Log-prior on visit frequency: log(unique_days + 1). A place
  *     you've been to 200 times beats one you've been to once,
  *     all else equal.
- *   - Log-prior on time-of-day: for sleep windows, log(sleep_hours
- *     + 1); for daytime stationary segments, log(awake_hours + 1).
- *     "You've slept at this place 1500 hours" overwhelms a co-located
- *     focus_place that's never seen a sleep, and vice versa for
- *     daytime stays at an office.
+ *   - Time-of-day match: the stay's own hour-of-day profile scored
+ *     against each candidate's mined hour-of-day dwell profile
+ *     (`focus_places.hour_profile`). Centred so a uniform — or null,
+ *     un-mined — profile scores 0; a profile concentrated on the
+ *     stay's hours scores positive, a profile that avoids them
+ *     negative. Bounded like the frequency prior: it breaks ties
+ *     between co-located candidates (a daytime café vs an evening
+ *     residence ~100 m apart, which the distance term cannot
+ *     separate) without overriding strong distance evidence. It
+ *     generalises — and replaces — the old binary sleep/awake prior.
  *
  * `pickBestPlace` returns the argmax, or `null` when no candidate
  * crosses a posterior threshold. Callers fall through to OSM-amenity
  * lookup on null — that's the path for "you went somewhere new, the
  * place isn't in focus_places, so the amenity-lookup-from-OSM tells
  * us what kind of venue it is."
- *
- * Replaces the old `snapToPlace + shouldUseClusterAmenity + residence-
- * hours-this-day` chain of heuristics. The previous gates were
- * day-local; the new scorer uses all-history priors directly off
- * the focus_places row.
  */
 
 import { haversineMeters } from "./place-snap.js";
@@ -43,13 +43,10 @@ export interface PlaceCandidate {
 	radiusM: number;
 	/** Distinct days this place has been visited. */
 	uniqueDays: number;
-	/** Total observed dwell time at this place, across all visits. */
-	totalDwellSec: number;
-	/** Subset of total dwell that overlapped a sleep window (Fitbit
-	 *  + day-state model). */
-	sleepHours: number;
-	displayName: string | null;
-	amenityLabel: string | null;
+	/** Hour-of-day dwell profile — 24 fractions summing to 1, keyed
+	 *  by local solar hour. `null` for a place mined before the
+	 *  column existed; the time-of-day term then contributes 0. */
+	hourProfile: number[] | null;
 }
 
 /** The distance σ for the place-likelihood Gaussian is `radius_m`
@@ -89,11 +86,41 @@ const SIGMA_ESTABLISH_TAU_DAYS = 10;
  *  history. Tuned by the regression tests. */
 const POSTERIOR_FLOOR = -8;
 
+/** Smoothing floor for the time-of-day term: every hour bucket is
+ *  treated as carrying at least this much probability mass, so a stay
+ *  whose hour never appears in a place's profile takes a bounded
+ *  penalty rather than log(0). Sets the term's dynamic range. */
+const HOUR_PROFILE_EPS = 0.02;
+
+/** Time-of-day match between a candidate place and the stay being
+ *  scored. Both arguments are hour-of-day dwell profiles (24 fractions
+ *  summing to 1). The score is `Σ stay[h]·log(place[h]+ε)` re-centred
+ *  by the uniform-profile baseline, so:
+ *    - a uniform place — and a `null` (un-mined) place — score 0;
+ *    - a place whose dwell concentrates on the stay's hours scores > 0;
+ *    - a place that avoids the stay's hours scores < 0.
+ *  The range is bounded (≈ [-1, +3]); it discriminates co-located
+ *  candidates without overpowering the distance Gaussian. */
+function hourProfileMatch(placeProfile: number[] | null, stayProfile: readonly number[]): number {
+	if (placeProfile === null) return 0;
+	const uniformLog = Math.log(1 / stayProfile.length + HOUR_PROFILE_EPS);
+	let raw = 0;
+	let stayTotal = 0;
+	for (let h = 0; h < stayProfile.length; h++) {
+		const w = stayProfile[h];
+		if (w === 0) continue;
+		stayTotal += w;
+		raw += w * Math.log((placeProfile[h] ?? 0) + HOUR_PROFILE_EPS);
+	}
+	if (stayTotal === 0) return 0;
+	return raw - stayTotal * uniformLog;
+}
+
 export function scorePlaceForSegment(
 	candidate: PlaceCandidate,
 	segCentroidLat: number,
 	segCentroidLon: number,
-	options: { isSleepWindow: boolean },
+	options: { stayHourProfile: readonly number[] },
 ): number {
 	const distM = haversineMeters(candidate.centroidLat, candidate.centroidLon, segCentroidLat, segCentroidLon);
 	// The GPS-noise σ floor is earned, continuously: a place's tolerance
@@ -115,13 +142,10 @@ export function scorePlaceForSegment(
 	// tradeoff: lots of prior loses to strong distance evidence.
 	const logPriorFreq = Math.log(candidate.uniqueDays + 1);
 
-	// Prior on time-of-day match.
-	const sleepHrs = Math.max(0, candidate.sleepHours);
-	const totalHrs = Math.max(0, candidate.totalDwellSec / 3600);
-	const awakeHrs = Math.max(0, totalHrs - sleepHrs);
-	const logPriorTime = options.isSleepWindow ? Math.log(sleepHrs + 1) : Math.log(awakeHrs + 1);
+	// Time-of-day match against the place's mined hour-of-day profile.
+	const logPriorTimeOfDay = hourProfileMatch(candidate.hourProfile, options.stayHourProfile);
 
-	return logLikelihood + logPriorFreq + logPriorTime;
+	return logLikelihood + logPriorFreq + logPriorTimeOfDay;
 }
 
 /** Pick the focus_place with the highest posterior score, or
@@ -131,7 +155,7 @@ export function pickBestPlace(
 	candidates: readonly PlaceCandidate[],
 	segCentroidLat: number,
 	segCentroidLon: number,
-	options: { isSleepWindow: boolean },
+	options: { stayHourProfile: readonly number[] },
 ): { winner: PlaceCandidate; score: number } | null {
 	if (candidates.length === 0) return null;
 	let best: { winner: PlaceCandidate; score: number } | null = null;

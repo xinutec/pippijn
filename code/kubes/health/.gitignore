@@ -18,3 +18,9 @@ tests/golden/
 # segments, and the OSM rail geometry of every train corridor. Real
 # coords / journeys — local only. Captured by capture-railsnap-fixture.js.
 tests/fixtures/railsnap/
+
+# Focus-places fixtures: real member stays of a conflated cluster
+# (café + residence) and the Home cluster, for the splitCluster E2E
+# test. Real coords / times — local only. Captured by
+# capture-focusplaces-fixture.js.
+tests/fixtures/focusplaces/

@@ -5,6 +5,7 @@ import {
 	extractCity,
 	extractLineNames,
 	filterLandmarks,
+	isLabelWorthyVenue,
 	landmarkToResult,
 	type NearbyLandmark,
 	type NearbyStation,
@@ -314,6 +315,29 @@ describe("pickBestLandmark", () => {
 			{ name: "Small Park", type: "leisure", subtype: "park", distanceM: 10 },
 		];
 		expect(pickBestLandmark(landmarks).name).toBe("Corner Cafe");
+	});
+});
+
+describe("isLabelWorthyVenue", () => {
+	it("accepts a close amenity / shop / tourism venue", () => {
+		expect(isLabelWorthyVenue({ name: "Cafe", type: "amenity", subtype: "cafe", distanceM: 12 })).toBe(true);
+		expect(isLabelWorthyVenue({ name: "Bakery", type: "shop", subtype: "bakery", distanceM: 40 })).toBe(true);
+		expect(isLabelWorthyVenue({ name: "Museum", type: "tourism", subtype: "museum", distanceM: 8 })).toBe(true);
+	});
+
+	it("rejects a leisure type — a park names an area, not a venue the user is at", () => {
+		expect(isLabelWorthyVenue({ name: "Park", type: "leisure", subtype: "park", distanceM: 5 })).toBe(false);
+	});
+
+	it("rejects a place / highway type", () => {
+		expect(isLabelWorthyVenue({ name: "Square", type: "place", subtype: "square", distanceM: 5 })).toBe(false);
+		expect(isLabelWorthyVenue({ name: "High St", type: "highway", subtype: "pedestrian", distanceM: 5 })).toBe(false);
+	});
+
+	it("rejects a venue the stay is only near, not at", () => {
+		// A café 80 m from the stay centroid is something the user passed,
+		// not the place they spent the visit. It must not name the cluster.
+		expect(isLabelWorthyVenue({ name: "Distant Cafe", type: "amenity", subtype: "cafe", distanceM: 80 })).toBe(false);
 	});
 });
 

@@ -434,6 +434,28 @@ export function pickBestLandmark(landmarks: NearbyLandmark[]): NearbyLandmark {
 	})[0];
 }
 
+/** Maximum distance at which a landmark counts as "the place the user
+ *  is at" for the focus_places amenity vote. Beyond this the venue is
+ *  something the stay is *near*, not *at*, and must not name the place. */
+const VENUE_VOTE_MAX_DIST_M = 50;
+
+/** Landmark types that name a venue a user is genuinely "at" — a café,
+ *  a shop, a museum. `leisure` (a park) and `place` / `highway` name an
+ *  area or a way, not a venue, so they never carry an amenity label. */
+const VENUE_VOTE_TYPES: ReadonlySet<NearbyLandmark["type"]> = new Set(["amenity", "tourism", "shop"]);
+
+/**
+ * Confidence gate for the focus_places amenity vote: a landmark may
+ * name a focus_place only when it is a real venue type AND close
+ * enough to be the place the stay is actually *at*. A park (leisure)
+ * the stay merely sits near, or a café 80 m away, fails the gate — the
+ * cluster is then left with no `amenity_label`, and the runtime
+ * resolves it to a neutral area/address rather than a wrong venue.
+ */
+export function isLabelWorthyVenue(landmark: NearbyLandmark): boolean {
+	return VENUE_VOTE_TYPES.has(landmark.type) && landmark.distanceM <= VENUE_VOTE_MAX_DIST_M;
+}
+
 export function landmarkToResult(l: NearbyLandmark): NominatimResult {
 	const address: NominatimResult["address"] = {};
 	if (l.type === "amenity") address.amenity = l.name;

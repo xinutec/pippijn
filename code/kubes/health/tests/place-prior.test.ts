@@ -7,10 +7,11 @@
  *     empirical radius.
  *   - log-prior (frequency): how often this place has been visited
  *     before — operationalised as log(unique_days + 1).
- *   - log-prior (time-of-day): for sleep windows, log(sleep_hours
- *     + 1); for daytime stays, log(awake_hours + 1). A place where
- *     you've slept 500 hours dominates a place where you've slept 0
- *     hours even if equidistant.
+ *   - time-of-day match: how well a candidate's mined hour-of-day
+ *     dwell profile supports the hours the stay actually spans.
+ *     Centred so a uniform — or null (un-mined) — profile scores 0.
+ *     This is what routes an evening stay to a residence over a
+ *     co-located daytime café when the ~100 m distance term cannot.
  *
  * The picker is a pure function over a list of candidates; the IO
  * (loading focus_places) lives outside.
@@ -19,6 +20,21 @@
 import { describe, expect, it } from "vitest";
 import { type PlaceCandidate, pickBestPlace, scorePlaceForSegment } from "../src/geo/place-prior.js";
 
+/** Equal weight on the given local-solar hours, normalised — a stand-in
+ *  for an hour-of-day dwell profile (`focus_places.hour_profile`). */
+function profile(hours: number[]): number[] {
+	const p = new Array<number>(24).fill(0);
+	for (const h of hours) p[h] = 1;
+	return p.map((v) => v / hours.length);
+}
+/** A residence-shaped profile — overnight and evening hours. */
+const OVERNIGHT = profile([22, 23, 0, 1, 2, 3, 4, 5, 6, 7]);
+/** A café/office-shaped profile — weekday daytime hours. */
+const DAYTIME = profile([9, 10, 11, 12, 13, 14, 15, 16, 17]);
+/** The profile of a stay that happened overnight / in the daytime. */
+const overnightStay = profile([1, 2, 3, 4]);
+const daytimeStay = profile([11, 12, 13, 14]);
+
 function home(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
 	return {
 		id: 1,
@@ -26,10 +42,7 @@ function home(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
 		centroidLon: 5.863,
 		radiusM: 80,
 		uniqueDays: 200,
-		totalDwellSec: 200 * 12 * 3600, // 200 days × 12 h
-		sleepHours: 1500,
-		displayName: null,
-		amenityLabel: null,
+		hourProfile: OVERNIGHT,
 		...overrides,
 	};
 }
@@ -41,74 +54,96 @@ function workish(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
 		centroidLon: 5.6,
 		radiusM: 60,
 		uniqueDays: 40,
-		totalDwellSec: 40 * 9 * 3600,
-		sleepHours: 0,
-		displayName: null,
-		amenityLabel: null,
+		hourProfile: DAYTIME,
 		...overrides,
 	};
 }
 
-describe("scorePlaceForSegment", () => {
+describe("scorePlaceForSegment — distance & frequency", () => {
 	const segCentroidAtHome = { lat: 51.846, lon: 5.864 };
 
 	it("scores a near-by place higher than a far-away one (likelihood dominates)", () => {
 		const close = scorePlaceForSegment(home(), segCentroidAtHome.lat, segCentroidAtHome.lon, {
-			isSleepWindow: false,
+			stayHourProfile: daytimeStay,
 		});
 		const far = scorePlaceForSegment(workish(), segCentroidAtHome.lat, segCentroidAtHome.lon, {
-			isSleepWindow: false,
+			stayHourProfile: daytimeStay,
 		});
 		expect(close).toBeGreaterThan(far);
 	});
 
 	it("scores a heavily-visited place higher than a one-off, all else equal", () => {
 		const veteran = scorePlaceForSegment(home({ uniqueDays: 500 }), 51.845, 5.863, {
-			isSleepWindow: false,
+			stayHourProfile: overnightStay,
 		});
 		const newcomer = scorePlaceForSegment(home({ uniqueDays: 1 }), 51.845, 5.863, {
-			isSleepWindow: false,
+			stayHourProfile: overnightStay,
 		});
 		expect(veteran).toBeGreaterThan(newcomer);
 	});
+});
 
-	it("for a sleep window, a place with high sleep_hours beats an equidistant zero-sleep place", () => {
-		const sleepy = home({ sleepHours: 1500 });
-		const officey = home({ id: 99, sleepHours: 0 });
-		const sleepScore = scorePlaceForSegment(sleepy, 51.846, 5.864, { isSleepWindow: true });
-		const officeScore = scorePlaceForSegment(officey, 51.846, 5.864, { isSleepWindow: true });
-		expect(sleepScore).toBeGreaterThan(officeScore);
+describe("scorePlaceForSegment — time-of-day term", () => {
+	// Two candidates at the SAME coordinates, opposite hour-of-day
+	// profiles. The distance and frequency terms are identical, so the
+	// time-of-day term alone decides — the conflated-cluster case.
+	it("an overnight stay scores an overnight-profile place above a co-located daytime-profile place", () => {
+		const residence = home({ hourProfile: OVERNIGHT });
+		const cafe = home({ id: 9, hourProfile: DAYTIME });
+		const resScore = scorePlaceForSegment(residence, 51.845, 5.863, { stayHourProfile: overnightStay });
+		const cafeScore = scorePlaceForSegment(cafe, 51.845, 5.863, { stayHourProfile: overnightStay });
+		expect(resScore).toBeGreaterThan(cafeScore);
 	});
 
-	it("for a daytime window, a place with high awake-hours beats an equidistant office (yes office wins now)", () => {
-		// Sleep place: many sleep hours, few awake hours.
-		const sleepy = home({ sleepHours: 1500, totalDwellSec: 200 * 12 * 3600 /* 2400h dwell */ });
-		// Office: zero sleep, many awake hours.
-		const officey = home({ id: 99, sleepHours: 0, totalDwellSec: 500 * 3600 /* 500h awake */ });
-		const sleepDayScore = scorePlaceForSegment(sleepy, 51.846, 5.864, { isSleepWindow: false });
-		const officeDayScore = scorePlaceForSegment(officey, 51.846, 5.864, { isSleepWindow: false });
-		// The places are co-located + identical radius. sleepy has more
-		// awake hours overall (900 vs 500), so it still wins on
-		// time-of-day prior alone. This test pins down the math: when
-		// awake_hours dominates, the daytime score follows it.
-		expect(sleepDayScore).toBeGreaterThan(officeDayScore);
+	it("a daytime stay scores a daytime-profile place above a co-located overnight-profile place", () => {
+		const residence = home({ hourProfile: OVERNIGHT });
+		const cafe = home({ id: 9, hourProfile: DAYTIME });
+		const resScore = scorePlaceForSegment(residence, 51.845, 5.863, { stayHourProfile: daytimeStay });
+		const cafeScore = scorePlaceForSegment(cafe, 51.845, 5.863, { stayHourProfile: daytimeStay });
+		expect(cafeScore).toBeGreaterThan(resScore);
+	});
+
+	it("a null (un-mined) profile scores neutrally — between a matching and a mismatching place", () => {
+		// A row written before the hour_profile column existed must not
+		// out-score a place that genuinely matches, nor lose to one that
+		// genuinely mismatches: the time term is centred so null == 0.
+		const matching = home({ hourProfile: OVERNIGHT });
+		const unmined = home({ id: 8, hourProfile: null });
+		const mismatching = home({ id: 9, hourProfile: DAYTIME });
+		const opts = { stayHourProfile: overnightStay };
+		const matchScore = scorePlaceForSegment(matching, 51.845, 5.863, opts);
+		const nullScore = scorePlaceForSegment(unmined, 51.845, 5.863, opts);
+		const mismatchScore = scorePlaceForSegment(mismatching, 51.845, 5.863, opts);
+		expect(matchScore).toBeGreaterThan(nullScore);
+		expect(nullScore).toBeGreaterThan(mismatchScore);
+	});
+
+	it("the time-of-day term cannot override strong distance evidence", () => {
+		// A perfectly-matching profile 2 km away must lose to the place
+		// the user is standing in, even if that place's profile mismatches.
+		const standingIn = home({ id: 1, hourProfile: DAYTIME });
+		const farMatch = home({ id: 2, centroidLat: 51.863, centroidLon: 5.863, hourProfile: OVERNIGHT });
+		const opts = { stayHourProfile: overnightStay };
+		const here = scorePlaceForSegment(standingIn, 51.845, 5.863, opts);
+		const far = scorePlaceForSegment(farMatch, 51.845, 5.863, opts);
+		expect(here).toBeGreaterThan(far);
 	});
 });
 
 describe("pickBestPlace", () => {
 	it("returns null when there are no candidates", () => {
-		expect(pickBestPlace([], 51.846, 5.864, { isSleepWindow: false })).toBeNull();
+		expect(pickBestPlace([], 51.846, 5.864, { stayHourProfile: daytimeStay })).toBeNull();
 	});
 
 	it("picks the only candidate when one is given", () => {
-		const r = pickBestPlace([home()], 51.846, 5.864, { isSleepWindow: false });
+		const r = pickBestPlace([home()], 51.846, 5.864, { stayHourProfile: overnightStay });
 		expect(r?.winner.id).toBe(1);
 	});
 
 	it("home wins over a faraway focus_place even when fixes are slightly off-centre", () => {
 		// 70 m east of home's centroid (within home's 80 m σ).
 		const seg = { lat: 51.845, lon: 5.864 };
-		const r = pickBestPlace([home(), workish()], seg.lat, seg.lon, { isSleepWindow: false });
+		const r = pickBestPlace([home(), workish()], seg.lat, seg.lon, { stayHourProfile: overnightStay });
 		expect(r?.winner.id).toBe(1);
 	});
 
@@ -116,34 +151,40 @@ describe("pickBestPlace", () => {
 		// 5 km from home, even further from work. Beyond any reasonable
 		// posterior — caller should fall back to OSM.
 		const seg = { lat: 51.9, lon: 5.95 };
-		const r = pickBestPlace([home(), workish()], seg.lat, seg.lon, { isSleepWindow: false });
+		const r = pickBestPlace([home(), workish()], seg.lat, seg.lon, { stayHourProfile: overnightStay });
 		expect(r).toBeNull();
 	});
 
-	it("regression — May 3 case: 70 m off-centre cluster, daytime, only candidate is home → home wins", () => {
+	it("regression — May 3 case: 70 m off-centre cluster, only candidate is home → home wins", () => {
 		// The actual May 3 cluster centroid lands ~70 m from home's
-		// stored centroid. Pre-refactor, the snap-radius missed it and
-		// the labeller fell through to OSM amenity ('Fast Food Chain X').
-		// Post-refactor, home has 70 m vs radius 80 m → likelihood ≈
+		// stored centroid. home has 70 m vs radius 80 m → likelihood ≈
 		// exp(-0.5 · (70/80)^2) ≈ 0.68 — plenty of signal. Plus the
 		// heavy prior on having visited 200 times. Wins comfortably.
 		const seg = { lat: 51.8457, lon: 5.8636 };
-		const r = pickBestPlace([home()], seg.lat, seg.lon, { isSleepWindow: false });
+		const r = pickBestPlace([home()], seg.lat, seg.lon, { stayHourProfile: daytimeStay });
 		expect(r?.winner.id).toBe(1);
 	});
 
-	it("regression — May 3 sleep window: home wins decisively over a zero-sleep candidate at same coords", () => {
-		// Sleep-time + same physical cluster. If there were a hypothetical
-		// non-sleep focus_place at the same coords (e.g. a daytime
-		// hangout), the sleep prior makes home dominate.
-		const fakeOffice = home({
-			id: 99,
-			sleepHours: 0,
-			totalDwellSec: 100 * 3600, // 100 h awake-time
-		});
-		const seg = { lat: 51.846, lon: 5.864 };
-		const r = pickBestPlace([home(), fakeOffice], seg.lat, seg.lon, { isSleepWindow: true });
+	it("co-located disambiguation — an evening stay routes to the residence, not the co-located café", () => {
+		// The conflated-cluster bug, split into two focus_places: a
+		// residence and a café ~0 m apart in this test (distance term
+		// cannot separate them). The hour-of-day term must route an
+		// overnight stay to the residence.
+		const residence = home({ id: 1, hourProfile: OVERNIGHT, uniqueDays: 14 });
+		const cafe = home({ id: 2, hourProfile: DAYTIME, uniqueDays: 4 });
+		const r = pickBestPlace([cafe, residence], 51.845, 5.863, { stayHourProfile: overnightStay });
 		expect(r?.winner.id).toBe(1);
+	});
+
+	it("Home/Work no-regression — overnight stay → overnight place, daytime stay → daytime place", () => {
+		// Two co-located candidates with opposite profiles must route
+		// each kind of stay correctly, as the binary sleep/awake prior
+		// did — the hour-of-day term subsumes it.
+		const overnightPlace = home({ id: 1, hourProfile: OVERNIGHT });
+		const daytimePlace = home({ id: 2, hourProfile: DAYTIME });
+		const cands = [overnightPlace, daytimePlace];
+		expect(pickBestPlace(cands, 51.845, 5.863, { stayHourProfile: overnightStay })?.winner.id).toBe(1);
+		expect(pickBestPlace(cands, 51.845, 5.863, { stayHourProfile: daytimeStay })?.winner.id).toBe(2);
 	});
 
 	function oneOff(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
@@ -153,10 +194,7 @@ describe("pickBestPlace", () => {
 			centroidLon: -0.12,
 			radiusM: 25,
 			uniqueDays: 1,
-			totalDwellSec: 3600,
-			sleepHours: 0,
-			displayName: null,
-			amenityLabel: "Some Cafe",
+			hourProfile: DAYTIME,
 			...overrides,
 		};
 	}
@@ -169,15 +207,15 @@ describe("pickBestPlace", () => {
 		// pickBestPlace must return null so the caller falls through to
 		// a fresh OSM lookup rather than stamp the one-off's mined label
 		// on an unrelated stay.
-		expect(pickBestPlace([oneOff()], seg200mEast.lat, seg200mEast.lon, { isSleepWindow: false })).toBeNull();
+		expect(pickBestPlace([oneOff()], seg200mEast.lat, seg200mEast.lon, { stayHourProfile: daytimeStay })).toBeNull();
 	});
 
 	it("an established place still captures a stay within GPS-noise range", () => {
 		// Same 200 m offset, but a place visited on many separate days:
 		// noise of this size around a well-known place is expected, so
 		// the match must hold.
-		const established = oneOff({ id: 71, uniqueDays: 60, totalDwellSec: 60 * 8 * 3600 });
-		const r = pickBestPlace([established], seg200mEast.lat, seg200mEast.lon, { isSleepWindow: false });
+		const established = oneOff({ id: 71, uniqueDays: 60 });
+		const r = pickBestPlace([established], seg200mEast.lat, seg200mEast.lon, { stayHourProfile: daytimeStay });
 		expect(r?.winner.id).toBe(71);
 	});
 
@@ -191,12 +229,11 @@ describe("pickBestPlace", () => {
 			centroidLon: 5.95,
 			radiusM: 40,
 			uniqueDays: 2,
-			sleepHours: 0,
-			totalDwellSec: 4 * 3600,
+			hourProfile: DAYTIME,
 		});
 		const seg = { lat: 51.92, lon: 5.95 }; // dead-on the café
 		const homeAtDistance = home({ centroidLat: 51.91, centroidLon: 5.94 }); // 1.4 km away
-		const r = pickBestPlace([homeAtDistance, cafe], seg.lat, seg.lon, { isSleepWindow: false });
+		const r = pickBestPlace([homeAtDistance, cafe], seg.lat, seg.lon, { stayHourProfile: daytimeStay });
 		expect(r?.winner.id).toBe(50);
 	});
 });

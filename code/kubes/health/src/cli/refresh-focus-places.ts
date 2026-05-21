@@ -21,13 +21,15 @@ import {
 	classifyCluster,
 	detectFocusPlaces,
 	type FitbitSleepWindow,
+	hourProfileOf,
 	pickWinningAmenity,
 	type RawPoint,
+	serializeHourProfile,
 	sleepHoursFromFitbit,
 	sleepHoursOf,
 	uniqueDayCount,
 } from "../geo/focus-places.js";
-import { bestPlace, nearbyLandmarks, pickBestLandmark } from "../geo/osm.js";
+import { bestPlace, isLabelWorthyVenue, nearbyLandmarks, pickBestLandmark } from "../geo/osm.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -153,12 +155,12 @@ async function refreshOne(userId: string): Promise<void> {
 			const landmarks = await nearbyLandmarks(s.centroidLat, s.centroidLon);
 			if (landmarks.length === 0) continue;
 			const best = pickBestLandmark(landmarks);
-			// Only count amenity / tourism / leisure / shop as a vote.
-			// Skip pedestrian-way and place-quarter results — those aren't
-			// venues, and including them dilutes the signal.
-			if (best.type !== "amenity" && best.type !== "tourism" && best.type !== "leisure" && best.type !== "shop") {
-				continue;
-			}
+			// Confidence gate: only a real venue type (amenity / tourism /
+			// shop) that is close enough to be the place the stay is *at*
+			// may cast a vote. A park the stay sits near, a pedestrian way,
+			// or a café 80 m off are all rejected — they name an area, not
+			// the venue, and would otherwise mislabel the cluster.
+			if (!isLabelWorthyVenue(best)) continue;
 			votes.set(best.name, (votes.get(best.name) ?? 0) + s.durationSec);
 		}
 		const winner = pickWinningAmenity(votes, {
@@ -200,10 +202,11 @@ async function refreshOne(userId: string): Promise<void> {
 						displayNames.get(c.id) ?? null,
 						Math.round(sleepH),
 						amenityLabels.get(c.id) ?? null,
+						serializeHourProfile(hourProfileOf(c)),
 					];
 				});
 				await conn.batch(
-					"INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label, display_name, sleep_hours, amenity_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					"INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label, display_name, sleep_hours, amenity_label, hour_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 					rows,
 				);
 

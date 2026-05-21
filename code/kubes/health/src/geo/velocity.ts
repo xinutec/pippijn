@@ -20,7 +20,7 @@ import {
 	type SleepStageRecord,
 	type StepPoint,
 } from "./biometrics.js";
-import { localSolarHour } from "./focus-places.js";
+import { hourProfileForRange, localSolarHour, parseHourProfile } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
@@ -220,8 +220,10 @@ interface NamedPlace extends KnownPlace {
 	/** Distinct days this cluster has been visited — frequency
 	 *  prior for the place scorer. */
 	uniqueDays: number;
-	/** Total observed dwell across all visits, seconds. */
-	totalDwellSec: number;
+	/** Mined hour-of-day dwell profile (24 fractions) or null for a
+	 *  place mined before the column existed — the time-of-day term
+	 *  of the place scorer. */
+	hourProfile: number[] | null;
 }
 
 /** A focus_place is "residential" if the user has slept (covered deep-night
@@ -317,7 +319,7 @@ async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 			"sleep_hours",
 			"amenity_label",
 			"unique_days",
-			"total_dwell_sec",
+			"hour_profile",
 		])
 		.where("user_id", "=", userId)
 		.execute();
@@ -330,7 +332,7 @@ async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 		sleepHours: r.sleep_hours ?? 0,
 		amenityLabel: r.amenity_label,
 		uniqueDays: r.unique_days,
-		totalDwellSec: Number(r.total_dwell_sec),
+		hourProfile: parseHourProfile(r.hour_profile),
 	}));
 }
 
@@ -344,10 +346,7 @@ function toPlaceCandidate(p: NamedPlace): PlaceCandidate {
 		centroidLon: p.centroidLon,
 		radiusM: p.radiusM ?? 50,
 		uniqueDays: p.uniqueDays,
-		totalDwellSec: p.totalDwellSec,
-		sleepHours: p.sleepHours,
-		displayName: p.displayName,
-		amenityLabel: p.amenityLabel,
+		hourProfile: p.hourProfile,
 	};
 }
 
@@ -492,9 +491,10 @@ export async function computeVelocity(
 					// residential-hours-threshold + amenity-gate chain.
 					// See `src/geo/place-prior.ts`.
 					const isSleepWindow = hasOvernightPresence(seg.startTs, seg.endTs, cLon);
+					const stayHourProfile = hourProfileForRange(seg.startTs, seg.endTs, cLon);
 					const winner =
 						knownPlaces.length > 0
-							? pickBestPlace(knownPlaces.map(toPlaceCandidate), cLat, cLon, { isSleepWindow })
+							? pickBestPlace(knownPlaces.map(toPlaceCandidate), cLat, cLon, { stayHourProfile })
 							: null;
 
 					if (winner !== null) {
@@ -539,9 +539,16 @@ export async function computeVelocity(
 							}
 							// Residential without a personal label, or no mined
 							// amenity_label — fall through to bestPlace at the
-							// snapped centroid, preferring the residential
-							// address.
-							const place = await bestPlace(placeLat, placeLon, { preferResidential: isResidential });
+							// snapped centroid. Prefer the address when the
+							// cluster is residential OR the mining gate found
+							// no confident venue here (null amenity_label): a
+							// venue-less place — e.g. an evening-only residence
+							// the sleep gate misses — must show a neutral
+							// area/address, not a low-confidence nearby park.
+							const venueless = wp.amenityLabel === null;
+							const place = await bestPlace(placeLat, placeLon, {
+								preferResidential: isResidential || venueless,
+							});
 							if (!place) return seg;
 							const city = extractCity(place);
 							return {
