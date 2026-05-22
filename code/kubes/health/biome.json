@@ -23,6 +23,6 @@
 		}
 	},
 	"files": {
-		"includes": ["src/**", "tests/**", "!tests/fixtures/**"]
+		"includes": ["src/**", "tests/**", "!tests/fixtures"]
 	}
 }
