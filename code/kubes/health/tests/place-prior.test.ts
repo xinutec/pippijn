@@ -236,4 +236,81 @@ describe("pickBestPlace", () => {
 		const r = pickBestPlace([homeAtDistance, cafe], seg.lat, seg.lon, { stayHourProfile: daytimeStay });
 		expect(r?.winner.id).toBe(50);
 	});
+
+	describe("centroid-distance veto", () => {
+		// A focus place is a label for stays *inside* the cluster it was
+		// mined from. A stay well outside that cluster shouldn't bear the
+		// place's name, no matter how strong the priors are — the
+		// frequency + hour-of-day terms otherwise let a heavily-visited
+		// place win a stay hundreds of metres away. These gates fix that:
+		// the picker requires the stay to lie within 3σ of the centroid
+		// (where σ is the same Gaussian σ the scorer uses).
+
+		/** 51.5°N: 1° lon ≈ 69 km, so 1 m east ≈ 1 / 69 000 degrees. */
+		const M_PER_DEG_LON_AT_51_5 = 111_320 * Math.cos((51.5 * Math.PI) / 180);
+		const eastOf = (lat: number, lon: number, dM: number): { lat: number; lon: number } => ({
+			lat,
+			lon: lon + dM / M_PER_DEG_LON_AT_51_5,
+		});
+
+		function workish51_5(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
+			return {
+				id: 100,
+				centroidLat: 51.5,
+				centroidLon: -0.13,
+				radiusM: 30,
+				uniqueDays: 100,
+				hourProfile: DAYTIME,
+				...overrides,
+			};
+		}
+
+		it("rejects a heavily-visited focus place when the stay is well outside its cluster", () => {
+			// The 2026-05-22 Pizza-Union-as-Work bug: an established place
+			// (Work, 100+ days, daytime profile) lying ~420 m away wins on
+			// priors despite the distance penalty. The veto must reject it
+			// so the caller falls through to the OSM venue lookup.
+			const stay = eastOf(51.5, -0.13, 420);
+			const r = pickBestPlace([workish51_5()], stay.lat, stay.lon, { stayHourProfile: daytimeStay });
+			expect(r).toBeNull();
+		});
+
+		it("keeps a stay within ~2σ of the centroid (inside the cluster, with normal GPS noise)", () => {
+			// For an established place (100 days), σ floor is ~100 m, so a
+			// 180 m offset is well within 2σ. Must be accepted.
+			const stay = eastOf(51.5, -0.13, 180);
+			const r = pickBestPlace([workish51_5()], stay.lat, stay.lon, { stayHourProfile: daytimeStay });
+			expect(r?.winner.id).toBe(100);
+		});
+
+		it("veto fires regardless of how strong the priors are", () => {
+			// Crank uniqueDays absurdly high and put the profile in perfect
+			// alignment — the priors cannot rescue a stay outside the
+			// cluster from being mis-labelled.
+			const overcooked = workish51_5({ uniqueDays: 10_000 });
+			const stay = eastOf(51.5, -0.13, 420);
+			const r = pickBestPlace([overcooked], stay.lat, stay.lon, { stayHourProfile: daytimeStay });
+			expect(r).toBeNull();
+		});
+
+		it("a sparse place has a tighter veto, matching its tighter σ floor", () => {
+			// A one-off place sits at the MIN σ floor (40 m): 3σ ≈ 120 m.
+			// A 180 m offset is outside that — the veto fires.
+			const sparse = workish51_5({ uniqueDays: 1 });
+			const stay = eastOf(51.5, -0.13, 180);
+			const r = pickBestPlace([sparse], stay.lat, stay.lon, { stayHourProfile: daytimeStay });
+			expect(r).toBeNull();
+		});
+
+		it("with both a far-cluster and a closer cluster, the closer one wins (veto does not over-fire)", () => {
+			// Two candidates: the Work-like cluster 420 m east (would have
+			// won on priors before the veto), and a closer one 50 m east
+			// of the stay. The closer one is inside its own cluster's
+			// tolerance and must be picked.
+			const stay = eastOf(51.5, -0.13, 420);
+			const near = workish51_5({ id: 101, centroidLat: stay.lat, centroidLon: stay.lon, uniqueDays: 5 });
+			const r = pickBestPlace([workish51_5(), near], stay.lat, stay.lon, { stayHourProfile: daytimeStay });
+			expect(r?.winner.id).toBe(101);
+		});
+	});
 });

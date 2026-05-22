@@ -86,6 +86,28 @@ const SIGMA_ESTABLISH_TAU_DAYS = 10;
  *  history. Tuned by the regression tests. */
 const POSTERIOR_FLOOR = -8;
 
+/** Hard centroid-distance veto: a focus place is — by definition — a
+ *  label for stays inside the cluster it was mined from. A stay more
+ *  than this many σ from the centroid is geometrically outside the
+ *  cluster, and the place's label does not apply, no matter how strong
+ *  the visit-frequency or hour-of-day priors are. 3σ is the natural
+ *  "essentially impossible to be from this cluster" boundary under the
+ *  Gaussian. Without this gate, an established place — Work with 100+
+ *  unique days, daytime hour profile — could win a stay 400 m away on
+ *  priors alone (the 2026-05-22 Pizza-Union-as-Work bug). */
+const MAX_DISTANCE_SIGMAS = 3;
+
+/** The Gaussian σ a candidate effectively uses for distance scoring —
+ *  `radiusM` floored to a GPS-noise tolerance that grows with how
+ *  many distinct days the place has been visited. Shared between the
+ *  scorer (smooth penalty) and the picker (hard veto) so both see the
+ *  same notion of cluster size. */
+function effectiveSigmaM(candidate: PlaceCandidate): number {
+	const establishedness = 1 - Math.exp(-Math.max(0, candidate.uniqueDays - 1) / SIGMA_ESTABLISH_TAU_DAYS);
+	const sigmaFloor = SIGMA_FLOOR_MIN_M + (SIGMA_FLOOR_MAX_M - SIGMA_FLOOR_MIN_M) * establishedness;
+	return Math.max(sigmaFloor, candidate.radiusM);
+}
+
 /** Smoothing floor for the time-of-day term: every hour bucket is
  *  treated as carrying at least this much probability mass, so a stay
  *  whose hour never appears in a place's profile takes a bounded
@@ -128,9 +150,7 @@ export function scorePlaceForSegment(
 	// no hard "established" step. A one-off place sits at the minimum
 	// and cannot reach far past its own footprint; a place visited over
 	// many days converges on the full tolerance.
-	const establishedness = 1 - Math.exp(-Math.max(0, candidate.uniqueDays - 1) / SIGMA_ESTABLISH_TAU_DAYS);
-	const sigmaFloor = SIGMA_FLOOR_MIN_M + (SIGMA_FLOOR_MAX_M - SIGMA_FLOOR_MIN_M) * establishedness;
-	const sigma = Math.max(sigmaFloor, candidate.radiusM);
+	const sigma = effectiveSigmaM(candidate);
 	// log-likelihood under Gaussian, constant terms dropped (we argmax).
 	const logLikelihood = -(distM * distM) / (2 * sigma * sigma);
 
@@ -161,6 +181,15 @@ export function pickBestPlace(
 	let best: { winner: PlaceCandidate; score: number } | null = null;
 	for (const c of candidates) {
 		const s = scorePlaceForSegment(c, segCentroidLat, segCentroidLon, options);
+		// Hard centroid-distance veto BEFORE the argmax: a candidate
+		// whose centroid is outside MAX_DISTANCE_SIGMAS · σ from the
+		// stay is geometrically outside its cluster and cannot be the
+		// label, regardless of how high it would have scored on priors.
+		// Filtering here (rather than after the argmax) lets a closer
+		// in-cluster candidate still win when the far one would have
+		// otherwise topped the list.
+		const dist = haversineMeters(c.centroidLat, c.centroidLon, segCentroidLat, segCentroidLon);
+		if (dist > MAX_DISTANCE_SIGMAS * effectiveSigmaM(c)) continue;
 		if (!best || s > best.score) best = { winner: c, score: s };
 	}
 	if (best && best.score < POSTERIOR_FLOOR) return null;
