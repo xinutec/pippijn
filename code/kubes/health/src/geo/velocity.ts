@@ -723,11 +723,20 @@ export async function computeVelocity(
 	// so it doesn't surface as a phantom place-stay. See absorbInterchanges.
 	const withInterchanges = timeSync("interchange", () => absorbInterchanges(withBoarding));
 
+	// Physical constraint: back-to-back train legs must share a station.
+	// You can't step off one train and instantly be on another at a
+	// different station — so a leg whose independently-resolved boarding
+	// contradicts the previous leg's alighting is corrected to board
+	// where that leg alighted. Runs after the interchange absorber so it
+	// sees the final train-leg adjacency, and before rail-snap so the
+	// snap keys off the corrected station pair. See reconcileAdjacentRailLegs.
+	const withReconciledRail = timeSync("railReconcile", () => reconcileAdjacentRailLegs(withInterchanges));
+
 	// Rail-snap: attach the precomputed rail-track geometry to each
 	// train run whose route is in rail_route_cache (filled offline by
 	// refresh-rail-routes). One indexed lookup — purely additive, the
 	// raw track is untouched. See annotateSnappedPaths.
-	const withSnapped = await time("railSnap", annotateSnappedPaths(withInterchanges));
+	const withSnapped = await time("railSnap", annotateSnappedPaths(withReconciledRail));
 
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
@@ -1573,6 +1582,65 @@ export function absorbInterchanges(segments: EnrichedSegment[]): EnrichedSegment
 		}
 		out.push(seg);
 		i++;
+	}
+	return out;
+}
+
+/** Separator between a rail run's two stations in a `wayName`. */
+const RAIL_STATION_SEP = " → ";
+/** Separator before the optional line-name suffix in a rail `wayName`. */
+const RAIL_LINE_SEP = " · ";
+
+/**
+ * Parse a rail run's station-pair `wayName` — `"<board> → <alight>"`,
+ * optionally followed by `" · <line>"`. Returns null when the string
+ * is not a station-pair label (a road name, or absent).
+ */
+export function parseRailWayName(wayName: string | undefined): { board: string; alight: string; line?: string } | null {
+	if (wayName === undefined) return null;
+	const arrow = wayName.indexOf(RAIL_STATION_SEP);
+	if (arrow < 0) return null;
+	const board = wayName.slice(0, arrow);
+	const rest = wayName.slice(arrow + RAIL_STATION_SEP.length);
+	const dot = rest.indexOf(RAIL_LINE_SEP);
+	if (dot < 0) return { board, alight: rest };
+	return { board, alight: rest.slice(0, dot), line: rest.slice(dot + RAIL_LINE_SEP.length) };
+}
+
+/**
+ * Physical constraint: two train legs that are back-to-back — adjacent
+ * in the segment sequence with nothing between them — must share a
+ * station. You cannot step off a train at one station and instantly be
+ * on another train at a different station: there is no time and no
+ * walk in between.
+ *
+ * `annotateRailRuns` and `annotateUndergroundRuns` resolve each leg's
+ * boarding/alighting stations independently, so a leg reconstructed
+ * from coarse underground fixes can land its boarding on a station the
+ * previous leg already passed — a sequence that reads as travelling
+ * backward. This pass enforces the constraint: where leg A's alighting
+ * and leg B's boarding disagree, leg B is rewritten to board where
+ * leg A alighted. Leg A's alighting is the trusted value — it is
+ * established first, in time order, and a continuing journey picks up
+ * from there.
+ *
+ * Only the station label is corrected; the split time and line name
+ * are left as the upstream passes resolved them.
+ */
+export function reconcileAdjacentRailLegs(segments: EnrichedSegment[]): EnrichedSegment[] {
+	const out = segments.map((s) => ({ ...s }));
+	for (let i = 1; i < out.length; i++) {
+		const a = out[i - 1];
+		const b = out[i];
+		if ((a.refinedMode ?? a.mode) !== "train" || (b.refinedMode ?? b.mode) !== "train") continue;
+		const aRail = parseRailWayName(a.wayName);
+		const bRail = parseRailWayName(b.wayName);
+		if (aRail === null || bRail === null) continue;
+		if (aRail.alight === bRail.board) continue;
+		// Rewriting B's boarding to A's alighting would collapse leg B to
+		// a single station — skip rather than emit a degenerate "X → X".
+		if (aRail.alight === bRail.alight) continue;
+		b.wayName = `${aRail.alight}${RAIL_STATION_SEP}${bRail.alight}${bRail.line ? `${RAIL_LINE_SEP}${bRail.line}` : ""}`;
 	}
 	return out;
 }
