@@ -163,10 +163,21 @@ async function refreshOne(userId: string): Promise<void> {
 			if (!isLabelWorthyVenue(best)) continue;
 			votes.set(best.name, (votes.get(best.name) ?? 0) + s.durationSec);
 		}
-		const winner = pickWinningAmenity(votes, {
+		let winner = pickWinningAmenity(votes, {
 			minWeight: 60 * 30, // at least 30 min of total cluster dwell
 			minFraction: 0.5, // winner must take majority of the vote
 		});
+		// Centroid gate: the winning venue must be AT the cluster — within
+		// venue range of its *centroid*, not merely near some scattered
+		// stays. Two co-located places ~45 m apart (a residence and a
+		// café) would otherwise let the residence's evening stays, the
+		// ones whose GPS drifts venue-ward, vote the café's name onto the
+		// residence — its centroid stays a clear ~70 m off the café.
+		if (winner !== null) {
+			const atCentroid = await nearbyLandmarks(c.centroidLat, c.centroidLon, 100);
+			const winnerHere = atCentroid.find((l) => l.name === winner);
+			if (winnerHere === undefined || !isLabelWorthyVenue(winnerHere)) winner = null;
+		}
 		amenityLabels.set(c.id, winner);
 	}
 	console.log(
