@@ -254,8 +254,13 @@ const USER_STATS: ModeStats[] = [
 ];
 
 describe("scoreModeLogLikelihood", () => {
-	const walking = USER_STATS.find((s) => s.mode === "walking")!;
-	const driving = USER_STATS.find((s) => s.mode === "driving")!;
+	const statsFor = (mode: string): (typeof USER_STATS)[number] => {
+		const s = USER_STATS.find((x) => x.mode === mode);
+		if (s === undefined) throw new Error(`no USER_STATS fixture for mode ${mode}`);
+		return s;
+	};
+	const walking = statsFor("walking");
+	const driving = statsFor("driving");
 
 	it("scores a perfect walking observation high under walking", () => {
 		const score = scoreModeLogLikelihood({ hr: 108, cadence: 107, speed: 5.1 }, walking);

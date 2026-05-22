@@ -81,7 +81,7 @@ describe("scenario: continuous stay split by GPS multipath spike", () => {
 
 		expect(
 			result,
-			`expected 1 merged stay, got ${result.length}: ${JSON.stringify(result.map((s) => s.mode + "@" + (s.place ?? "?")))}`,
+			`expected 1 merged stay, got ${result.length}: ${JSON.stringify(result.map((s) => `${s.mode}@${s.place ?? "?"}`))}`,
 		).toHaveLength(1);
 		expect(result[0].mode).toBe("stationary");
 		expect(result[0].place).toBe(PLACE);

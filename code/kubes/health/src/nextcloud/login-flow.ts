@@ -51,14 +51,14 @@ export function parseInitiateResponse(json: unknown): LoginFlowInitiation {
 		throw new Error("login-flow initiate: response is not an object");
 	}
 	const obj = json as Record<string, unknown>;
-	const poll = obj["poll"];
-	const login = obj["login"];
+	const poll = obj.poll;
+	const login = obj.login;
 	if (!poll || typeof poll !== "object") {
 		throw new Error("login-flow initiate: missing `poll`");
 	}
 	const pollObj = poll as Record<string, unknown>;
-	const token = pollObj["token"];
-	const endpoint = pollObj["endpoint"];
+	const token = pollObj.token;
+	const endpoint = pollObj.endpoint;
 	if (typeof login !== "string" || login.length === 0) {
 		throw new Error("login-flow initiate: missing/invalid `login` URL");
 	}
@@ -79,9 +79,9 @@ export function parsePollResponse(json: unknown): LoginFlowResult {
 		throw new Error("login-flow poll: response is not an object");
 	}
 	const obj = json as Record<string, unknown>;
-	const server = obj["server"];
-	const loginName = obj["loginName"];
-	const appPassword = obj["appPassword"];
+	const server = obj.server;
+	const loginName = obj.loginName;
+	const appPassword = obj.appPassword;
 	if (typeof server !== "string" || server.length === 0) {
 		throw new Error("login-flow poll: missing `server`");
 	}
