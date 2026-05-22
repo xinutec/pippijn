@@ -23,6 +23,7 @@ const LIVE_POLL_MS = 15_000;
  *  position immediately after a reload, before the first poll. */
 const LIVE_FIX_CACHE_KEY = "health:live-fix";
 import { logBootContext } from "../../client-diagnostics";
+import { BatteryChartComponent } from "../battery-chart/battery-chart.component";
 import { DayNavComponent } from "../day-nav/day-nav.component";
 import { HeartrateChartComponent } from "../heartrate-chart/heartrate-chart.component";
 import { HypnogramComponent } from "../hypnogram/hypnogram.component";
@@ -58,6 +59,7 @@ import { TimelineComponent } from "../timeline/timeline.component";
 		HypnogramComponent,
 		IntradayHrComponent,
 		SpeedChartComponent,
+		BatteryChartComponent,
 		TimelineComponent,
 		MapComponent,
 		StepsChartComponent,

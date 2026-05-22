@@ -1,0 +1,13 @@
+.chart-container { padding: 8px 0; }
+canvas {
+  /* CSS controls display dimensions; the component sets the bitmap
+   * dimensions in JS from getBoundingClientRect() for crisp hi-DPI
+   * rendering. Canvas's intrinsic width/height attributes don't
+   * beat CSS, so no !important. */
+  width: 100%;
+  height: 160px;
+}
+.x-labels {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: var(--text-faint); padding-top: 4px;
+}

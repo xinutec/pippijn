@@ -361,6 +361,33 @@ export interface EnrichedSegment extends TrackSegment {
 	snappedPath?: SnappedPoint[]; // derived: this train segment drawn on the OSM rail track — see annotateSnappedPaths
 }
 
+/** One phone-battery reading: a charge level (integer percent, 0–100)
+ *  at a wall-clock instant. Sourced from the `battery` field PhoneTrack
+ *  records on each GPS fix — see `batterySeries`. */
+export interface BatterySample {
+	ts: number;
+	level: number;
+}
+
+/** Reduce the day's per-fix battery readings to a compact series for
+ *  the battery chart. A fix is kept iff its level differs from the
+ *  reading before or after it, so each constant run collapses to just
+ *  its two endpoints — the chart still draws a flat line across the
+ *  run and a clean step at each change. Fixes with no battery reading
+ *  are dropped. Assumes `points` is in ascending-`ts` order, which is
+ *  how `fetchTrackPoints` returns them. */
+export function batterySeries(points: { ts: number; battery: number | null }[]): BatterySample[] {
+	const read: BatterySample[] = [];
+	for (const p of points) {
+		if (p.battery !== null) read.push({ ts: p.ts, level: p.battery });
+	}
+	return read.filter((s, i) => {
+		const prev = read[i - 1];
+		const next = read[i + 1];
+		return prev === undefined || next === undefined || s.level !== prev.level || s.level !== next.level;
+	});
+}
+
 export interface VelocityResult {
 	points: FilteredPoint[];
 	segments: EnrichedSegment[];
@@ -371,6 +398,10 @@ export interface VelocityResult {
 	 *  attribute on the moving state. Adjacent same-state runs
 	 *  merge. See `src/sleep/day-state.ts`. */
 	states: DayState[];
+	/** The day's phone-battery trace, compressed to run boundaries.
+	 *  Derived from the same PhoneTrack fixes as `points`; the Day
+	 *  view renders it as a standalone chart. */
+	battery: BatterySample[];
 }
 
 export async function computeVelocity(
@@ -406,6 +437,11 @@ export async function computeVelocity(
 	const bounds = dateBoundsUtc(date, tz);
 	const raw = await time("phonetrack", fetchTrackPoints(config, userId, date, nextDay));
 	const inDay = raw.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc);
+
+	// Battery trace: derived straight from the raw in-day fixes, before
+	// the GPS quality / accuracy filters touch them — a fix dropped for
+	// an incoherent position still carries a valid battery reading.
+	const battery = batterySeries(inDay);
 
 	// GPS quality control: drop physically-incoherent runs (underground
 	// cell-tower garbage) before anything else touches the data. The
@@ -450,7 +486,7 @@ export async function computeVelocity(
 		// reflects the raw segment sequence (sleep windows = empty,
 		// no rewrite).
 		const states = segmentsToDayStates(segments as EnrichedSegment[], []);
-		return { points, segments, states };
+		return { points, segments, states, battery };
 	}
 
 	const N_SAMPLES = 5;
@@ -748,7 +784,7 @@ export async function computeVelocity(
 	const sleepWindows = enrichSleepWindows(rawSleep, withBiometrics);
 	const states = timeSync("dayStates", () => segmentsToDayStates(withBiometrics, sleepWindows));
 
-	return { points, segments: withBiometrics, states };
+	return { points, segments: withBiometrics, states, battery };
 }
 
 /**

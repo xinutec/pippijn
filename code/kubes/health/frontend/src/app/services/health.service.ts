@@ -52,6 +52,13 @@ export interface VelocityPoint {
   bearing: number;
 }
 
+/** One phone-battery reading: charge level (integer percent, 0–100)
+ *  at a wall-clock instant. Mirrors `BatterySample` in velocity.ts. */
+export interface BatterySample {
+  ts: number;
+  level: number;
+}
+
 export interface TrackSegment {
   startTs: number;
   endTs: number;
@@ -113,6 +120,10 @@ export interface VelocityData {
    *  Bottom layer of the three-altitude data model; sleep is folded
    *  in as a first-class mode. See src/sleep/day-state.ts. */
   states?: DayState[];
+  /** The day's phone-battery trace, compressed to run boundaries.
+   *  Optional so an older backend that omits it doesn't break the
+   *  client — the battery chart just shows "no data". */
+  battery?: BatterySample[];
 }
 
 /** The most recent location fix — for the live "where are they now"

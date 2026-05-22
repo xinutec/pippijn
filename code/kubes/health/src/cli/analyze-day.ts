@@ -58,7 +58,7 @@ await withConnection(migrate);
 
 console.log(`Analyzing ${date} for user ${userId}${tz ? ` (${tz})` : ""}\n`);
 
-const { points, segments, states } = await computeVelocity(config, userId, date, tz);
+const { points, segments, states, battery } = await computeVelocity(config, userId, date, tz);
 
 console.log(`Filtered points: ${points.length}`);
 console.log(`\n=== Segments (${segments.length}) ===`);
@@ -113,6 +113,22 @@ for (const s of states) {
 			? `${dur.toString().padStart(3)}m / ${s.minutesAsleep.toString().padStart(3)}m asleep`
 			: `${dur.toString().padStart(3)}m`;
 	console.log(`  ${fmt(s.startTs)}-${fmt(s.endTs)} (${durLabel}) ${s.mode.padEnd(11)}${ctx}`);
+}
+
+// Battery trace — the phone-charge series the Day view's battery
+// chart renders, summarised here so the CLI mirrors that affordance.
+console.log(`\n=== Battery (${battery.length} samples) ===`);
+if (battery.length === 0) {
+	console.log(`  no battery readings`);
+} else {
+	const levels = battery.map((s) => s.level);
+	const first = battery[0];
+	const last = battery[battery.length - 1];
+	const net = last.level - first.level;
+	console.log(
+		`  ${fmt(first.ts)} ${first.level}%  →  ${fmt(last.ts)} ${last.level}%  (net ${net >= 0 ? "+" : ""}${net}%)`,
+	);
+	console.log(`  range ${Math.min(...levels)}%–${Math.max(...levels)}%`);
 }
 
 console.log(`\n=== Points (sampled every ~2 min) ===`);

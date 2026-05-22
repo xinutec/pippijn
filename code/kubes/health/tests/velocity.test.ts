@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
 import type { TransportMode } from "../src/geo/segments.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
-import { annotateRailRuns, composeWayName, mergeAdjacentMoving, mergeAdjacentStays } from "../src/geo/velocity.js";
+import {
+	annotateRailRuns,
+	batterySeries,
+	composeWayName,
+	mergeAdjacentMoving,
+	mergeAdjacentStays,
+} from "../src/geo/velocity.js";
 
 function stay(startTs: number, endTs: number, place: string | undefined, pointCount = 5): EnrichedSegment {
 	return {
@@ -1076,5 +1082,66 @@ describe("annotateRailRuns", () => {
 		// train run's annotation should reference Station K.
 		const lastTrain = out[out.length - 1];
 		expect(lastTrain.wayName).toBe("Station K → Station W");
+	});
+});
+
+describe("batterySeries", () => {
+	const b = (ts: number, battery: number | null) => ({ ts, battery });
+
+	it("returns an empty series when there are no points", () => {
+		expect(batterySeries([])).toEqual([]);
+	});
+
+	it("skips fixes that carry no battery reading", () => {
+		expect(batterySeries([b(0, null), b(10, null)])).toEqual([]);
+		expect(batterySeries([b(0, null), b(10, 80), b(20, null)])).toEqual([{ ts: 10, level: 80 }]);
+	});
+
+	it("keeps a lone reading", () => {
+		expect(batterySeries([b(5, 73)])).toEqual([{ ts: 5, level: 73 }]);
+	});
+
+	it("collapses a constant run to its two endpoints", () => {
+		const out = batterySeries([b(0, 80), b(10, 80), b(20, 80), b(30, 80), b(40, 80)]);
+		expect(out).toEqual([
+			{ ts: 0, level: 80 },
+			{ ts: 40, level: 80 },
+		]);
+	});
+
+	it("keeps every reading of a strictly changing run", () => {
+		const out = batterySeries([b(0, 80), b(10, 79), b(20, 78), b(30, 77)]);
+		expect(out).toEqual([
+			{ ts: 0, level: 80 },
+			{ ts: 10, level: 79 },
+			{ ts: 20, level: 78 },
+			{ ts: 30, level: 77 },
+		]);
+	});
+
+	it("preserves a single-sample dip inside a flat run with its run boundaries", () => {
+		// A momentary sensor dip (...80, 80, 77, 80, 80...) is real data —
+		// keep it, and keep the run-edge 80s on either side so the chart
+		// renders the spike rather than a misleading slope.
+		const out = batterySeries([b(0, 80), b(10, 80), b(20, 77), b(30, 80), b(40, 80)]);
+		expect(out).toEqual([
+			{ ts: 0, level: 80 },
+			{ ts: 10, level: 80 },
+			{ ts: 20, level: 77 },
+			{ ts: 30, level: 80 },
+			{ ts: 40, level: 80 },
+		]);
+	});
+
+	it("collapses interior points of each run across a discharge-then-charge day", () => {
+		const out = batterySeries([b(0, 90), b(10, 90), b(20, 90), b(30, 70), b(40, 70), b(50, 85), b(60, 85)]);
+		expect(out).toEqual([
+			{ ts: 0, level: 90 },
+			{ ts: 20, level: 90 },
+			{ ts: 30, level: 70 },
+			{ ts: 40, level: 70 },
+			{ ts: 50, level: 85 },
+			{ ts: 60, level: 85 },
+		]);
 	});
 });
