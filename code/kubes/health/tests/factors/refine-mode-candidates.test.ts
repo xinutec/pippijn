@@ -115,7 +115,76 @@ describe("generateRefineModeCandidates", () => {
 			way("highway", "footway", undefined, 12),
 		];
 		const result = generateRefineModeCandidates("driving", ways);
-		// 1 train (rail) + 3 (driving/walking/cycling on Road A) + 1 walking (footway) + 1 fallback = 6
-		expect(result.length).toBeGreaterThanOrEqual(6);
+		// 1 train (Tube Line) + 3 from Road A (driving/walking/cycling, all
+		// named "Road A") + 0 from unnamed footway (its walking candidate is
+		// dropped because Road A already provides a named walking
+		// candidate) + 1 fallback = 5.
+		expect(result).toHaveLength(5);
+		expect(result.some((c) => c.mode === "train" && c.wayName === "Tube Line")).toBe(true);
+		expect(result.some((c) => c.mode === "walking" && c.wayName === "Road A")).toBe(true);
+		expect(result.some((c) => c.mode === "walking" && c.wayName === undefined)).toBe(false);
+	});
+
+	it("drops the unnamed walking candidate when a named walking candidate exists", () => {
+		// The OSM-data-duplication case: pavement (footway, no name) and
+		// the road it parallels (residential, named). Both produce a
+		// walking candidate; only the named one survives so the rendered
+		// timeline reads "walking on Barn Rise" rather than empty.
+		const ways = [way("highway", "footway", undefined, 1), way("highway", "residential", "Barn Rise", 15)];
+		const result = generateRefineModeCandidates("walking", ways);
+		const walking = result.filter((c) => c.mode === "walking" && c.wayName);
+		const walkingUnnamed = result.filter((c) => c.mode === "walking" && !c.wayName);
+		expect(walking).toHaveLength(1);
+		expect(walking[0].wayName).toBe("Barn Rise");
+		// The fallback (walking with no way info) is the only unnamed walking
+		// entry that remains — and it's deliberately the fallback, not a
+		// way-attached candidate.
+		expect(walkingUnnamed).toHaveLength(1);
+		expect(walkingUnnamed[0].wayDistanceM).toBeUndefined();
+	});
+
+	it("keeps unnamed walking candidates when no named alternative exists", () => {
+		// A footpath through a park with no nearby named road within range:
+		// the unnamed footway is the only walking evidence we have, so it
+		// stays. Falling back to no label is worse than labelling 'walking
+		// on (unnamed footway)' — though the renderer treats this as 'walking'
+		// with no label, the candidate is still useful for the factor scorer
+		// to score the mode.
+		const ways = [way("highway", "footway", undefined, 3)];
+		const result = generateRefineModeCandidates("walking", ways);
+		const walking = result.filter((c) => c.mode === "walking");
+		// One unnamed footway candidate + one unnamed fallback. Both retained.
+		expect(walking).toHaveLength(2);
+	});
+
+	it("dedup is per-mode: drops unnamed walking when named walking exists, leaves cycling unnamed candidate alone", () => {
+		const ways = [
+			way("highway", "footway", undefined, 2), // walking-only, unnamed
+			way("highway", "residential", "Barn Rise", 12), // walking + driving + cycling, named
+			way("highway", "cycleway", undefined, 5), // cycling-only, unnamed
+		];
+		const result = generateRefineModeCandidates("walking", ways);
+		// Walking: footway-unnamed dropped (Barn Rise is named); only Barn Rise survives.
+		// Cycling: cycleway-unnamed survives because no named cycling-only
+		// alternative exists — but wait, Barn Rise (residential) also emits a
+		// cycling candidate which IS named, so the unnamed cycleway is also dropped.
+		expect(result.some((c) => c.mode === "walking" && c.wayName === "Barn Rise")).toBe(true);
+		expect(result.some((c) => c.mode === "walking" && c.wayName === undefined && c.wayDistanceM !== undefined)).toBe(
+			false,
+		);
+		// Both cycling candidates exist post-dedup IFF the named-cycling test
+		// applies to cycling: residential emits a named cycling, cycleway
+		// emits unnamed. Unnamed cycling dropped.
+		expect(result.some((c) => c.mode === "cycling" && c.wayName === "Barn Rise")).toBe(true);
+		expect(result.some((c) => c.mode === "cycling" && c.wayName === undefined && c.waySubtype === "cycleway")).toBe(
+			false,
+		);
+	});
+
+	it("always includes the fallback candidate (originalMode, no way info)", () => {
+		const result = generateRefineModeCandidates("walking", [way("highway", "residential", "Some Road", 10)]);
+		const fallback = result.find((c) => c.wayDistanceM === undefined);
+		expect(fallback).toBeDefined();
+		expect(fallback?.mode).toBe("walking");
 	});
 });

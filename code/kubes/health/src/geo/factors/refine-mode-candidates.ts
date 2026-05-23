@@ -69,6 +69,20 @@ function modesForWay(way: NearbyWay): TransportMode[] {
  * The returned list always contains at least the `originalMode`
  * fallback candidate (so downstream code can rely on a non-empty
  * result).
+ *
+ * Per-mode dedup: when both a named and an unnamed candidate of the
+ * same mode exist, the unnamed one is dropped. This handles the OSM-
+ * data-duplication case where a footway (often unnamed) and the road
+ * it parallels (named) are geographically the same physical location
+ * — a user walking on the pavement of Barn Rise is on both ways at
+ * once in OSM's model. Without the filter, the unnamed footway wins
+ * the factor sum (mode-coherence +1 walking-on-footway vs 0
+ * walking-on-residential), but produces an empty wayName in the
+ * rendered timeline. The named road, when present, is the meaningful
+ * human-readable label. When only unnamed candidates exist (e.g., a
+ * footpath through a park with no nearby named road within range),
+ * they're kept — falling back gracefully to no label rather than
+ * mis-labelling with a distant road.
  */
 export function generateRefineModeCandidates(originalMode: TransportMode, ways: readonly NearbyWay[]): ModeCandidate[] {
 	const candidates: ModeCandidate[] = [];
@@ -83,9 +97,17 @@ export function generateRefineModeCandidates(originalMode: TransportMode, ways: 
 			});
 		}
 	}
+	// Drop unnamed candidates of any mode that has at least one named
+	// candidate. Same-mode named/unnamed in OSM is overwhelmingly
+	// pavement-vs-road or cycleway-vs-road; the named one is what we
+	// want to show.
+	const modesWithName = new Set<TransportMode>(
+		candidates.filter((c) => c.wayName !== undefined && c.wayName.length > 0).map((c) => c.mode),
+	);
+	const filtered = candidates.filter((c) => (c.wayName && c.wayName.length > 0) || !modesWithName.has(c.mode));
 	// Fallback: the segment classifier's chosen mode with no way info.
 	// Covers the "no useful way nearby" case and ensures the consumer
 	// can always make a decision even if it's not particularly informed.
-	candidates.push({ mode: originalMode });
-	return candidates;
+	filtered.push({ mode: originalMode });
+	return filtered;
 }

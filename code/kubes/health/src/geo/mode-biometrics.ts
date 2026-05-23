@@ -147,12 +147,12 @@ const SIT_MODES = new Set(["driving", "train", "plane"]);
  *  false vetoes during low-effort cycling, loose enough to catch
  *  the "labelled cycling but HR sits at resting" case where the
  *  observed HR is several σ below cycling's mean. */
-const HR_VETO_SIGMA = 2.0;
+export const HR_VETO_SIGMA = 2.0;
 
 /** Number of stds ABOVE the per-mode cadence mean at which the
  *  observed cadence becomes implausible for a "cadence ≈ 0" mode
  *  (cycling / driving / train / plane). */
-const CADENCE_VETO_SIGMA = 2.0;
+export const CADENCE_VETO_SIGMA = 2.0;
 
 /** Floor on the cadence-veto threshold. Some users have a degenerate
  *  per-mode cadence distribution (mean=0, std=0 — every training
@@ -160,7 +160,7 @@ const CADENCE_VETO_SIGMA = 2.0;
  *  *any* non-zero observed cadence. A floor of 30 spm cleanly separates
  *  pedalling-with-occasional-step-noise (typically 0-10 spm) from
  *  actual walking (~80-130 spm). */
-const CADENCE_VETO_FLOOR_SPM = 30;
+export const CADENCE_VETO_FLOOR_SPM = 30;
 
 /** Speed ceiling for cadence-veto. Above this, walking is no longer a
  *  biomechanically plausible alternative, so cadence-veto's premise
@@ -171,12 +171,12 @@ const CADENCE_VETO_FLOOR_SPM = 30;
  *  alternative is equally implausible at that speed, so it picked the
  *  least-bad log-likelihood. 15 km/h sits comfortably above brisk
  *  walking (~7) and well below cycling (~17). */
-const CADENCE_VETO_MAX_SPEED_KMH = 15;
+export const CADENCE_VETO_MAX_SPEED_KMH = 15;
 
 /** Modes whose biometric signature is "cadence ≈ 0" (pedalling /
  *  sitting / standing). A walking-range observed cadence inside one
  *  of these modes is biologically implausible. */
-const LOW_CADENCE_MODES = new Set(["cycling", "driving", "train", "plane"]);
+export const LOW_CADENCE_MODES = new Set(["cycling", "driving", "train", "plane"]);
 
 /** Modes the re-classifier must never select as a flip *target*. The
  *  user cycles only rarely and any mined cycling signature is bogus
