@@ -31,12 +31,7 @@
  *     waterway ways are currently dropped.
  */
 
-import {
-	isCadenceImplausibleForMode,
-	isHrImplausibleForMode,
-	type MinuteObservation,
-	type ModeStats,
-} from "../mode-biometrics.js";
+import { isCadenceImplausibleForMode, type MinuteObservation, type ModeStats } from "../mode-biometrics.js";
 import type { NearbyWay } from "../osm.js";
 import type { TransportMode } from "../segments.js";
 import type { ModeCandidate } from "./types.js";
@@ -92,12 +87,32 @@ function modesForWay(way: NearbyWay): TransportMode[] {
  */
 /** Optional per-segment biometric context. When supplied, the
  *  generator drops way-attached candidates whose mode is
- *  biologically implausible given the user's per-mode HR/cadence
- *  distributions — the candidate-filter form of the legacy
- *  vetoImplausibleHr / vetoImplausibleCadence cascade gates. The
- *  fallback candidate is always kept regardless of biometric
- *  veto (it's the consumer's last-resort guess and must always
- *  exist). */
+ *  biologically implausible given the user's per-mode cadence
+ *  distribution — the candidate-filter form of the legacy
+ *  `vetoImplausibleCadence` cascade gate. The fallback candidate
+ *  is always kept regardless of biometric veto (it's the consumer's
+ *  last-resort guess and must always exist).
+ *
+ *  HR-implausibility is **not** filtered here. The legacy
+ *  `vetoImplausibleHr` rule applied to all non-stationary modes,
+ *  but it over-fires on sitting modes (driving / train / plane):
+ *  the user's mined per-mode HR distribution for driving/train
+ *  reflects mildly-elevated HR during active commuting, while a
+ *  relaxed tube ride sits in resting-HR territory. The 2026-05-23
+ *  debug surfaced this as the morning-tube-as-walking regression:
+ *  every driving / train candidate was being filtered out by HR,
+ *  leaving only catastrophically-poor walking candidates to win.
+ *  The `biometric-ll` factor handles the discriminating-by-HR work
+ *  as a soft signal, weighted against the joint speed + cadence
+ *  evidence — at 61 km/h, walking scores ~-1300 nats biometric-LL
+ *  vs driving/train near 0, which the aggregator picks up cleanly
+ *  without a binary pre-filter. See
+ *  [[feedback-weighted-over-binary]] and [[feedback-model-impossibilities-as-constraints]].
+ *
+ *  The cadence filter stays because it is scoped (only applies
+ *  when speed is below the walking-plausible ceiling) and catches
+ *  the specific "walking with cycling label" case where cadence
+ *  ~100 spm at walking speed unambiguously means walking. */
 export interface BiometricContext {
 	obs: MinuteObservation;
 	stats: readonly ModeStats[];
@@ -120,17 +135,17 @@ export function generateRefineModeCandidates(
 			});
 		}
 	}
-	// Biometric implausibility filter: drop way-attached candidates whose
-	// mode is biologically impossible given the segment's HR/cadence
-	// observations. The HR-veto and cadence-veto cascade gates expressed
-	// as candidate exclusion — the factor scorer's aggregator then picks
-	// the next-best surviving candidate, which is the same effective
-	// behaviour as the cascade's demote-to-alternative logic.
+	// Cadence implausibility filter: drop way-attached candidates whose
+	// mode is biologically impossible given the segment's cadence
+	// observation at walking-plausible speeds. Scoped narrowly — only
+	// fires when the speed-veto premise (this could be walking) holds
+	// AND cadence is above the walking-band floor for a low-cadence
+	// mode. The HR side of the legacy biometric-veto is intentionally
+	// not filtered here; see the doc comment above for the
+	// over-filtering case that motivated the change.
 	const biometricFiltered = biometric
 		? candidates.filter(
-				(c) =>
-					!isHrImplausibleForMode(c.mode, biometric.obs.hr, biometric.stats) &&
-					!isCadenceImplausibleForMode(c.mode, biometric.obs.cadence, biometric.obs.speed, biometric.stats),
+				(c) => !isCadenceImplausibleForMode(c.mode, biometric.obs.cadence, biometric.obs.speed, biometric.stats),
 			)
 		: candidates;
 	// Drop unnamed candidates of any mode that has at least one named

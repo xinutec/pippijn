@@ -97,23 +97,56 @@ export function labelMinuteByHeuristic(obs: MinuteObservation): TransportMode | 
 }
 
 /**
+ * Per-modality minimum std floors for `scoreModeLogLikelihood`. The
+ * per-user mining produces unrealistically tight stds on sitting modes
+ * because every past train / driving / plane minute happened to have
+ * almost-zero cadence — so the mined `cadence_std` for those modes is
+ * 0.4 spm. The first time a real ride has sensor noise (Fitbit picks
+ * up vibration as ~50 spm cadence on a tube ride), the Gaussian
+ * assigns ~(50/0.4)²/2 ≈ 7800 nats of penalty, blowing biometric-LL
+ * to negative infinity and locking the segment as walking — the only
+ * mode whose cadence std (~11 spm) absorbs the noise without
+ * exploding.
+ *
+ * Flooring the stds at sensor-noise-realistic minimums lets the
+ * Gaussian carry information without one noisy sample dominating.
+ * Floors are conservative: pick the smallest defensible measurement
+ * noise for each modality across all modes. Past mining that produced
+ * smaller stds was over-confident, not informative.
+ *
+ *   - HR: 5 bpm. Fitbit's optical HR has ~3-5 bpm noise at rest;
+ *     no real per-mode HR distribution is tighter than this.
+ *   - cadence: 5 spm. Captures vibration-as-steps false positives
+ *     on transit.
+ *   - speed: 2 km/h. GPS speed noise on slow / sparse-fix segments.
+ */
+const HR_STD_FLOOR_BPM = 5;
+const CADENCE_STD_FLOOR_SPM = 5;
+const SPEED_STD_FLOOR_KMH = 2;
+
+/**
  * Score the log-likelihood of an observation under a mode's Gaussian
  * emission per modality. Modalities with null observations OR null/zero
  * stats are skipped (contribute zero to log-likelihood — equivalent to
  * marginalising out). Returns `-Infinity` when every modality drops out.
+ *
+ * Each std is floored at a sensor-noise minimum before scoring (see
+ * the floor constants' doc). The mined per-user stds are over-confident
+ * on sitting modes' cadence and exploding the LL on any noisy reading.
  */
 export function scoreModeLogLikelihood(obs: MinuteObservation, stats: ModeStats): number {
 	let logLik = 0;
 	let contributed = 0;
-	const factor = (val: number | null, mean: number | null, std: number | null): void => {
+	const factor = (val: number | null, mean: number | null, std: number | null, floor: number): void => {
 		if (val === null || mean === null || std === null || std === 0) return;
-		const z = (val - mean) / std;
+		const effectiveStd = Math.max(std, floor);
+		const z = (val - mean) / effectiveStd;
 		logLik += -0.5 * z * z;
 		contributed++;
 	};
-	factor(obs.hr, stats.hrMean, stats.hrStd);
-	factor(obs.cadence, stats.cadenceMean, stats.cadenceStd);
-	factor(obs.speed, stats.speedMean, stats.speedStd);
+	factor(obs.hr, stats.hrMean, stats.hrStd, HR_STD_FLOOR_BPM);
+	factor(obs.cadence, stats.cadenceMean, stats.cadenceStd, CADENCE_STD_FLOOR_SPM);
+	factor(obs.speed, stats.speedMean, stats.speedStd, SPEED_STD_FLOOR_KMH);
 	return contributed === 0 ? Number.NEGATIVE_INFINITY : logLik;
 }
 

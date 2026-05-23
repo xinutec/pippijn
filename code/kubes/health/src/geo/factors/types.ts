@@ -74,7 +74,20 @@ export interface FactorContext {
 	/** Per-user per-mode biometric signatures from `mode_biometrics`.
 	 *  Required by the biometric-ll factor; loaded once per call to
 	 *  the consumer and passed unchanged through context. */
-	modeStats?: ModeStats[];
+	modeStats?: readonly ModeStats[];
+	/** The segment's pre-refinement mode — what the GPS-feature
+	 *  classifier in `segments.ts` decided before refineMode ran.
+	 *  Read by the classifier-prior factor to award stickiness to
+	 *  the original classification scaled by the upstream
+	 *  `confidenceMargin`. Optional because non-velocity-pipeline
+	 *  consumers may not have a meaningful "original" mode. */
+	originalMode?: TransportMode;
+	/** The upstream classifier's margin between the chosen mode and
+	 *  the runner-up, in nats (segments.ts records 0 when ambiguous
+	 *  and a large finite number when the classifier was clearly
+	 *  preferring one mode). Read by the classifier-prior factor —
+	 *  high margin → strong stickiness bonus on the original mode. */
+	confidenceMargin?: number;
 }
 
 export interface FactorScore {

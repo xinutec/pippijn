@@ -20,6 +20,7 @@ import {
 	type SleepStageRecord,
 	type StepPoint,
 } from "./biometrics.js";
+import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour, parseHourProfile } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
 import type { FilteredPoint } from "./kalman.js";
@@ -491,10 +492,14 @@ export async function computeVelocity(
 
 	const N_SAMPLES = 5;
 
-	// Kick off biometrics load in parallel with OSM enrichment — both are
-	// I/O-bound, no need to serialise them. The result is needed for cadence-
+	// Kick off biometrics + per-user mode-signature loads in parallel with OSM
+	// enrichment — all I/O-bound. The biometric streams are needed for cadence-
 	// based mode correction (between OSM enrichment and merge) plus the final
-	// per-segment enrichment after merge.
+	// per-segment enrichment after merge. The per-user mode signatures
+	// (modeStats) are needed either by the legacy `applyBiometricSignature`
+	// pass after OSM enrichment, or — when `useBiometricFactor()` is on — by
+	// the factor scorer's candidate generator inside refineMode itself, in
+	// which case we need them before enrichment starts.
 	const biometricsPromise = time(
 		"biomLoad",
 		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz).catch((e: unknown) => {
@@ -502,6 +507,14 @@ export async function computeVelocity(
 			return { hr: [] as HrPoint[], sleep: [] as SleepStageRecord[], steps: [] as StepPoint[] };
 		}),
 	);
+	const modeStatsPromise = time("modeStatsLoad", loadModeBiometrics(userId));
+	const biometricFactorOn = useBiometricFactor();
+	// When the biometric factor is on, refineMode needs per-segment hr/cadence
+	// + modeStats inside the enrichment map, so await both biometric loads
+	// before the Promise.all. When it is off, the streams are only consumed
+	// after enrichment and we keep the original parallelism.
+	const preEnrichBiometrics = biometricFactorOn ? await biometricsPromise : null;
+	const preEnrichModeStats = biometricFactorOn ? await modeStatsPromise : null;
 
 	// Enrich each segment with OSM data
 	const enrichStart = Date.now();
@@ -645,7 +658,33 @@ export async function computeVelocity(
 					}
 				}
 				const aggregated = [...byKey.values()];
-				const refined = refineMode(seg.mode, seg.avgSpeed, aggregated);
+				// Under USE_BIOMETRIC_FACTOR, pass per-segment hr/cadence + the
+				// loaded mode signatures into refineMode so the factor scorer's
+				// candidate generator can filter biologically-implausible
+				// candidates. Without the flag, refineMode runs with no
+				// biometric context and the legacy `applyBiometricSignature`
+				// pass below does the corresponding work as a post-step.
+				const biometricCtx =
+					biometricFactorOn && preEnrichBiometrics && preEnrichModeStats
+						? {
+								obs: {
+									hr: meanInWindow(preEnrichBiometrics.hr, (p) => p.bpm, seg.startTs, seg.endTs),
+									cadence: meanInWindow(preEnrichBiometrics.steps, (p) => p.steps, seg.startTs, seg.endTs),
+									speed: seg.avgSpeed,
+								},
+								stats: preEnrichModeStats,
+							}
+						: undefined;
+				const refined = refineMode(
+					seg.mode,
+					seg.avgSpeed,
+					aggregated,
+					biometricCtx,
+					seg.confidenceMargin,
+					process.env.FACTOR_DEBUG === "1"
+						? `[${new Date(seg.startTs * 1000).toISOString().slice(11, 16)}-${new Date(seg.endTs * 1000).toISOString().slice(11, 16)}Z]`
+						: undefined,
+				);
 				// Physical-plausibility override: a tube ride under a road
 				// can look like driving to refineMode (the road is the
 				// closest OSM way). Demote when the max speed exceeds
@@ -684,10 +723,17 @@ export async function computeVelocity(
 	// driving even though the speed scored ambiguously) and the cycling-
 	// mislabeled-as-driving case. See `correctModeBySignature` for the
 	// gating rules.
-	const modeStats = await loadModeBiometrics(userId);
-	const biometricCorrected = timeSync("biometricCorrect", () =>
-		corrected.map((seg) => applyBiometricSignature(seg, hr, steps, modeStats)),
-	);
+	//
+	// When USE_BIOMETRIC_FACTOR is on, refineMode above has already
+	// consulted the per-user biometric signatures via the factor scorer's
+	// candidate generator — running this pass on top would double-correct
+	// (and bypass the scorer's principled aggregation in favour of a
+	// hard-coded cascade). Skip in that case; otherwise this is the
+	// production path.
+	const modeStats = preEnrichModeStats ?? (await modeStatsPromise);
+	const biometricCorrected = biometricFactorOn
+		? corrected
+		: timeSync("biometricCorrect", () => corrected.map((seg) => applyBiometricSignature(seg, hr, steps, modeStats)));
 
 	// Hard physical-impossibility overrides: a car can't sustain 300+ km/h,
 	// a train can't average 600 km/h. These are constraints, not

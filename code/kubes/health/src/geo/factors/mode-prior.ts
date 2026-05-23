@@ -14,16 +14,20 @@
  *
  * Calibration: the cascade rule was binary (never flip in). As a
  * soft factor, the magnitude must be large enough that the existing
- * `biometric-ll` factor alone — which can score cycling ~+1 nat on
- * an ambiguous low-HR/low-cadence segment — does NOT flip a
- * non-cycling segment to cycling. Only the upcoming
- * `cycling-signature` factor, with explicit joint evidence
- * (sustained 15–25 km/h + elevated HR + zero cadence), should be
- * permitted to outscore the prior. `-1.5` nats is the starting
- * point: comfortably larger than typical biometric-LL noise, small
- * enough that strong cycling-signature evidence (~+2–3 nats) wins.
- * Re-calibrate against the fixture days in the same pass that
- * lands `cycling-signature`.
+ * `biometric-ll` factor (~+1 nat for cycling on an ambiguous
+ * low-HR/low-cadence sitting segment) *plus* the `classifier-prior`
+ * bonus (up to +4 nats when segments.ts itself confidently labelled
+ * the segment as cycling, which happens on short urban segments
+ * with cycling-ish speed signatures around a tube station) does NOT
+ * flip a non-cycling segment to cycling. The 2026-05-23 backtest
+ * surfaced multiple Wembley-Park-tube-as-cycling regressions at
+ * `-1.5` because classifier-prior + biometric-ll out-scored the
+ * penalty. Bumped to `-4` so that even a confidently-cycling-original
+ * segment with biometric agreement (~+5 nats combined) needs at
+ * least +1 nat of additional independent evidence to actually win
+ * — and the upcoming `cycling-signature` factor, with explicit joint
+ * evidence (sustained 15–25 km/h + elevated HR + zero cadence),
+ * provides exactly that. Re-calibrate when `cycling-signature` lands.
  *
  * The factor returns `null` for modes without a prior — both because
  * "no per-mode prior is set" is meaningfully distinct from "the
@@ -36,7 +40,7 @@
 import type { Factor, ModeCandidate } from "./types.js";
 
 const MODE_PRIORS: Partial<Record<ModeCandidate["mode"], number>> = {
-	cycling: -1.5,
+	cycling: -4,
 };
 
 export const modePrior: Factor = (candidate, _ctx) => {

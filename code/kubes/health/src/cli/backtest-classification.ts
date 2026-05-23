@@ -1,30 +1,39 @@
 /**
- * Backtest CLI: compares the legacy refineMode cascade output against
- * the factor-scorer path (`USE_FACTOR_SCORER=1`) across a date range,
- * diffing the day-state timelines per day.
+ * Backtest CLI: compares two refineMode classifier configurations across
+ * a date range, diffing the day-state timelines per day.
  *
- * Purpose: measure what flipping the prod flag would change *before*
- * actually flipping it. Phase 1 of the scored-classification refactor
- * builds on this — every subsequent factor change can be re-run
- * against the same range to confirm the change moves the right
- * segments in the right direction. See
- * docs/proposals/2026-05-scored-classification.md.
+ * Two compare modes (selected with `--compare`):
+ *   - `scorer` (default): legacy cascade vs factor scorer
+ *     (`USE_FACTOR_SCORER=0` vs `=1`). Answers "what does flipping the
+ *     scorer prod flag change?"
+ *   - `biometric`: factor scorer alone vs factor scorer + biometric
+ *     factor (`USE_FACTOR_SCORER=1` for both; `USE_BIOMETRIC_FACTOR=0`
+ *     vs `=1`). Answers "what does the biometric corrector migration
+ *     into the scorer change once the scorer is on?"
  *
- * Usage (run via `scripts/backtest.sh` so the prod-db tunnel + env
- * are set up):
+ * Purpose: measure what flipping a prod flag would do *before* actually
+ * flipping it. Phase 1 of the scored-classification refactor builds on
+ * this — every subsequent factor change can be re-run against the same
+ * range to confirm the change moves the right segments in the right
+ * direction. See docs/proposals/2026-05-scored-classification.md.
  *
- *   scripts/backtest.sh                          # last 7 days
- *   scripts/backtest.sh --days 30                # last 30 days
+ * Usage (run via `scripts/backtest.sh` so the prod-db tunnel + env are
+ * set up):
+ *
+ *   scripts/backtest.sh                          # last 7 days, scorer
+ *   scripts/backtest.sh --days 30                # last 30 days, scorer
  *   scripts/backtest.sh --from 2026-05-12 --to 2026-05-22
+ *   scripts/backtest.sh --compare biometric --days 7
  *   scripts/backtest.sh --user pippijn --tz Europe/London
  *
  * Exit 0 always (measurement tool, not regression detector); exit 2
  * on usage error or DB connect failure.
  *
- * Performance note: each day is computed twice (flag off, flag on).
- * computeVelocity is itself uncached (only the route handler caches),
- * so each comparison costs ~2 × full pipeline + 2 × PhoneTrack fetch.
- * For ~7 days that is well under a minute; for 30 days a few minutes.
+ * Performance note: each day is computed twice (flags flipped between
+ * runs). computeVelocity is itself uncached (only the route handler
+ * caches), so each comparison costs ~2 × full pipeline + 2 × PhoneTrack
+ * fetch. For ~7 days that is well under a minute; for 30 days a few
+ * minutes.
  */
 
 import { z } from "zod";
@@ -63,11 +72,14 @@ const config = z
 		},
 	});
 
+type CompareMode = "scorer" | "biometric";
+
 interface BacktestArgs {
 	from: string;
 	to: string;
 	user: string;
 	tz: string;
+	compare: CompareMode;
 }
 
 function usage(message?: string): never {
@@ -77,8 +89,9 @@ function usage(message?: string): never {
 			"  backtest-classification --days N           # last N days, ending yesterday\n" +
 			"  backtest-classification --from YYYY-MM-DD --to YYYY-MM-DD\n" +
 			"Optional:\n" +
-			"  --user <id>     (default: pippijn)\n" +
-			"  --tz <iana>     (default: Europe/London)",
+			"  --user <id>           (default: pippijn)\n" +
+			"  --tz <iana>           (default: Europe/London)\n" +
+			"  --compare <mode>      scorer (default) | biometric",
 	);
 	process.exit(2);
 }
@@ -97,6 +110,7 @@ function parseArgs(argv: string[]): BacktestArgs {
 	let days: number | null = null;
 	let user = "pippijn";
 	let tz = "Europe/London";
+	let compare: CompareMode = "scorer";
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === "--from") from = argv[++i] ?? usage("--from needs YYYY-MM-DD");
@@ -107,7 +121,11 @@ function parseArgs(argv: string[]): BacktestArgs {
 			days = Number(next);
 		} else if (a === "--user") user = argv[++i] ?? usage("--user needs an id");
 		else if (a === "--tz") tz = argv[++i] ?? usage("--tz needs an IANA zone");
-		else usage(`unknown argument: ${a}`);
+		else if (a === "--compare") {
+			const next = argv[++i];
+			if (next !== "scorer" && next !== "biometric") usage("--compare needs scorer|biometric");
+			compare = next;
+		} else usage(`unknown argument: ${a}`);
 	}
 	if (from !== null || to !== null) {
 		if (from === null || to === null) usage("--from and --to must be given together");
@@ -116,7 +134,7 @@ function parseArgs(argv: string[]): BacktestArgs {
 			usage("dates must be YYYY-MM-DD");
 		}
 		if (from > to) usage("--from must be ≤ --to");
-		return { from, to, user, tz };
+		return { from, to, user, tz, compare };
 	}
 	// Default: last `days` days (default 7), ending yesterday.
 	const N = days ?? 7;
@@ -128,6 +146,7 @@ function parseArgs(argv: string[]): BacktestArgs {
 		to: end.toISOString().slice(0, 10),
 		user,
 		tz,
+		compare,
 	};
 }
 
@@ -146,31 +165,60 @@ interface ComparisonOutcome {
 	errorMessage?: string;
 }
 
-async function compareDay(date: string, user: string, tz: string): Promise<ComparisonOutcome> {
-	// Run twice with the flag flipped. useFactorScorer() reads
-	// process.env on every call, so in-process mutation is enough —
-	// no caching layer to invalidate (computeVelocity is uncached;
-	// only the route handler caches).
+/** Configure the two flag env states for a given compare mode.
+ *
+ *  Both flags are read fresh every call to refineMode (no caching),
+ *  so in-process env mutation is sufficient to switch behaviour
+ *  between the two computeVelocity runs. */
+function flagStatesFor(mode: CompareMode): { left: Record<string, string>; right: Record<string, string> } {
+	switch (mode) {
+		case "scorer":
+			// legacy cascade vs factor scorer (biometric corrector still
+			// on the cascade for both — controlled by the legacy code path,
+			// not USE_BIOMETRIC_FACTOR).
+			return { left: {}, right: { USE_FACTOR_SCORER: "1" } };
+		case "biometric":
+			// scorer alone vs scorer + biometric factor. Both runs have
+			// the factor scorer on; only the biometric-corrector path
+			// changes (cascade-after vs candidate-filter-inside).
+			return {
+				left: { USE_FACTOR_SCORER: "1" },
+				right: { USE_FACTOR_SCORER: "1", USE_BIOMETRIC_FACTOR: "1" },
+			};
+	}
+}
+
+function applyEnv(state: Record<string, string>): void {
 	delete process.env.USE_FACTOR_SCORER;
-	const legacy = await computeVelocity(config, user, date, tz);
-	process.env.USE_FACTOR_SCORER = "1";
-	let factored: Awaited<ReturnType<typeof computeVelocity>>;
+	delete process.env.USE_BIOMETRIC_FACTOR;
+	for (const [k, v] of Object.entries(state)) process.env[k] = v;
+}
+
+async function compareDay(date: string, user: string, tz: string, mode: CompareMode): Promise<ComparisonOutcome> {
+	const states = flagStatesFor(mode);
+	applyEnv(states.left);
+	const left = await computeVelocity(config, user, date, tz);
+	applyEnv(states.right);
+	let right: Awaited<ReturnType<typeof computeVelocity>>;
 	try {
-		factored = await computeVelocity(config, user, date, tz);
+		right = await computeVelocity(config, user, date, tz);
 	} finally {
-		delete process.env.USE_FACTOR_SCORER;
+		applyEnv({});
 	}
 
-	const left = normalizeStates(legacy.states, tz);
-	const right = normalizeStates(factored.states, tz);
-	const d = diffStates(left, right);
+	const leftNorm = normalizeStates(left.states, tz);
+	const rightNorm = normalizeStates(right.states, tz);
+	const d = diffStates(leftNorm, rightNorm);
 	return d.identical ? { kind: "match" } : { kind: "diff", lines: d.lines };
 }
 
 const args = parseArgs(process.argv.slice(2));
 
+const legend =
+	args.compare === "scorer" ? "(-=legacy cascade, +=factor scorer)" : "(-=scorer only, +=scorer + biometric factor)";
+
 console.log(
-	`backtest-classification: ${args.from} → ${args.to}  user=${args.user}  tz=${args.tz}  (-=legacy, +=factor scorer)`,
+	`backtest-classification: ${args.from} → ${args.to}  user=${args.user}  tz=${args.tz}  compare=${args.compare}  ${legend}`,
 );
 
 initPool(config.db);
@@ -184,7 +232,7 @@ let errored = 0;
 for (const date of datesInRange(args.from, args.to)) {
 	total++;
 	try {
-		const out = await compareDay(date, args.user, args.tz);
+		const out = await compareDay(date, args.user, args.tz, args.compare);
 		if (out.kind === "match") {
 			matched++;
 			console.log(`MATCH  ${date}`);

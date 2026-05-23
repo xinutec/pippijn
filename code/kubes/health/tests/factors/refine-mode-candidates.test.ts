@@ -233,19 +233,29 @@ describe("generateRefineModeCandidates — biometric filtering", () => {
 		},
 	];
 
-	it("drops cycling candidate when HR is implausibly low for cycling", () => {
-		// HR 100 < cycling minPlausible (135 - 2·14 = 107). Cycling candidate vetoed.
-		const ways = [way("highway", "residential", "Barn Rise", 15), way("highway", "cycleway", "Some Lane", 5)];
-		const result = generateRefineModeCandidates("walking", ways, {
-			obs: { hr: 100, cadence: 0, speed: 5 },
+	it("does NOT drop driving/train candidates when HR is below the mode's HR mean (sitting-on-tube case)", () => {
+		// The earlier filter dropped driving and train whenever observed
+		// HR was below the user's per-mode HR mean — but the per-mode HR
+		// distribution for driving/train reflects mildly-elevated
+		// commuting HR, so a relaxed tube ride (HR ~50, sitting) would
+		// wrongly veto both modes. This left walking as the only
+		// surviving candidate, which then won despite scoring
+		// catastrophically poorly on biometric-ll at vehicular speeds.
+		// The biometric-ll factor handles the discriminating-by-HR work
+		// as a soft signal instead.
+		const ways = [way("highway", "trunk", "Marylebone Road", 10), way("railway", "subway", "Met Line", 12)];
+		const result = generateRefineModeCandidates("driving", ways, {
+			obs: { hr: 50, cadence: 0, speed: 61 },
 			stats: STATS,
 		});
-		expect(result.some((c) => c.mode === "cycling")).toBe(false);
-		// Walking candidate from Barn Rise survives.
-		expect(result.some((c) => c.mode === "walking" && c.wayName === "Barn Rise")).toBe(true);
+		expect(result.some((c) => c.mode === "driving")).toBe(true);
+		expect(result.some((c) => c.mode === "train")).toBe(true);
 	});
 
 	it("drops cycling candidate when cadence is in walking range at slow speed (phantom-cycling case)", () => {
+		// The cadence filter stays — it's scoped by speed (only fires
+		// below the walking-plausible ceiling) so it doesn't over-fire
+		// on sitting modes the way HR-veto did.
 		const ways = [way("highway", "residential", "Barn Rise", 15)];
 		const result = generateRefineModeCandidates("walking", ways, {
 			obs: { hr: 140, cadence: 80, speed: 10 },
@@ -256,15 +266,16 @@ describe("generateRefineModeCandidates — biometric filtering", () => {
 	});
 
 	it("keeps the fallback candidate even if its mode is biometrically implausible", () => {
-		// originalMode=cycling, but biometrics say cycling is impossible.
-		// We still keep the fallback so the consumer always has at least
-		// one option (the factor scorer picks the next-best surviving
-		// candidate; if all way-attached candidates are implausible too,
-		// the fallback is the honest 'we don't know what else this could
-		// be' answer).
+		// originalMode=cycling, biometrics filter (via cadence) say
+		// cycling is impossible. The fallback is still kept so the
+		// consumer always has at least one option (the factor scorer
+		// then picks the next-best surviving candidate; if all
+		// way-attached cycling candidates are filtered, the fallback
+		// is the honest 'we don't know what else this could be'
+		// answer that other factors can still discriminate against).
 		const ways = [way("highway", "residential", "Barn Rise", 15)];
 		const result = generateRefineModeCandidates("cycling", ways, {
-			obs: { hr: 100, cadence: 0, speed: 5 },
+			obs: { hr: 140, cadence: 80, speed: 10 },
 			stats: STATS,
 		});
 		const fallback = result.find((c) => c.wayDistanceM === undefined);
@@ -275,10 +286,10 @@ describe("generateRefineModeCandidates — biometric filtering", () => {
 	});
 
 	it("returns the same result as without biometric ctx when nothing is implausible", () => {
-		// Inputs picked so no candidate gets vetoed: HR 110 sits inside
-		// the walking band (also above cycling's minPlausible 107),
-		// cadence 0 doesn't trip cadence-veto for any low-cadence mode,
-		// speed 5 < walking-plausible ceiling.
+		// Inputs picked so no candidate gets vetoed: cadence 0 doesn't
+		// trip cadence-veto for any low-cadence mode, speed 5 is within
+		// walking-plausible range so the veto premise is checkable but
+		// the cadence reading is fine.
 		const ways = [way("highway", "residential", "Barn Rise", 15)];
 		const withoutBiometric = generateRefineModeCandidates("walking", ways);
 		const withPlausibleBiometric = generateRefineModeCandidates("walking", ways, {
@@ -289,12 +300,14 @@ describe("generateRefineModeCandidates — biometric filtering", () => {
 	});
 
 	it("filter is a no-op without per-user stats (cold-start user)", () => {
+		// Cadence 80 + walking speed normally trips the cycling cadence-
+		// veto; without per-user stats the filter has no distribution to
+		// check against and must let everything through.
 		const ways = [way("highway", "residential", "Barn Rise", 15), way("highway", "cycleway", "Some Lane", 5)];
 		const result = generateRefineModeCandidates("walking", ways, {
-			obs: { hr: 100, cadence: 0, speed: 5 },
+			obs: { hr: 140, cadence: 80, speed: 10 },
 			stats: [],
 		});
-		// Without stats, no candidate can be vetoed — cycling survives.
 		expect(result.some((c) => c.mode === "cycling")).toBe(true);
 	});
 });

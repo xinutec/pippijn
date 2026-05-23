@@ -10,12 +10,15 @@
 
 import { db } from "../db/pool.js";
 import { scoreCandidates } from "./factors/aggregator.js";
+import { biometricLL } from "./factors/biometric-ll.js";
+import { classifierPrior } from "./factors/classifier-prior.js";
 import { useFactorScorer } from "./factors/feature-flag.js";
 import { modeCoherence } from "./factors/mode-coherence.js";
+import { modePrior } from "./factors/mode-prior.js";
 import { osmDistance } from "./factors/osm-distance.js";
-import { generateRefineModeCandidates } from "./factors/refine-mode-candidates.js";
+import { type BiometricContext, generateRefineModeCandidates } from "./factors/refine-mode-candidates.js";
 import { speedEmission } from "./factors/speed-emission.js";
-import type { ScoredRefinement } from "./factors/types.js";
+import type { Factor, ScoredRefinement } from "./factors/types.js";
 import type { TransportMode } from "./segments.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
@@ -842,9 +845,16 @@ function pickBestHighway(highways: NearbyWay[], speedKmh: number): NearbyWay {
 	return highways[0];
 }
 
-export function refineMode(originalMode: string, speedKmh: number, ways: NearbyWay[]): ModeRefinement {
+export function refineMode(
+	originalMode: string,
+	speedKmh: number,
+	ways: NearbyWay[],
+	biometric?: BiometricContext,
+	confidenceMargin?: number,
+	debugLabel?: string,
+): ModeRefinement {
 	if (useFactorScorer()) {
-		return refineModeViaFactors(originalMode, speedKmh, ways);
+		return refineModeViaFactors(originalMode, speedKmh, ways, biometric, confidenceMargin, debugLabel);
 	}
 	return refineModeLegacyCascade(originalMode, speedKmh, ways);
 }
@@ -924,20 +934,48 @@ export function rejectImplausibleDriving(
  * ModeRefinement return shape (so downstream consumers don't need
  * to change yet).
  *
- * Uses three factors:
+ * Base stack (always active under `USE_FACTOR_SCORER=1`):
  *   - speed-emission (in speedKmh-only mode — refineMode's segment-
  *     level speed is enough to keep walking from winning at urban
  *     speeds without requiring the upstream WindowFeatures).
  *   - osm-distance (per-candidate way distance).
  *   - mode-coherence (mode × way-subtype compatibility).
  *
- * biometric-ll is the natural fourth factor but requires plumbing
- * biometric obs through refineMode's call site (currently doesn't
- * know about HR/cadence). Follow-up.
+ * Biometric stack (added when `biometric` is provided — gated upstream
+ * by `useBiometricFactor()` in `velocity.ts`):
+ *   - biometric-ll (per-mode HR/cadence/speed log-likelihood).
+ *   - mode-prior (asymmetric flip rules — cycling is rare for this
+ *     user).
+ *   - classifier-prior (stickiness on the upstream-classified mode
+ *     scaled by `confidenceMargin`; replaces the cascade's binary
+ *     `RELABEL_MAX_MARGIN` gate).
+ *
+ * The biometric stack is gated on `biometric` rather than on a fresh
+ * env-flag read so the factor set is a single-source-of-truth function
+ * of what the caller has decided to provide.
  */
-function refineModeViaFactors(originalMode: string, speedKmh: number, ways: NearbyWay[]): ModeRefinement {
-	const candidates = generateRefineModeCandidates(originalMode as TransportMode, ways);
-	const ranked = scoreCandidates(candidates, { speedKmh }, [speedEmission, osmDistance, modeCoherence]);
+function refineModeViaFactors(
+	originalMode: string,
+	speedKmh: number,
+	ways: NearbyWay[],
+	biometric?: BiometricContext,
+	confidenceMargin?: number,
+	debugLabel?: string,
+): ModeRefinement {
+	const candidates = generateRefineModeCandidates(originalMode as TransportMode, ways, biometric);
+	const factors: Factor[] = [speedEmission, osmDistance, modeCoherence];
+	if (biometric) factors.push(biometricLL, modePrior, classifierPrior);
+	const ranked = scoreCandidates(
+		candidates,
+		{
+			speedKmh,
+			biometricObs: biometric?.obs,
+			modeStats: biometric?.stats,
+			originalMode: originalMode as TransportMode,
+			confidenceMargin,
+		},
+		factors,
+	);
 	// TEMP debug — remove after Phase 1 calibration. Dumps every
 	// candidate's score so we can diagnose unexpected fallback wins.
 	if (process.env.FACTOR_DEBUG === "1") {
@@ -949,10 +987,19 @@ function refineModeViaFactors(originalMode: string, speedKmh: number, ways: Near
 			factors: { name: string; score: number }[];
 		}): string =>
 			`    ${c.totalScore.toFixed(2).padStart(7)} ${c.mode}${c.wayName ? ` "${c.wayName}"` : ""}${c.waySubtype ? ` (${c.waySubtype})` : ""} ← ${c.factors.map((f) => `${f.name}=${f.score.toFixed(2)}`).join(" ")}`;
+		const label = debugLabel ? ` ${debugLabel}` : "";
+		// Show top of each mode so we can compare across modes, not just within walking.
+		const bestPerMode = new Map<string, (typeof ranked.alternatives)[number]>();
+		for (const c of [ranked.best, ...ranked.alternatives]) {
+			if (!bestPerMode.has(c.mode)) bestPerMode.set(c.mode, c);
+		}
 		console.log(
-			`[factor-debug] originalMode=${originalMode} speed=${speedKmh.toFixed(1)} ways=${ways.length}\n` +
+			`[factor-debug]${label} originalMode=${originalMode} speed=${speedKmh.toFixed(1)} margin=${(confidenceMargin ?? 0).toFixed(2)} ways=${ways.length} cand=${candidates.length} biometric=${biometric ? "yes" : "no"}\n` +
 				`  BEST: ${fmt(ranked.best)}\n` +
-				ranked.alternatives.slice(0, 5).map(fmt).join("\n"),
+				[...bestPerMode.entries()]
+					.filter(([m]) => m !== ranked.best.mode)
+					.map(([, c]) => `  per-mode-best ${fmt(c)}`)
+					.join("\n"),
 		);
 	}
 	return {

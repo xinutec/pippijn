@@ -388,22 +388,41 @@ combination shippable.
 
 **Migration order:**
 
-1. Reading + design pass (this section).
+1. Reading + design pass (this section). **Done.**
 2. Add `biometric-veto`, `classifier-prior`, `mode-prior`
-   factors. Each gets unit tests in isolation.
+   factors. Each gets unit tests in isolation. **Done with one
+   amendment: `biometric-veto` was reshaped from a soft factor into
+   a candidate-generator filter under the `#182` cleanup (a binary
+   veto disguised as a probability is shape-wrong; the same effect
+   lives correctly in the generator's `BiometricContext` filter).
+   `mode-prior` and `classifier-prior` shipped as soft factors.**
 3. Extend `FactorContext` to carry biometric observation +
    user mode stats + classifier confidence-margin. Extend the
    candidate generator with the `SIT_MODES` / `MAX_SPEED_FOR_MODE`
-   filters.
+   filters. **Done — `originalMode`, `confidenceMargin`,
+   `biometricObs`, `modeStats` all on `FactorContext`; candidate
+   generator filters by HR + cadence implausibility.**
 4. Move biometric load earlier in the velocity pipeline so
-   refineMode's call site has the context.
+   refineMode's call site has the context. **Done — `velocity.ts`
+   awaits the biometric + mode-stats loads before segment
+   enrichment when `useBiometricFactor()` returns true.**
 5. Add the `useBiometricFactor()` flag and the parallel path in
-   `refineMode` (or alongside it).
+   `refineMode` (or alongside it). **Done — flag in
+   `factors/feature-flag.ts`; `refineModeViaFactors` adds the
+   biometric stack (`biometric-ll`, `mode-prior`, `classifier-prior`)
+   when `biometric` is provided; `applyBiometricSignature` pass
+   skipped under the flag to avoid double-correction.**
 6. Backtest the migrated path vs the existing factor path vs the
    legacy cascade. Iterate on calibration until the migrated path
-   is decisively better than each of the others.
+   is decisively better than each of the others. **In progress —
+   `scripts/backtest.sh --compare biometric` does the migrated vs
+   scorer-only comparison; `--compare scorer` does scorer vs legacy.
+   Three fixture days captured (`2026-05-{16,18,22}`); calibration
+   pass against them is the next concrete step.**
 7. Retire `applyBiometricSignature` + `gateCycling` as separate
-   passes once the migration is on by default.
+   passes once the migration is on by default. **Pending — keep both
+   in place while `USE_BIOMETRIC_FACTOR` is opt-in. Remove after the
+   flag has been on in prod through one calibration cycle.**
 
 ### Calibration
 

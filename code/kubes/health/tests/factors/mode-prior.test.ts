@@ -58,15 +58,21 @@ describe("modePrior", () => {
 		expect(score?.rationale).toMatch(/cycling/i);
 	});
 
-	it("the cycling penalty is large enough that biometric-LL alone (without cycling-signature) does not flip", () => {
+	it("the cycling penalty is large enough to overcome classifier-prior + biometric-LL combined", () => {
 		// The cascade's hard rule was "never flip INTO cycling".
 		// As a soft factor, the cycling prior must be large enough
-		// that a moderate biometric-LL bonus (~+1 nat from
-		// scoreModeLogLikelihood) does NOT flip a non-cycling
-		// segment to cycling — only the future cycling-signature
-		// factor, with explicit joint speed/HR/cadence evidence,
-		// should be allowed to override it. Test: |prior| > 1.0.
+		// that the *combined* upside of `classifier-prior` (up to
+		// +4 nats when segments.ts itself confidently labelled the
+		// short urban segment as cycling) and `biometric-ll` (~+1 nat
+		// on an ambiguous low-cadence sitting segment) does NOT
+		// produce a positive total for cycling. Only the future
+		// `cycling-signature` factor with explicit joint evidence
+		// should be allowed to override the prior.
+		//
+		// The 2026-05-23 backtest exposed multiple Wembley-Park-tube-
+		// labelled-as-cycling cases at the original `-1.5` because
+		// classifier-prior + biometric-ll out-scored the penalty.
 		const score = modePrior(cand("cycling"), NO_CTX);
-		expect(score?.score ?? 0).toBeLessThan(-1.0);
+		expect(score?.score ?? 0).toBeLessThanOrEqual(-4);
 	});
 });
