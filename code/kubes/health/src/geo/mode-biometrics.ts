@@ -198,6 +198,42 @@ const MAX_SPEED_FOR_MODE: Record<string, number> = {
 	cycling: 35,
 };
 
+/** Pure predicate: is `mode` biologically implausible given the
+ *  observed HR for this user's per-mode HR distribution? The "is
+ *  this mode possible?" half of `vetoImplausibleHr`, extracted so
+ *  the factor-scorer candidate generator can filter implausible
+ *  candidates without pulling in the demote-to-alternative logic
+ *  (which the aggregator handles by picking the next-best surviving
+ *  candidate). The full `vetoImplausibleHr` below now layers the
+ *  demote logic on top of this predicate. */
+export function isHrImplausibleForMode(mode: string, obsHr: number | null, stats: readonly ModeStats[]): boolean {
+	if (mode === "stationary") return false;
+	if (obsHr === null) return false;
+	const cur = stats.find((s) => s.mode === mode);
+	if (!cur || cur.hrMean === null || cur.hrStd === null || cur.hrStd <= 0) return false;
+	const minPlausible = cur.hrMean - HR_VETO_SIGMA * cur.hrStd;
+	return obsHr < minPlausible;
+}
+
+/** Pure predicate: is `mode` biologically implausible given the
+ *  observed cadence (and speed, which gates the veto's "this was
+ *  walking" premise)? The "is this mode possible?" half of
+ *  `vetoImplausibleCadence`. See `isHrImplausibleForMode`. */
+export function isCadenceImplausibleForMode(
+	mode: string,
+	obsCadence: number | null,
+	obsSpeed: number | null,
+	stats: readonly ModeStats[],
+): boolean {
+	if (!LOW_CADENCE_MODES.has(mode)) return false;
+	if (obsCadence === null) return false;
+	if (obsSpeed !== null && obsSpeed > CADENCE_VETO_MAX_SPEED_KMH) return false;
+	const cur = stats.find((s) => s.mode === mode);
+	if (!cur || cur.cadenceMean === null || cur.cadenceStd === null) return false;
+	const maxPlausible = Math.max(cur.cadenceMean + CADENCE_VETO_SIGMA * cur.cadenceStd, CADENCE_VETO_FLOOR_SPM);
+	return obsCadence > maxPlausible;
+}
+
 /** Hard veto: when the segment's observed HR is more than
  *  HR_VETO_SIGMA std-devs below the current mode's HR mean, the
  *  classification is biologically implausible regardless of how
@@ -221,14 +257,9 @@ export function vetoImplausibleHr(
 	seg: { mode: string; obsHr: number | null; obsCadence: number | null; obsSpeed: number | null },
 	stats: readonly ModeStats[],
 ): { mode: string; changed: boolean } {
-	if (seg.mode === "stationary") return { mode: seg.mode, changed: false };
-	if (seg.obsHr === null) return { mode: seg.mode, changed: false };
-	const cur = stats.find((s) => s.mode === seg.mode);
-	if (!cur || cur.hrMean === null || cur.hrStd === null || cur.hrStd <= 0) {
+	if (!isHrImplausibleForMode(seg.mode, seg.obsHr, stats)) {
 		return { mode: seg.mode, changed: false };
 	}
-	const minPlausible = cur.hrMean - HR_VETO_SIGMA * cur.hrStd;
-	if (seg.obsHr >= minPlausible) return { mode: seg.mode, changed: false };
 
 	// HR is implausible for the current mode. Pick the
 	// highest-log-likelihood alternative as the demotion target.
@@ -265,21 +296,9 @@ export function vetoImplausibleCadence(
 	seg: { mode: string; obsHr: number | null; obsCadence: number | null; obsSpeed: number | null },
 	stats: readonly ModeStats[],
 ): { mode: string; changed: boolean } {
-	if (!LOW_CADENCE_MODES.has(seg.mode)) return { mode: seg.mode, changed: false };
-	if (seg.obsCadence === null) return { mode: seg.mode, changed: false };
-	// Above the walking-plausible speed ceiling, observed cadence is more
-	// likely vehicle vibration than steps. The whole point of the veto is
-	// "this was probably walking" — if walking isn't a plausible
-	// alternative at this speed, the veto's premise fails.
-	if (seg.obsSpeed !== null && seg.obsSpeed > CADENCE_VETO_MAX_SPEED_KMH) {
+	if (!isCadenceImplausibleForMode(seg.mode, seg.obsCadence, seg.obsSpeed, stats)) {
 		return { mode: seg.mode, changed: false };
 	}
-	const cur = stats.find((s) => s.mode === seg.mode);
-	if (!cur || cur.cadenceMean === null || cur.cadenceStd === null) {
-		return { mode: seg.mode, changed: false };
-	}
-	const maxPlausible = Math.max(cur.cadenceMean + CADENCE_VETO_SIGMA * cur.cadenceStd, CADENCE_VETO_FLOOR_SPM);
-	if (seg.obsCadence <= maxPlausible) return { mode: seg.mode, changed: false };
 
 	const obs: MinuteObservation = { hr: seg.obsHr, cadence: seg.obsCadence, speed: seg.obsSpeed };
 	let best: { mode: string; score: number } | null = null;

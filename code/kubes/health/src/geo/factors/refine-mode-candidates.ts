@@ -31,6 +31,12 @@
  *     waterway ways are currently dropped.
  */
 
+import {
+	isCadenceImplausibleForMode,
+	isHrImplausibleForMode,
+	type MinuteObservation,
+	type ModeStats,
+} from "../mode-biometrics.js";
 import type { NearbyWay } from "../osm.js";
 import type { TransportMode } from "../segments.js";
 import type { ModeCandidate } from "./types.js";
@@ -84,7 +90,24 @@ function modesForWay(way: NearbyWay): TransportMode[] {
  * they're kept — falling back gracefully to no label rather than
  * mis-labelling with a distant road.
  */
-export function generateRefineModeCandidates(originalMode: TransportMode, ways: readonly NearbyWay[]): ModeCandidate[] {
+/** Optional per-segment biometric context. When supplied, the
+ *  generator drops way-attached candidates whose mode is
+ *  biologically implausible given the user's per-mode HR/cadence
+ *  distributions — the candidate-filter form of the legacy
+ *  vetoImplausibleHr / vetoImplausibleCadence cascade gates. The
+ *  fallback candidate is always kept regardless of biometric
+ *  veto (it's the consumer's last-resort guess and must always
+ *  exist). */
+export interface BiometricContext {
+	obs: MinuteObservation;
+	stats: readonly ModeStats[];
+}
+
+export function generateRefineModeCandidates(
+	originalMode: TransportMode,
+	ways: readonly NearbyWay[],
+	biometric?: BiometricContext,
+): ModeCandidate[] {
 	const candidates: ModeCandidate[] = [];
 	for (const way of ways) {
 		const modes = modesForWay(way);
@@ -97,17 +120,31 @@ export function generateRefineModeCandidates(originalMode: TransportMode, ways: 
 			});
 		}
 	}
+	// Biometric implausibility filter: drop way-attached candidates whose
+	// mode is biologically impossible given the segment's HR/cadence
+	// observations. The HR-veto and cadence-veto cascade gates expressed
+	// as candidate exclusion — the factor scorer's aggregator then picks
+	// the next-best surviving candidate, which is the same effective
+	// behaviour as the cascade's demote-to-alternative logic.
+	const biometricFiltered = biometric
+		? candidates.filter(
+				(c) =>
+					!isHrImplausibleForMode(c.mode, biometric.obs.hr, biometric.stats) &&
+					!isCadenceImplausibleForMode(c.mode, biometric.obs.cadence, biometric.obs.speed, biometric.stats),
+			)
+		: candidates;
 	// Drop unnamed candidates of any mode that has at least one named
 	// candidate. Same-mode named/unnamed in OSM is overwhelmingly
 	// pavement-vs-road or cycleway-vs-road; the named one is what we
 	// want to show.
 	const modesWithName = new Set<TransportMode>(
-		candidates.filter((c) => c.wayName !== undefined && c.wayName.length > 0).map((c) => c.mode),
+		biometricFiltered.filter((c) => c.wayName !== undefined && c.wayName.length > 0).map((c) => c.mode),
 	);
-	const filtered = candidates.filter((c) => (c.wayName && c.wayName.length > 0) || !modesWithName.has(c.mode));
+	const filtered = biometricFiltered.filter((c) => (c.wayName && c.wayName.length > 0) || !modesWithName.has(c.mode));
 	// Fallback: the segment classifier's chosen mode with no way info.
-	// Covers the "no useful way nearby" case and ensures the consumer
-	// can always make a decision even if it's not particularly informed.
+	// Always emitted, never filtered — it's the consumer's last-resort
+	// guess and must exist even when biometrics veto its mode (the
+	// factor scorer can still apply other factors to discriminate).
 	filtered.push({ mode: originalMode });
 	return filtered;
 }

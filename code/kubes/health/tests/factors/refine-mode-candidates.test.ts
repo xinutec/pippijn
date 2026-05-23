@@ -22,6 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateRefineModeCandidates } from "../../src/geo/factors/refine-mode-candidates.js";
+import type { ModeStats } from "../../src/geo/mode-biometrics.js";
 import type { NearbyWay } from "../../src/geo/osm.js";
 
 const way = (type: string, subtype: string, name?: string, distanceM?: number): NearbyWay => ({
@@ -186,5 +187,114 @@ describe("generateRefineModeCandidates", () => {
 		const fallback = result.find((c) => c.wayDistanceM === undefined);
 		expect(fallback).toBeDefined();
 		expect(fallback?.mode).toBe("walking");
+	});
+});
+
+describe("generateRefineModeCandidates — biometric filtering", () => {
+	const STATS: ModeStats[] = [
+		{
+			mode: "walking",
+			hrMean: 110,
+			hrStd: 12,
+			hrSampleCount: 500,
+			cadenceMean: 100,
+			cadenceStd: 15,
+			cadenceSampleCount: 500,
+			speedMean: 4.5,
+			speedStd: 1,
+			speedSampleCount: 500,
+			sampleCount: 500,
+		},
+		{
+			mode: "cycling",
+			hrMean: 135,
+			hrStd: 14,
+			hrSampleCount: 200,
+			cadenceMean: 5,
+			cadenceStd: 3,
+			cadenceSampleCount: 200,
+			speedMean: 18,
+			speedStd: 4,
+			speedSampleCount: 200,
+			sampleCount: 200,
+		},
+		{
+			mode: "driving",
+			hrMean: 75,
+			hrStd: 8,
+			hrSampleCount: 800,
+			cadenceMean: 2,
+			cadenceStd: 2,
+			cadenceSampleCount: 800,
+			speedMean: 35,
+			speedStd: 15,
+			speedSampleCount: 800,
+			sampleCount: 800,
+		},
+	];
+
+	it("drops cycling candidate when HR is implausibly low for cycling", () => {
+		// HR 100 < cycling minPlausible (135 - 2·14 = 107). Cycling candidate vetoed.
+		const ways = [way("highway", "residential", "Barn Rise", 15), way("highway", "cycleway", "Some Lane", 5)];
+		const result = generateRefineModeCandidates("walking", ways, {
+			obs: { hr: 100, cadence: 0, speed: 5 },
+			stats: STATS,
+		});
+		expect(result.some((c) => c.mode === "cycling")).toBe(false);
+		// Walking candidate from Barn Rise survives.
+		expect(result.some((c) => c.mode === "walking" && c.wayName === "Barn Rise")).toBe(true);
+	});
+
+	it("drops cycling candidate when cadence is in walking range at slow speed (phantom-cycling case)", () => {
+		const ways = [way("highway", "residential", "Barn Rise", 15)];
+		const result = generateRefineModeCandidates("walking", ways, {
+			obs: { hr: 140, cadence: 80, speed: 10 },
+			stats: STATS,
+		});
+		expect(result.some((c) => c.mode === "cycling")).toBe(false);
+		expect(result.some((c) => c.mode === "walking" && c.wayName === "Barn Rise")).toBe(true);
+	});
+
+	it("keeps the fallback candidate even if its mode is biometrically implausible", () => {
+		// originalMode=cycling, but biometrics say cycling is impossible.
+		// We still keep the fallback so the consumer always has at least
+		// one option (the factor scorer picks the next-best surviving
+		// candidate; if all way-attached candidates are implausible too,
+		// the fallback is the honest 'we don't know what else this could
+		// be' answer).
+		const ways = [way("highway", "residential", "Barn Rise", 15)];
+		const result = generateRefineModeCandidates("cycling", ways, {
+			obs: { hr: 100, cadence: 0, speed: 5 },
+			stats: STATS,
+		});
+		const fallback = result.find((c) => c.wayDistanceM === undefined);
+		expect(fallback).toBeDefined();
+		expect(fallback?.mode).toBe("cycling");
+		// But the way-attached cycling candidate IS filtered.
+		expect(result.filter((c) => c.mode === "cycling" && c.wayName)).toHaveLength(0);
+	});
+
+	it("returns the same result as without biometric ctx when nothing is implausible", () => {
+		// Inputs picked so no candidate gets vetoed: HR 110 sits inside
+		// the walking band (also above cycling's minPlausible 107),
+		// cadence 0 doesn't trip cadence-veto for any low-cadence mode,
+		// speed 5 < walking-plausible ceiling.
+		const ways = [way("highway", "residential", "Barn Rise", 15)];
+		const withoutBiometric = generateRefineModeCandidates("walking", ways);
+		const withPlausibleBiometric = generateRefineModeCandidates("walking", ways, {
+			obs: { hr: 110, cadence: 0, speed: 5 },
+			stats: STATS,
+		});
+		expect(withoutBiometric).toEqual(withPlausibleBiometric);
+	});
+
+	it("filter is a no-op without per-user stats (cold-start user)", () => {
+		const ways = [way("highway", "residential", "Barn Rise", 15), way("highway", "cycleway", "Some Lane", 5)];
+		const result = generateRefineModeCandidates("walking", ways, {
+			obs: { hr: 100, cadence: 0, speed: 5 },
+			stats: [],
+		});
+		// Without stats, no candidate can be vetoed — cycling survives.
+		expect(result.some((c) => c.mode === "cycling")).toBe(true);
 	});
 });
