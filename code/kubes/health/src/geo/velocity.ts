@@ -9,9 +9,10 @@ import tzLookup from "tz-lookup";
 import { db } from "../db/pool.js";
 import { getSyncState } from "../db/sync-state.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
-import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
+import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 import { type DayState, segmentsToDayStates } from "../sleep/day-state.js";
 import { enrichSleepWindows, loadDaySleepWindows } from "../sleep/load.js";
+import { detectPostMidnightStays, type StayCandidate } from "../sleep/post-midnight-place.js";
 import {
 	type BiometricEnrichment,
 	correctModeFromCadence,
@@ -337,6 +338,26 @@ async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 	}));
 }
 
+/** Wrap a post-midnight stay candidate (raw fixes + known-place
+ *  match) as a synthetic stationary `EnrichedSegment`. This shape is
+ *  what `derivePlaceForSleep` expects — the synthetic segment never
+ *  enters the day's segment output, only the sleep-place attribution
+ *  candidate set. The non-place fields are filler. */
+function synthesizeStayCandidateSegment(stay: StayCandidate): EnrichedSegment {
+	return {
+		startTs: stay.startTs,
+		endTs: stay.endTs,
+		mode: "stationary",
+		confidence: 1,
+		confidenceMargin: Number.POSITIVE_INFINITY,
+		avgSpeed: 0,
+		maxSpeed: 0,
+		linearity: 0,
+		pointCount: 0,
+		place: stay.place,
+	};
+}
+
 /** Project a loaded NamedPlace down to the shape the place-prior
  *  scorer needs. Pure mapping — kept inline so the scorer stays
  *  loosely coupled to the DB-touching pipeline. */
@@ -436,7 +457,19 @@ export async function computeVelocity(
 	})();
 
 	const bounds = dateBoundsUtc(date, tz);
-	const raw = await time("phonetrack", fetchTrackPoints(config, userId, date, nextDay));
+	// Two PhoneTrack ranges off one context: today's fixes (full day) feed the
+	// classification pipeline; the next day's morning fixes (00:00–12:00 UTC)
+	// feed sleep-place attribution so an evening sleep window whose start is
+	// past midnight (e.g. 02:11 after a taxi home from a hospital) resolves to
+	// where the user actually slept, not the day's last stationary segment.
+	// The morning fetch never appears in `inDay`, so it can't pollute today's
+	// segments. See `src/sleep/post-midnight-place.ts`.
+	const phoneTrackCtx = await time("phonetrack-ctx", openPhoneTrack(config, userId));
+	const nextDayMorningEnd = `${nextDay}T12:00:00Z`;
+	const [raw, morningRaw] = await Promise.all([
+		time("phonetrack", fetchTrackPointsRange(phoneTrackCtx, date, nextDay)),
+		time("phonetrackMorning", fetchTrackPointsRange(phoneTrackCtx, nextDay, nextDayMorningEnd)),
+	]);
 	const inDay = raw.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc);
 
 	// Battery trace: derived straight from the raw in-day fixes, before
@@ -835,8 +868,26 @@ export async function computeVelocity(
 	// compose the non-overlapping state sequence. Sleep at a stationary
 	// place rewrites the mode to "sleeping"; sleep while moving sets
 	// `asleep: true` as an attribute. See `src/sleep/day-state.ts`.
+	//
+	// For sleep-place attribution, augment today's segments with
+	// synthetic stationary candidates derived from the next day's
+	// morning fixes — this handles the post-midnight evening sleep
+	// case (taxi home from a late hospital stay, then sleep at home;
+	// today's last segment is the hospital, but the user actually
+	// slept at home). The synthetic candidates are only fed to
+	// derivePlaceForSleep — they never enter the day's segment output.
+	const morningStays = timeSync("morningStays", () =>
+		detectPostMidnightStays(
+			morningRaw.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon })),
+			knownPlaces,
+		),
+	);
+	const sleepPlaceCandidates: EnrichedSegment[] = [
+		...withBiometrics,
+		...morningStays.map(synthesizeStayCandidateSegment),
+	];
 	const rawSleep = await loadDaySleepWindows(userId, date);
-	const sleepWindows = enrichSleepWindows(rawSleep, withBiometrics);
+	const sleepWindows = enrichSleepWindows(rawSleep, sleepPlaceCandidates);
 	const states = timeSync("dayStates", () => segmentsToDayStates(withBiometrics, sleepWindows));
 
 	return { points, segments: withBiometrics, states, battery };
