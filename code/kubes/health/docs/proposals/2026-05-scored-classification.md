@@ -1,7 +1,7 @@
 ---
 status: active
 created: 2026-05-13
-updated: 2026-05-13
+updated: 2026-05-23
 references:
   - ../archive/2025-model-hmm.md
   - ../archive/2025-priors.md
@@ -298,6 +298,112 @@ and adds explicit handling for "score this synthetic segment using
 endpoint-station and duration signals only," so the factor scorer
 sees a candidate with non-null inputs even when GPS is empty in the
 middle. No new factor; the existing cascade gains ~30 lines.
+
+### Biometric-corrector migration
+
+The existing cascade has a per-segment biometric pass —
+`applyBiometricSignature` in `src/geo/velocity.ts`, which delegates
+to `correctModeBySignature` + `gateCycling` + `vetoImplausibleHr` +
+`vetoImplausibleCadence` in `src/geo/mode-biometrics.ts` — that runs
+*after* `refineMode` and can override anything the refinement picked.
+On segments where the biometric corrector fires, refineMode's output
+is effectively advisory. The 2026-05-23 backtest surfaced this as a
+class of bugs the factor scorer cannot address by adding more factors
+on top: a low-speed segment classified as walking, OSM-refined as
+walking, then promoted to "train" by the biometric corrector because
+"low HR + no cadence" matched the corrector's sitting-on-a-train
+biometric signature. The factor scorer never saw a train candidate
+to dock.
+
+The migration brings the corrector's logic into the factor scorer so
+biometric evidence composes with everything else instead of running
+as a separate override pass.
+
+**Decomposition of `correctModeBySignature`:**
+
+| cascade piece | factor equivalent | new? |
+|---|---|---|
+| `scoreModeLogLikelihood` (per-mode HR/cadence/speed LL) | `biometric-ll` | exists |
+| `vetoImplausibleHr` / `vetoImplausibleCadence` | `biometric-veto` | new |
+| confidence-margin gate ("don't relabel a confident classification") | `classifier-prior` | new |
+| `NEVER_FLIP_TARGET` (never flip INTO cycling) | `mode-prior` | new |
+| `RELABEL_MIN_BIOMETRIC_OBS` gate | natural via null factor | — |
+| `SIT_MODES` rule (don't flip sit→sit) | candidate-generator filter | — |
+| `MAX_SPEED_FOR_MODE` cap | candidate-generator filter | — |
+
+`biometric-veto` produces a very large negative score for the
+disqualified mode, achieving the cascade's binary-veto effect through
+the additive score sum. `classifier-prior` gives the original
+classifier mode a bonus scaled by `confidenceMargin` — captures the
+cascade's "don't override a confident classification on weak
+biometric evidence" intuition, without which the factor scorer would
+happily flip a high-margin classification on small LL deltas.
+`mode-prior` is a small fixed negative score on cycling candidates;
+the existing cycling-signature factor (Phase 1 inventory above)
+provides the positive offset cyclists actually trip.
+
+**Structural change:**
+
+`applyBiometricSignature` runs as a sequential pass with the
+biometric stream already loaded. The factor migration requires
+biometrics to live in `FactorContext` *when refineMode runs*. The
+velocity pipeline has to load biometrics earlier — or refineMode's
+call site has to move after biometric load — so the factor pass
+sees the same context the cascade saw.
+
+**Two-flag staging:**
+
+A second feature flag `USE_BIOMETRIC_FACTOR=1` gates the migration
+*under* the existing `USE_FACTOR_SCORER=1` flag. The three relevant
+combinations:
+
+| `USE_FACTOR_SCORER` | `USE_BIOMETRIC_FACTOR` | path |
+|---|---|---|
+| unset | unset | legacy cascade (current prod) |
+| `1` | unset | factor scorer for refineMode; biometric cascade still runs |
+| `1` | `1` | factor scorer with biometric factors; biometric cascade skipped |
+
+This lets the backtest CLI compare flag-on vs flag-off at each
+migration stage without disturbing the others, and keeps every
+combination shippable.
+
+**Calibration open questions** (do these before settling weights):
+
+- `classifier-prior` magnitude — today's cascade gates relabel
+  on `confidenceMargin >= RELABEL_MAX_MARGIN` (effectively
+  infinite bonus on the original mode above that margin). The
+  factor needs a finite number large enough to dominate weak
+  biometric evidence but not strong evidence. Calibrate against
+  the fixture days; the binding test cases are (a) a
+  high-confidence walking segment with a marginal biometric
+  signal favouring driving (must stay walking) vs (b) a
+  low-confidence driving segment with strong biometric evidence
+  for cycling (must flip to cycling).
+- `mode-prior` magnitude for cycling — the hard "never flip INTO"
+  rule is asymmetric; cycling can be flipped *out of* but not
+  *into*. As a fixed negative prior the magnitude needs to be
+  exceeded by the cycling-signature factor's positive evidence
+  but not by `biometric-ll` alone. Add `cycling-signature` before
+  calibrating this one.
+
+**Migration order:**
+
+1. Reading + design pass (this section).
+2. Add `biometric-veto`, `classifier-prior`, `mode-prior`
+   factors. Each gets unit tests in isolation.
+3. Extend `FactorContext` to carry biometric observation +
+   user mode stats + classifier confidence-margin. Extend the
+   candidate generator with the `SIT_MODES` / `MAX_SPEED_FOR_MODE`
+   filters.
+4. Move biometric load earlier in the velocity pipeline so
+   refineMode's call site has the context.
+5. Add the `useBiometricFactor()` flag and the parallel path in
+   `refineMode` (or alongside it).
+6. Backtest the migrated path vs the existing factor path vs the
+   legacy cascade. Iterate on calibration until the migrated path
+   is decisively better than each of the others.
+7. Retire `applyBiometricSignature` + `gateCycling` as separate
+   passes once the migration is on by default.
 
 ### Calibration
 
