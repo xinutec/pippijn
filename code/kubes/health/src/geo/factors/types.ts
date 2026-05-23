@@ -88,6 +88,19 @@ export interface FactorContext {
 	 *  preferring one mode). Read by the classifier-prior factor —
 	 *  high margin → strong stickiness bonus on the original mode. */
 	confidenceMargin?: number;
+	/** Mean distance (metres) from segment sample-points to the nearest
+	 *  rail-only OSM way (railway with subtype in rail / subway /
+	 *  light_rail; tram excluded — mixed traffic). Null when no sample
+	 *  point had any rail-only way in range. Read by the rail-corridor
+	 *  factor to score train candidates against driving candidates
+	 *  when both could fit the speed profile. */
+	meanRailDistM?: number | null;
+	/** Mean distance (metres) from segment sample-points to the
+	 *  nearest drivable highway (motorway through unclassified +
+	 *  living_street; cycleway/footway/path excluded). Null when no
+	 *  sample point had any drivable road in range. Companion to
+	 *  meanRailDistM for the rail-corridor log-ratio. */
+	meanDrivableRoadDistM?: number | null;
 }
 
 export interface FactorScore {

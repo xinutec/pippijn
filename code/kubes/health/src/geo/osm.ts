@@ -16,6 +16,7 @@ import { useFactorScorer } from "./factors/feature-flag.js";
 import { modeCoherence } from "./factors/mode-coherence.js";
 import { modePrior } from "./factors/mode-prior.js";
 import { osmDistance } from "./factors/osm-distance.js";
+import { railCorridor } from "./factors/rail-corridor.js";
 import { type BiometricContext, generateRefineModeCandidates } from "./factors/refine-mode-candidates.js";
 import { speedEmission } from "./factors/speed-emission.js";
 import type { Factor, ScoredRefinement } from "./factors/types.js";
@@ -888,6 +889,17 @@ function pickBestHighway(highways: NearbyWay[], speedKmh: number): NearbyWay {
 	return highways[0];
 }
 
+export interface RailRoadProximity {
+	/** Mean distance (m) to the nearest rail-only way across the
+	 *  segment's sample points where any rail-only way was in range.
+	 *  Null when no sample had rails nearby. */
+	meanRailDistM: number | null;
+	/** Mean distance (m) to the nearest drivable highway across the
+	 *  segment's sample points where any drivable highway was in range.
+	 *  Null when no sample had roads nearby. */
+	meanDrivableRoadDistM: number | null;
+}
+
 export function refineMode(
 	originalMode: string,
 	speedKmh: number,
@@ -895,9 +907,10 @@ export function refineMode(
 	biometric?: BiometricContext,
 	confidenceMargin?: number,
 	debugLabel?: string,
+	railRoad?: RailRoadProximity,
 ): ModeRefinement {
 	if (useFactorScorer()) {
-		return refineModeViaFactors(originalMode, speedKmh, ways, biometric, confidenceMargin, debugLabel);
+		return refineModeViaFactors(originalMode, speedKmh, ways, biometric, confidenceMargin, debugLabel, railRoad);
 	}
 	return refineModeLegacyCascade(originalMode, speedKmh, ways);
 }
@@ -1004,10 +1017,12 @@ function refineModeViaFactors(
 	biometric?: BiometricContext,
 	confidenceMargin?: number,
 	debugLabel?: string,
+	railRoad?: RailRoadProximity,
 ): ModeRefinement {
 	const candidates = generateRefineModeCandidates(originalMode as TransportMode, ways, biometric);
 	const factors: Factor[] = [speedEmission, osmDistance, modeCoherence];
 	if (biometric) factors.push(biometricLL, modePrior, classifierPrior);
+	if (railRoad) factors.push(railCorridor);
 	const ranked = scoreCandidates(
 		candidates,
 		{
@@ -1016,6 +1031,8 @@ function refineModeViaFactors(
 			modeStats: biometric?.stats,
 			originalMode: originalMode as TransportMode,
 			confidenceMargin,
+			meanRailDistM: railRoad?.meanRailDistM ?? null,
+			meanDrivableRoadDistM: railRoad?.meanDrivableRoadDistM ?? null,
 		},
 		factors,
 	);

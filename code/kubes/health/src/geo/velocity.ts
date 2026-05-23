@@ -33,6 +33,7 @@ import {
 	extractCity,
 	linesAtPoint,
 	type NearbyStation,
+	type NearbyWay,
 	nearbyStations,
 	nearbyWays,
 	pickBestStation,
@@ -336,6 +337,60 @@ async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
 		uniqueDays: r.unique_days,
 		hourProfile: parseHourProfile(r.hour_profile),
 	}));
+}
+
+/** Rail-only OSM way subtypes used by the rail-corridor signal. Tram
+ *  excluded — tram tracks frequently run in mixed traffic, so "fixes
+ *  near a tram way" is not strong rail-vs-road evidence. */
+const RAIL_ONLY_SUBTYPES = new Set(["rail", "subway", "light_rail", "narrow_gauge"]);
+
+/** Drivable highway subtypes — match the candidate generator's
+ *  DRIVEABLE_HIGHWAY_SUBTYPES list (residential roads up through
+ *  motorways, plus tracks / living_streets). Pedestrian / cycle ways
+ *  excluded. */
+const DRIVABLE_HIGHWAY_SUBTYPES = new Set([
+	"motorway",
+	"trunk",
+	"primary",
+	"secondary",
+	"tertiary",
+	"residential",
+	"service",
+	"unclassified",
+	"track",
+	"living_street",
+]);
+
+/** Per-segment rail-vs-road proximity, aggregated across sample
+ *  points. For each sample we take the minimum distance to any
+ *  rail-only way and the minimum to any drivable highway; then mean
+ *  across samples that had each kind in range. Samples with no rail
+ *  / no road in range are skipped (so a 5-sample segment with rail
+ *  in only 2 samples reports the mean of those 2). Returns nulls
+ *  when no sample had a given kind nearby. */
+function computeRailRoadProximity(wayResults: NearbyWay[][]): {
+	meanRailDistM: number | null;
+	meanDrivableRoadDistM: number | null;
+} {
+	const railDists: number[] = [];
+	const roadDists: number[] = [];
+	for (const sample of wayResults) {
+		let minRail = Number.POSITIVE_INFINITY;
+		let minRoad = Number.POSITIVE_INFINITY;
+		for (const w of sample) {
+			const d = w.distanceM;
+			if (d === null || d === undefined || !Number.isFinite(d)) continue;
+			if (w.type === "railway" && RAIL_ONLY_SUBTYPES.has(w.subtype)) {
+				if (d < minRail) minRail = d;
+			} else if (w.type === "highway" && DRIVABLE_HIGHWAY_SUBTYPES.has(w.subtype)) {
+				if (d < minRoad) minRoad = d;
+			}
+		}
+		if (Number.isFinite(minRail)) railDists.push(minRail);
+		if (Number.isFinite(minRoad)) roadDists.push(minRoad);
+	}
+	const mean = (xs: number[]): number | null => (xs.length === 0 ? null : xs.reduce((s, x) => s + x, 0) / xs.length);
+	return { meanRailDistM: mean(railDists), meanDrivableRoadDistM: mean(roadDists) };
 }
 
 /** Wrap a post-midnight stay candidate (raw fixes + known-place
@@ -701,6 +756,14 @@ export async function computeVelocity(
 					}
 				}
 				const aggregated = [...byKey.values()];
+				// Rail-vs-road proximity per sample point — feeds the
+				// rail-corridor factor. For each sample's nearbyWays list,
+				// the minimum distance to any rail-only way and the minimum
+				// to any drivable highway. Mean across samples where each
+				// kind had something in range; null when no sample had it.
+				// The factor scorer uses the ratio to discriminate train
+				// from driving when speed-emission can't.
+				const railRoad = computeRailRoadProximity(wayResults);
 				// Under USE_BIOMETRIC_FACTOR, pass per-segment hr/cadence + the
 				// loaded mode signatures into refineMode so the factor scorer's
 				// candidate generator can filter biologically-implausible
@@ -727,6 +790,7 @@ export async function computeVelocity(
 					process.env.FACTOR_DEBUG === "1"
 						? `[${new Date(seg.startTs * 1000).toISOString().slice(11, 16)}-${new Date(seg.endTs * 1000).toISOString().slice(11, 16)}Z]`
 						: undefined,
+					railRoad,
 				);
 				// Physical-plausibility override: a tube ride under a road
 				// can look like driving to refineMode (the road is the
