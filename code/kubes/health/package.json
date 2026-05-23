@@ -18,7 +18,8 @@
     "verify": "npm run typecheck && npm run typecheck:frontend && npm run check:schema-types && npm run format && npm run lint && npm run lint:frontend && npm test",
     "analyze": "node dist/cli/analyze-day.js",
     "audit:fitbit": "node dist/cli/audit-fitbit-sync.js",
-    "golden": "scripts/golden.sh"
+    "golden": "scripts/golden.sh",
+    "backtest": "scripts/backtest.sh"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",

@@ -39,7 +39,7 @@ import { z } from "zod";
 import { initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import { computeVelocity } from "../geo/velocity.js";
-import type { DayState } from "../sleep/day-state.js";
+import { diffStates, type NormalizedState, normalizeStates } from "./state-diff.js";
 
 const config = z
 	.object({
@@ -87,48 +87,12 @@ const manifestSchema = z.array(
 );
 type ManifestEntry = z.infer<typeof manifestSchema>[number];
 
-/** One state row, reduced to exactly what the timeline renders.
- *  Timestamps become wall-clock HH:MM so the baseline is readable and
- *  stable across the UTC columns. */
-interface GoldenState {
-	from: string;
-	to: string;
-	mode: string;
-	/** "@ <place>" for stays, "on <way>" for moving, "" otherwise. */
-	label: string;
-	asleep: boolean;
-}
-
 interface ExpectedFile {
 	date: string;
 	user: string;
 	tz: string;
 	blessed_at: string;
-	states: GoldenState[];
-}
-
-function hhmm(ts: number, tz: string): string {
-	return new Date(ts * 1000).toLocaleTimeString("en-GB", {
-		timeZone: tz,
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-}
-
-function normalizeStates(states: DayState[], tz: string): GoldenState[] {
-	return states.map((s) => ({
-		from: hhmm(s.startTs, tz),
-		to: hhmm(s.endTs, tz),
-		mode: s.mode,
-		label: s.place ? `@ ${s.place}` : s.wayName ? `on ${s.wayName}` : "",
-		asleep: s.asleep ?? false,
-	}));
-}
-
-/** Canonical one-line rendering of a state, for diffing and display. */
-function line(s: GoldenState): string {
-	const tag = s.asleep ? " (asleep)" : "";
-	return `${s.from}-${s.to}  ${s.mode.padEnd(11)}${tag}${s.label ? ` ${s.label}` : ""}`;
+	states: NormalizedState[];
 }
 
 function expectedPath(entry: ManifestEntry): string {
@@ -160,7 +124,7 @@ async function loadExpected(entry: ManifestEntry): Promise<ExpectedFile | null> 
 	}
 }
 
-async function writeExpected(entry: ManifestEntry, states: GoldenState[]): Promise<void> {
+async function writeExpected(entry: ManifestEntry, states: NormalizedState[]): Promise<void> {
 	const file: ExpectedFile = {
 		date: entry.date,
 		user: entry.user,
@@ -170,29 +134,6 @@ async function writeExpected(entry: ManifestEntry, states: GoldenState[]): Promi
 	};
 	await mkdir(EXPECTED_DIR, { recursive: true });
 	await writeFile(expectedPath(entry), `${JSON.stringify(file, null, "\t")}\n`, "utf8");
-}
-
-/** Index-aligned diff of two state lists. Returns whether they are
- *  identical, plus the rendered diff lines (printed by the caller,
- *  after the day's result header). */
-function diff(expected: GoldenState[], actual: GoldenState[]): { identical: boolean; lines: string[] } {
-	const n = Math.max(expected.length, actual.length);
-	const lines: string[] = [];
-	let identical = expected.length === actual.length;
-	for (let i = 0; i < n; i++) {
-		const e = expected[i];
-		const a = actual[i];
-		const eLine = e ? line(e) : null;
-		const aLine = a ? line(a) : null;
-		if (eLine === aLine) {
-			lines.push(`    ok   ${eLine}`);
-			continue;
-		}
-		identical = false;
-		if (eLine !== null) lines.push(`    -    ${eLine}`);
-		if (aLine !== null) lines.push(`    +    ${aLine}`);
-	}
-	return { identical, lines };
 }
 
 const args = process.argv.slice(2);
@@ -244,7 +185,7 @@ for (const entry of manifest) {
 		continue;
 	}
 
-	const d = diff(expected.states, actual);
+	const d = diffStates(expected.states, actual);
 	if (d.identical) {
 		console.log(`PASS     ${label}`);
 	} else {
