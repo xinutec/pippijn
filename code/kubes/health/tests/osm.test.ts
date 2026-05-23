@@ -6,6 +6,7 @@ import {
 	extractLineNames,
 	filterLandmarks,
 	isLabelWorthyVenue,
+	isLodgingLandmark,
 	landmarkToResult,
 	type NearbyLandmark,
 	type NearbyStation,
@@ -13,6 +14,7 @@ import {
 	type NominatimResult,
 	pickBestLandmark,
 	pickBestStation,
+	pickLodgingOverride,
 	placeLabel,
 	refineMode,
 } from "../src/geo/osm.js";
@@ -779,5 +781,84 @@ describe("extractLineNames", () => {
 			],
 		};
 		expect(extractLineNames(data)).toEqual(new Set(["Northern Line"]));
+	});
+});
+
+describe("isLodgingLandmark", () => {
+	const lm = (type: NearbyLandmark["type"], subtype: string): NearbyLandmark => ({
+		name: "X",
+		type,
+		subtype,
+		distanceM: 0,
+	});
+
+	it("recognises tourism=guest_house as lodging", () => {
+		expect(isLodgingLandmark(lm("tourism", "guest_house"))).toBe(true);
+	});
+
+	it("recognises tourism=hotel / hostel / motel / apartment as lodging", () => {
+		expect(isLodgingLandmark(lm("tourism", "hotel"))).toBe(true);
+		expect(isLodgingLandmark(lm("tourism", "hostel"))).toBe(true);
+		expect(isLodgingLandmark(lm("tourism", "motel"))).toBe(true);
+		expect(isLodgingLandmark(lm("tourism", "apartment"))).toBe(true);
+	});
+
+	it("rejects non-lodging tourism subtypes (museum, attraction, viewpoint)", () => {
+		expect(isLodgingLandmark(lm("tourism", "museum"))).toBe(false);
+		expect(isLodgingLandmark(lm("tourism", "attraction"))).toBe(false);
+		expect(isLodgingLandmark(lm("tourism", "viewpoint"))).toBe(false);
+	});
+
+	it("rejects non-tourism types (amenity, shop, leisure)", () => {
+		expect(isLodgingLandmark(lm("amenity", "restaurant"))).toBe(false);
+		expect(isLodgingLandmark(lm("shop", "supermarket"))).toBe(false);
+		expect(isLodgingLandmark(lm("leisure", "park"))).toBe(false);
+	});
+});
+
+describe("pickLodgingOverride", () => {
+	const lm = (type: NearbyLandmark["type"], subtype: string, distanceM: number, name = "X"): NearbyLandmark => ({
+		name,
+		type,
+		subtype,
+		distanceM,
+	});
+
+	it("picks the only nearby lodging landmark", () => {
+		const out = pickLodgingOverride([
+			lm("amenity", "restaurant", 10, "Cafe"),
+			lm("tourism", "guest_house", 5, "Guesthouse Vertoef"),
+		]);
+		expect(out?.name).toBe("Guesthouse Vertoef");
+	});
+
+	it("returns the closest lodging when multiple lodgings match", () => {
+		const out = pickLodgingOverride([
+			lm("tourism", "hotel", 40, "Hotel Far"),
+			lm("tourism", "guest_house", 5, "Guesthouse Near"),
+			lm("tourism", "hostel", 25, "Hostel Mid"),
+		]);
+		expect(out?.name).toBe("Guesthouse Near");
+	});
+
+	it("returns null when no lodging landmark is nearby", () => {
+		expect(
+			pickLodgingOverride([
+				lm("amenity", "restaurant", 10, "Cafe"),
+				lm("tourism", "museum", 20, "Museum"),
+				lm("shop", "supermarket", 30, "Shop"),
+			]),
+		).toBeNull();
+	});
+
+	it("returns null when a lodging exists but is beyond the override radius", () => {
+		// 80 m is too far to call "where the user slept" without other
+		// evidence — the user might just be sleeping in a building next
+		// door. The override only fires for unambiguous proximity.
+		expect(pickLodgingOverride([lm("tourism", "guest_house", 80, "Hotel Far")])).toBeNull();
+	});
+
+	it("returns null on empty input", () => {
+		expect(pickLodgingOverride([])).toBeNull();
 	});
 });

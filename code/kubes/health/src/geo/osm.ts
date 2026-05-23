@@ -340,6 +340,18 @@ export async function bestPlace(
 
 	if (detailed && hasSpecificVenue(detailed)) return detailed;
 
+	// Sleep-window override: a lodging POI (hotel, guest_house, hostel,
+	// motel, apartment) within ~50 m of the centroid wins over the
+	// residential-address preference. A stay overlapping a sleep window
+	// 5 m from a guesthouse is sleep at the guesthouse, not at the
+	// neighbouring residential building Nominatim happened to name.
+	// Without this, the address fallback below stamps the wrong label
+	// on every hotel / guesthouse stay.
+	if (opts.preferResidential) {
+		const lodging = pickLodgingOverride(landmarks);
+		if (lodging) return withAddressFrom(landmarkToResult(lodging), detailed);
+	}
+
 	// Overnight stays: trust the residential address from zoom 18 over any
 	// nearby amenity. The user is in the building, not at the closest cafe.
 	if (opts.preferResidential && detailed && hasResidentialAddress(detailed)) {
@@ -380,6 +392,37 @@ function isLandmark(r: NominatimResult): boolean {
  * café next door for the "what is the user actually at" label.
  */
 const POI_MARKER_TOURISM = new Set(["artwork", "viewpoint", "picnic_site", "information"]);
+
+/** tourism subtypes that denote indoor lodging — a stay overlapping a
+ *  sleep window within a short radius of one of these means the user
+ *  slept *at* the lodging, regardless of which residential building the
+ *  GPS centroid lands on. The set is intentionally narrow: only indoor
+ *  accommodation, not caravan_site / camp_site / chalet variants that
+ *  could legitimately be a stop without being where the user slept.
+ *  Use via `isLodgingLandmark` + `pickLodgingOverride`. */
+export const LODGING_TOURISM_SUBTYPES = new Set(["hotel", "guest_house", "hostel", "apartment", "motel"]);
+
+/** Maximum distance under which a lodging POI is the place the user
+ *  slept, rather than something they slept next door to. 50 m matches
+ *  `VENUE_VOTE_MAX_DIST_M` — a typical urban building footprint. */
+const LODGING_OVERRIDE_DIST_M = 50;
+
+/** True when the landmark is an indoor lodging POI — see
+ *  {@link LODGING_TOURISM_SUBTYPES}. */
+export function isLodgingLandmark(landmark: NearbyLandmark): boolean {
+	return landmark.type === "tourism" && LODGING_TOURISM_SUBTYPES.has(landmark.subtype);
+}
+
+/** Pick the closest nearby lodging POI within `LODGING_OVERRIDE_DIST_M`
+ *  metres, or null if none qualify. Used by `bestPlace` to override the
+ *  residential-address preference for sleep windows: when the user
+ *  slept 5 m from a guesthouse, the guesthouse is the right label even
+ *  when the residential address would otherwise win. */
+export function pickLodgingOverride(landmarks: readonly NearbyLandmark[]): NearbyLandmark | null {
+	const lodging = landmarks.filter((l) => isLodgingLandmark(l) && l.distanceM <= LODGING_OVERRIDE_DIST_M);
+	if (lodging.length === 0) return null;
+	return [...lodging].sort((a, b) => a.distanceM - b.distanceM)[0];
+}
 
 export interface NearbyLandmark {
 	name: string;
