@@ -16,6 +16,7 @@ import { osmDistance } from "./factors/osm-distance.js";
 import { generateRefineModeCandidates } from "./factors/refine-mode-candidates.js";
 import { speedEmission } from "./factors/speed-emission.js";
 import type { ScoredRefinement } from "./factors/types.js";
+import { wayPresence } from "./factors/way-presence.js";
 import type { TransportMode } from "./segments.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
@@ -937,7 +938,7 @@ export function rejectImplausibleDriving(
  */
 function refineModeViaFactors(originalMode: string, speedKmh: number, ways: NearbyWay[]): ModeRefinement {
 	const candidates = generateRefineModeCandidates(originalMode as TransportMode, ways);
-	const ranked = scoreCandidates(candidates, { speedKmh }, [speedEmission, osmDistance, modeCoherence]);
+	const ranked = scoreCandidates(candidates, { speedKmh }, [speedEmission, osmDistance, modeCoherence, wayPresence]);
 	// TEMP debug — remove after Phase 1 calibration. Dumps every
 	// candidate's score so we can diagnose unexpected fallback wins.
 	if (process.env.FACTOR_DEBUG === "1") {

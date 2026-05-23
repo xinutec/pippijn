@@ -54,10 +54,26 @@ export function scoreCandidates(
 		return { ...c, factors: contributions, totalScore };
 	});
 
-	// Stable sort: keep input order on ties. Array.prototype.sort is
-	// already stable per the ECMAScript spec (since 2019), so this
-	// works without an explicit index-tie-breaker.
-	const ranked = [...scored].sort((a, b) => b.totalScore - a.totalScore);
+	// Primary: total log-posterior, descending. Secondary tie-break:
+	// prefer a candidate carrying a `wayName` over one that doesn't.
+	// Two candidates with identical scores but one with a labelled way
+	// and one without (e.g. an unnamed footway segment overlapping a
+	// named "Queen's Walk" footpath, both at the same minimum distance)
+	// should resolve to the labelled one — it's a more specific
+	// feature, and the rendered timeline depends on it for human
+	// readability. The 2026-05-23 backtest of the factored refineMode
+	// surfaced this as the residual cause of walking-segment wayName
+	// loss after way-presence was added — the bonus broke the tie
+	// vs. the no-way fallback, but not vs. an unnamed sibling way.
+	// On all-equal-or-all-unlabelled ties, Array.prototype.sort's
+	// ECMAScript-spec stability keeps the input order.
+	const ranked = [...scored].sort((a, b) => {
+		const byScore = b.totalScore - a.totalScore;
+		if (byScore !== 0) return byScore;
+		const aHasName = a.wayName ? 1 : 0;
+		const bHasName = b.wayName ? 1 : 0;
+		return bHasName - aHasName;
+	});
 
 	const best = ranked[0];
 	const alternatives = ranked.slice(1);
