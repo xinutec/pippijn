@@ -1,14 +1,15 @@
 /**
- * Detect "where was the user at post-midnight time T" from raw GPS
- * fixes, matched against the user's mined focus places.
+ * Detect stationary clusters in raw GPS fixes that snap to one of the
+ * user's mined focus places. Direction-agnostic: works on next-day
+ * morning fixes (catches evening sleep that crosses midnight) AND on
+ * prior-day evening fixes (catches morning sleep whose actual location
+ * is in yesterday's data).
  *
  * Used by the sleep-place attribution path: today's segments end at
- * day boundary (midnight, give or take a long taxi ride), but the
- * sleep window for tonight starts AFTER midnight. derivePlaceForSleep
- * needs candidates from BOTH today's segments AND tomorrow's morning
- * to attribute the sleep correctly. This module produces the latter
- * — a small set of synthetic stationary-stay candidates drawn from
- * raw next-day morning fixes.
+ * the day boundary, but a sleep window can have its true location in
+ * the neighbouring day's data. derivePlaceForSleep consumes the
+ * candidates this module produces alongside today's segments and
+ * picks the closest by gap.
  *
  * Pure: input fixes + known places, output candidate stays. No DB.
  *
@@ -42,8 +43,16 @@ export interface StayKnownPlace {
 export interface StayCandidate {
 	startTs: number;
 	endTs: number;
-	/** The matched known place's displayName. Guaranteed non-null —
-	 *  candidates with no name match are not emitted. */
+	/** Cluster centroid (mean of contributing fixes). Callers re-run
+	 *  full place resolution (focus_place + OSM POI + reverse-geocode)
+	 *  on this centroid so the synthesized candidate gets the same
+	 *  label a real stationary segment at this location would. */
+	centroidLat: number;
+	centroidLon: number;
+	/** The matched known place's displayName. Falls back to "Stay"
+	 *  when the place was mined as a generic cluster — callers should
+	 *  prefer re-resolution via bestPlace and only use this as a last
+	 *  resort. */
 	place: string;
 }
 
@@ -112,7 +121,7 @@ function snapClusterToPlace(
  *  cluster that snaps to a named known place). Each candidate is
  *  shaped so derivePlaceForSleep can consume it as if it were a
  *  stationary segment with a place. */
-export function detectPostMidnightStays(
+export function detectKnownPlaceStays(
 	fixes: readonly StayFix[],
 	knownPlaces: readonly StayKnownPlace[],
 ): StayCandidate[] {
@@ -129,6 +138,8 @@ export function detectPostMidnightStays(
 		out.push({
 			startTs: run[0].ts,
 			endTs: run[run.length - 1].ts,
+			centroidLat: cLat,
+			centroidLon: cLon,
 			place: matched.displayName,
 		});
 	}

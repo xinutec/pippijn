@@ -11,8 +11,8 @@ import { getSyncState } from "../db/sync-state.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 import { type DayState, segmentsToDayStates } from "../sleep/day-state.js";
+import { detectKnownPlaceStays, type StayCandidate } from "../sleep/known-place-stays.js";
 import { enrichSleepWindows, loadDaySleepWindows } from "../sleep/load.js";
-import { detectPostMidnightStays, type StayCandidate } from "../sleep/post-midnight-place.js";
 import {
 	type BiometricEnrichment,
 	correctModeFromCadence,
@@ -455,20 +455,30 @@ export async function computeVelocity(
 		d.setDate(d.getDate() + 1);
 		return d.toISOString().slice(0, 10);
 	})();
+	const prevDay = (() => {
+		const d = new Date(date);
+		d.setDate(d.getDate() - 1);
+		return d.toISOString().slice(0, 10);
+	})();
 
 	const bounds = dateBoundsUtc(date, tz);
-	// Two PhoneTrack ranges off one context: today's fixes (full day) feed the
-	// classification pipeline; the next day's morning fixes (00:00–12:00 UTC)
-	// feed sleep-place attribution so an evening sleep window whose start is
-	// past midnight (e.g. 02:11 after a taxi home from a hospital) resolves to
-	// where the user actually slept, not the day's last stationary segment.
-	// The morning fetch never appears in `inDay`, so it can't pollute today's
-	// segments. See `src/sleep/post-midnight-place.ts`.
+	// Three PhoneTrack ranges off one context: today's fixes (full day) feed
+	// the classification pipeline; the next day's morning fixes (00:00-12:00
+	// UTC) and the prior day's evening fixes (12:00-24:00 UTC) feed sleep-place
+	// attribution. The cross-midnight fetches let derivePlaceForSleep see
+	// where the user actually slept when the sleep window's centroid sits in
+	// the neighbouring day's data — evening sleep starting past midnight
+	// (taxi home from a hospital) or morning sleep that began at a place
+	// only visible in yesterday's segments. The cross-day fixes never
+	// appear in `inDay`, so they can't pollute today's segments. See
+	// `src/sleep/known-place-stays.ts`.
 	const phoneTrackCtx = await time("phonetrack-ctx", openPhoneTrack(config, userId));
 	const nextDayMorningEnd = `${nextDay}T12:00:00Z`;
-	const [raw, morningRaw] = await Promise.all([
+	const prevDayEveningStart = `${prevDay}T12:00:00Z`;
+	const [raw, morningRaw, prevEveningRaw] = await Promise.all([
 		time("phonetrack", fetchTrackPointsRange(phoneTrackCtx, date, nextDay)),
 		time("phonetrackMorning", fetchTrackPointsRange(phoneTrackCtx, nextDay, nextDayMorningEnd)),
+		time("phonetrackPrevEvening", fetchTrackPointsRange(phoneTrackCtx, prevDayEveningStart, date)),
 	]);
 	const inDay = raw.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc);
 
@@ -870,21 +880,57 @@ export async function computeVelocity(
 	// `asleep: true` as an attribute. See `src/sleep/day-state.ts`.
 	//
 	// For sleep-place attribution, augment today's segments with
-	// synthetic stationary candidates derived from the next day's
-	// morning fixes — this handles the post-midnight evening sleep
-	// case (taxi home from a late hospital stay, then sleep at home;
-	// today's last segment is the hospital, but the user actually
-	// slept at home). The synthetic candidates are only fed to
-	// derivePlaceForSleep — they never enter the day's segment output.
+	// synthetic stationary candidates derived from the neighbouring
+	// days' fixes. Two cases:
+	//   - Next-day morning fixes: handle the post-midnight evening
+	//     sleep case (taxi home from a late hospital stay, then sleep
+	//     at home; today's last segment is the hospital, but the user
+	//     actually slept at home).
+	//   - Prior-day evening fixes: handle the morning sleep case
+	//     where today's first stationary segment is hours later
+	//     (sleeping starts before that segment, and the user actually
+	//     slept where they stayed yesterday evening — e.g. a
+	//     guesthouse from the night before).
+	// The synthetic candidates are only fed to derivePlaceForSleep —
+	// they never enter the day's segment output. Each candidate's
+	// label is re-resolved through `bestPlace` (preferResidential: true,
+	// since these stays sit inside the sleep window) so a lodging POI
+	// near the centroid wins over a focus_place's generic "Stay" label
+	// — without this, a hotel stay attaches "Stay" instead of the
+	// hotel's name. See `src/sleep/known-place-stays.ts`.
 	const morningStays = timeSync("morningStays", () =>
-		detectPostMidnightStays(
+		detectKnownPlaceStays(
 			morningRaw.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon })),
 			knownPlaces,
 		),
 	);
+	const prevEveningStays = timeSync("prevEveningStays", () =>
+		detectKnownPlaceStays(
+			prevEveningRaw.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon })),
+			knownPlaces,
+		),
+	);
+	// Only re-resolve via bestPlace when the focus_place match returned
+	// a generic placeholder ("Stay") — the OSM POI lookup then has a
+	// chance to find a lodging name. When the focus_place already has
+	// a specific label (Home, Work, named hotel from a prior re-mine),
+	// keep it: bestPlace would otherwise replace "Home" with the
+	// residential street address.
+	const isGenericStayLabel = (s: string): boolean => s === "Stay";
+	const resolvedSleepStays = await time(
+		"resolveSleepStays",
+		Promise.all(
+			[...morningStays, ...prevEveningStays].map(async (stay) => {
+				if (!isGenericStayLabel(stay.place)) return stay;
+				const resolved = await bestPlace(stay.centroidLat, stay.centroidLon, { preferResidential: true });
+				const placeName = resolved ? placeLabel(resolved) : stay.place;
+				return { ...stay, place: placeName };
+			}),
+		),
+	);
 	const sleepPlaceCandidates: EnrichedSegment[] = [
 		...withBiometrics,
-		...morningStays.map(synthesizeStayCandidateSegment),
+		...resolvedSleepStays.map(synthesizeStayCandidateSegment),
 	];
 	const rawSleep = await loadDaySleepWindows(userId, date);
 	const sleepWindows = enrichSleepWindows(rawSleep, sleepPlaceCandidates);

@@ -1,21 +1,19 @@
 /**
- * Tests for detectPostMidnightStays — the helper that recovers
- * "where was the user at sleep onset" from post-midnight raw fixes,
- * matched against the user's known places. Plugs into
- * derivePlaceForSleep so today's view of an evening sleep window
- * whose start is past midnight (e.g. 02:11) gets the correct place
- * even when today's segments ended at the wrong place (the user
- * moved between today's last segment end and sleep onset, and the
- * movement happened in the unsynced gap).
+ * Tests for detectKnownPlaceStays — the helper that recovers stays
+ * at the user's named focus places from raw GPS fixes. Used by the
+ * sleep-place attribution path in both directions: next-day morning
+ * fixes (catches evening sleep crossing midnight) and prior-day
+ * evening fixes (catches morning sleep whose true location is in
+ * yesterday's data).
  */
 
 import { describe, expect, it } from "vitest";
 import {
-	detectPostMidnightStays,
+	detectKnownPlaceStays,
 	type StayCandidate,
 	type StayFix,
 	type StayKnownPlace,
-} from "../../src/sleep/post-midnight-place.js";
+} from "../../src/sleep/known-place-stays.js";
 
 const HOME: StayKnownPlace = {
 	centroidLat: 51.566,
@@ -45,25 +43,27 @@ function fixesAt(
 	return out;
 }
 
-describe("detectPostMidnightStays", () => {
+describe("detectKnownPlaceStays", () => {
 	it("returns the matched place when fixes cluster at a known place", () => {
 		const fixes = fixesAt(HOME.centroidLat, HOME.centroidLon, 0, 240);
-		const stays: StayCandidate[] = detectPostMidnightStays(fixes, [HOME, HOSPITAL]);
+		const stays: StayCandidate[] = detectKnownPlaceStays(fixes, [HOME, HOSPITAL]);
 		expect(stays).toHaveLength(1);
 		expect(stays[0].place).toBe("Home");
 		expect(stays[0].startTs).toBe(fixes[0].ts);
 		expect(stays[0].endTs).toBe(fixes[fixes.length - 1].ts);
+		expect(stays[0].centroidLat).toBeCloseTo(HOME.centroidLat, 5);
+		expect(stays[0].centroidLon).toBeCloseTo(HOME.centroidLon, 5);
 	});
 
 	it("returns empty when no fixes are within any known place's radius", () => {
 		const fixes = fixesAt(51.0, -0.5, 0, 60);
-		const stays = detectPostMidnightStays(fixes, [HOME, HOSPITAL]);
+		const stays = detectKnownPlaceStays(fixes, [HOME, HOSPITAL]);
 		expect(stays).toEqual([]);
 	});
 
 	it("rejects clusters shorter than 10 minutes (signal noise)", () => {
 		const fixes = fixesAt(HOME.centroidLat, HOME.centroidLon, 0, 5);
-		const stays = detectPostMidnightStays(fixes, [HOME, HOSPITAL]);
+		const stays = detectKnownPlaceStays(fixes, [HOME, HOSPITAL]);
 		expect(stays).toEqual([]);
 	});
 
@@ -75,7 +75,7 @@ describe("detectPostMidnightStays", () => {
 			{ ts: 180, lat: 51.7, lon: -0.4 },
 			{ ts: 240, lat: 51.8, lon: -0.5 },
 		];
-		const stays = detectPostMidnightStays(fixes, [HOME, HOSPITAL]);
+		const stays = detectKnownPlaceStays(fixes, [HOME, HOSPITAL]);
 		expect(stays).toEqual([]);
 	});
 
@@ -85,12 +85,12 @@ describe("detectPostMidnightStays", () => {
 			{ centroidLat: 51.566, centroidLon: -0.29, radiusM: 50, displayName: "Neighbour" },
 		];
 		const fixes = fixesAt(51.566, -0.288, 0, 60);
-		const stays = detectPostMidnightStays(fixes, TWO_HOMES);
+		const stays = detectKnownPlaceStays(fixes, TWO_HOMES);
 		expect(stays[0].place).toBe("Home");
 	});
 
 	it("returns empty for empty input", () => {
-		expect(detectPostMidnightStays([], [HOME])).toEqual([]);
+		expect(detectKnownPlaceStays([], [HOME])).toEqual([]);
 	});
 
 	it("a stay followed by movement away surfaces only the stay", () => {
@@ -102,7 +102,7 @@ describe("detectPostMidnightStays", () => {
 			{ ts: 2100, lat: 51.568, lon: -0.29 },
 			{ ts: 2200, lat: 51.569, lon: -0.291 },
 		];
-		const stays = detectPostMidnightStays([...homeFixes, ...moveFixes], [HOME, HOSPITAL]);
+		const stays = detectKnownPlaceStays([...homeFixes, ...moveFixes], [HOME, HOSPITAL]);
 		expect(stays.length).toBeGreaterThanOrEqual(1);
 		expect(stays[0].place).toBe("Home");
 	});
@@ -112,7 +112,7 @@ describe("detectPostMidnightStays", () => {
 		// candidate emitted. The pipeline elsewhere will handle this
 		// stay; this helper specifically attaches *known-place names*.
 		const fixes = fixesAt(51.0, -0.5, 0, 60);
-		const stays = detectPostMidnightStays(fixes, [HOME, HOSPITAL]);
+		const stays = detectKnownPlaceStays(fixes, [HOME, HOSPITAL]);
 		expect(stays).toEqual([]);
 	});
 });
