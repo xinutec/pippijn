@@ -78,6 +78,16 @@ spec:
             # env var to revert without a code change.
             - name: USE_FACTOR_SCORER
               value: "1"
+            # Biometric-corrector migration: under USE_FACTOR_SCORER,
+            # passes per-segment HR/cadence + per-user mode signatures
+            # into refineMode so biometric-ll + mode-prior +
+            # classifier-prior join the factor stack. Also skips the
+            # legacy applyBiometricSignature cascade pass to avoid
+            # double-correction. Unset to fall back to the cascade
+            # biometric pass (factor scorer continues without biometric
+            # context).
+            - name: USE_BIOMETRIC_FACTOR
+              value: "1"
           resources:
             requests:
               cpu: 10m
