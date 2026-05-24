@@ -533,6 +533,23 @@ const MIGRATIONS: readonly string[] = [
 	// line X" (e.g. line-membership disambiguation).
 	`ALTER TABLE osm_lines ADD INDEX IF NOT EXISTS idx_osm_lines_name (name)`,
 
+	// decoded_days: per-day HMM decode persistence cache (Phase 0c).
+	// One row per (user, date) holds the MAP segment sequence produced
+	// by the joint-sequence model. Cached so subsequent reads of a
+	// previously-decoded day serve directly from persisted segments
+	// without re-running Viterbi. On model retrain the
+	// classifier_version mismatch invalidates stale rows.
+	// Pure cache — safe to truncate and rebuild.
+	`CREATE TABLE IF NOT EXISTS decoded_days (
+    user_id            VARCHAR(64) NOT NULL,
+    date               DATE NOT NULL,
+    classifier_version INT NOT NULL,
+    segments_json      MEDIUMTEXT NOT NULL,
+    decoded_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, date),
+    INDEX idx_user_version (user_id, classifier_version)
+  )`,
+
 	// Future migrations go here.
 ];
 

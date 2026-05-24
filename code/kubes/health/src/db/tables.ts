@@ -329,6 +329,28 @@ export interface RailRouteCacheTable {
 	computed_at: Generated<Date>;
 }
 
+/** Per-day HMM decode cache. Each row holds the MAP segment sequence
+ *  produced by the joint-sequence model for one (user, date). Cached
+ *  so a request for a previously-decoded day serves directly from
+ *  the persisted segments rather than re-running Viterbi.
+ *
+ *  `classifier_version` tags which version of the HMM model produced
+ *  the decode. On model retrain (or any change that bumps
+ *  `CURRENT_CLASSIFIER_VERSION`), stale rows are recognised by
+ *  version mismatch and re-decoded on next read.
+ *
+ *  Pure cache — safe to truncate and rebuild. */
+export interface DecodedDaysTable {
+	user_id: string;
+	/** DATE in the user's displayTz, stored as 'YYYY-MM-DD'. */
+	date: string;
+	classifier_version: number;
+	/** JSON-serialised segment array. Shape defined by the HMM
+	 *  decoder; consumers parse via the decoder's own type guards. */
+	segments_json: string;
+	decoded_at: Generated<Date>;
+}
+
 // The full database interface — Kysely uses this to type-check every query
 export interface Database {
 	tokens: TokensTable;
@@ -358,5 +380,6 @@ export interface Database {
 	focus_places: FocusPlacesTable;
 	mode_biometrics: ModeBiometricsTable;
 	rail_route_cache: RailRouteCacheTable;
+	decoded_days: DecodedDaysTable;
 	schema_migrations: SchemaMigrationsTable;
 }
