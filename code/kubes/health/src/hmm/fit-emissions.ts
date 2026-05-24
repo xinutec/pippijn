@@ -89,6 +89,15 @@ const SPEED_STD_FLOOR = 1;
 /** Floor on cadence stddev. */
 const CADENCE_STD_FLOOR = 5;
 
+/** Floor on `expectedZeroProb` to prevent a hard-zero on inference-
+ *  time cadence=0 observations. Fitbit only writes step rows when
+ *  there ARE steps, so heuristic-labeled training minutes never see
+ *  explicit zero cadence — but raw inference observations can have
+ *  cadence=0 if a step row exists with 0 steps. Without a floor,
+ *  `logCadencePdf(0, prior)` returns `log(0) = -Infinity`, hard-
+ *  zeroing the entire state for that minute. */
+const EXPECTED_ZERO_PROB_FLOOR = 0.01;
+
 /** Fit a 1-D Gaussian via MLE with Bessel-corrected stddev. */
 function fitGaussian(values: readonly number[], stdFloor: number): GaussianFit {
 	const n = values.length;
@@ -143,7 +152,8 @@ export function fitPerModeEmissions(samples: readonly LabeledSample[]): LearnedE
 		}
 
 		const cadenceTotal = cadenceZeros.length + cadencePositives.length;
-		const expectedZeroProb = cadenceTotal > 0 ? cadenceZeros.length / cadenceTotal : 0;
+		const rawZeroProb = cadenceTotal > 0 ? cadenceZeros.length / cadenceTotal : 0;
+		const expectedZeroProb = Math.max(EXPECTED_ZERO_PROB_FLOOR, Math.min(1 - EXPECTED_ZERO_PROB_FLOOR, rawZeroProb));
 		const positiveFit = fitGaussian(cadencePositives, CADENCE_STD_FLOOR);
 
 		perMode[mode] = {

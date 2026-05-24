@@ -260,13 +260,23 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 	// learned fit (when `learnedEmissions.perMode[mode]` is present and
 	// not `"fallback"`) or the hand-tuned `MODE_PRIORS[mode]`. Done once
 	// at build time so the hot per-minute closure doesn't re-decide.
+	//
+	// Note: `gpsPresentProb` is NOT taken from the learned model — it
+	// stays at the hand-tuned `UNIFORM_GPS_PRESENT_PROB`. Per-mode
+	// learning of GPS-presence reintroduces the Phase 1.5 problem: a
+	// per-minute log-ratio of 1-2 nats favouring stationary at every
+	// GPS-null minute (because the heuristic confounds "indoor" with
+	// "stationary," making stationary's learned gpsPresentProb tend
+	// toward ~0.1). That accumulates over 500+ GPS-null minutes/day
+	// into hundreds of nats of "stationary" pressure, swamping the
+	// real per-minute mode discrimination.
 	const effectivePriors: Record<State["mode"], ModePrior> = { ...MODE_PRIORS };
 	if (learned !== null) {
 		for (const mode of Object.keys(MODE_PRIORS) as State["mode"][]) {
 			const fit = learned.perMode[mode];
 			if (fit === undefined || fit === "fallback") continue;
 			effectivePriors[mode] = {
-				gpsPresentProb: fit.gpsPresentProb,
+				gpsPresentProb: MODE_PRIORS[mode].gpsPresentProb, // KEEP hand-tuned
 				speedMean: fit.speed.mean,
 				speedStd: fit.speed.std,
 				hrMean: fit.hr.mean,
