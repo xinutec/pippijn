@@ -525,6 +525,14 @@ const MIGRATIONS: readonly string[] = [
 	// as "no time-of-day signal").
 	`ALTER TABLE focus_places ADD COLUMN IF NOT EXISTS hour_profile VARCHAR(127) NULL`,
 
+	// Secondary index on osm_lines.name. The HMM precondition work
+	// (Phase 0b) needs `WHERE feature_type='railway' AND name=?` to
+	// run fast — without this index it falls back to a full scan over
+	// the 42k-row railway subset (~30s per line on a warm pool).
+	// The index also benefits future queries that want "all ways of
+	// line X" (e.g. line-membership disambiguation).
+	`ALTER TABLE osm_lines ADD INDEX IF NOT EXISTS idx_osm_lines_name (name)`,
+
 	// Future migrations go here.
 ];
 
