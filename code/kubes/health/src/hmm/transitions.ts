@@ -39,6 +39,12 @@ export interface BuildTransitionMatrixOpts {
 	/** Generic cross-state log-prob (when no specific rule applies).
 	 *  Default log(0.02). */
 	crossStateLogProb?: number;
+	/** Station-graph hard-zero lookup: returns `true` when the given
+	 *  focus_place is within walking distance of a station served by
+	 *  the named rail line. When provided, transitions between
+	 *  `train @ L` and `stationary @ P` (in either direction) are
+	 *  hard-zeroed when `placeNearLine(P, L) === false`. */
+	placeNearLine?: (placeId: number, lineName: string) => boolean;
 }
 
 const DEFAULT_SELF_LOOP = Math.log(0.95);
@@ -65,6 +71,9 @@ function sameState(a: State, b: State): boolean {
 export function buildTransitionMatrix(opts: BuildTransitionMatrixOpts): TransitionLogProbFn {
 	const selfLoop = opts.selfLoopLogProb ?? DEFAULT_SELF_LOOP;
 	const crossMass = 1 - Math.exp(selfLoop);
+	const placeNearLine = opts.placeNearLine ?? null;
+
+	const isHardZeroFn = (from: State, to: State): boolean => isHardZero(from, to, placeNearLine);
 
 	// Pre-compute the per-row cross-state log-prob: for each from-state,
 	// count the valid cross destinations and divide the cross mass.
@@ -74,7 +83,7 @@ export function buildTransitionMatrix(opts: BuildTransitionMatrixOpts): Transiti
 		let validCrossCount = 0;
 		for (const to of opts.states) {
 			if (sameState(from, to)) continue;
-			if (isHardZero(from, to)) continue;
+			if (isHardZeroFn(from, to)) continue;
 			validCrossCount++;
 		}
 		const fromKey = stateInternalKey(from);
@@ -89,12 +98,16 @@ export function buildTransitionMatrix(opts: BuildTransitionMatrixOpts): Transiti
 
 	return (from: State, to: State): number => {
 		if (sameState(from, to)) return selfLoop;
-		if (isHardZero(from, to)) return Number.NEGATIVE_INFINITY;
+		if (isHardZeroFn(from, to)) return Number.NEGATIVE_INFINITY;
 		return crossLogByFrom.get(stateInternalKey(from)) ?? Number.NEGATIVE_INFINITY;
 	};
 }
 
-function isHardZero(from: State, to: State): boolean {
+function isHardZero(
+	from: State,
+	to: State,
+	placeNearLine: ((placeId: number, lineName: string) => boolean) | null,
+): boolean {
 	// Hard-zero: stationary @ A → stationary @ B with A ≠ B (whether
 	// or not either side is a known place). The user can't teleport
 	// between two stationary places without a moving state in
@@ -104,6 +117,33 @@ function isHardZero(from: State, to: State): boolean {
 	if (from.mode === "stationary" && to.mode === "stationary" && from.placeId !== to.placeId) {
 		return true;
 	}
+
+	// Station-graph hard-zero: a train on line L cannot alight at
+	// place P if L doesn't serve any station near P, and (symmetric)
+	// a stationary at P cannot board a train on L if L doesn't serve
+	// P. Only fires when placeNearLine lookup is provided and the
+	// line is a named line (not the unknown_rail catch-all).
+	if (placeNearLine !== null) {
+		if (
+			from.mode === "train" &&
+			to.mode === "stationary" &&
+			to.placeId !== null &&
+			from.lineName !== null &&
+			from.lineName !== "unknown_rail"
+		) {
+			if (!placeNearLine(to.placeId, from.lineName)) return true;
+		}
+		if (
+			from.mode === "stationary" &&
+			to.mode === "train" &&
+			from.placeId !== null &&
+			to.lineName !== null &&
+			to.lineName !== "unknown_rail"
+		) {
+			if (!placeNearLine(from.placeId, to.lineName)) return true;
+		}
+	}
+
 	return false;
 }
 

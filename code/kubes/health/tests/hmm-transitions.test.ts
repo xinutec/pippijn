@@ -100,6 +100,35 @@ describe("buildTransitionMatrix", () => {
 		expect(transitionLogProb(home, train)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
 	});
 
+	it("hard-zeroes train@L → stationary@P when L does not serve P (station-graph rule)", () => {
+		const transitionLogProbWithGraph = buildTransitionMatrix({
+			states,
+			// Home (id=1) is on Met; Work (id=2) is NOT.
+			placeNearLine: (placeId, lineName) => placeId === 1 && lineName === "Metropolitan Line",
+		});
+		const train = find("train", null, "Metropolitan Line");
+		const home = find("stationary", 1, null);
+		const work = find("stationary", 2, null);
+		// train@Met → stationary@Home: allowed (home is on Met).
+		expect(transitionLogProbWithGraph(train, home)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		// train@Met → stationary@Work: forbidden (work is not on Met).
+		expect(transitionLogProbWithGraph(train, work)).toBe(Number.NEGATIVE_INFINITY);
+		// Symmetric: stationary@Work → train@Met also forbidden.
+		expect(transitionLogProbWithGraph(work, train)).toBe(Number.NEGATIVE_INFINITY);
+	});
+
+	it("does not apply station-graph hard-zero for the unknown_rail catch-all", () => {
+		const transitionLogProbWithGraph = buildTransitionMatrix({
+			states,
+			placeNearLine: () => false, // everything would be forbidden if applied
+		});
+		const unknownTrain = find("train", null, "unknown_rail");
+		const home = find("stationary", 1, null);
+		// unknown_rail bypasses the rule — used as a backstop when
+		// the line isn't recognised.
+		expect(transitionLogProbWithGraph(unknownTrain, home)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+	});
+
 	it("rows sum to <= 1 in probability space (proper probability distribution)", () => {
 		// For each state, summing exp(logProb(state, *)) over all
 		// destinations should be ≤ 1 (could be < 1 because hard-zeros

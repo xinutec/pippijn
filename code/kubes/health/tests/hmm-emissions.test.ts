@@ -33,6 +33,11 @@ function state(mode: State["mode"], placeId: number | null = null, lineName: str
 
 const emission = buildEmissionFn({});
 
+const HOME_LAT = 51.57;
+const HOME_LON = -0.279;
+const placeCoords = new Map<number, { lat: number; lon: number }>([[1, { lat: HOME_LAT, lon: HOME_LON }]]);
+const emissionWithPlaces = buildEmissionFn({ placeCoords });
+
 describe("buildEmissionFn", () => {
 	it("favours train over walking at high speed", () => {
 		const fast = obs({ gps: { lat: 51.5, lon: -0.1, speedKmh: 60 }, cadence: 0 });
@@ -62,11 +67,17 @@ describe("buildEmissionFn", () => {
 		expect(statScore).toBeGreaterThan(walkScore);
 	});
 
-	it("treats GPS-absent minutes as evidence for train (when the prior says train has high p_gps_absent)", () => {
+	it("decides GPS-absent minutes by HR + cadence, not by GPS-presence (which is uniform across modes)", () => {
+		// Tunnel-like: GPS absent, restful HR 80, zero cadence.
+		// Without uniform GPS-presence, train would win because its
+		// p_gps_present was set lower (tunnel-aware). Under the
+		// uniform setting (post Phase 1.5 audit), HR + cadence have
+		// to discriminate — train's HR mean (75) is closer to 80
+		// than walking's HR mean (100), so train still wins, but
+		// for the right reason.
 		const noFix = obs({ gps: null, hr: 80, cadence: 0 });
 		const trainScore = emission(state("train", null, "Metropolitan Line"), noFix);
 		const walkScore = emission(state("walking"), noFix);
-		// In a tunnel: GPS absent + low cadence + moderate HR → train more likely than walking.
 		expect(trainScore).toBeGreaterThan(walkScore);
 	});
 
@@ -84,6 +95,83 @@ describe("buildEmissionFn", () => {
 		const stationaryScore = emission(state("stationary"), partial);
 		// Walking still wins on speed alone.
 		expect(walkScore).toBeGreaterThan(stationaryScore);
+	});
+
+	it("favours stationary@placeId when GPS is close to that place's centroid", () => {
+		const atHome = obs({ gps: { lat: HOME_LAT, lon: HOME_LON, speedKmh: 0 }, hr: 65, cadence: 0 });
+		const homeScore = emissionWithPlaces(state("stationary", 1), atHome);
+		const offNetworkScore = emissionWithPlaces(state("stationary", null), atHome);
+		const trainScore = emissionWithPlaces(state("train", null, "Metropolitan Line"), atHome);
+		// stationary @ Home should beat stationary @ none AND any movement state.
+		expect(homeScore).toBeGreaterThan(offNetworkScore);
+		expect(homeScore).toBeGreaterThan(trainScore);
+	});
+
+	it("penalises stationary@placeId when GPS is far from that place's centroid", () => {
+		const farFromHome = obs({
+			gps: { lat: HOME_LAT + 0.05, lon: HOME_LON + 0.05, speedKmh: 0 },
+			hr: 65,
+			cadence: 0,
+		});
+		const homeScore = emissionWithPlaces(state("stationary", 1), farFromHome);
+		const offNetworkScore = emissionWithPlaces(state("stationary", null), farFromHome);
+		// 5km away from home: stationary @ none should beat stationary @ Home.
+		expect(offNetworkScore).toBeGreaterThan(homeScore);
+	});
+
+	it("does not apply place-distance penalty when GPS is null (overnight at home)", () => {
+		const overnightCharging = obs({ gps: null, hr: 60, cadence: null });
+		const withPlaceScore = emissionWithPlaces(state("stationary", 1), overnightCharging);
+		const withoutPlaceScore = emission(state("stationary", 1), overnightCharging);
+		// When GPS is null, both emission functions agree — no place-distance term to apply.
+		expect(withPlaceScore).toBe(withoutPlaceScore);
+	});
+
+	it("applies time-of-day boost when placeHourProfiles is provided", () => {
+		// Work has a profile peaked at 14:00 (10% of visits at that hour);
+		// quiet at 04:00 (1%).
+		const workProfile = new Array(24).fill(0.04);
+		workProfile[14] = 0.1;
+		workProfile[4] = 0.01;
+		const emissionTod = buildEmissionFn({
+			placeCoords,
+			placeHourProfiles: new Map([[1, workProfile]]),
+		});
+		const at14 = obs({ ts: 1_700_000_000, hourLocal: 14, gps: null, hr: 80, cadence: null });
+		const at04 = obs({ ts: 1_700_000_000, hourLocal: 4, gps: null, hr: 80, cadence: null });
+		const score14 = emissionTod(state("stationary", 1), at14);
+		const score04 = emissionTod(state("stationary", 1), at04);
+		// The 14:00 score gets log(24×0.1) = +0.875 boost; 04:00 gets log(24×0.01) = -1.43.
+		// Delta ≈ 2.3 nats.
+		expect(score14 - score04).toBeCloseTo(Math.log(24 * 0.1) - Math.log(24 * 0.01), 2);
+	});
+
+	it("clamps zero hour_profile entries to a floor (no hard-zero)", () => {
+		// A place that has NO visits at hour 7 (0% of profile).
+		const profile = new Array(24).fill(0.043); // sums to ~1
+		profile[7] = 0;
+		const emissionTod = buildEmissionFn({
+			placeCoords,
+			placeHourProfiles: new Map([[1, profile]]),
+		});
+		const at7 = obs({ ts: 1_700_000_000, hourLocal: 7, gps: null, hr: 80, cadence: null });
+		const score = emissionTod(state("stationary", 1), at7);
+		expect(Number.isFinite(score)).toBe(true);
+		// Floor is log(24 × 0.001) ≈ -3.73, not -Infinity.
+		expect(score).toBeGreaterThan(-100);
+	});
+
+	it("only applies time-of-day boost to stationary@knownPlace, not to off-network or movement", () => {
+		const profile = new Array(24).fill(0).map((_, i) => (i === 14 ? 0.5 : 0.022));
+		const emissionTod = buildEmissionFn({ placeHourProfiles: new Map([[1, profile]]) });
+		const at14 = obs({ ts: 1_700_000_000, hourLocal: 14, gps: null, hr: 80, cadence: null });
+		// The boost only applies to state{mode:stationary, placeId:1}.
+		// Other states get no boost — verify by re-running without profiles.
+		const emissionPlain = buildEmissionFn({});
+		expect(emissionTod(state("walking"), at14)).toBe(emissionPlain(state("walking"), at14));
+		expect(emissionTod(state("stationary", null), at14)).toBe(emissionPlain(state("stationary", null), at14));
+		// And stationary@1 DOES get the boost.
+		expect(emissionTod(state("stationary", 1), at14)).toBeGreaterThan(emissionPlain(state("stationary", 1), at14));
 	});
 
 	it("plane needs very high speed", () => {

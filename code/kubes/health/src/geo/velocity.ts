@@ -83,7 +83,7 @@ export function utcDatetimeStrToSeconds(s: string | Date): number {
  * profile.tz). The fallback pays the legacy per-row conversion only for
  * those rows.
  */
-async function loadBiometrics(
+export async function loadBiometrics(
 	userId: string,
 	startUtc: number,
 	endUtc: number,

@@ -52,10 +52,56 @@ import type { State } from "./state-space.js";
 export type EmissionLogProbFn = (state: State, obs: Observation) => number;
 
 export interface BuildEmissionFnOpts {
-	// Reserved for post-MVP per-place / per-line lookups.
-	// Empty for now; placeholder so callers stabilise the API.
-	_unused?: never;
+	/** focus_places coordinates keyed by place id. When provided,
+	 *  `stationary @ placeId` states gain a place-distance emission
+	 *  term: log Gaussian of distance from the observation's GPS fix
+	 *  to the place's centroid, with σ = `PLACE_RADIUS_M`. When the
+	 *  observation has no GPS fix, the term contributes nothing.
+	 *
+	 *  Without this, `stationary @ Home` and `stationary @ Work` and
+	 *  `train @ Metropolitan Line` all score identically on a
+	 *  GPS-null minute, which collapses the HMM's ability to attribute
+	 *  the minute to the right state. */
+	placeCoords?: ReadonlyMap<number, { lat: number; lon: number }>;
+
+	/** Per-place hour-of-day visit profile, 24 normalised buckets
+	 *  summing to 1 (as mined into `focus_places.hour_profile`).
+	 *  When provided, `stationary @ placeId` gains a time-of-day
+	 *  log-prior boost: `log(24 × hour_profile[hourLocal])`. Positive
+	 *  at the place's typical hours, negative at unusual ones.
+	 *
+	 *  Addresses the Phase 1.5 audit's "stuck in train after the ride
+	 *  ends" residual: at 16:00 the boost makes `stationary @ Work`
+	 *  preferred over `train @ Victoria Line` even without GPS
+	 *  evidence at the transition minute. */
+	placeHourProfiles?: ReadonlyMap<number, readonly number[]>;
 }
+
+/** σ for the place-centroid Gaussian. Matches the
+ *  `STAY_RADIUS_M = 150` used elsewhere in the pipeline — a fix
+ *  more than ~3σ away from a place is essentially "not at that
+ *  place." */
+const PLACE_RADIUS_M = 150;
+
+/** Floor on the per-hour fraction when computing the time-of-day
+ *  boost. A place with no recorded visits at hour H gets
+ *  log(24 × 0.001) ≈ -3.73 nats, not -Infinity — focus_places
+ *  mining can miss an hour for any reason; a hard-zero is too
+ *  strong. */
+const HOUR_PROFILE_FLOOR = 0.001;
+
+/** Fixed log-prior for the off-network stationary state when the
+ *  observation has a GPS fix. Calibrated so:
+ *    - A fix near (≲ 200 m of) a known place's centroid scores
+ *      higher under `stationary @ knownPlace` than under
+ *      `stationary @ none`.
+ *    - A fix far (≳ 500 m) from all known places scores higher
+ *      under `stationary @ none` than under any `stationary @
+ *      knownPlace`.
+ *  -4 nats hits both: at 500 m the place term is
+ *  -0.5·(500/150)² ≈ -5.5, worse than -4; at 100 m it's -0.22,
+ *  much better. */
+const OFF_NETWORK_LOG_PRIOR = -4;
 
 interface ModePrior {
 	gpsPresentProb: number; // P(gps fix present | mode)
@@ -72,9 +118,18 @@ interface ModePrior {
 	cadencePositiveStd: number;
 }
 
+// GPS-presence as a per-mode Bernoulli was found in the Phase 1.5
+// audit to be net-harmful: it can't distinguish "phone charging at
+// home (GPS off)" from "deep in a tube tunnel (GPS off)" without
+// per-(mode, place, time) conditioning that's out of MVP scope.
+// Setting it to a uniform value across all modes makes GPS-absence
+// inert — the per-minute decision falls to HR + speed + cadence +
+// place-distance, which are actually discriminative.
+const UNIFORM_GPS_PRESENT_PROB = 0.85;
+
 const MODE_PRIORS: Record<State["mode"], ModePrior> = {
 	stationary: {
-		gpsPresentProb: 0.95,
+		gpsPresentProb: UNIFORM_GPS_PRESENT_PROB,
 		speedMean: 0,
 		speedStd: 2,
 		hrMean: 70,
@@ -84,7 +139,7 @@ const MODE_PRIORS: Record<State["mode"], ModePrior> = {
 		cadencePositiveStd: 20,
 	},
 	walking: {
-		gpsPresentProb: 0.95,
+		gpsPresentProb: UNIFORM_GPS_PRESENT_PROB,
 		speedMean: 5,
 		speedStd: 2,
 		hrMean: 100,
@@ -94,7 +149,7 @@ const MODE_PRIORS: Record<State["mode"], ModePrior> = {
 		cadencePositiveStd: 25,
 	},
 	cycling: {
-		gpsPresentProb: 0.95,
+		gpsPresentProb: UNIFORM_GPS_PRESENT_PROB,
 		speedMean: 18,
 		speedStd: 6,
 		hrMean: 130,
@@ -104,7 +159,7 @@ const MODE_PRIORS: Record<State["mode"], ModePrior> = {
 		cadencePositiveStd: 30,
 	},
 	driving: {
-		gpsPresentProb: 0.9,
+		gpsPresentProb: UNIFORM_GPS_PRESENT_PROB,
 		speedMean: 40,
 		speedStd: 20,
 		hrMean: 75,
@@ -114,7 +169,7 @@ const MODE_PRIORS: Record<State["mode"], ModePrior> = {
 		cadencePositiveStd: 10,
 	},
 	train: {
-		gpsPresentProb: 0.3,
+		gpsPresentProb: UNIFORM_GPS_PRESENT_PROB,
 		speedMean: 50,
 		speedStd: 30,
 		hrMean: 75,
@@ -124,7 +179,7 @@ const MODE_PRIORS: Record<State["mode"], ModePrior> = {
 		cadencePositiveStd: 10,
 	},
 	plane: {
-		gpsPresentProb: 0.7,
+		gpsPresentProb: UNIFORM_GPS_PRESENT_PROB,
 		speedMean: 600,
 		speedStd: 200,
 		hrMean: 70,
@@ -136,7 +191,7 @@ const MODE_PRIORS: Record<State["mode"], ModePrior> = {
 	unknown: {
 		// Weak uniform-ish backstop. Drawn to always lose to a
 		// positive-evidence state in head-to-head scoring.
-		gpsPresentProb: 0.5,
+		gpsPresentProb: UNIFORM_GPS_PRESENT_PROB,
 		speedMean: 20,
 		speedStd: 200, // very wide → always low density per data point
 		hrMean: 80,
@@ -171,7 +226,21 @@ function logCadencePdf(cadence: number, prior: ModePrior): number {
 	return positiveMix + logNormalPdf(cadence, prior.cadencePositiveMean, prior.cadencePositiveStd);
 }
 
-export function buildEmissionFn(_opts: BuildEmissionFnOpts = {}): EmissionLogProbFn {
+const M_PER_DEG_LAT = 111_320;
+
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+	const R = 6_371_000;
+	const dLat = ((lat2 - lat1) * Math.PI) / 180;
+	const dLon = ((lon2 - lon1) * Math.PI) / 180;
+	const a =
+		Math.sin(dLat / 2) ** 2 +
+		Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProbFn {
+	const places = opts.placeCoords ?? null;
+	const hourProfiles = opts.placeHourProfiles ?? null;
 	return (state: State, obs: Observation): number => {
 		const prior = MODE_PRIORS[state.mode];
 		let logProb = 0;
@@ -194,6 +263,46 @@ export function buildEmissionFn(_opts: BuildEmissionFnOpts = {}): EmissionLogPro
 		// written" — informational, but not a penalty).
 		if (obs.cadence !== null) {
 			logProb += logCadencePdf(obs.cadence, prior);
+		}
+
+		// Time-of-day prior for stationary @ known-place. Fires every
+		// minute regardless of GPS presence — the hour is always
+		// known. Boost = log(24 × hour_profile[h]), with a floor to
+		// avoid hard-zeroing places that lack data for a given hour.
+		if (state.mode === "stationary" && state.placeId !== null && hourProfiles !== null) {
+			const profile = hourProfiles.get(state.placeId);
+			if (profile !== undefined && profile.length === 24) {
+				const f = Math.max(profile[obs.hourLocal], HOUR_PROFILE_FLOOR);
+				logProb += Math.log(24 * f);
+			}
+		}
+
+		// Place-distance emission for stationary states. Without this
+		// term, the HMM has no way to attribute a stationary GPS fix
+		// to the right focus place — all `stationary @ placeId`
+		// states emit identically on the non-geometric signals, and
+		// the decoder falls back to whatever the transition prior
+		// prefers (often the wrong place).
+		//
+		// Peak-normalised score: 0 at the centroid, -0.5·(d/σ)² away.
+		// `stationary @ none` gets a fixed log-prior — see
+		// `OFF_NETWORK_LOG_PRIOR`. Together: a fix close to a known
+		// place scores higher there; a fix far from all known places
+		// scores higher under `none`.
+		//
+		// Only applies when GPS is present (no place attribution
+		// without observation).
+		if (state.mode === "stationary" && places !== null && obs.gps !== null) {
+			if (state.placeId !== null) {
+				const placeCoord = places.get(state.placeId);
+				if (placeCoord !== undefined) {
+					const d = haversineMeters(obs.gps.lat, obs.gps.lon, placeCoord.lat, placeCoord.lon);
+					const z = d / PLACE_RADIUS_M;
+					logProb += -0.5 * z * z;
+				}
+			} else {
+				logProb += OFF_NETWORK_LOG_PRIOR;
+			}
 		}
 
 		return logProb;

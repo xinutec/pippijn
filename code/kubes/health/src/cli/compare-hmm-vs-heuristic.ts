@@ -1,0 +1,351 @@
+/**
+ * Audit CLI: runs the existing heuristic pipeline and the MVP HMM
+ * decoder on the same day(s), then surfaces minute-level
+ * disagreements + an aggregate mode-confusion matrix.
+ *
+ * Phase 1.5 of `docs/proposals/2026-05-joint-sequence-model.md` —
+ * proves the HMM architecture before any user-facing change.
+ *
+ * Usage (via prod-db.sh so the tunnel + env are set up):
+ *
+ *   scripts/prod-db.sh node dist/cli/compare-hmm-vs-heuristic.js              # last 7 days
+ *   scripts/prod-db.sh node dist/cli/compare-hmm-vs-heuristic.js --days 14
+ *   scripts/prod-db.sh node dist/cli/compare-hmm-vs-heuristic.js --date 2026-05-22
+ *   scripts/prod-db.sh node dist/cli/compare-hmm-vs-heuristic.js --user pippijn --tz Europe/London
+ *
+ * Output (per day):
+ *   - Total minutes processed
+ *   - Per-minute agreement rate
+ *   - Mode-confusion matrix: rows=heuristic mode, cols=HMM mode
+ *   - Up to 5 sample minutes per disagreement category, with the
+ *     observation (speed/hr/cadence/gps-present) so a human can
+ *     decide which classifier is right
+ *
+ * Exit 0 always (measurement tool, not regression detector).
+ *
+ * NOT wired into prod: the HMM result is computed for measurement
+ * only. Decision to enable in prod comes after this audit shows
+ * the HMM is consistently better than the heuristic on the
+ * residuals it's designed to address.
+ */
+
+import { z } from "zod";
+import { db, initPool, withConnection } from "../db/pool.js";
+import { migrate } from "../db/schema.js";
+import { parseHourProfile } from "../geo/focus-places.js";
+import { stationsOnLine } from "../geo/line-stations.js";
+import { dateBoundsUtc } from "../geo/timezone.js";
+import { computeVelocity, type EnrichedSegment, loadBiometrics } from "../geo/velocity.js";
+import { buildEmissionFn } from "../hmm/emissions.js";
+import { buildObservationTensor, type Observation } from "../hmm/observation.js";
+import { buildStateSpace, type FocusPlaceRef, type State, stateKey } from "../hmm/state-space.js";
+import { buildTransitionMatrix } from "../hmm/transitions.js";
+import { viterbi } from "../hmm/viterbi.js";
+
+const config = z
+	.object({
+		db: z.object({
+			host: z.string().default("health-db"),
+			port: z.coerce.number().default(3306),
+			user: z.string(),
+			password: z.string(),
+			database: z.string().default("health"),
+		}),
+		nextcloud: z.object({
+			baseUrl: z.string().url().default("https://dash.xinutec.org"),
+			clientId: z.string().min(1),
+			clientSecret: z.string().min(1),
+		}),
+	})
+	.parse({
+		db: {
+			host: process.env.DB_HOST,
+			port: process.env.DB_PORT,
+			user: process.env.DB_USER,
+			password: process.env.DB_PASSWORD,
+			database: process.env.DB_NAME,
+		},
+		nextcloud: {
+			baseUrl: process.env.NC_BASE_URL,
+			clientId: process.env.NC_CLIENT_ID,
+			clientSecret: process.env.NC_CLIENT_SECRET,
+		},
+	});
+
+/** Bootstrap the user's known rail lines. For MVP, hardcoded to
+ *  the London Underground line names that linesAtPoint returns
+ *  exact-match for. Combined-name variants (e.g.
+ *  "Circle and Hammersmith & City Lines") are seen as their own
+ *  HMM states via the catch-all `train|unknown_rail` plus any
+ *  user-specific lines we surface here. */
+const KNOWN_LINES = [
+	"Metropolitan Line",
+	"Jubilee Line",
+	"Victoria Line",
+	"Piccadilly Line",
+	"Bakerloo Line",
+	"Northern Line",
+	"Circle Line",
+	"Hammersmith & City Line",
+	"District Line",
+	"Central Line",
+	"Elizabeth Line",
+];
+
+interface CliArgs {
+	userId: string;
+	tz: string;
+	dates: string[];
+}
+
+function parseArgs(): CliArgs {
+	const args = process.argv.slice(2);
+	let userId = "pippijn";
+	let tz = "Europe/London";
+	let days = 7;
+	let explicitDate: string | null = null;
+	for (let i = 0; i < args.length; i++) {
+		if (args[i] === "--user") userId = args[++i] ?? userId;
+		else if (args[i] === "--tz") tz = args[++i] ?? tz;
+		else if (args[i] === "--days") days = Number(args[++i] ?? days) || days;
+		else if (args[i] === "--date") explicitDate = args[++i] ?? null;
+	}
+	let dates: string[];
+	if (explicitDate) {
+		dates = [explicitDate];
+	} else {
+		dates = [];
+		const now = new Date();
+		for (let d = 1; d <= days; d++) {
+			const date = new Date(now);
+			date.setUTCDate(now.getUTCDate() - d);
+			dates.push(date.toISOString().slice(0, 10));
+		}
+	}
+	return { userId, tz, dates };
+}
+
+interface PlaceWithCoords extends FocusPlaceRef {
+	lat: number;
+	lon: number;
+	hourProfile: readonly number[] | null;
+}
+
+async function loadFocusPlacesForUser(userId: string): Promise<PlaceWithCoords[]> {
+	const rows = await db()
+		.selectFrom("focus_places")
+		.where("user_id", "=", userId)
+		.select(["id", "display_name", "centroid_lat", "centroid_lon", "hour_profile"])
+		.execute();
+	return rows.map((r) => ({
+		id: r.id,
+		displayName: r.display_name,
+		lat: Number(r.centroid_lat),
+		lon: Number(r.centroid_lon),
+		hourProfile: parseHourProfile(r.hour_profile),
+	}));
+}
+
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+	const R = 6_371_000;
+	const dLat = ((lat2 - lat1) * Math.PI) / 180;
+	const dLon = ((lon2 - lon1) * Math.PI) / 180;
+	const a =
+		Math.sin(dLat / 2) ** 2 +
+		Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Build a `placeId|lineName` set marking which place-line pairs are
+ *  walking-distance compatible. The HMM transition matrix uses this
+ *  as the station-graph hard-zero — a train on line L cannot alight
+ *  at place P (and vice versa) when no station on L is near P. */
+async function buildPlaceNearLine(places: readonly PlaceWithCoords[], lines: readonly string[]): Promise<Set<string>> {
+	const WALK_DIST_M = 400;
+	const set = new Set<string>();
+	for (const line of lines) {
+		const stations = await stationsOnLine(line);
+		if (stations.length === 0) continue;
+		for (const p of places) {
+			for (const s of stations) {
+				if (haversineMeters(p.lat, p.lon, s.lat, s.lon) <= WALK_DIST_M) {
+					set.add(`${p.id}|${line}`);
+					break;
+				}
+			}
+		}
+	}
+	return set;
+}
+
+interface DayResult {
+	date: string;
+	tensor: Observation[];
+	heuristicSegments: EnrichedSegment[];
+	hmmStates: State[];
+}
+
+async function decodeDay(
+	userId: string,
+	date: string,
+	tz: string,
+	cache: { focusPlaces: PlaceWithCoords[]; placeNearLine: Set<string> },
+): Promise<DayResult> {
+	const t0 = Date.now();
+	const velResult = await computeVelocity(config, userId, date, tz);
+	const bounds = dateBoundsUtc(date, tz);
+	const biom = await loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz);
+	const tensor = buildObservationTensor({
+		date,
+		tz,
+		points: velResult.points,
+		hr: biom.hr,
+		steps: biom.steps,
+	});
+	const states = buildStateSpace({ focusPlaces: cache.focusPlaces, knownLines: KNOWN_LINES });
+	const placeCoords = new Map<number, { lat: number; lon: number }>();
+	const placeHourProfiles = new Map<number, readonly number[]>();
+	for (const p of cache.focusPlaces) {
+		placeCoords.set(p.id, { lat: p.lat, lon: p.lon });
+		if (p.hourProfile !== null) placeHourProfiles.set(p.id, p.hourProfile);
+	}
+	const transition = buildTransitionMatrix({
+		states,
+		placeNearLine: (placeId, lineName) => cache.placeNearLine.has(`${placeId}|${lineName}`),
+	});
+	const emission = buildEmissionFn({ placeCoords, placeHourProfiles });
+	const hmmStates = viterbi({
+		observations: tensor,
+		states,
+		transitionLogProb: transition,
+		emissionLogProb: emission,
+	});
+	const dt = Date.now() - t0;
+	console.error(
+		`  [${date}] decoded in ${dt}ms (heuristic + HMM): tensor=${tensor.length}min, states=${states.length}, segments=${velResult.segments.length}`,
+	);
+	return { date, tensor, heuristicSegments: velResult.segments, hmmStates };
+}
+
+function heuristicModeForMinute(segments: readonly EnrichedSegment[], ts: number): string {
+	const seg = segments.find((s) => s.startTs <= ts && ts < s.endTs);
+	if (!seg) return "(no-seg)";
+	return seg.refinedMode ?? seg.mode;
+}
+
+interface DisagreementCell {
+	count: number;
+	samples: Array<{ ts: number; obs: Observation; hmmKey: string }>;
+}
+
+function buildConfusionMatrix(result: DayResult): {
+	totalMinutes: number;
+	agreeMinutes: number;
+	cells: Map<string, DisagreementCell>;
+} {
+	const cells = new Map<string, DisagreementCell>();
+	let total = 0;
+	let agree = 0;
+	for (let m = 0; m < result.tensor.length; m++) {
+		const obs = result.tensor[m];
+		const hMode = heuristicModeForMinute(result.heuristicSegments, obs.ts);
+		const hmmState = result.hmmStates[m];
+		const hmmMode = hmmState.mode;
+		total++;
+		if (hMode === hmmMode) {
+			agree++;
+			continue;
+		}
+		const key = `${hMode} → ${hmmMode}`;
+		let cell = cells.get(key);
+		if (!cell) {
+			cell = { count: 0, samples: [] };
+			cells.set(key, cell);
+		}
+		cell.count++;
+		if (cell.samples.length < 5) cell.samples.push({ ts: obs.ts, obs, hmmKey: stateKey(hmmState) });
+	}
+	return { totalMinutes: total, agreeMinutes: agree, cells };
+}
+
+function formatObs(o: Observation): string {
+	const parts: string[] = [];
+	parts.push(`gps=${o.gps ? `${o.gps.speedKmh.toFixed(0)}km/h` : "null"}`);
+	parts.push(`hr=${o.hr === null ? "null" : o.hr.toFixed(0)}`);
+	parts.push(`cad=${o.cadence === null ? "null" : o.cadence}`);
+	return parts.join(" ");
+}
+
+function formatTime(ts: number, tz: string): string {
+	return new Date(ts * 1000).toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
+}
+
+async function main(): Promise<void> {
+	const { userId, tz, dates } = parseArgs();
+	initPool(config.db);
+	await withConnection(migrate);
+
+	console.error(`# HMM vs heuristic audit — user=${userId} tz=${tz}`);
+	console.error(`# dates: ${dates.join(", ")}`);
+	console.error();
+
+	// Per-user lookups loaded once and reused across dates.
+	console.error(`# loading user state (focus_places + station-graph)`);
+	const focusPlaces = await loadFocusPlacesForUser(userId);
+	const placeNearLine = await buildPlaceNearLine(focusPlaces, KNOWN_LINES);
+	console.error(`  ${focusPlaces.length} focus_places, ${placeNearLine.size} place-line pairs in walking distance`);
+
+	let allMinutes = 0;
+	let allAgree = 0;
+	const aggCells = new Map<string, DisagreementCell>();
+
+	for (const date of dates) {
+		try {
+			const result = await decodeDay(userId, date, tz, { focusPlaces, placeNearLine });
+			const { totalMinutes, agreeMinutes, cells } = buildConfusionMatrix(result);
+			allMinutes += totalMinutes;
+			allAgree += agreeMinutes;
+			for (const [k, v] of cells.entries()) {
+				let agg = aggCells.get(k);
+				if (!agg) {
+					agg = { count: 0, samples: [] };
+					aggCells.set(k, agg);
+				}
+				agg.count += v.count;
+				for (const s of v.samples) {
+					if (agg.samples.length < 5) agg.samples.push(s);
+				}
+			}
+			console.log(`\n## ${date}`);
+			console.log(`agreement: ${agreeMinutes}/${totalMinutes} (${((agreeMinutes / totalMinutes) * 100).toFixed(1)}%)`);
+			const sorted = [...cells.entries()].sort((a, b) => b[1].count - a[1].count);
+			if (sorted.length > 0) {
+				console.log(`disagreements:`);
+				for (const [k, v] of sorted) {
+					console.log(`  ${k}: ${v.count} min`);
+				}
+			}
+		} catch (e) {
+			console.error(`  [${date}] FAILED: ${e}`);
+		}
+	}
+
+	console.log(`\n## AGGREGATE (${dates.length} days)`);
+	console.log(
+		`agreement: ${allAgree}/${allMinutes} (${allMinutes ? ((allAgree / allMinutes) * 100).toFixed(1) : "n/a"}%)`,
+	);
+	const aggSorted = [...aggCells.entries()].sort((a, b) => b[1].count - a[1].count);
+	if (aggSorted.length > 0) {
+		console.log(`\ntop disagreement cells:`);
+		for (const [k, v] of aggSorted.slice(0, 20)) {
+			console.log(`\n  ${k}: ${v.count} min`);
+			for (const s of v.samples) {
+				console.log(`    ${formatTime(s.ts, tz)} ${tz}  hmm=${s.hmmKey}  ${formatObs(s.obs)}`);
+			}
+		}
+	}
+
+	process.exit(0);
+}
+
+await main();
