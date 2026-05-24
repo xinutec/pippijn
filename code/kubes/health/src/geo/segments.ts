@@ -8,7 +8,7 @@
 
 import type { FilteredPoint } from "./kalman.js";
 
-export type TransportMode = "stationary" | "walking" | "cycling" | "driving" | "train" | "plane";
+export type TransportMode = "stationary" | "walking" | "cycling" | "driving" | "train" | "plane" | "unknown";
 
 export interface TrackSegment {
 	startTs: number;
@@ -446,7 +446,15 @@ function smoothSegments(segments: TrackSegment[], minDurationSec: number): Track
 // --- Stay detection (sparse-data fallback) ---
 
 const STAY_MIN_DURATION_SEC = 15 * 60; // 15 minutes
-const STAY_RADIUS_M = 150; // robust radius — accommodates indoor GPS drift
+/** Trajectory-segmentation radius for honest-gaps findStays. A new fix
+ *  beyond this distance from the running cluster centroid starts a new
+ *  cluster. Sized to tolerate indoor / urban-canyon GPS jitter that can
+ *  push consecutive in-place fixes 80-130 m apart while still separating
+ *  distinct buildings — typical inter-POI spacing in a dense urban
+ *  neighbourhood is 200+ m. Matches the established `STAY_RADIUS_M`
+ *  used by other parts of the pipeline so the conceptual "what counts
+ *  as the same place" radius is consistent across modules. */
+const CLUSTER_RADIUS_M = 150;
 
 interface StayPoint {
 	ts: number;
@@ -456,12 +464,28 @@ interface StayPoint {
 
 /**
  * Find stationary "stays" in time periods not covered by any classified
- * segment. The window-based classifier silently drops windows with < 2
- * points — which is exactly the failure mode for "indoors at one place"
- * tracking, where the phone reports sparse, low-accuracy GPS. This pass
- * walks the gaps between (and around) the classified segments, and emits
- * a stationary segment for any gap ≥ 15 min where the available points
- * cluster within 150 m of the median centroid (with outliers dropped).
+ * segment, using time-ordered trajectory segmentation.
+ *
+ * For each gap between (and around) classified segments, walk the in-gap
+ * points in time order, maintaining a running cluster. A point within
+ * `CLUSTER_RADIUS_M` of the current cluster's centroid joins it; a point
+ * outside that radius closes the current cluster and starts a new one.
+ * Each closed cluster with ≥ 2 fixes spanning ≥ STAY_MIN_DURATION_SEC
+ * becomes a stationary stay.
+ *
+ * This replaces an earlier single-median + 150 m radius approach that
+ * collapsed multi-stop days (e.g. Bairro Alto → parents' → café, all
+ * within 500 m of each other) into one phantom stay anchored at the
+ * day-wide median. With trajectory segmentation, each distinct stop
+ * surfaces as its own stay.
+ *
+ * Outlier tolerance: a single bad GPS fix that jumps outside
+ * `CLUSTER_RADIUS_M` from the cluster's centroid will start a new
+ * cluster of size 1. If the next in-time fix is back near the original
+ * cluster's centroid, the 1-fix outlier cluster fails the ≥ 2 fix
+ * threshold and is dropped, and the next fix joins the original
+ * cluster. Net effect: the outlier is excluded without fracturing the
+ * surrounding stay.
  */
 export function findStays(points: StayPoint[], existing: TrackSegment[]): TrackSegment[] {
 	if (points.length === 0) return [];
@@ -491,39 +515,61 @@ export function findStays(points: StayPoint[], existing: TrackSegment[]): TrackS
 	}
 
 	const stays: TrackSegment[] = [];
-	for (const gap of gaps) {
-		const inGap = points.filter((p) => p.ts >= gap.start && p.ts <= gap.end);
-		if (inGap.length < 2) continue;
 
-		// Robust cluster center: median of each axis (resilient to outlier points,
-		// which are common when GPS accuracy degrades indoors).
-		const lats = inGap.map((p) => p.lat).sort((a, b) => a - b);
-		const lons = inGap.map((p) => p.lon).sort((a, b) => a - b);
-		const cLat = lats[Math.floor(lats.length / 2)];
-		const cLon = lons[Math.floor(lons.length / 2)];
-
-		// Drop points outside the cluster radius (high-uncertainty GPS spikes).
-		const inCluster = inGap.filter((p) => haversineMeters(cLat, cLon, p.lat, p.lon) <= STAY_RADIUS_M);
-		if (inCluster.length < 2) continue;
-
-		const duration = inCluster[inCluster.length - 1].ts - inCluster[0].ts;
-		if (duration < STAY_MIN_DURATION_SEC) continue;
-
+	function emitStay(cluster: StayPoint[]): void {
+		if (cluster.length < 2) return;
+		const sortedCluster = [...cluster].sort((a, b) => a.ts - b.ts);
+		const duration = sortedCluster[sortedCluster.length - 1].ts - sortedCluster[0].ts;
+		if (duration < STAY_MIN_DURATION_SEC) return;
 		stays.push({
-			startTs: inCluster[0].ts,
-			endTs: inCluster[inCluster.length - 1].ts,
+			startTs: sortedCluster[0].ts,
+			endTs: sortedCluster[sortedCluster.length - 1].ts,
 			mode: "stationary",
-			// Stays detected by clustering are unambiguous by construction:
-			// every point in the gap fits within STAY_RADIUS_M for the
-			// minimum duration. High probability, high margin.
+			// Stays detected by trajectory clustering are unambiguous by
+			// construction — every point in the cluster fits within
+			// CLUSTER_RADIUS_M of the running centroid for the minimum
+			// duration. High probability, high margin.
 			confidence: 0.9,
 			confidenceMargin: MARGIN_MAX_FINITE,
 			avgSpeed: 0,
 			maxSpeed: 0,
 			linearity: 0,
-			pointCount: inCluster.length,
+			pointCount: sortedCluster.length,
 		});
 	}
+
+	for (const gap of gaps) {
+		const inGap = points.filter((p) => p.ts >= gap.start && p.ts <= gap.end).sort((a, b) => a.ts - b.ts);
+		if (inGap.length < 2) continue;
+
+		let cluster: StayPoint[] = [];
+		// Centroid maintained as a running mean — recomputed on each add.
+		let cLat = 0;
+		let cLon = 0;
+
+		for (const p of inGap) {
+			if (cluster.length === 0) {
+				cluster = [p];
+				cLat = p.lat;
+				cLon = p.lon;
+				continue;
+			}
+			const d = haversineMeters(cLat, cLon, p.lat, p.lon);
+			if (d <= CLUSTER_RADIUS_M) {
+				cluster.push(p);
+				// Running mean: O(1) update.
+				cLat += (p.lat - cLat) / cluster.length;
+				cLon += (p.lon - cLon) / cluster.length;
+			} else {
+				emitStay(cluster);
+				cluster = [p];
+				cLat = p.lat;
+				cLon = p.lon;
+			}
+		}
+		emitStay(cluster);
+	}
+
 	return stays;
 }
 
@@ -537,6 +583,16 @@ const TRANSIT_GAP_MIN_DURATION_S = 3 * 60;
 /** Minimum displacement between the points bounding the gap. Below this, the
  *  user effectively stayed put and the gap is just sparse GPS / no movement. */
 const TRANSIT_GAP_MIN_DISTANCE_M = 200;
+/** A gap whose implied straight-line speed is below this is sub-walking pace —
+ *  no plausible mode covers it. The user was almost certainly stationary
+ *  somewhere we can't observe; emit `unknown` rather than fabricating
+ *  "walking at 0.1 km/h". */
+const SLOW_GAP_MAX_SPEED_KMH = 1.5;
+/** Sub-walking-pace gaps shorter than this stay as today's walking inference
+ *  ("loitering between two close stops"). Beyond this duration, sub-walking
+ *  pace becomes `unknown` — the user was stationary at one of the endpoints
+ *  for most of the gap, or somewhere we missed entirely. */
+const SLOW_GAP_MIN_DURATION_S = 30 * 60;
 
 /**
  * Insert synthetic transit segments for time gaps where GPS coverage is
@@ -595,8 +651,15 @@ export function inferTransitGaps(segments: TrackSegment[], points: FilteredPoint
 		const looksLikeRail = (s: TrackSegment): boolean =>
 			s.mode === "train" || s.mode === "plane" || (s.linearity > 0.95 && s.maxSpeed > 60);
 		const neighbouringTransit = looksLikeRail(seg) || looksLikeRail(next);
+		// Sub-walking-pace gap covering more than half an hour. The user
+		// did not walk this; they were stationary at a place we don't
+		// observe. Emit `unknown` rather than fabricate a walking
+		// trajectory at 0.1 km/h.
+		const honestUnknown = speedKmh < SLOW_GAP_MAX_SPEED_KMH && gapDuration >= SLOW_GAP_MIN_DURATION_S;
 		let inferredMode: TransportMode;
-		if (speedKmh < 7) {
+		if (honestUnknown) {
+			inferredMode = "unknown";
+		} else if (speedKmh < 7) {
 			inferredMode = "walking";
 		} else if (speedKmh >= 120) {
 			inferredMode = "train";
@@ -607,19 +670,24 @@ export function inferTransitGaps(segments: TrackSegment[], points: FilteredPoint
 		}
 		const km = (distanceM / 1000).toFixed(1);
 		const min = Math.round(gapDuration / 60);
+		const reason = honestUnknown
+			? `no GPS coverage for ${min} min (${km} km between endpoints — sub-walking pace)`
+			: `inferred from GPS gap (${km} km in ${min} min)`;
 		result.push({
 			startTs: seg.endTs,
 			endTs: next.startTs,
 			mode: inferredMode,
 			// Inferred from implied speed across a gap with no observations
 			// — genuinely ambiguous mode-wise. Low probability, low margin.
-			confidence: 0.3,
-			confidenceMargin: 1.2,
-			avgSpeed: Math.round(speedKmh * 10) / 10,
-			maxSpeed: Math.round(speedKmh * 10) / 10,
-			linearity: 1, // assumed straight line — we have nothing else
+			// `unknown` is even less certain: not a positive mode claim
+			// at all, just an honest "no data".
+			confidence: honestUnknown ? 0.1 : 0.3,
+			confidenceMargin: honestUnknown ? 1 : 1.2,
+			avgSpeed: honestUnknown ? 0 : Math.round(speedKmh * 10) / 10,
+			maxSpeed: honestUnknown ? 0 : Math.round(speedKmh * 10) / 10,
+			linearity: honestUnknown ? 0 : 1,
 			pointCount: 0,
-			refinedReason: `inferred from GPS gap (${km} km in ${min} min)`,
+			refinedReason: reason,
 		});
 	}
 	return result;

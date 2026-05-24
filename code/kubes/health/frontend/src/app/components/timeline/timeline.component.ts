@@ -29,6 +29,7 @@ const MODE_ICONS: Record<string, string> = {
   train: "train",
   plane: "flight",
   boat: "directions_boat",
+  unknown: "signal_disconnected",
 };
 
 @Component({
@@ -111,6 +112,11 @@ export class TimelineComponent {
     } else if (state.mode === "stationary") {
       primary = state.place ?? "Stopped";
       secondary = `${durationLabel} stationary`;
+    } else if (state.mode === "unknown") {
+      // No GPS coverage for this stretch — surface as a hedged, low-
+      // confidence state rather than committing to a movement label.
+      primary = "No GPS signal";
+      secondary = `${durationLabel} · unknown`;
     } else {
       const verb = state.mode.charAt(0).toUpperCase() + state.mode.slice(1);
       primary = verb;

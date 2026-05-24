@@ -272,17 +272,19 @@ function meanInWindow<T extends { ts: number }>(
 	return count > 0 ? sum / count : null;
 }
 
-/** Apply per-user biometric-signature correction to one segment. Inferred-
- *  gap segments are skipped (no observations to score). For others, aggregate
- *  HR + cadence from the loaded biometric streams and run the pure decision
- *  helper. On change, record refinedReason so the timeline shows why. */
+/** Apply per-user biometric-signature correction to one segment. Synthetic
+ *  gap segments (inferred-from-gap walking / `unknown` no-coverage) carry
+ *  pointCount=0 and have no observations to score against — skip them. For
+ *  others, aggregate HR + cadence from the loaded biometric streams and run
+ *  the pure decision helper. On change, record refinedReason so the timeline
+ *  shows why. */
 function applyBiometricSignature(
 	seg: EnrichedSegment,
 	hr: HrPoint[],
 	steps: StepPoint[],
 	modeStats: ModeStats[],
 ): EnrichedSegment {
-	if (seg.refinedReason?.startsWith("inferred from GPS gap")) return seg;
+	if (seg.pointCount === 0) return seg;
 	const obsHr = meanInWindow(hr, (p) => p.bpm, seg.startTs, seg.endTs);
 	const obsCadence = meanInWindow(steps, (p) => p.steps, seg.startTs, seg.endTs);
 	const obsSpeed = seg.avgSpeed;
@@ -618,10 +620,11 @@ export async function computeVelocity(
 	const enrichStart = Date.now();
 	const enriched: EnrichedSegment[] = await Promise.all(
 		segments.map(async (seg) => {
-			// Inferred-from-gap segments have no real GPS data — enriching them
-			// with road names / OSM places would invent context we don't have.
-			// Pass them through with their inferred refinedReason intact.
-			if (seg.refinedReason?.startsWith("inferred from GPS gap")) return seg;
+			// Synthetic gap segments (inferred-walking or `unknown`) carry
+			// pointCount=0 — no real GPS data. Enriching with road names /
+			// OSM places would invent context we don't have. Pass them
+			// through with their refinedReason intact.
+			if (seg.pointCount === 0) return seg;
 			const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
 			if (segPoints.length === 0) return seg;
 

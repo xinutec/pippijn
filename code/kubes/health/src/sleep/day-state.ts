@@ -26,7 +26,15 @@
 
 import type { EnrichedSegment } from "../geo/velocity.js";
 
-export type DayStateMode = "sleeping" | "stationary" | "walking" | "cycling" | "driving" | "train" | "plane";
+export type DayStateMode =
+	| "sleeping"
+	| "stationary"
+	| "walking"
+	| "cycling"
+	| "driving"
+	| "train"
+	| "plane"
+	| "unknown";
 
 export interface SleepWindow {
 	startTs: number;

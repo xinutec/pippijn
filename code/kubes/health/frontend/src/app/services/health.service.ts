@@ -94,7 +94,7 @@ export interface TrackSegment {
 export interface DayState {
   startTs: number;
   endTs: number;
-  mode: "sleeping" | "stationary" | "walking" | "cycling" | "driving" | "train" | "plane";
+  mode: "sleeping" | "stationary" | "walking" | "cycling" | "driving" | "train" | "plane" | "unknown";
   /** Human-readable place (stationary / sleeping). */
   place?: string;
   /** Human-readable way (moving — road, line, station-pair). */
