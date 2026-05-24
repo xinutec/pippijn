@@ -36,8 +36,15 @@ import { parseHourProfile } from "../geo/focus-places.js";
 import { stationsOnLine } from "../geo/line-stations.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, type EnrichedSegment, loadBiometrics } from "../geo/velocity.js";
+import {
+	DEFAULT_MIN_DURATION_BY_MODE,
+	fitDurationDistribution,
+	type GammaFit,
+	logDurationProb,
+} from "../hmm/duration-dist.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
 import type { LearnedEmissionParameters } from "../hmm/fit-emissions.js";
+import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
 import { buildObservationTensor, type Observation } from "../hmm/observation.js";
 import { buildStateSpace, type FocusPlaceRef, type State, stateKey } from "../hmm/state-space.js";
@@ -100,6 +107,7 @@ interface CliArgs {
 	dates: string[];
 	modelVersion: string | null;
 	render: boolean;
+	hsmm: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -110,6 +118,7 @@ function parseArgs(): CliArgs {
 	let explicitDate: string | null = null;
 	let modelVersion: string | null = null;
 	let render = false;
+	let hsmm = false;
 	for (let i = 0; i < args.length; i++) {
 		if (args[i] === "--user") userId = args[++i] ?? userId;
 		else if (args[i] === "--tz") tz = args[++i] ?? tz;
@@ -117,6 +126,7 @@ function parseArgs(): CliArgs {
 		else if (args[i] === "--date") explicitDate = args[++i] ?? null;
 		else if (args[i] === "--model") modelVersion = args[++i] ?? null;
 		else if (args[i] === "--render") render = true;
+		else if (args[i] === "--hsmm") hsmm = true;
 	}
 	let dates: string[];
 	if (explicitDate) {
@@ -130,7 +140,7 @@ function parseArgs(): CliArgs {
 			dates.push(date.toISOString().slice(0, 10));
 		}
 	}
-	return { userId, tz, dates, modelVersion, render };
+	return { userId, tz, dates, modelVersion, render, hsmm };
 }
 
 interface PlaceWithCoords extends FocusPlaceRef {
@@ -210,6 +220,33 @@ async function loadLearnedModel(userId: string, version: string): Promise<Learne
 	return parsed;
 }
 
+/** Baseline per-mode Gamma fits — moments-matched to the
+ *  `dump-segment-durations` output on 45 days of training data.
+ *  These are populated values to bootstrap the HSMM before a
+ *  proper learned-duration loader exists; once we persist
+ *  fitted distributions per user, swap these for DB-loaded
+ *  values (same as the per-mode emissions story).
+ *
+ *  Empirical means / stddevs from 2026-04-01 → 2026-05-15:
+ *    stationary    n=132  mean=201  std≈217  (bimodal: short cafe
+ *                                              + overnight Home)
+ *    walking       n=60   mean=31   std≈30
+ *    driving       n=24   mean=52   std≈80   (one 429min outlier)
+ *    train         n=24   mean=33   std≈25
+ *    cycling       n=0    (fallback — assume similar to walking)
+ *    plane         n=0    (fallback — long-tailed wide prior)
+ *    unknown       n=15   mean=134  std≈200  (bimodal gap+overnight) */
+const BASELINE_DURATION_FITS: Record<State["mode"], GammaFit> = {
+	// Method-of-moments: α = μ²/σ², β = μ/σ²
+	stationary: { alpha: 0.85, beta: 0.0043, sampleCount: 132 },
+	walking: { alpha: 1.07, beta: 0.034, sampleCount: 60 },
+	cycling: { alpha: 1.0, beta: 0.05, sampleCount: 0 }, // fallback
+	driving: { alpha: 0.42, beta: 0.008, sampleCount: 24 },
+	train: { alpha: 1.74, beta: 0.053, sampleCount: 24 },
+	plane: { alpha: 1.0, beta: 0.011, sampleCount: 0 }, // fallback: mean ~90
+	unknown: { alpha: 0.45, beta: 0.0034, sampleCount: 15 },
+};
+
 async function decodeDay(
 	userId: string,
 	date: string,
@@ -218,6 +255,7 @@ async function decodeDay(
 		focusPlaces: PlaceWithCoords[];
 		placeNearLine: Set<string>;
 		learnedEmissions: LearnedEmissionParameters | null;
+		useHsmm: boolean;
 	},
 ): Promise<DayResult> {
 	const t0 = Date.now();
@@ -251,13 +289,23 @@ async function decodeDay(
 		learnedEmissions: cache.learnedEmissions ?? undefined,
 	});
 	const initialLogProb = buildInitialStatePrior({ placeVisitWeights });
-	const hmmStates = viterbi({
-		observations: tensor,
-		states,
-		transitionLogProb: transition,
-		emissionLogProb: emission,
-		initialLogProb,
-	});
+	const hmmStates = cache.useHsmm
+		? hsmmViterbi({
+				observations: tensor,
+				states,
+				transitionLogProb: transition,
+				emissionLogProb: emission,
+				initialLogProb,
+				durationLogProb: (state, d) =>
+					logDurationProb(d, state.mode, BASELINE_DURATION_FITS[state.mode], DEFAULT_MIN_DURATION_BY_MODE[state.mode]),
+			})
+		: viterbi({
+				observations: tensor,
+				states,
+				transitionLogProb: transition,
+				emissionLogProb: emission,
+				initialLogProb,
+			});
 	const dt = Date.now() - t0;
 	console.error(
 		`  [${date}] decoded in ${dt}ms (heuristic + HMM): tensor=${tensor.length}min, states=${states.length}, segments=${velResult.segments.length}`,
@@ -375,13 +423,14 @@ function renderSideBySide(result: DayResult, places: readonly PlaceWithCoords[],
 }
 
 async function main(): Promise<void> {
-	const { userId, tz, dates, modelVersion, render } = parseArgs();
+	const { userId, tz, dates, modelVersion, render, hsmm } = parseArgs();
 	initPool(config.db);
 	await withConnection(migrate);
 
 	console.error(`# HMM vs heuristic audit — user=${userId} tz=${tz}`);
 	console.error(`# dates: ${dates.join(", ")}`);
 	console.error(`# model: ${modelVersion ?? "hand-tuned MODE_PRIORS (no learned override)"}`);
+	console.error(`# decoder: ${hsmm ? "HSMM (explicit-duration)" : "Markov Viterbi"}`);
 	console.error();
 
 	// Per-user lookups loaded once and reused across dates.
@@ -397,7 +446,12 @@ async function main(): Promise<void> {
 
 	for (const date of dates) {
 		try {
-			const result = await decodeDay(userId, date, tz, { focusPlaces, placeNearLine, learnedEmissions });
+			const result = await decodeDay(userId, date, tz, {
+				focusPlaces,
+				placeNearLine,
+				learnedEmissions,
+				useHsmm: hsmm,
+			});
 			const { totalMinutes, agreeMinutes, cells } = buildConfusionMatrix(result);
 			allMinutes += totalMinutes;
 			allAgree += agreeMinutes;
