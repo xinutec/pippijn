@@ -48,12 +48,23 @@ DB_NAME=$(get DB_NAME)
 NC_BASE_URL=$(get NC_BASE_URL)
 NC_CLIENT_ID=$(get NC_CLIENT_ID)
 NC_CLIENT_SECRET=$(get NC_CLIENT_SECRET)
+# Feature flags that gate which classification pipeline runs. Without
+# these the Mac falls back to defaults — silently testing the legacy
+# cascade while production runs the factor scorer, and goldens drift
+# out of sync with what users see. Mirror every gating env the pod
+# uses; just credentials isn't enough.
+USE_FACTOR_SCORER=$(get USE_FACTOR_SCORER)
+USE_BIOMETRIC_FACTOR=$(get USE_BIOMETRIC_FACTOR)
 [ -n "$DB_PASSWORD" ] || {
 	echo "DB_PASSWORD not found in pod env" >&2
 	exit 1
 }
 export DB_USER DB_PASSWORD DB_NAME NC_CLIENT_ID NC_CLIENT_SECRET
 export DB_HOST=127.0.0.1 DB_PORT="$LOCAL_PORT" TZ=UTC
+# Only export feature flags when prod actually sets them — exporting
+# an empty string is not the same as unset (the code reads === "1").
+[ -n "$USE_FACTOR_SCORER" ] && export USE_FACTOR_SCORER || true
+[ -n "$USE_BIOMETRIC_FACTOR" ] && export USE_BIOMETRIC_FACTOR || true
 # NC_BASE_URL is usually unset in the pod (the app falls back to a
 # built-in default). Only export it when prod actually sets it —
 # exporting an empty string would fail URL validation.

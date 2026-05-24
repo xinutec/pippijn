@@ -70,24 +70,21 @@ spec:
                 secretKeyRef:
                   name: health-secret
                   key: OWNTRACKS_ALLOWED_TOKENS
-            # Phase 1 cutover of the classification pipeline. When set,
-            # refineMode dispatches to the factor-scorer path (candidate
-            # generator + speed-emission/osm-distance/mode-coherence
-            # factor stack) instead of the legacy rule cascade. The
-            # cascade remains intact behind the flag flip — unset this
-            # env var to revert without a code change.
-            - name: USE_FACTOR_SCORER
-              value: "1"
-            # Biometric-corrector migration: under USE_FACTOR_SCORER,
-            # passes per-segment HR/cadence + per-user mode signatures
-            # into refineMode so biometric-ll + mode-prior +
-            # classifier-prior join the factor stack. Also skips the
-            # legacy applyBiometricSignature cascade pass to avoid
-            # double-correction. Unset to fall back to the cascade
-            # biometric pass (factor scorer continues without biometric
-            # context).
-            - name: USE_BIOMETRIC_FACTOR
-              value: "1"
+            # Factor scorer pipeline gate. DISABLED in prod (2026-05-23
+            # late) after discovering golden harness was silently testing
+            # the legacy cascade while production ran the factor scorer
+            # — see feedback_parity_tools_must_mirror_env.md. The factor
+            # scorer produced material regressions vs cascade on every
+            # blessed day (train trips disappearing, train-vs-driving
+            # misclassification, etc.) but those went unnoticed because
+            # prod-db.sh didn't propagate the flag. Re-enable when the
+            # factor scorer is properly calibrated under the now-correct
+            # parity harness AND its golden output matches ground truth
+            # at least as well as the cascade. Set to "1" to enable.
+            # - name: USE_FACTOR_SCORER
+            #   value: "1"
+            # - name: USE_BIOMETRIC_FACTOR
+            #   value: "1"
           resources:
             requests:
               cpu: 10m
