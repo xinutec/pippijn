@@ -550,6 +550,25 @@ const MIGRATIONS: readonly string[] = [
     INDEX idx_user_version (user_id, classifier_version)
   )`,
 
+	// learned_hmm_models: per-user fitted HMM emission parameters
+	// (Phase 2 of docs/proposals/2026-05-hmm-learned-emissions.md).
+	// One row per (user, version). emissions_json holds the
+	// LearnedEmissionParameters blob; consumers deserialise via
+	// loadLearnedEmissions. Versioned so we can iterate on the
+	// model class without invalidating in-flight decodes.
+	`CREATE TABLE IF NOT EXISTS learned_hmm_models (
+    id                    INT NOT NULL AUTO_INCREMENT,
+    user_id               VARCHAR(64) NOT NULL,
+    version               VARCHAR(64) NOT NULL,
+    notes                 TEXT NULL,
+    emissions_json        MEDIUMTEXT NOT NULL,
+    training_day_count    INT NOT NULL,
+    training_minute_count INT NOT NULL,
+    trained_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uniq_user_version (user_id, version)
+  )`,
+
 	// Future migrations go here.
 ];
 

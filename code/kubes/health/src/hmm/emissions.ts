@@ -46,6 +46,7 @@
  * the per-place coordinates and per-line geometry are available.
  */
 
+import type { LearnedEmissionParameters } from "./fit-emissions.js";
 import type { Observation } from "./observation.js";
 import type { State } from "./state-space.js";
 
@@ -75,6 +76,18 @@ export interface BuildEmissionFnOpts {
 	 *  preferred over `train @ Victoria Line` even without GPS
 	 *  evidence at the transition minute. */
 	placeHourProfiles?: ReadonlyMap<number, readonly number[]>;
+
+	/** Phase 2: learned per-mode emission distributions fit from
+	 *  heuristic-labeled minutes. When provided, the per-mode
+	 *  parameters in `learnedEmissions.perMode[mode]` OVERRIDE the
+	 *  hand-tuned `MODE_PRIORS[mode]`. Modes flagged `"fallback"`
+	 *  (insufficient training data) continue to use `MODE_PRIORS`.
+	 *  All non-mode-specific terms (place-distance, time-of-day,
+	 *  off-network log-prior) are unaffected.
+	 *
+	 *  Loaded via the `learned_hmm_models` table; see
+	 *  `docs/proposals/2026-05-hmm-learned-emissions.md`. */
+	learnedEmissions?: LearnedEmissionParameters;
 }
 
 /** σ for the place-centroid Gaussian. Matches the
@@ -241,8 +254,32 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProbFn {
 	const places = opts.placeCoords ?? null;
 	const hourProfiles = opts.placeHourProfiles ?? null;
+	const learned = opts.learnedEmissions ?? null;
+
+	// Pre-resolve effective per-mode priors: for each mode, either a
+	// learned fit (when `learnedEmissions.perMode[mode]` is present and
+	// not `"fallback"`) or the hand-tuned `MODE_PRIORS[mode]`. Done once
+	// at build time so the hot per-minute closure doesn't re-decide.
+	const effectivePriors: Record<State["mode"], ModePrior> = { ...MODE_PRIORS };
+	if (learned !== null) {
+		for (const mode of Object.keys(MODE_PRIORS) as State["mode"][]) {
+			const fit = learned.perMode[mode];
+			if (fit === undefined || fit === "fallback") continue;
+			effectivePriors[mode] = {
+				gpsPresentProb: fit.gpsPresentProb,
+				speedMean: fit.speed.mean,
+				speedStd: fit.speed.std,
+				hrMean: fit.hr.mean,
+				hrStd: fit.hr.std,
+				expectedZeroProb: fit.cadence.expectedZeroProb,
+				cadencePositiveMean: fit.cadence.positiveMean,
+				cadencePositiveStd: fit.cadence.positiveStd,
+			};
+		}
+	}
+
 	return (state: State, obs: Observation): number => {
-		const prior = MODE_PRIORS[state.mode];
+		const prior = effectivePriors[state.mode];
 		let logProb = 0;
 
 		// GPS-present Bernoulli — fires every minute.

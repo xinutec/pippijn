@@ -12,6 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildEmissionFn } from "../src/hmm/emissions.js";
+import type { LearnedEmissionParameters } from "../src/hmm/fit-emissions.js";
 import type { Observation } from "../src/hmm/observation.js";
 import type { State } from "../src/hmm/state-space.js";
 
@@ -179,6 +180,48 @@ describe("buildEmissionFn", () => {
 		const planeScore = emission(state("plane"), cruise);
 		const trainScore = emission(state("train", null, "Metropolitan Line"), cruise);
 		expect(planeScore).toBeGreaterThan(trainScore);
+	});
+
+	it("learnedEmissions overrides per-mode prior with the fitted distribution", () => {
+		// Construct a learned model where stationary's HR mean is 90
+		// (instead of the hand-tuned 70). At HR=90 observed, the
+		// learned model should score stationary HIGHER than the
+		// hand-tuned model does, because the fit is centred on 90.
+		const learned: LearnedEmissionParameters = {
+			perMode: {
+				stationary: {
+					gpsPresentProb: 0.85,
+					speed: { mean: 0, std: 2, sampleCount: 100 },
+					hr: { mean: 90, std: 10, sampleCount: 100 },
+					cadence: {
+						expectedZeroProb: 0.99,
+						positiveMean: 10,
+						positiveStd: 20,
+						positiveSampleCount: 1,
+						totalSampleCount: 100,
+					},
+				},
+			},
+			trainingSummary: { totalSampleCount: 100, samplesPerMode: { stationary: 100 } },
+		};
+		const handTuned = buildEmissionFn({});
+		const learnedFn = buildEmissionFn({ learnedEmissions: learned });
+		const o = obs({ hr: 90, cadence: 0, gps: { lat: 51.5, lon: -0.1, speedKmh: 0 } });
+		expect(learnedFn(state("stationary"), o)).toBeGreaterThan(handTuned(state("stationary"), o));
+	});
+
+	it("learnedEmissions 'fallback' for a mode keeps the hand-tuned prior", () => {
+		const learned: LearnedEmissionParameters = {
+			perMode: {
+				cycling: "fallback", // not enough cycling samples to fit
+			},
+			trainingSummary: { totalSampleCount: 0, samplesPerMode: { cycling: 5 } },
+		};
+		const handTuned = buildEmissionFn({});
+		const learnedFn = buildEmissionFn({ learnedEmissions: learned });
+		const o = obs({ gps: { lat: 51.5, lon: -0.1, speedKmh: 18 }, hr: 130, cadence: 0 });
+		// cycling falls back to hand-tuned — scores must match.
+		expect(learnedFn(state("cycling"), o)).toBe(handTuned(state("cycling"), o));
 	});
 
 	it("never returns NaN or +Infinity", () => {

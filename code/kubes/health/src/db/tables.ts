@@ -351,6 +351,25 @@ export interface DecodedDaysTable {
 	decoded_at: Generated<Date>;
 }
 
+/** `learned_hmm_models` — persisted parameters of HMM emission
+ *  distributions fit from heuristic-labeled minutes (Phase 2 of
+ *  docs/proposals/2026-05-hmm-learned-emissions.md). One row per
+ *  (user, version) tuple; `version` is a free-form label naming
+ *  the model class and training run (e.g. `per-mode-gaussian-v1`).
+ *
+ *  `emissions_json` is the serialised `LearnedEmissionParameters`
+ *  shape; consumers deserialise via the storage module. */
+export interface LearnedHmmModelsTable {
+	id: Generated<number>;
+	user_id: string;
+	version: string;
+	notes: string | null;
+	emissions_json: string;
+	training_day_count: number;
+	training_minute_count: number;
+	trained_at: Generated<Date>;
+}
+
 // The full database interface — Kysely uses this to type-check every query
 export interface Database {
 	tokens: TokensTable;
@@ -381,5 +400,6 @@ export interface Database {
 	mode_biometrics: ModeBiometricsTable;
 	rail_route_cache: RailRouteCacheTable;
 	decoded_days: DecodedDaysTable;
+	learned_hmm_models: LearnedHmmModelsTable;
 	schema_migrations: SchemaMigrationsTable;
 }

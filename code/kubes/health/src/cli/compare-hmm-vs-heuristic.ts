@@ -37,6 +37,7 @@ import { stationsOnLine } from "../geo/line-stations.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, type EnrichedSegment, loadBiometrics } from "../geo/velocity.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
+import type { LearnedEmissionParameters } from "../hmm/fit-emissions.js";
 import { buildObservationTensor, type Observation } from "../hmm/observation.js";
 import { buildStateSpace, type FocusPlaceRef, type State, stateKey } from "../hmm/state-space.js";
 import { buildTransitionMatrix } from "../hmm/transitions.js";
@@ -96,6 +97,7 @@ interface CliArgs {
 	userId: string;
 	tz: string;
 	dates: string[];
+	modelVersion: string | null;
 }
 
 function parseArgs(): CliArgs {
@@ -104,11 +106,13 @@ function parseArgs(): CliArgs {
 	let tz = "Europe/London";
 	let days = 7;
 	let explicitDate: string | null = null;
+	let modelVersion: string | null = null;
 	for (let i = 0; i < args.length; i++) {
 		if (args[i] === "--user") userId = args[++i] ?? userId;
 		else if (args[i] === "--tz") tz = args[++i] ?? tz;
 		else if (args[i] === "--days") days = Number(args[++i] ?? days) || days;
 		else if (args[i] === "--date") explicitDate = args[++i] ?? null;
+		else if (args[i] === "--model") modelVersion = args[++i] ?? null;
 	}
 	let dates: string[];
 	if (explicitDate) {
@@ -122,7 +126,7 @@ function parseArgs(): CliArgs {
 			dates.push(date.toISOString().slice(0, 10));
 		}
 	}
-	return { userId, tz, dates };
+	return { userId, tz, dates, modelVersion };
 }
 
 interface PlaceWithCoords extends FocusPlaceRef {
@@ -185,11 +189,30 @@ interface DayResult {
 	hmmStates: State[];
 }
 
+async function loadLearnedModel(userId: string, version: string): Promise<LearnedEmissionParameters> {
+	const row = await db()
+		.selectFrom("learned_hmm_models")
+		.where("user_id", "=", userId)
+		.where("version", "=", version)
+		.select(["emissions_json", "training_day_count", "training_minute_count", "trained_at"])
+		.executeTakeFirst();
+	if (!row) throw new Error(`no learned_hmm_models row for user=${userId} version=${version}`);
+	const parsed = JSON.parse(row.emissions_json) as LearnedEmissionParameters;
+	console.error(
+		`# Loaded model: version=${version} trained_at=${new Date(row.trained_at).toISOString()} days=${row.training_day_count} samples=${row.training_minute_count}`,
+	);
+	return parsed;
+}
+
 async function decodeDay(
 	userId: string,
 	date: string,
 	tz: string,
-	cache: { focusPlaces: PlaceWithCoords[]; placeNearLine: Set<string> },
+	cache: {
+		focusPlaces: PlaceWithCoords[];
+		placeNearLine: Set<string>;
+		learnedEmissions: LearnedEmissionParameters | null;
+	},
 ): Promise<DayResult> {
 	const t0 = Date.now();
 	const velResult = await computeVelocity(config, userId, date, tz);
@@ -213,7 +236,11 @@ async function decodeDay(
 		states,
 		placeNearLine: (placeId, lineName) => cache.placeNearLine.has(`${placeId}|${lineName}`),
 	});
-	const emission = buildEmissionFn({ placeCoords, placeHourProfiles });
+	const emission = buildEmissionFn({
+		placeCoords,
+		placeHourProfiles,
+		learnedEmissions: cache.learnedEmissions ?? undefined,
+	});
 	const hmmStates = viterbi({
 		observations: tensor,
 		states,
@@ -281,18 +308,20 @@ function formatTime(ts: number, tz: string): string {
 }
 
 async function main(): Promise<void> {
-	const { userId, tz, dates } = parseArgs();
+	const { userId, tz, dates, modelVersion } = parseArgs();
 	initPool(config.db);
 	await withConnection(migrate);
 
 	console.error(`# HMM vs heuristic audit — user=${userId} tz=${tz}`);
 	console.error(`# dates: ${dates.join(", ")}`);
+	console.error(`# model: ${modelVersion ?? "hand-tuned MODE_PRIORS (no learned override)"}`);
 	console.error();
 
 	// Per-user lookups loaded once and reused across dates.
-	console.error(`# loading user state (focus_places + station-graph)`);
+	console.error(`# loading user state (focus_places + station-graph${modelVersion ? " + learned model" : ""})`);
 	const focusPlaces = await loadFocusPlacesForUser(userId);
 	const placeNearLine = await buildPlaceNearLine(focusPlaces, KNOWN_LINES);
+	const learnedEmissions = modelVersion ? await loadLearnedModel(userId, modelVersion) : null;
 	console.error(`  ${focusPlaces.length} focus_places, ${placeNearLine.size} place-line pairs in walking distance`);
 
 	let allMinutes = 0;
@@ -301,7 +330,7 @@ async function main(): Promise<void> {
 
 	for (const date of dates) {
 		try {
-			const result = await decodeDay(userId, date, tz, { focusPlaces, placeNearLine });
+			const result = await decodeDay(userId, date, tz, { focusPlaces, placeNearLine, learnedEmissions });
 			const { totalMinutes, agreeMinutes, cells } = buildConfusionMatrix(result);
 			allMinutes += totalMinutes;
 			allAgree += agreeMinutes;
