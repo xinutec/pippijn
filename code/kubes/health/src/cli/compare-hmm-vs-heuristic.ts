@@ -44,6 +44,7 @@ import {
 } from "../hmm/duration-dist.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
 import type { LearnedEmissionParameters } from "../hmm/fit-emissions.js";
+import { hsmmMarginals, type Marginals } from "../hmm/hsmm-marginals.js";
 import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
 import { buildObservationTensor, type Observation } from "../hmm/observation.js";
@@ -108,6 +109,7 @@ interface CliArgs {
 	modelVersion: string | null;
 	render: boolean;
 	hsmm: boolean;
+	marginals: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -119,6 +121,7 @@ function parseArgs(): CliArgs {
 	let modelVersion: string | null = null;
 	let render = false;
 	let hsmm = false;
+	let marginals = false;
 	for (let i = 0; i < args.length; i++) {
 		if (args[i] === "--user") userId = args[++i] ?? userId;
 		else if (args[i] === "--tz") tz = args[++i] ?? tz;
@@ -127,6 +130,7 @@ function parseArgs(): CliArgs {
 		else if (args[i] === "--model") modelVersion = args[++i] ?? null;
 		else if (args[i] === "--render") render = true;
 		else if (args[i] === "--hsmm") hsmm = true;
+		else if (args[i] === "--marginals") marginals = true;
 	}
 	let dates: string[];
 	if (explicitDate) {
@@ -140,7 +144,7 @@ function parseArgs(): CliArgs {
 			dates.push(date.toISOString().slice(0, 10));
 		}
 	}
-	return { userId, tz, dates, modelVersion, render, hsmm };
+	return { userId, tz, dates, modelVersion, render, hsmm, marginals };
 }
 
 interface PlaceWithCoords extends FocusPlaceRef {
@@ -203,6 +207,12 @@ interface DayResult {
 	tensor: Observation[];
 	heuristicSegments: EnrichedSegment[];
 	hmmStates: State[];
+	/** All HMM states in deterministic order (same as input to the
+	 *  decoder). Needed to map `marginals[t][s]` → state. */
+	states: State[];
+	/** Per-minute posterior marginals over states, or `null` when
+	 *  the user didn't request them (--marginals flag). */
+	marginals: Marginals | null;
 }
 
 async function loadLearnedModel(userId: string, version: string): Promise<LearnedEmissionParameters> {
@@ -256,6 +266,7 @@ async function decodeDay(
 		placeNearLine: Set<string>;
 		learnedEmissions: LearnedEmissionParameters | null;
 		useHsmm: boolean;
+		marginals: boolean;
 	},
 ): Promise<DayResult> {
 	const t0 = Date.now();
@@ -307,11 +318,24 @@ async function decodeDay(
 				emissionLogProb: emission,
 				initialLogProb,
 			});
+	let marginals: Marginals | null = null;
+	if (cache.marginals && cache.useHsmm) {
+		const marginalsResult = hsmmMarginals({
+			observations: tensor,
+			states,
+			transitionLogProb: transition,
+			emissionLogProb: emission,
+			initialLogProb,
+			durationLogProb: (state, d) =>
+				logDurationProb(d, state.mode, BASELINE_DURATION_FITS[state.mode], DEFAULT_MIN_DURATION_BY_MODE[state.mode]),
+		});
+		marginals = marginalsResult.marginals;
+	}
 	const dt = Date.now() - t0;
 	console.error(
-		`  [${date}] decoded in ${dt}ms (heuristic + HMM): tensor=${tensor.length}min, states=${states.length}, segments=${velResult.segments.length}`,
+		`  [${date}] decoded in ${dt}ms (heuristic + HMM${marginals ? " + marginals" : ""}): tensor=${tensor.length}min, states=${states.length}, segments=${velResult.segments.length}`,
 	);
-	return { date, tensor, heuristicSegments: velResult.segments, hmmStates };
+	return { date, tensor, heuristicSegments: velResult.segments, hmmStates, states, marginals };
 }
 
 function heuristicModeForMinute(segments: readonly EnrichedSegment[], ts: number): string {
@@ -390,6 +414,55 @@ function hmmStateLabel(s: State, places: readonly PlaceWithCoords[]): string {
 	return s.mode;
 }
 
+/** Render a marginals-based summary of the day's posterior. For each
+ *  hour, surface the top-3 most-likely state aggregates (mode +
+ *  place) with their cumulative probability mass.
+ *
+ *  This is the architectural endpoint of the probabilistic-system
+ *  framing: instead of committing to a single MAP guess, expose
+ *  the posterior distribution so downstream presentation can
+ *  reflect the model's actual confidence. */
+function renderMarginalsConfidence(result: DayResult, places: readonly PlaceWithCoords[], tz: string): string {
+	if (result.marginals === null) return "";
+	const lines: string[] = [];
+	lines.push("");
+	lines.push("```");
+	lines.push("# Posterior confidence per hour — top states with probability mass");
+	lines.push("   Hour    Top 1                       Top 2                       Top 3");
+	lines.push("   ------  --------------------------  --------------------------  --------------------------");
+	const T = result.tensor.length;
+	// Aggregate marginals per hour by averaging per-minute distributions.
+	for (let hourStart = 0; hourStart < T; hourStart += 60) {
+		const hourEnd = Math.min(T, hourStart + 60);
+		const aggregate = new Float64Array(result.states.length);
+		let n = 0;
+		for (let m = hourStart; m < hourEnd; m++) {
+			const row = result.marginals[m];
+			for (let s = 0; s < aggregate.length; s++) aggregate[s] += row[s];
+			n++;
+		}
+		if (n > 0) for (let s = 0; s < aggregate.length; s++) aggregate[s] /= n;
+
+		const sorted = Array.from({ length: aggregate.length }, (_, s) => ({ s, p: aggregate[s] }))
+			.filter((x) => x.p > 0)
+			.sort((a, b) => b.p - a.p)
+			.slice(0, 3);
+
+		const startTs = result.tensor[hourStart].ts;
+		const endTs = hourEnd < T ? result.tensor[hourEnd].ts : result.tensor[hourEnd - 1].ts + 60;
+		const span = `${formatTime(startTs, tz)}-${formatTime(endTs, tz)}`;
+		const cells = sorted.map((x) => {
+			const label = hmmStateLabel(result.states[x.s], places);
+			const pct = (x.p * 100).toFixed(0).padStart(3);
+			return `${pct}% ${label.padEnd(20).slice(0, 20)}`;
+		});
+		while (cells.length < 3) cells.push("");
+		lines.push(`   ${span.padEnd(7)}  ${cells.join("  ")}`);
+	}
+	lines.push("```");
+	return lines.join("\n");
+}
+
 function renderSideBySide(result: DayResult, places: readonly PlaceWithCoords[], tz: string): string {
 	const lines: string[] = [];
 	lines.push("");
@@ -424,7 +497,7 @@ function renderSideBySide(result: DayResult, places: readonly PlaceWithCoords[],
 }
 
 async function main(): Promise<void> {
-	const { userId, tz, dates, modelVersion, render, hsmm } = parseArgs();
+	const { userId, tz, dates, modelVersion, render, hsmm, marginals } = parseArgs();
 	initPool(config.db);
 	await withConnection(migrate);
 
@@ -452,6 +525,7 @@ async function main(): Promise<void> {
 				placeNearLine,
 				learnedEmissions,
 				useHsmm: hsmm,
+				marginals,
 			});
 			const { totalMinutes, agreeMinutes, cells } = buildConfusionMatrix(result);
 			allMinutes += totalMinutes;
@@ -478,6 +552,9 @@ async function main(): Promise<void> {
 			}
 			if (render) {
 				console.log(renderSideBySide(result, focusPlaces, tz));
+			}
+			if (marginals) {
+				console.log(renderMarginalsConfidence(result, focusPlaces, tz));
 			}
 		} catch (e) {
 			console.error(`  [${date}] FAILED: ${e}`);

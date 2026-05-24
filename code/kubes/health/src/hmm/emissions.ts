@@ -115,17 +115,18 @@ const PLACE_DISTANCE_FLOOR = -3;
 const HOUR_PROFILE_FLOOR = 0.001;
 
 /** Fixed log-prior for the off-network stationary state when the
- *  observation has a GPS fix. Calibrated so:
+ *  observation has a GPS fix. Calibrated against the floored
+ *  place-distance penalty so:
  *    - A fix near (≲ 200 m of) a known place's centroid scores
  *      higher under `stationary @ knownPlace` than under
  *      `stationary @ none`.
- *    - A fix far (≳ 500 m) from all known places scores higher
+ *    - A fix far (≳ 300 m) from all known places scores higher
  *      under `stationary @ none` than under any `stationary @
  *      knownPlace`.
- *  -4 nats hits both: at 500 m the place term is
- *  -0.5·(500/150)² ≈ -5.5, worse than -4; at 100 m it's -0.22,
- *  much better. */
-const OFF_NETWORK_LOG_PRIOR = -4;
+ *  -2 nats fits between PLACE_DISTANCE_FLOOR (-3, the asymptote
+ *  for very-distant fixes) and the near-centroid score (~-0.2).
+ *  Crossover at z ≈ 2 → d ≈ 300 m. */
+const OFF_NETWORK_LOG_PRIOR = -2;
 
 interface ModePrior {
 	gpsPresentProb: number; // P(gps fix present | mode)
