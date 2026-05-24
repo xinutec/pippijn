@@ -29,6 +29,7 @@ import {
 	sleepHoursOf,
 	uniqueDayCount,
 } from "../geo/focus-places.js";
+import { type ExistingPlace, matchClusters } from "../geo/focus-places-identity.js";
 import { bestPlace, isLabelWorthyVenue, nearbyLandmarks, pickBestLandmark } from "../geo/osm.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
@@ -189,37 +190,111 @@ async function refreshOne(userId: string): Promise<void> {
 	await withConnection(async (conn) => {
 		await conn.beginTransaction();
 		try {
-			await conn.query("DELETE FROM focus_places WHERE user_id = ?", [userId]);
+			// Identity matching: keep focus_places.id stable across re-mining
+			// runs so downstream consumers (HMM model_states, etc.) can hold
+			// a foreign-key reference. Match new clusters to existing rows
+			// by centroid proximity; unmatched existing rows are deleted,
+			// unmatched new clusters get fresh ids.
+			const existingRows = (await conn.query(
+				"SELECT id, centroid_lat, centroid_lon, first_seen_ts FROM focus_places WHERE user_id = ?",
+				[userId],
+			)) as Array<{
+				id: number;
+				centroid_lat: number;
+				centroid_lon: number;
+				first_seen_ts: number;
+			}>;
+			const existing: ExistingPlace[] = existingRows.map((r) => ({
+				id: r.id,
+				centroidLat: Number(r.centroid_lat),
+				centroidLon: Number(r.centroid_lon),
+				firstSeenTs: Number(r.first_seen_ts),
+			}));
+			const newForMatch = result.clusters.map((c) => ({ centroidLat: c.centroidLat, centroidLon: c.centroidLon }));
+			const { matches, deletedOldIds } = matchClusters(existing, newForMatch);
+
+			if (deletedOldIds.length > 0) {
+				await conn.query(
+					`DELETE FROM focus_places WHERE id IN (${deletedOldIds.map(() => "?").join(",")})`,
+					deletedOldIds,
+				);
+			}
+
 			if (result.clusters.length > 0) {
 				const displayNames = assignDisplayNames(result.clusters);
-				const rows = result.clusters.map((c) => {
+				for (let i = 0; i < result.clusters.length; i++) {
+					const c = result.clusters[i];
+					const match = matches[i];
 					const sortedStays = [...c.stays].sort((a, b) => a.startTs - b.startTs);
 					const cls = classifyCluster(c);
 					// Prefer Fitbit-confirmed sleep hours when available;
 					// fall back to the local-clock 02-06 heuristic for
 					// users without Fitbit data.
 					const sleepH = hasFitbitSleep ? sleepHoursFromFitbit(c.stays, fitbitSleepWindows) : sleepHoursOf(c);
-					return [
-						userId,
-						c.centroidLat,
-						c.centroidLon,
-						25,
-						c.totalDwellSec,
-						c.stays.length,
-						uniqueDayCount(c.stays, c.centroidLon),
-						sortedStays[0].startTs,
-						sortedStays[sortedStays.length - 1].endTs,
-						cls.label,
-						displayNames.get(c.id) ?? null,
-						Math.round(sleepH),
-						amenityLabels.get(c.id) ?? null,
-						serializeHourProfile(hourProfileOf(c)),
-					];
-				});
-				await conn.batch(
-					"INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label, display_name, sleep_hours, amenity_label, hour_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-					rows,
-				);
+					const detectedLabel = cls.label;
+					const displayName = displayNames.get(c.id) ?? null;
+					const amenityLabel = amenityLabels.get(c.id) ?? null;
+					const hourProfile = serializeHourProfile(hourProfileOf(c));
+
+					if (match.oldId !== null) {
+						// UPDATE preserving id and first_seen_ts (the original
+						// "first time we observed this place"). All other
+						// fields refresh from the new mining run.
+						await conn.query(
+							`UPDATE focus_places SET
+								centroid_lat = ?,
+								centroid_lon = ?,
+								radius_m = ?,
+								total_dwell_sec = ?,
+								visit_count = ?,
+								unique_days = ?,
+								last_seen_ts = ?,
+								detected_label = ?,
+								display_name = ?,
+								sleep_hours = ?,
+								amenity_label = ?,
+								hour_profile = ?,
+								refreshed_at = CURRENT_TIMESTAMP
+							WHERE id = ?`,
+							[
+								c.centroidLat,
+								c.centroidLon,
+								25,
+								c.totalDwellSec,
+								c.stays.length,
+								uniqueDayCount(c.stays, c.centroidLon),
+								sortedStays[sortedStays.length - 1].endTs,
+								detectedLabel,
+								displayName,
+								Math.round(sleepH),
+								amenityLabel,
+								hourProfile,
+								match.oldId,
+							],
+						);
+					} else {
+						await conn.query(
+							`INSERT INTO focus_places (user_id, centroid_lat, centroid_lon, radius_m, total_dwell_sec, visit_count, unique_days, first_seen_ts, last_seen_ts, detected_label, display_name, sleep_hours, amenity_label, hour_profile)
+							VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+							[
+								userId,
+								c.centroidLat,
+								c.centroidLon,
+								25,
+								c.totalDwellSec,
+								c.stays.length,
+								uniqueDayCount(c.stays, c.centroidLon),
+								sortedStays[0].startTs,
+								sortedStays[sortedStays.length - 1].endTs,
+								detectedLabel,
+								displayName,
+								Math.round(sleepH),
+								amenityLabel,
+								hourProfile,
+							],
+						);
+					}
+				}
 
 				// Identify the Home cluster (if any) and write the residence tz
 				// to sync_state for use as a fallback at read time. Passing `conn`
