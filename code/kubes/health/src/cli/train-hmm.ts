@@ -186,6 +186,7 @@ async function collectDaySamples(
 		points: velResult.points,
 		hr: biom.hr,
 		steps: biom.steps,
+		sleep: biom.sleep,
 	});
 
 	// Per-segment placeId: resolved once from the segment's GPS centroid

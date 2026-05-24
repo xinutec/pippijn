@@ -49,6 +49,14 @@ export interface Observation {
 	hourLocal: number;
 	/** Day-of-week in the user's displayTz; Sunday = 0. */
 	dayOfWeekLocal: number;
+	/** Whether Fitbit detected a sleep stage (any of asleep / deep /
+	 *  light / rem / wake) at this minute. `false` means "no Fitbit
+	 *  sleep observation" — NOT "user is awake." Sleep observations
+	 *  are evidence for `stationary`, weak evidence against most
+	 *  movement modes, and weak-to-moderate evidence against train/
+	 *  plane (where sleep is plausible). Used as a soft factor in
+	 *  emission — never a hard constraint. */
+	inBed: boolean;
 }
 
 export interface ObservationTensorInput {
@@ -63,6 +71,11 @@ export interface ObservationTensorInput {
 	hr: readonly HrPoint[];
 	/** Step rows — same filtering applies. */
 	steps: readonly StepPoint[];
+	/** Fitbit sleep-stage records overlapping the day. Each record is a
+	 *  (startTs, endTs, stage) interval. Used to populate
+	 *  `Observation.inBed` per minute. When omitted, all minutes have
+	 *  `inBed = false`. */
+	sleep?: readonly { startTs: number; endTs: number; stage: string }[];
 }
 
 const MINUTES_PER_DAY = 1440;
@@ -106,7 +119,7 @@ function localCtx(ts: number, tz: string): { hour: number; dayOfWeek: number } {
 }
 
 export function buildObservationTensor(input: ObservationTensorInput): Observation[] {
-	const { date, tz, points, hr, steps } = input;
+	const { date, tz, points, hr, steps, sleep } = input;
 	const { startUtc, endUtc } = dateBoundsUtc(date, tz);
 
 	// Pre-bucket the input streams by minute index for O(N) aggregation
@@ -117,6 +130,10 @@ export function buildObservationTensor(input: ObservationTensorInput): Observati
 	// allow multiple per bucket to handle sub-minute resolution if it
 	// ever shows up — the aggregation is a sum either way.
 	const stepBuckets: Array<StepPoint[] | null> = Array.from({ length: MINUTES_PER_DAY }, () => null);
+	// Per-minute sleep flag — set true when any sleep_stages record
+	// overlaps this minute (regardless of stage). Brief mid-night
+	// "wake" rows still imply "in bed" for our purposes.
+	const inBedBuckets: boolean[] = new Array(MINUTES_PER_DAY).fill(false);
 
 	function bucketIndex(ts: number): number | null {
 		if (ts < startUtc || ts >= endUtc) return null;
@@ -139,6 +156,16 @@ export function buildObservationTensor(input: ObservationTensorInput): Observati
 		const existing = stepBuckets[m];
 		if (existing === null) stepBuckets[m] = [s];
 		else existing.push(s);
+	}
+	// Mark every minute that any sleep_stages record overlaps. A record
+	// (startTs, endTs) covers minutes floor((startTs - startUtc)/60)
+	// through ceil((endTs - startUtc)/60) - 1.
+	if (sleep) {
+		for (const rec of sleep) {
+			const startMin = Math.max(0, Math.floor((rec.startTs - startUtc) / SECONDS_PER_MINUTE));
+			const endMin = Math.min(MINUTES_PER_DAY, Math.ceil((rec.endTs - startUtc) / SECONDS_PER_MINUTE));
+			for (let m = startMin; m < endMin; m++) inBedBuckets[m] = true;
+		}
 	}
 
 	const tensor: Observation[] = new Array(MINUTES_PER_DAY);
@@ -164,6 +191,7 @@ export function buildObservationTensor(input: ObservationTensorInput): Observati
 
 		tensor[m] = {
 			ts,
+			inBed: inBedBuckets[m],
 			gps,
 			hr: hrAgg,
 			cadence,

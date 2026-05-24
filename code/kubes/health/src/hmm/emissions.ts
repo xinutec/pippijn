@@ -96,6 +96,17 @@ export interface BuildEmissionFnOpts {
  *  place." */
 const PLACE_RADIUS_M = 150;
 
+/** Floor on the place-distance log-penalty — heavy-tailed Gaussian
+ *  approximation reflecting realistic GPS noise. A pure Gaussian
+ *  with σ=150m would penalise a 5km-away fix by −555 nats (hard
+ *  zero), but GPS noise in the real world has heavy tails:
+ *  cell-tower fallback fixes 1-3km off, jammed indoor receivers 5km+
+ *  outliers, occasional rogue triangulations entirely wrong. The
+ *  floor models the tail probability of a fix being wildly off
+ *  (≈1% × log) so the HMM weighs a single rogue fix evidentially
+ *  rather than letting it veto a high-prior place. */
+const PLACE_DISTANCE_FLOOR = -3;
+
 /** Floor on the per-hour fraction when computing the time-of-day
  *  boost. A place with no recorded visits at hour H gets
  *  log(24 × 0.001) ≈ -3.73 nats, not -Infinity — focus_places
@@ -139,6 +150,31 @@ interface ModePrior {
 // inert — the per-minute decision falls to HR + speed + cadence +
 // place-distance, which are actually discriminative.
 const UNIFORM_GPS_PRESENT_PROB = 0.85;
+
+/** P(Fitbit-tracked sleep at this minute | mode) — a soft factor
+ *  applied per-minute when `obs.inBed === true`. Calibrated such
+ *  that combined across a typical overnight (~480 minutes asleep):
+ *  walking gets ~-3300 nats cumulative penalty (effectively
+ *  impossible), train ~-576 nats (strong but overridable), plane
+ *  ~-336 nats (overridable by clear in-flight evidence). When
+ *  `inBed === false` the factor is not applied — absence of a
+ *  Fitbit sleep record carries no information (sleep tracking only
+ *  fires during detected sleep sessions). */
+const IN_BED_PROB_BY_MODE: Record<State["mode"], number> = {
+	stationary: 0.99, // overwhelming: bed implies stationary
+	walking: 0.0001, // sleepwalking is rare, brief
+	cycling: 0.0001, // not physically possible
+	driving: 0.0001, // would crash
+	train: 0.1, // commute nap / sleeper train — uncommon overnight
+	plane: 0.3, // long-haul sleep — happens but not every minute
+	// `unknown` represents "we couldn't classify the minute" — it
+	// should fire during data gaps, NOT during sleep. When in bed,
+	// the user is in a real state (stationary almost always); they
+	// shouldn't be in `unknown`. Strongly penalised so it can't be
+	// used as a 1-minute bridge between distant stationary places
+	// during sleep (the dominant overnight-bouncing pathology).
+	unknown: 0.05,
+};
 
 const MODE_PRIORS: Record<State["mode"], ModePrior> = {
 	stationary: {
@@ -338,6 +374,19 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 			logProb += logCadencePdf(obs.cadence, prior);
 		}
 
+		// Sleep-state factor — soft, calibrated per-mode evidence.
+		// Fires per-minute when Fitbit reports the user is in a
+		// sleep stage at this minute (asleep/light/deep/rem, or even
+		// a brief "wake" within a sleep session — all imply "in bed").
+		// Composes multiplicatively (additively in log) so the
+		// joint penalty over a full overnight stretch is decisive
+		// for walking/cycling/driving but only moderate for
+		// train/plane (where sleeping is plausible). NEVER a hard
+		// constraint — strong evidence can still override.
+		if (obs.inBed) {
+			logProb += Math.log(IN_BED_PROB_BY_MODE[state.mode]);
+		}
+
 		// Time-of-day prior for stationary @ known-place. Fires every
 		// minute regardless of GPS presence — the hour is always
 		// known. Boost = log(24 × hour_profile[h]), with a floor to
@@ -371,7 +420,7 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 				if (placeCoord !== undefined) {
 					const d = haversineMeters(obs.gps.lat, obs.gps.lon, placeCoord.lat, placeCoord.lon);
 					const z = d / PLACE_RADIUS_M;
-					logProb += -0.5 * z * z;
+					logProb += Math.max(PLACE_DISTANCE_FLOOR, -0.5 * z * z);
 				}
 			} else {
 				logProb += OFF_NETWORK_LOG_PRIOR;

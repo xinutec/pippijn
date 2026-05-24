@@ -24,6 +24,7 @@ function obs(over: Partial<Observation> = {}): Observation {
 		cadence: 0,
 		hourLocal: 12,
 		dayOfWeekLocal: 3,
+		inBed: false,
 		...over,
 	};
 }

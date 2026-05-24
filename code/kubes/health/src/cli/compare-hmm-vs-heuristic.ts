@@ -268,6 +268,7 @@ async function decodeDay(
 		points: velResult.points,
 		hr: biom.hr,
 		steps: biom.steps,
+		sleep: biom.sleep,
 	});
 	const states = buildStateSpace({ focusPlaces: cache.focusPlaces, knownLines: KNOWN_LINES });
 	const placeCoords = new Map<number, { lat: number; lon: number }>();
