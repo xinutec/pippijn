@@ -66,6 +66,37 @@ const cache = new Map<string, { stations: Station[]; cachedAt: number }>();
 /** Reset the cache. Test-only — production code never calls this. */
 export function _resetStationsOnLineCache(): void {
 	cache.clear();
+	allStationsCache = null;
+}
+
+/** All railway-station points, cached for the life of the process.
+ *  Loaded lazily on the first `stationsOnLine` call. ~1200 rows for
+ *  the user's mirrored area; fits comfortably in memory and amortises
+ *  the per-line cost away from the request path.
+ *
+ *  We pre-fetch all stations rather than per-line-bbox query because
+ *  a London-wide MBR query against a million-row osm_points table
+ *  takes ~30+ s even when only ~100 stations match — the spatial
+ *  index pre-filter is poorly-suited to bboxes spanning ~30 km on a
+ *  side. One small `WHERE feature_type='railway' AND subtype='station'`
+ *  query (~1 s) plus an in-JS filter per line is ~10× faster than
+ *  per-line bbox queries. */
+let allStationsCache: Promise<StationCandidate[]> | null = null;
+
+async function loadAllRailwayStations(): Promise<StationCandidate[]> {
+	if (allStationsCache !== null) return allStationsCache;
+	allStationsCache = (async () => {
+		const rows = (await db()
+			.selectFrom("osm_points")
+			.where("feature_type", "=", "railway")
+			.where("subtype", "=", "station")
+			.select(["name", sql<number>`ST_Y(geom)`.as("lat"), sql<number>`ST_X(geom)`.as("lon")])
+			.execute()) as Array<{ name: string | null; lat: number; lon: number }>;
+		return rows
+			.filter((r): r is { name: string; lat: number; lon: number } => r.name !== null)
+			.map((r) => ({ name: r.name, lat: Number(r.lat), lon: Number(r.lon) }));
+	})();
+	return allStationsCache;
 }
 
 /**
@@ -175,78 +206,35 @@ export async function stationsOnLine(lineName: string): Promise<Station[]> {
 		return cached.stations;
 	}
 
-	// Step 1: get all ways of this line. The mirror stores rail
-	// ways under feature_type='railway'.
+	// Step 1: get all ways of this line. The osm_lines.name index
+	// (added migration v...) makes this fast (~250 ms for a typical
+	// London tube line with 100-200 ways).
 	const wayRows = (await db()
 		.selectFrom("osm_lines")
 		.where("feature_type", "=", "railway")
 		.where("name", "=", lineName)
-		.select([sql<string>`ST_AsText(geom)`.as("wkt"), sql<string>`ST_AsText(ST_Envelope(geom))`.as("envelope_wkt")])
-		.execute()) as Array<{ wkt: string; envelope_wkt: string }>;
+		.select([sql<string>`ST_AsText(geom)`.as("wkt")])
+		.execute()) as Array<{ wkt: string }>;
 
 	if (wayRows.length === 0) {
 		cache.set(lineName, { stations: [], cachedAt: Date.now() });
 		return [];
 	}
 
-	// Step 2: compute the union bbox of all ways' envelopes.
-	let minLat = Infinity;
-	let maxLat = -Infinity;
-	let minLon = Infinity;
-	let maxLon = -Infinity;
-	for (const w of wayRows) {
-		const env = parseEnvelopeWkt(w.envelope_wkt);
-		if (env === null) continue;
-		if (env.minLat < minLat) minLat = env.minLat;
-		if (env.maxLat > maxLat) maxLat = env.maxLat;
-		if (env.minLon < minLon) minLon = env.minLon;
-		if (env.maxLon > maxLon) maxLon = env.maxLon;
-	}
-	if (!Number.isFinite(minLat)) {
-		cache.set(lineName, { stations: [], cachedAt: Date.now() });
-		return [];
-	}
+	// Step 2: load all railway stations (cached process-wide; first
+	// call ~1 s, subsequent calls instant). Filtering an in-memory
+	// 1200-row station list against a line's ways is ~10× faster
+	// than a per-line MBR query because the spatial index is
+	// poorly-suited to bboxes spanning many km on a side.
+	const allStations = await loadAllRailwayStations();
 
-	// Pad the bbox by MAX_DIST_M so stations near the line's
-	// endpoints aren't missed.
-	const padLat = MAX_DIST_M / M_PER_DEG_LAT;
-	const padLon = MAX_DIST_M / metersPerDegLon((minLat + maxLat) / 2);
-	const bboxPolyWkt = `POLYGON((${minLon - padLon} ${minLat - padLat},${maxLon + padLon} ${minLat - padLat},${maxLon + padLon} ${maxLat + padLat},${minLon - padLon} ${maxLat + padLat},${minLon - padLon} ${minLat - padLat}))`;
-
-	// Step 3: fetch station candidates in the bbox. Stations live
-	// under feature_type='railway' subtype='station' in the OSM mirror
-	// (not feature_type='station' — that's not a thing in the schema).
-	const stationRows = (await db()
-		.selectFrom("osm_points")
-		.where("feature_type", "=", "railway")
-		.where("subtype", "=", "station")
-		.where(sql<boolean>`MBRIntersects(geom, ST_GeomFromText(${bboxPolyWkt}, 4326))`)
-		.select(["name", sql<number>`ST_Y(geom)`.as("lat"), sql<number>`ST_X(geom)`.as("lon")])
-		.execute()) as Array<{ name: string | null; lat: number; lon: number }>;
-
-	const candidates: StationCandidate[] = stationRows
-		.filter((r): r is { name: string; lat: number; lon: number } => r.name !== null)
-		.map((r) => ({ name: r.name, lat: Number(r.lat), lon: Number(r.lon) }));
-
-	// Step 4 + 5: proximity filter + dedupe.
+	// Step 3: proximity-filter the cached station list by per-way
+	// distance computed in pure JS.
 	const stations = filterStationsByLineProximity(
-		candidates,
+		allStations,
 		wayRows.map((w) => ({ wkt: w.wkt })),
 	);
 
 	cache.set(lineName, { stations, cachedAt: Date.now() });
 	return stations;
-}
-
-function parseEnvelopeWkt(wkt: string): { minLat: number; maxLat: number; minLon: number; maxLon: number } | null {
-	// ST_Envelope returns a POLYGON with 5 vertices (the closed
-	// bbox). WKT: POLYGON((minLon minLat,maxLon minLat,maxLon
-	// maxLat,minLon maxLat,minLon minLat))
-	const inner = wkt.match(/^POLYGON\s*\(\(([^)]+)\)\)$/i)?.[1];
-	if (!inner) return null;
-	const points = inner.split(",").map((pair) => pair.trim().split(/\s+/).map(Number));
-	if (points.length < 4) return null;
-	const lons = points.map((p) => p[0]);
-	const lats = points.map((p) => p[1]);
-	return { minLat: Math.min(...lats), maxLat: Math.max(...lats), minLon: Math.min(...lons), maxLon: Math.max(...lons) };
 }
