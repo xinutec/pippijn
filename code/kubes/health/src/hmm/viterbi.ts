@@ -31,15 +31,10 @@ export interface ViterbiInput<State, Obs> {
 	/** All reachable states. Order is significant for deterministic
 	 *  tie-breaking (earlier states win ties). */
 	states: readonly State[];
-	/** Log-probability of transitioning `from → to`, evaluated at
-	 *  the destination observation `toObs` (so the transition can be
-	 *  observation-conditional — e.g. time-of-day boost on entry into
-	 *  a stationary @ place state, fired only at the transition
-	 *  moment so it doesn't accumulate per-minute over a long stay).
-	 *  Return `-Infinity` for impossible transitions (hard-zero). May
-	 *  be asymmetric (`P(a→b) ≠ P(b→a)`). Implementations that don't
-	 *  need the obs may ignore the third argument. */
-	transitionLogProb: (from: State, to: State, toObs: Obs) => number;
+	/** Log-probability of transitioning `from → to`. Return
+	 *  `-Infinity` for impossible transitions (hard-zero). May be
+	 *  asymmetric (`P(a→b) ≠ P(b→a)`). */
+	transitionLogProb: (from: State, to: State) => number;
 	/** Log-probability of emitting `obs` given the hidden state.
 	 *  Return `-Infinity` for impossible emissions. */
 	emissionLogProb: (state: State, obs: Obs) => number;
@@ -80,7 +75,7 @@ export function viterbi<State, Obs>(input: ViterbiInput<State, Obs>): State[] {
 			for (let p = 0; p < S; p++) {
 				const fromScore = prev[p];
 				if (fromScore === Number.NEGATIVE_INFINITY) continue;
-				const trans = transitionLogProb(states[p], states[s], obs);
+				const trans = transitionLogProb(states[p], states[s]);
 				if (trans === Number.NEGATIVE_INFINITY) continue;
 				const score = fromScore + trans;
 				if (score > bestScore) {

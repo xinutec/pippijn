@@ -18,20 +18,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { Observation } from "../src/hmm/observation.js";
 import { buildStateSpace } from "../src/hmm/state-space.js";
 import { buildTransitionMatrix } from "../src/hmm/transitions.js";
-
-// Dummy observation for the obs-conditional transition signature.
-// Most tests don't care about the obs — only entry-boost ones do.
-const OBS: Observation = {
-	ts: 1_700_000_000,
-	gps: null,
-	hr: null,
-	cadence: null,
-	hourLocal: 12,
-	dayOfWeekLocal: 3,
-};
 
 describe("buildTransitionMatrix", () => {
 	const states = buildStateSpace({
@@ -52,8 +40,8 @@ describe("buildTransitionMatrix", () => {
 	it("self-loops have higher log-prob than any cross-state transition", () => {
 		const home = find("stationary", 1, null);
 		const walking = find("walking", null, null);
-		const self = transitionLogProb(home, home, OBS);
-		const cross = transitionLogProb(home, walking, OBS);
+		const self = transitionLogProb(home, home);
+		const cross = transitionLogProb(home, walking);
 		expect(self).toBeGreaterThan(cross);
 		expect(self).toBeCloseTo(Math.log(0.95), 2);
 	});
@@ -61,16 +49,16 @@ describe("buildTransitionMatrix", () => {
 	it("hard-zeroes direct stationary@A → stationary@B transitions", () => {
 		const home = find("stationary", 1, null);
 		const work = find("stationary", 2, null);
-		expect(transitionLogProb(home, work, OBS)).toBe(Number.NEGATIVE_INFINITY);
-		expect(transitionLogProb(work, home, OBS)).toBe(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(home, work)).toBe(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(work, home)).toBe(Number.NEGATIVE_INFINITY);
 	});
 
 	it("permits stationary @ A → walking → stationary @ B via the walking transition", () => {
 		const home = find("stationary", 1, null);
 		const walking = find("walking", null, null);
 		const work = find("stationary", 2, null);
-		expect(transitionLogProb(home, walking, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
-		expect(transitionLogProb(walking, work, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(home, walking)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(walking, work)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
 	});
 
 	it("permits off-network stationary regardless of source", () => {
@@ -78,8 +66,8 @@ describe("buildTransitionMatrix", () => {
 		// stationary @ A → stationary @ none is NOT allowed (mode change without movement).
 		const noneStay = find("stationary", null, null);
 		const home = find("stationary", 1, null);
-		expect(transitionLogProb(noneStay, noneStay, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
-		expect(transitionLogProb(home, noneStay, OBS)).toBe(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(noneStay, noneStay)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(home, noneStay)).toBe(Number.NEGATIVE_INFINITY);
 	});
 
 	it("treats unknown as a regular non-place mode (allows entry/exit)", () => {
@@ -87,21 +75,21 @@ describe("buildTransitionMatrix", () => {
 		const walking = find("walking", null, null);
 		const home = find("stationary", 1, null);
 		// unknown can transition to/from walking, stationary, etc.
-		expect(transitionLogProb(unknown, walking, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
-		expect(transitionLogProb(walking, unknown, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
-		expect(transitionLogProb(home, unknown, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(unknown, walking)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(walking, unknown)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(home, unknown)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
 	});
 
 	it("permits train @ L → walking (alighting)", () => {
 		const train = find("train", null, "Metropolitan Line");
 		const walking = find("walking", null, null);
-		expect(transitionLogProb(train, walking, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(train, walking)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
 	});
 
 	it("permits walking → train @ L (boarding)", () => {
 		const walking = find("walking", null, null);
 		const train = find("train", null, "Metropolitan Line");
-		expect(transitionLogProb(walking, train, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(walking, train)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
 	});
 
 	it("permits stationary @ A → train @ L (boarding at a station-cluster place)", () => {
@@ -109,7 +97,7 @@ describe("buildTransitionMatrix", () => {
 		const train = find("train", null, "Metropolitan Line");
 		// Static prior allows it — station-graph hard-zero (wired at
 		// integration) will refine this for specific (L, place) pairs.
-		expect(transitionLogProb(home, train, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProb(home, train)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
 	});
 
 	it("hard-zeroes train@L → stationary@P when L does not serve P (station-graph rule)", () => {
@@ -122,11 +110,11 @@ describe("buildTransitionMatrix", () => {
 		const home = find("stationary", 1, null);
 		const work = find("stationary", 2, null);
 		// train@Met → stationary@Home: allowed (home is on Met).
-		expect(transitionLogProbWithGraph(train, home, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProbWithGraph(train, home)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
 		// train@Met → stationary@Work: forbidden (work is not on Met).
-		expect(transitionLogProbWithGraph(train, work, OBS)).toBe(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProbWithGraph(train, work)).toBe(Number.NEGATIVE_INFINITY);
 		// Symmetric: stationary@Work → train@Met also forbidden.
-		expect(transitionLogProbWithGraph(work, train, OBS)).toBe(Number.NEGATIVE_INFINITY);
+		expect(transitionLogProbWithGraph(work, train)).toBe(Number.NEGATIVE_INFINITY);
 	});
 
 	it("does not apply station-graph hard-zero for the unknown_rail catch-all", () => {
@@ -138,68 +126,7 @@ describe("buildTransitionMatrix", () => {
 		const home = find("stationary", 1, null);
 		// unknown_rail bypasses the rule — used as a backstop when
 		// the line isn't recognised.
-		expect(transitionLogProbWithGraph(unknownTrain, home, OBS)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
-	});
-
-	it("entry boost: transitioning INTO stationary @ place gains log(24×profile[h]) at hour h", () => {
-		// Work profile peaks at 14:00 (10%) and dips at 04:00 (1%);
-		// raw boost log(24×0.1)≈+0.875 clamped to +0.5, log(24×0.01)≈
-		// -1.43 clamped to -0.5. Delta at hour 14 vs hour 4 is +1.0.
-		const profile = new Array(24).fill(0.04);
-		profile[14] = 0.1;
-		profile[4] = 0.01;
-		const transitionWithProfile = buildTransitionMatrix({
-			states,
-			placeHourProfiles: new Map([[2, profile]]),
-		});
-		const walking = find("walking", null, null);
-		const work = find("stationary", 2, null);
-		const at14: Observation = { ...OBS, hourLocal: 14 };
-		const at04: Observation = { ...OBS, hourLocal: 4 };
-		const score14 = transitionWithProfile(walking, work, at14);
-		const score04 = transitionWithProfile(walking, work, at04);
-		expect(score14 - score04).toBeCloseTo(1.0, 2);
-	});
-
-	it("entry boost only fires on transitions INTO a stationary place — not on self-loop, not on leaving", () => {
-		const profile = new Array(24).fill(0).map((_, i) => (i === 14 ? 0.5 : 0.022));
-		const transitionWithProfile = buildTransitionMatrix({
-			states,
-			placeHourProfiles: new Map([[2, profile]]),
-		});
-		const transitionPlain = buildTransitionMatrix({ states });
-		const walking = find("walking", null, null);
-		const work = find("stationary", 2, null);
-		const at14: Observation = { ...OBS, hourLocal: 14 };
-		// Self-loop at Work: no boost (self-loop is constant).
-		expect(transitionWithProfile(work, work, at14)).toBe(transitionPlain(work, work, at14));
-		// Leaving Work (Work → walking): no boost (boost is on entry to a place, not exit).
-		expect(transitionWithProfile(work, walking, at14)).toBe(transitionPlain(work, walking, at14));
-		// Entering Work (walking → Work): boost applies.
-		expect(transitionWithProfile(walking, work, at14)).toBeGreaterThan(transitionPlain(walking, work, at14));
-	});
-
-	it("entry boost does NOT fire for transitions into non-stationary states or off-network stationary", () => {
-		const profile = new Array(24).fill(0).map((_, i) => (i === 14 ? 0.5 : 0.022));
-		const transitionWithProfile = buildTransitionMatrix({
-			states,
-			placeHourProfiles: new Map([
-				[1, profile],
-				[2, profile],
-			]),
-		});
-		const transitionPlain = buildTransitionMatrix({ states });
-		const home = find("stationary", 1, null);
-		const noneStay = find("stationary", null, null);
-		const walking = find("walking", null, null);
-		const train = find("train", null, "Metropolitan Line");
-		const at14: Observation = { ...OBS, hourLocal: 14 };
-		// Off-network stationary: no boost (no profile applies).
-		expect(transitionWithProfile(walking, noneStay, at14)).toBe(transitionPlain(walking, noneStay, at14));
-		// Train: no boost.
-		expect(transitionWithProfile(walking, train, at14)).toBe(transitionPlain(walking, train, at14));
-		// Walking: no boost.
-		expect(transitionWithProfile(home, walking, at14)).toBe(transitionPlain(home, walking, at14));
+		expect(transitionLogProbWithGraph(unknownTrain, home)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
 	});
 
 	it("rows sum to <= 1 in probability space (proper probability distribution)", () => {
@@ -210,7 +137,7 @@ describe("buildTransitionMatrix", () => {
 		for (const from of states) {
 			let sum = 0;
 			for (const to of states) {
-				const lp = transitionLogProb(from, to, OBS);
+				const lp = transitionLogProb(from, to);
 				if (lp === Number.NEGATIVE_INFINITY) continue;
 				sum += Math.exp(lp);
 			}
