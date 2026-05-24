@@ -299,6 +299,18 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 		// Speed: only if GPS present (no speed without a fix).
 		if (obs.gps !== null) {
 			logProb += logNormalPdf(obs.gps.speedKmh, prior.speedMean, prior.speedStd);
+		} else if (state.mode === "plane") {
+			// GPS-null cannot reasonably indicate plane — being in the
+			// air is exactly when GPS is most LIKELY to be present
+			// (clear sky view; flight-mode toggles aside). Without
+			// this penalty, the HMM uses `plane` as a 1-minute
+			// teleport bridging `stationary @ A → plane → stationary
+			// @ B` to bypass the stationary→stationary hard-zero, and
+			// cycles through 7+ near-Home focus places overnight
+			// (visible in the Phase 2.5 side-by-side render). A
+			// strong negative on GPS-null forces the HMM to prefer
+			// walking or a slower bridge.
+			logProb += -8;
 		}
 
 		// HR: only if HR sample present (missing HR doesn't penalise

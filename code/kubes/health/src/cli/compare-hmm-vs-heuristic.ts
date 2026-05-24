@@ -38,6 +38,7 @@ import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, type EnrichedSegment, loadBiometrics } from "../geo/velocity.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
 import type { LearnedEmissionParameters } from "../hmm/fit-emissions.js";
+import { buildInitialStatePrior } from "../hmm/initial-state.js";
 import { buildObservationTensor, type Observation } from "../hmm/observation.js";
 import { buildStateSpace, type FocusPlaceRef, type State, stateKey } from "../hmm/state-space.js";
 import { buildTransitionMatrix } from "../hmm/transitions.js";
@@ -136,13 +137,14 @@ interface PlaceWithCoords extends FocusPlaceRef {
 	lat: number;
 	lon: number;
 	hourProfile: readonly number[] | null;
+	totalDwellSec: number;
 }
 
 async function loadFocusPlacesForUser(userId: string): Promise<PlaceWithCoords[]> {
 	const rows = await db()
 		.selectFrom("focus_places")
 		.where("user_id", "=", userId)
-		.select(["id", "display_name", "centroid_lat", "centroid_lon", "hour_profile"])
+		.select(["id", "display_name", "centroid_lat", "centroid_lon", "hour_profile", "total_dwell_sec"])
 		.execute();
 	return rows.map((r) => ({
 		id: r.id,
@@ -150,6 +152,7 @@ async function loadFocusPlacesForUser(userId: string): Promise<PlaceWithCoords[]
 		lat: Number(r.centroid_lat),
 		lon: Number(r.centroid_lon),
 		hourProfile: parseHourProfile(r.hour_profile),
+		totalDwellSec: Number(r.total_dwell_sec),
 	}));
 }
 
@@ -231,9 +234,12 @@ async function decodeDay(
 	const states = buildStateSpace({ focusPlaces: cache.focusPlaces, knownLines: KNOWN_LINES });
 	const placeCoords = new Map<number, { lat: number; lon: number }>();
 	const placeHourProfiles = new Map<number, readonly number[]>();
+	const placeVisitWeights = new Map<number, number>();
+	const totalDwell = cache.focusPlaces.reduce((s, p) => s + p.totalDwellSec, 0);
 	for (const p of cache.focusPlaces) {
 		placeCoords.set(p.id, { lat: p.lat, lon: p.lon });
 		if (p.hourProfile !== null) placeHourProfiles.set(p.id, p.hourProfile);
+		placeVisitWeights.set(p.id, totalDwell > 0 ? p.totalDwellSec / totalDwell : 1 / cache.focusPlaces.length);
 	}
 	const transition = buildTransitionMatrix({
 		states,
@@ -244,11 +250,13 @@ async function decodeDay(
 		placeHourProfiles,
 		learnedEmissions: cache.learnedEmissions ?? undefined,
 	});
+	const initialLogProb = buildInitialStatePrior({ placeVisitWeights });
 	const hmmStates = viterbi({
 		observations: tensor,
 		states,
 		transitionLogProb: transition,
 		emissionLogProb: emission,
+		initialLogProb,
 	});
 	const dt = Date.now() - t0;
 	console.error(
