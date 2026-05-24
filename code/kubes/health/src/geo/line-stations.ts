@@ -50,11 +50,14 @@ export interface WayGeometry {
 
 /** Max metres from a station point to any way of the line for the
  *  station to count as "served by" the line. Sized to absorb the
- *  typical offset between a station's named node (centre of the
- *  building / concourse) and the nearest track polyline (rails run
- *  through the platform area, often 20-80 m from the named node in
- *  large interchanges). */
-const MAX_DIST_M = 120;
+ *  offset between a station's named node (the named building or
+ *  street-level entrance) and the nearest track polyline. For
+ *  surface rail this is ~20-80 m; for tube stations the named node
+ *  is at the street-level entrance and the track polyline runs
+ *  through a tunnel often 150-300 m horizontally beneath. Using
+ *  300 m catches both regimes; the trade-off is some over-inclusion
+ *  near parallel lines (acceptable per the doc-comment intro). */
+const MAX_DIST_M = 300;
 
 /** TTL on the in-process line→stations cache. Beyond this the
  *  cached result is refetched. Lines rarely change; a long TTL is
