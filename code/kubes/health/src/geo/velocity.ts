@@ -24,6 +24,7 @@ import {
 import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour, parseHourProfile } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
+import { reEvaluateStaysWithEvidence } from "./honest-stays.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
 import { correctModeBySignature, gateCycling, type ModeStats } from "./mode-biometrics.js";
@@ -612,14 +613,22 @@ export async function computeVelocity(
 	// When the biometric factor is on, refineMode needs per-segment hr/cadence
 	// + modeStats inside the enrichment map, so await both biometric loads
 	// before the Promise.all. When it is off, the streams are only consumed
-	// after enrichment and we keep the original parallelism.
+	// after enrichment and we keep the original parallelism — except: we
+	// also need biometrics *now* to drive `reEvaluateStaysWithEvidence`
+	// (the multi-signal weighted stay-split). That blocks the request
+	// path on the biom load; acceptable cost in exchange for honest
+	// mid-stay-departure detection (see honest-stays.ts).
 	const preEnrichBiometrics = biometricFactorOn ? await biometricsPromise : null;
 	const preEnrichModeStats = biometricFactorOn ? await modeStatsPromise : null;
+	const biomForStaySplit = preEnrichBiometrics ?? (await biometricsPromise);
+	const refinedSegments = timeSync("staySplit", () =>
+		reEvaluateStaysWithEvidence(segments, points, { hr: biomForStaySplit.hr, steps: biomForStaySplit.steps }),
+	);
 
-	// Enrich each segment with OSM data
+	// Enrich each (post-stay-split) segment with OSM data
 	const enrichStart = Date.now();
 	const enriched: EnrichedSegment[] = await Promise.all(
-		segments.map(async (seg) => {
+		refinedSegments.map(async (seg) => {
 			// Synthetic gap segments (inferred-walking or `unknown`) carry
 			// pointCount=0 — no real GPS data. Enriching with road names /
 			// OSM places would invent context we don't have. Pass them
