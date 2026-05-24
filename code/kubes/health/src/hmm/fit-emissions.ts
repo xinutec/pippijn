@@ -34,6 +34,11 @@ export interface LabeledSample {
 	speedKmh: number | null;
 	/** Whether a GPS fix was present at this minute. */
 	gpsPresent: boolean;
+	/** Place id when the heuristic labeled this minute as
+	 *  `stationary @ knownPlace`; `null` for moving modes or
+	 *  stationary @ off-network. Per-place HR fits (Cleveland Clinic
+	 *  baseline ≠ Home baseline) need this conditioning. */
+	placeId: number | null;
 }
 
 export interface GaussianFit {
@@ -64,6 +69,7 @@ export interface LearnedModeParameters {
 export interface TrainingSummary {
 	totalSampleCount: number;
 	samplesPerMode: Partial<Record<TransportMode, number>>;
+	samplesPerPlace: Record<string, number>;
 }
 
 export interface LearnedEmissionParameters {
@@ -71,12 +77,31 @@ export interface LearnedEmissionParameters {
 	 *  didn't reach `MIN_SAMPLES_PER_MODE` — caller should use
 	 *  hand-tuned `MODE_PRIORS` for those modes. */
 	perMode: Partial<Record<TransportMode, LearnedModeParameters | "fallback">>;
+	/** Per-place HR fits for stationary states. Keyed by stringified
+	 *  place id (so the blob is JSON-friendly). Populated when a
+	 *  place has at least `MIN_SAMPLES_PER_PLACE` stationary samples
+	 *  with non-null HR. Inference uses this when
+	 *  `state.mode === "stationary" && state.placeId !== null` and
+	 *  the per-place fit exists; otherwise falls through to per-mode.
+	 *
+	 *  Cadence/speed not learned per-place: cadence is similarly
+	 *  sparse across places, speed is ~0 by definition at stationary.
+	 *  HR is the signal that varies per place (Home resting vs
+	 *  Work typing vs Clinic anxious). */
+	perPlaceHr: Record<string, GaussianFit>;
 	trainingSummary: TrainingSummary;
 }
 
 /** Below this sample count, a mode's fit is too noisy to trust;
  *  fall back to hand-tuned priors. */
 export const MIN_SAMPLES_PER_MODE = 50;
+
+/** Below this sample count, a per-place HR fit is too noisy to
+ *  trust; fall back to the per-mode (global stationary) HR fit
+ *  via the inference-time lookup chain. Higher than
+ *  `MIN_SAMPLES_PER_MODE` because per-place data is much sparser
+ *  and a wild outlier can throw a small fit dramatically off. */
+export const MIN_SAMPLES_PER_PLACE = 50;
 
 /** Floor on HR stddev to prevent pathological overfitting. A
  *  user's HR is naturally noisy (±5 bpm minute-to-minute even at
@@ -170,11 +195,37 @@ export function fitPerModeEmissions(samples: readonly LabeledSample[]): LearnedE
 		};
 	}
 
+	// Per-place HR fits for stationary samples with a known placeId.
+	// Bucket then fit; below MIN_SAMPLES_PER_PLACE the bucket is
+	// dropped (no entry in perPlaceHr) so the inference-time lookup
+	// falls through to per-mode.
+	const stationaryByPlace = new Map<number, number[]>();
+	const samplesPerPlace: Record<string, number> = {};
+	for (const s of samples) {
+		if (s.mode !== "stationary" || s.placeId === null) continue;
+		samplesPerPlace[String(s.placeId)] = (samplesPerPlace[String(s.placeId)] ?? 0) + 1;
+		if (s.hr === null) continue;
+		let bucket = stationaryByPlace.get(s.placeId);
+		if (!bucket) {
+			bucket = [];
+			stationaryByPlace.set(s.placeId, bucket);
+		}
+		bucket.push(s.hr);
+	}
+
+	const perPlaceHr: Record<string, GaussianFit> = {};
+	for (const [placeId, hrValues] of stationaryByPlace.entries()) {
+		if (hrValues.length < MIN_SAMPLES_PER_PLACE) continue;
+		perPlaceHr[String(placeId)] = fitGaussian(hrValues, HR_STD_FLOOR);
+	}
+
 	return {
 		perMode,
+		perPlaceHr,
 		trainingSummary: {
 			totalSampleCount: samples.length,
 			samplesPerMode,
+			samplesPerPlace,
 		},
 	};
 }

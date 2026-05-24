@@ -137,7 +137,46 @@ function heuristicModeForMinute(segments: readonly EnrichedSegment[], ts: number
 	return segments.find((s) => s.startTs <= ts && ts < s.endTs) ?? null;
 }
 
-async function collectDaySamples(userId: string, date: string, tz: string): Promise<LabeledSample[]> {
+interface PlaceCoord {
+	id: number;
+	lat: number;
+	lon: number;
+	radiusM: number;
+}
+
+/** Haversine distance in metres between two (lat, lon) points. */
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+	const R = 6_371_000;
+	const dLat = ((lat2 - lat1) * Math.PI) / 180;
+	const dLon = ((lon2 - lon1) * Math.PI) / 180;
+	const a =
+		Math.sin(dLat / 2) ** 2 +
+		Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Find the focus_place whose centroid is closest to (lat, lon),
+ *  within its own radius_m. Returns null when no place is close
+ *  enough (the user is somewhere off-network). */
+function nearestPlaceId(lat: number, lon: number, places: readonly PlaceCoord[]): number | null {
+	let bestId: number | null = null;
+	let bestD = Infinity;
+	for (const p of places) {
+		const d = haversineMeters(lat, lon, p.lat, p.lon);
+		if (d <= p.radiusM && d < bestD) {
+			bestD = d;
+			bestId = p.id;
+		}
+	}
+	return bestId;
+}
+
+async function collectDaySamples(
+	userId: string,
+	date: string,
+	tz: string,
+	places: readonly PlaceCoord[],
+): Promise<LabeledSample[]> {
 	const velResult = await computeVelocity(config, userId, date, tz);
 	const bounds = dateBoundsUtc(date, tz);
 	const biom = await loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz);
@@ -148,22 +187,77 @@ async function collectDaySamples(userId: string, date: string, tz: string): Prom
 		hr: biom.hr,
 		steps: biom.steps,
 	});
+
+	// Per-segment placeId: resolved once from the segment's GPS centroid
+	// (mean of all GPS-present minutes within the segment's time range),
+	// then applied to ALL minutes in that segment — including the indoor
+	// GPS-null minutes that dominate clinic / hospital / office stays.
+	// Per-minute GPS attribution missed these (Phase 2.5 v3 audit: only
+	// 8 of 27 places had enough samples). Per-segment fixes that:
+	// Cleveland Clinic's full hour of stationary minutes attributes to
+	// one placeId, not the 5 minutes that happened to have a GPS fix.
+	const segPlaceId = new Map<number, number | null>(); // by segment index
+	for (let i = 0; i < velResult.segments.length; i++) {
+		const seg = velResult.segments[i];
+		const segLat: number[] = [];
+		const segLon: number[] = [];
+		for (const o of tensor) {
+			if (o.ts < seg.startTs || o.ts >= seg.endTs) continue;
+			if (o.gps === null) continue;
+			segLat.push(o.gps.lat);
+			segLon.push(o.gps.lon);
+		}
+		if (segLat.length === 0) {
+			segPlaceId.set(i, null);
+			continue;
+		}
+		const meanLat = segLat.reduce((s, v) => s + v, 0) / segLat.length;
+		const meanLon = segLon.reduce((s, v) => s + v, 0) / segLon.length;
+		segPlaceId.set(i, nearestPlaceId(meanLat, meanLon, places));
+	}
+
 	const samples: LabeledSample[] = [];
 	for (const obs of tensor) {
-		const seg = heuristicModeForMinute(velResult.segments, obs.ts);
-		if (seg === null) continue;
+		// Find segment index (not just the segment) so we can look up
+		// per-segment placeId via segPlaceId.
+		let segIdx = -1;
+		for (let i = 0; i < velResult.segments.length; i++) {
+			const s = velResult.segments[i];
+			if (s.startTs <= obs.ts && obs.ts < s.endTs) {
+				segIdx = i;
+				break;
+			}
+		}
+		if (segIdx === -1) continue;
+		const seg = velResult.segments[segIdx];
 		const rawMode = seg.refinedMode ?? seg.mode;
 		const mode = asTransportMode(rawMode);
 		if (mode === null || mode === "unknown") continue;
+		const placeId = mode === "stationary" ? (segPlaceId.get(segIdx) ?? null) : null;
 		samples.push({
 			mode,
 			hr: obs.hr,
 			cadence: obs.cadence,
 			speedKmh: obs.gps !== null ? obs.gps.speedKmh : null,
 			gpsPresent: obs.gps !== null,
+			placeId,
 		});
 	}
 	return samples;
+}
+
+async function loadFocusPlaceCoords(userId: string): Promise<PlaceCoord[]> {
+	const rows = await db()
+		.selectFrom("focus_places")
+		.where("user_id", "=", userId)
+		.select(["id", "centroid_lat", "centroid_lon", "radius_m"])
+		.execute();
+	return rows.map((r) => ({
+		id: r.id,
+		lat: Number(r.centroid_lat),
+		lon: Number(r.centroid_lon),
+		radiusM: Number(r.radius_m),
+	}));
 }
 
 async function main(): Promise<void> {
@@ -175,6 +269,10 @@ async function main(): Promise<void> {
 	console.error(`# Range: ${args.fromDate} → ${args.toDate}`);
 	console.error(`# Version: ${args.version}`);
 	console.error(`# Skip blessed: ${args.skipBlessed} (${[...BLESSED_DAYS].join(", ")})`);
+	console.error();
+
+	const places = await loadFocusPlaceCoords(args.userId);
+	console.error(`# Loaded ${places.length} focus_place coordinates for GPS-centroid matching`);
 	console.error();
 
 	const allSamples: LabeledSample[] = [];
@@ -189,7 +287,7 @@ async function main(): Promise<void> {
 		}
 		try {
 			const t0 = Date.now();
-			const samples = await collectDaySamples(args.userId, date, args.tz);
+			const samples = await collectDaySamples(args.userId, date, args.tz, places);
 			const dt = Date.now() - t0;
 			console.error(`  [${date}] ${samples.length.toString().padStart(4)} labeled samples (${dt}ms)`);
 			allSamples.push(...samples);
@@ -211,6 +309,20 @@ async function main(): Promise<void> {
 		const fitted = fit.perMode[mode as keyof typeof fit.perMode];
 		const status = fitted === "fallback" ? "FALLBACK (< 50)" : "fitted";
 		console.error(`  ${mode.padEnd(12)} ${(count ?? 0).toString().padStart(6)}  ${status}`);
+	}
+	console.error();
+
+	const perPlaceCount = Object.keys(fit.perPlaceHr).length;
+	const placesWithSamples = Object.keys(fit.trainingSummary.samplesPerPlace).length;
+	console.error(`# Per-place HR: ${perPlaceCount} of ${placesWithSamples} known-place stationary clusters have a fit`);
+	const sortedPlaces = Object.entries(fit.trainingSummary.samplesPerPlace)
+		.map(([id, n]) => ({ id, n }))
+		.sort((a, b) => b.n - a.n)
+		.slice(0, 15);
+	for (const { id, n } of sortedPlaces) {
+		const f = fit.perPlaceHr[id];
+		const status = f ? `fitted (μ=${f.mean.toFixed(0)} σ=${f.std.toFixed(0)}, n=${f.sampleCount})` : "fallback (< 50)";
+		console.error(`  #${id.padEnd(5)} samples=${n.toString().padStart(5)}  ${status}`);
 	}
 	console.error();
 

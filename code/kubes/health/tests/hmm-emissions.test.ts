@@ -215,13 +215,76 @@ describe("buildEmissionFn", () => {
 			perMode: {
 				cycling: "fallback", // not enough cycling samples to fit
 			},
-			trainingSummary: { totalSampleCount: 0, samplesPerMode: { cycling: 5 } },
+			perPlaceHr: {},
+			trainingSummary: { totalSampleCount: 0, samplesPerMode: { cycling: 5 }, samplesPerPlace: {} },
 		};
 		const handTuned = buildEmissionFn({});
 		const learnedFn = buildEmissionFn({ learnedEmissions: learned });
 		const o = obs({ gps: { lat: 51.5, lon: -0.1, speedKmh: 18 }, hr: 130, cadence: 0 });
 		// cycling falls back to hand-tuned — scores must match.
 		expect(learnedFn(state("cycling"), o)).toBe(handTuned(state("cycling"), o));
+	});
+
+	it("per-place HR overrides per-mode HR for stationary @ knownPlace", () => {
+		// Per-place fit puts place 42's HR baseline at 120 (e.g., an
+		// elevated-HR location). Per-mode stationary fit stays at 70.
+		// At an observation with HR=120, stationary @ 42 should score
+		// HIGHER than stationary @ none (which uses per-mode 70).
+		const learned: LearnedEmissionParameters = {
+			perMode: {
+				stationary: {
+					gpsPresentProb: 0.85,
+					speed: { mean: 0, std: 2, sampleCount: 100 },
+					hr: { mean: 70, std: 15, sampleCount: 100 },
+					cadence: {
+						expectedZeroProb: 0.99,
+						positiveMean: 10,
+						positiveStd: 20,
+						positiveSampleCount: 1,
+						totalSampleCount: 100,
+					},
+				},
+			},
+			perPlaceHr: {
+				"42": { mean: 120, std: 8, sampleCount: 100 },
+			},
+			trainingSummary: { totalSampleCount: 100, samplesPerMode: { stationary: 100 }, samplesPerPlace: { "42": 100 } },
+		};
+		const fn = buildEmissionFn({ learnedEmissions: learned });
+		const o = obs({ hr: 120, cadence: 0, gps: null });
+		const at42 = fn(state("stationary", 42), o);
+		const atNone = fn(state("stationary", null), o);
+		// At HR=120, the per-place fit (μ=120) scores much higher than
+		// the per-mode fit (μ=70 σ=15: z=3.33).
+		expect(at42).toBeGreaterThan(atNone);
+	});
+
+	it("per-place HR falls through to per-mode when no per-place fit exists", () => {
+		// Place 999 has no per-place fit. Should score identically to
+		// stationary @ none on a HR=70 observation.
+		const learned: LearnedEmissionParameters = {
+			perMode: {
+				stationary: {
+					gpsPresentProb: 0.85,
+					speed: { mean: 0, std: 2, sampleCount: 100 },
+					hr: { mean: 70, std: 15, sampleCount: 100 },
+					cadence: {
+						expectedZeroProb: 0.99,
+						positiveMean: 10,
+						positiveStd: 20,
+						positiveSampleCount: 1,
+						totalSampleCount: 100,
+					},
+				},
+			},
+			perPlaceHr: { "42": { mean: 120, std: 8, sampleCount: 100 } },
+			trainingSummary: { totalSampleCount: 100, samplesPerMode: { stationary: 100 }, samplesPerPlace: {} },
+		};
+		const fn = buildEmissionFn({ learnedEmissions: learned });
+		const o = obs({ hr: 70, cadence: 0, gps: null });
+		// Place 999 has no fit → use per-mode (which is the same as
+		// stationary @ null since neither has place geometry).
+		expect(fn(state("stationary", 999), o)).toBe(fn(state("stationary", null), o));
 	});
 
 	it("never returns NaN or +Infinity", () => {

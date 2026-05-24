@@ -98,6 +98,7 @@ interface CliArgs {
 	tz: string;
 	dates: string[];
 	modelVersion: string | null;
+	render: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -107,12 +108,14 @@ function parseArgs(): CliArgs {
 	let days = 7;
 	let explicitDate: string | null = null;
 	let modelVersion: string | null = null;
+	let render = false;
 	for (let i = 0; i < args.length; i++) {
 		if (args[i] === "--user") userId = args[++i] ?? userId;
 		else if (args[i] === "--tz") tz = args[++i] ?? tz;
 		else if (args[i] === "--days") days = Number(args[++i] ?? days) || days;
 		else if (args[i] === "--date") explicitDate = args[++i] ?? null;
 		else if (args[i] === "--model") modelVersion = args[++i] ?? null;
+		else if (args[i] === "--render") render = true;
 	}
 	let dates: string[];
 	if (explicitDate) {
@@ -126,7 +129,7 @@ function parseArgs(): CliArgs {
 			dates.push(date.toISOString().slice(0, 10));
 		}
 	}
-	return { userId, tz, dates, modelVersion };
+	return { userId, tz, dates, modelVersion, render };
 }
 
 interface PlaceWithCoords extends FocusPlaceRef {
@@ -307,8 +310,64 @@ function formatTime(ts: number, tz: string): string {
 	return new Date(ts * 1000).toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
 }
 
+function heuristicRowFor(seg: EnrichedSegment): string {
+	const mode = seg.refinedMode ?? seg.mode;
+	const parts: string[] = [mode];
+	if (seg.place) parts.push(`@ ${seg.place}`);
+	if (seg.wayName) parts.push(`on ${seg.wayName}`);
+	return parts.join(" ");
+}
+
+function placeLabel(placeId: number, places: readonly PlaceWithCoords[]): string {
+	const p = places.find((q) => q.id === placeId);
+	if (!p) return `#${placeId}`;
+	return p.displayName ?? `#${placeId}`;
+}
+
+function hmmStateLabel(s: State, places: readonly PlaceWithCoords[]): string {
+	if (s.mode === "stationary") {
+		if (s.placeId === null) return "stationary @ (none)";
+		return `stationary @ ${placeLabel(s.placeId, places)}`;
+	}
+	if (s.mode === "train") return `train · ${s.lineName ?? "?"}`;
+	return s.mode;
+}
+
+function renderSideBySide(result: DayResult, places: readonly PlaceWithCoords[], tz: string): string {
+	const lines: string[] = [];
+	lines.push("");
+	lines.push("```");
+	lines.push("   Time           Heuristic                            HMM");
+	lines.push("   -------------  -----------------------------------  -----------------------------------");
+	type Row = { startMin: number; endMin: number; heur: string; hmm: string };
+	const rows: Row[] = [];
+	for (let m = 0; m < result.tensor.length; m++) {
+		const ts = result.tensor[m].ts;
+		const hSeg = result.heuristicSegments.find((s) => s.startTs <= ts && ts < s.endTs);
+		const heur = hSeg ? heuristicRowFor(hSeg) : "(no segment)";
+		const hmm = hmmStateLabel(result.hmmStates[m], places);
+		const prev = rows[rows.length - 1];
+		if (prev && prev.heur === heur && prev.hmm === hmm) {
+			prev.endMin = m;
+		} else {
+			rows.push({ startMin: m, endMin: m, heur, hmm });
+		}
+	}
+	for (const r of rows) {
+		const startTs = result.tensor[r.startMin].ts;
+		const endTs = r.endMin + 1 < result.tensor.length ? result.tensor[r.endMin + 1].ts : result.tensor[r.endMin].ts + 60;
+		const span = `${formatTime(startTs, tz)}-${formatTime(endTs, tz)}`;
+		const heurCol = r.heur.padEnd(36).slice(0, 36);
+		const hmmCol = r.hmm.padEnd(36).slice(0, 36);
+		const tag = r.heur === r.hmm ? "   " : " ≠ ";
+		lines.push(`${tag}${span.padEnd(13)}  ${heurCol} ${hmmCol}`);
+	}
+	lines.push("```");
+	return lines.join("\n");
+}
+
 async function main(): Promise<void> {
-	const { userId, tz, dates, modelVersion } = parseArgs();
+	const { userId, tz, dates, modelVersion, render } = parseArgs();
 	initPool(config.db);
 	await withConnection(migrate);
 
@@ -353,6 +412,9 @@ async function main(): Promise<void> {
 				for (const [k, v] of sorted) {
 					console.log(`  ${k}: ${v.count} min`);
 				}
+			}
+			if (render) {
+				console.log(renderSideBySide(result, focusPlaces, tz));
 			}
 		} catch (e) {
 			console.error(`  [${date}] FAILED: ${e}`);

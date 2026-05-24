@@ -255,6 +255,7 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 	const places = opts.placeCoords ?? null;
 	const hourProfiles = opts.placeHourProfiles ?? null;
 	const learned = opts.learnedEmissions ?? null;
+	const perPlaceHr = learned?.perPlaceHr ?? null;
 
 	// Pre-resolve effective per-mode priors: for each mode, either a
 	// learned fit (when `learnedEmissions.perMode[mode]` is present and
@@ -301,9 +302,22 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 		}
 
 		// HR: only if HR sample present (missing HR doesn't penalise
-		// any mode — the Fitbit-on-charger case).
+		// any mode — the Fitbit-on-charger case). Per-place HR fit
+		// (Phase 2.5: a clinic visit's HR baseline differs from Home's)
+		// overrides the per-mode HR when the state is
+		// `stationary @ knownPlace` AND a per-place fit exists. Falls
+		// through to per-mode (which itself may be learned) otherwise.
 		if (obs.hr !== null) {
-			logProb += logNormalPdf(obs.hr, prior.hrMean, prior.hrStd);
+			let hrMean = prior.hrMean;
+			let hrStd = prior.hrStd;
+			if (state.mode === "stationary" && state.placeId !== null && perPlaceHr !== null) {
+				const fit = perPlaceHr[String(state.placeId)];
+				if (fit !== undefined) {
+					hrMean = fit.mean;
+					hrStd = fit.std;
+				}
+			}
+			logProb += logNormalPdf(obs.hr, hrMean, hrStd);
 		}
 
 		// Cadence: only if step row present (null means "no row

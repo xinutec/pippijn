@@ -16,7 +16,13 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { fitPerModeEmissions, HR_STD_FLOOR, MIN_SAMPLES_PER_MODE, type LabeledSample } from "../src/hmm/fit-emissions.js";
+import {
+	fitPerModeEmissions,
+	HR_STD_FLOOR,
+	MIN_SAMPLES_PER_MODE,
+	MIN_SAMPLES_PER_PLACE,
+	type LabeledSample,
+} from "../src/hmm/fit-emissions.js";
 
 function sample(over: Partial<LabeledSample> = {}): LabeledSample {
 	return {
@@ -25,6 +31,7 @@ function sample(over: Partial<LabeledSample> = {}): LabeledSample {
 		cadence: 0,
 		speedKmh: 0,
 		gpsPresent: true,
+		placeId: null,
 		...over,
 	};
 }
@@ -156,6 +163,69 @@ describe("fitPerModeEmissions", () => {
 		const fit = fitPerModeEmissions([]);
 		expect(fit.trainingSummary.totalSampleCount).toBe(0);
 		expect(Object.keys(fit.perMode)).toHaveLength(0);
+		expect(Object.keys(fit.perPlaceHr)).toHaveLength(0);
+	});
+
+	it("fits per-place HR for stationary states with sufficient samples", () => {
+		// Two synthetic places with different HR baselines: place A
+		// peaked at 120, place B peaked at 65. A global per-mode
+		// stationary fit couldn't represent both well; per-place
+		// distinguishes them.
+		const samples: LabeledSample[] = [];
+		const rng = mulberry32(101);
+		for (let i = 0; i < 100; i++) {
+			samples.push(sample({ mode: "stationary", placeId: 42, hr: gaussianSample(rng, 120, 8) }));
+		}
+		for (let i = 0; i < 200; i++) {
+			samples.push(sample({ mode: "stationary", placeId: 1, hr: gaussianSample(rng, 65, 6) }));
+		}
+		const fit = fitPerModeEmissions(samples);
+		const placeHi = fit.perPlaceHr["42"];
+		const placeLo = fit.perPlaceHr["1"];
+		expect(placeHi).toBeDefined();
+		expect(placeLo).toBeDefined();
+		expect(Math.abs(placeHi.mean - 120)).toBeLessThan(3);
+		expect(Math.abs(placeLo.mean - 65)).toBeLessThan(2);
+		// Per-place fits are distinct (the whole point).
+		expect(Math.abs(placeHi.mean - placeLo.mean)).toBeGreaterThan(40);
+	});
+
+	it("drops per-place fits below MIN_SAMPLES_PER_PLACE — falls through to per-mode at inference", () => {
+		const samples: LabeledSample[] = [];
+		// Place 7: only 10 samples (insufficient).
+		for (let i = 0; i < 10; i++) samples.push(sample({ mode: "stationary", placeId: 7, hr: 80 }));
+		// Bulk stationary @ no place so the mode-level fit still happens.
+		for (let i = 0; i < MIN_SAMPLES_PER_MODE; i++) {
+			samples.push(sample({ mode: "stationary", placeId: null, hr: 70 }));
+		}
+		const fit = fitPerModeEmissions(samples);
+		expect(fit.perPlaceHr["7"]).toBeUndefined();
+		// summary still tracks the count, for diagnostics.
+		expect(fit.trainingSummary.samplesPerPlace["7"]).toBe(10);
+	});
+
+	it("ignores moving-mode samples for per-place fits (only stationary contributes)", () => {
+		const samples: LabeledSample[] = [];
+		// 100 walking samples labeled with placeId — shouldn't contribute
+		// per-place. (In reality moving modes set placeId=null, but
+		// defensive against a caller wiring it differently.)
+		for (let i = 0; i < 100; i++) {
+			samples.push(sample({ mode: "walking", placeId: 5, hr: 100 }));
+		}
+		const fit = fitPerModeEmissions(samples);
+		expect(fit.perPlaceHr["5"]).toBeUndefined();
+	});
+
+	it("skips samples with null HR for per-place fit (rest of sample still counted)", () => {
+		const samples: LabeledSample[] = [];
+		// 100 stationary @ place 9 with HR present.
+		for (let i = 0; i < 100; i++) samples.push(sample({ mode: "stationary", placeId: 9, hr: 70 }));
+		// 100 stationary @ place 9 with HR null — these contribute to
+		// samplesPerPlace count but not to the HR fit.
+		for (let i = 0; i < 100; i++) samples.push(sample({ mode: "stationary", placeId: 9, hr: null }));
+		const fit = fitPerModeEmissions(samples);
+		expect(fit.perPlaceHr["9"].sampleCount).toBe(100);
+		expect(fit.trainingSummary.samplesPerPlace["9"]).toBe(200);
 	});
 });
 
