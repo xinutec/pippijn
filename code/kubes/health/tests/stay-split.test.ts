@@ -1,5 +1,5 @@
 /**
- * Multi-signal weighted stay-split tests for honest-stays.ts.
+ * Multi-signal weighted stay-split tests for stay-split.ts.
  *
  * Pinned cases reflecting the conservative-by-design calibration:
  *
@@ -24,15 +24,15 @@
  *      regression in the first pass).
  *
  * The scoring helper `scoreSplitEvidence` is tested in isolation so
- * the per-signal contributions are pinned; `reEvaluateStaysWithEvidence`
+ * the per-signal contributions are pinned; `splitStaysOnEvidence`
  * is tested end-to-end on synthesised stay shapes.
  */
 
 import { describe, expect, it } from "vitest";
 import type { HrPoint, StepPoint } from "../src/geo/biometrics.js";
-import { reEvaluateStaysWithEvidence, scoreSplitEvidence } from "../src/geo/honest-stays.js";
 import type { FilteredPoint } from "../src/geo/kalman.js";
 import type { TrackSegment } from "../src/geo/segments.js";
+import { scoreSplitEvidence, splitStaysOnEvidence } from "../src/geo/stay-split.js";
 
 function fix(ts: number, lat: number, lon: number): FilteredPoint {
 	return { ts, lat, lon, speed_kmh: 0, bearing: 0 };
@@ -133,7 +133,7 @@ describe("scoreSplitEvidence", () => {
 	});
 });
 
-describe("reEvaluateStaysWithEvidence", () => {
+describe("splitStaysOnEvidence", () => {
 	it("splits a stay with clear in-gap walking activity (dense pre-gap + walking-rate steps + anomalous gap)", () => {
 		const t0 = 1_700_000_000;
 		const lat = 52.08008;
@@ -160,7 +160,7 @@ describe("reEvaluateStaysWithEvidence", () => {
 			hr.push({ ts: gapStart + m * 60, bpm: 105 });
 		}
 
-		const result = reEvaluateStaysWithEvidence([seg], points, { hr, steps });
+		const result = splitStaysOnEvidence([seg], points, { hr, steps });
 		const stays = result.filter((s) => s.mode === "stationary");
 		expect(stays.length, "walking-rate steps in gap should split the stay").toBeGreaterThanOrEqual(2);
 	});
@@ -180,7 +180,7 @@ describe("reEvaluateStaysWithEvidence", () => {
 			hr.push({ ts: t0 + m * 60, bpm: 70 });
 		}
 
-		const result = reEvaluateStaysWithEvidence([seg], points, { hr, steps });
+		const result = splitStaysOnEvidence([seg], points, { hr, steps });
 		const stays = result.filter((s) => s.mode === "stationary");
 		expect(stays.length, "parents'-pattern stay should remain a single stay").toBe(1);
 	});
@@ -202,7 +202,7 @@ describe("reEvaluateStaysWithEvidence", () => {
 			hr.push({ ts: t0 + m * 60, bpm: 110 });
 		}
 
-		const result = reEvaluateStaysWithEvidence([seg], points, { hr, steps });
+		const result = splitStaysOnEvidence([seg], points, { hr, steps });
 		const stays = result.filter((s) => s.mode === "stationary");
 		expect(stays.length, "in-gap walking activity should split the stay").toBeGreaterThanOrEqual(2);
 	});
@@ -230,7 +230,7 @@ describe("reEvaluateStaysWithEvidence", () => {
 			linearity: 0,
 			pointCount: 0,
 		};
-		const result = reEvaluateStaysWithEvidence([walking, unknown], [], { hr: [], steps: [] });
+		const result = splitStaysOnEvidence([walking, unknown], [], { hr: [], steps: [] });
 		expect(result).toEqual([walking, unknown]);
 	});
 });

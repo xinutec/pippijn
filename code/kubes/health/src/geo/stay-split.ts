@@ -1,6 +1,8 @@
 /**
- * Honest-gaps Phase 2: re-evaluate emitted stationary stays for hidden
- * mid-stay departures, using multi-signal weighted evidence.
+ * Re-evaluate emitted stationary stays for hidden mid-stay departures,
+ * using multi-signal weighted evidence. Companion to the segment-level
+ * `unknown` mode emission (honest-gaps Phase 1) — together they pull
+ * fabricated motion / over-merged stays back to what the data supports.
  *
  * `findStays` in `segments.ts` emits one stationary segment per spatial
  * cluster, but cannot tell from GPS alone whether a long gap between
@@ -175,7 +177,7 @@ export function scoreSplitEvidence(ev: GapEvidence): number {
  * Non-stationary segments and pointCount=0 synthetic segments are
  * passed through untouched. The output preserves segment order.
  */
-export function reEvaluateStaysWithEvidence(
+export function splitStaysOnEvidence(
 	segments: readonly TrackSegment[],
 	points: readonly FilteredPoint[],
 	ctx: SplitContext,

@@ -24,7 +24,6 @@ import {
 import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour, parseHourProfile } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
-import { reEvaluateStaysWithEvidence } from "./honest-stays.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
 import { correctModeBySignature, gateCycling, type ModeStats } from "./mode-biometrics.js";
@@ -48,6 +47,7 @@ import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import { interpolateTimes, type SnappedPoint } from "./rail-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
+import { splitStaysOnEvidence } from "./stay-split.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
 import { annotateUndergroundRuns } from "./underground-rail.js";
 
@@ -614,15 +614,15 @@ export async function computeVelocity(
 	// + modeStats inside the enrichment map, so await both biometric loads
 	// before the Promise.all. When it is off, the streams are only consumed
 	// after enrichment and we keep the original parallelism — except: we
-	// also need biometrics *now* to drive `reEvaluateStaysWithEvidence`
+	// also need biometrics *now* to drive `splitStaysOnEvidence`
 	// (the multi-signal weighted stay-split). That blocks the request
 	// path on the biom load; acceptable cost in exchange for honest
-	// mid-stay-departure detection (see honest-stays.ts).
+	// mid-stay-departure detection (see stay-split.ts).
 	const preEnrichBiometrics = biometricFactorOn ? await biometricsPromise : null;
 	const preEnrichModeStats = biometricFactorOn ? await modeStatsPromise : null;
 	const biomForStaySplit = preEnrichBiometrics ?? (await biometricsPromise);
 	const refinedSegments = timeSync("staySplit", () =>
-		reEvaluateStaysWithEvidence(segments, points, { hr: biomForStaySplit.hr, steps: biomForStaySplit.steps }),
+		splitStaysOnEvidence(segments, points, { hr: biomForStaySplit.hr, steps: biomForStaySplit.steps }),
 	);
 
 	// Enrich each (post-stay-split) segment with OSM data
