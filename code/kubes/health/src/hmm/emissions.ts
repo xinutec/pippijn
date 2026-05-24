@@ -64,17 +64,23 @@ export interface BuildEmissionFnOpts {
 	 *  the minute to the right state. */
 	placeCoords?: ReadonlyMap<number, { lat: number; lon: number }>;
 
-	/** Per-place hour-of-day visit profile, 24 normalised buckets
-	 *  summing to 1 (as mined into `focus_places.hour_profile`).
-	 *  When provided, `stationary @ placeId` gains a time-of-day
-	 *  log-prior boost: `log(24 × hour_profile[hourLocal])`. Positive
-	 *  at the place's typical hours, negative at unusual ones.
-	 *
-	 *  Addresses the Phase 1.5 audit's "stuck in train after the ride
-	 *  ends" residual: at 16:00 the boost makes `stationary @ Work`
-	 *  preferred over `train @ Victoria Line` even without GPS
-	 *  evidence at the transition minute. */
+	/** **Deprecated for emissions** — time-of-day boost now lives in the
+	 *  transition matrix as an entry-only event (see
+	 *  `buildTransitionMatrix`'s `placeHourProfiles`). Per-minute
+	 *  emission application accumulated to hundreds of nats over GPS-
+	 *  null overnight stays, flipping the MAP path away from `Home` to
+	 *  whichever Stay-place had the strongest night-time profile.
+	 *  Kept on the options shape for API stability; ignored. */
 	placeHourProfiles?: ReadonlyMap<number, readonly number[]>;
+
+	/** **Deprecated for emissions** — visit-frequency now lives only in
+	 *  the initial-state prior (`buildInitialStatePrior`). Per-minute
+	 *  emission boosts accumulate over long stays and let the HMM
+	 *  switch from `stationary @ Cleveland Clinic` to `stationary @
+	 *  Home` mid-visit (~+4 nats/min × 60 min easily beats the
+	 *  walking-transition path cost). Kept on the options shape for
+	 *  API stability; ignored by `buildEmissionFn`. */
+	placeVisitWeights?: ReadonlyMap<number, number>;
 }
 
 /** σ for the place-centroid Gaussian. Matches the
@@ -82,13 +88,6 @@ export interface BuildEmissionFnOpts {
  *  more than ~3σ away from a place is essentially "not at that
  *  place." */
 const PLACE_RADIUS_M = 150;
-
-/** Floor on the per-hour fraction when computing the time-of-day
- *  boost. A place with no recorded visits at hour H gets
- *  log(24 × 0.001) ≈ -3.73 nats, not -Infinity — focus_places
- *  mining can miss an hour for any reason; a hard-zero is too
- *  strong. */
-const HOUR_PROFILE_FLOOR = 0.001;
 
 /** Fixed log-prior for the off-network stationary state when the
  *  observation has a GPS fix. Calibrated so:
@@ -162,7 +161,11 @@ const MODE_PRIORS: Record<State["mode"], ModePrior> = {
 		gpsPresentProb: UNIFORM_GPS_PRESENT_PROB,
 		speedMean: 40,
 		speedStd: 20,
-		hrMean: 75,
+		// HR mean 70 (matching stationary + train) — driving is
+		// sedentary; HR shouldn't tip a GPS-null minute toward
+		// `driving` over `stationary`. Speed is the discriminator
+		// when GPS is present.
+		hrMean: 70,
 		hrStd: 15,
 		expectedZeroProb: 0.99,
 		cadencePositiveMean: 5,
@@ -172,7 +175,16 @@ const MODE_PRIORS: Record<State["mode"], ModePrior> = {
 		gpsPresentProb: UNIFORM_GPS_PRESENT_PROB,
 		speedMean: 50,
 		speedStd: 30,
-		hrMean: 75,
+		// HR mean 70 (matching stationary) — train is sedentary; HR
+		// shouldn't tip a GPS-null minute toward `train` over
+		// `stationary`. Phase 1.7 audit found train.hrMean=75 made
+		// slightly-elevated at-work HR (96, typical for typing /
+		// meetings) score 0.5 nat/min higher under `train` than
+		// `stationary`, accumulating over 90 min to dwarf the cost of
+		// a fake train detour mid-workday. Speed remains the train-
+		// vs-stationary discriminator (positive when GPS is present;
+		// uninformative when GPS is null, as it should be).
+		hrMean: 70,
 		hrStd: 15,
 		expectedZeroProb: 0.99,
 		cadencePositiveMean: 5,
@@ -226,8 +238,6 @@ function logCadencePdf(cadence: number, prior: ModePrior): number {
 	return positiveMix + logNormalPdf(cadence, prior.cadencePositiveMean, prior.cadencePositiveStd);
 }
 
-const M_PER_DEG_LAT = 111_320;
-
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
 	const R = 6_371_000;
 	const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -240,7 +250,8 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 
 export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProbFn {
 	const places = opts.placeCoords ?? null;
-	const hourProfiles = opts.placeHourProfiles ?? null;
+	// placeHourProfiles + placeVisitWeights deliberately not destructured.
+	// Both moved out of emission per Phase 1.7 audit — see field docs.
 	return (state: State, obs: Observation): number => {
 		const prior = MODE_PRIORS[state.mode];
 		let logProb = 0;
@@ -251,6 +262,17 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 		// Speed: only if GPS present (no speed without a fix).
 		if (obs.gps !== null) {
 			logProb += logNormalPdf(obs.gps.speedKmh, prior.speedMean, prior.speedStd);
+		} else if (state.mode === "plane") {
+			// GPS-null cannot reasonably indicate plane — being in the
+			// air is exactly when GPS is most LIKELY to be present
+			// (clear sky view; flight-mode toggles aside). Without
+			// this penalty, the Phase 1.6 render audit showed the HMM
+			// bridging through `plane` at every hour boundary between
+			// alternative `stationary @ place` states because plane's
+			// HR mean (70) matches resting and no speed evidence
+			// constrains it. A strong negative on GPS-null forces
+			// the HMM to prefer walking or a slower bridge.
+			logProb += -8;
 		}
 
 		// HR: only if HR sample present (missing HR doesn't penalise
@@ -265,17 +287,8 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 			logProb += logCadencePdf(obs.cadence, prior);
 		}
 
-		// Time-of-day prior for stationary @ known-place. Fires every
-		// minute regardless of GPS presence — the hour is always
-		// known. Boost = log(24 × hour_profile[h]), with a floor to
-		// avoid hard-zeroing places that lack data for a given hour.
-		if (state.mode === "stationary" && state.placeId !== null && hourProfiles !== null) {
-			const profile = hourProfiles.get(state.placeId);
-			if (profile !== undefined && profile.length === 24) {
-				const f = Math.max(profile[obs.hourLocal], HOUR_PROFILE_FLOOR);
-				logProb += Math.log(24 * f);
-			}
-		}
+		// Time-of-day prior moved to transitions (Phase 1.7) — see
+		// `placeHourProfiles` field doc.
 
 		// Place-distance emission for stationary states. Without this
 		// term, the HMM has no way to attribute a stationary GPS fix

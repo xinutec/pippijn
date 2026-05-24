@@ -37,6 +37,7 @@ import { stationsOnLine } from "../geo/line-stations.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, type EnrichedSegment, loadBiometrics } from "../geo/velocity.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
+import { buildInitialStatePrior } from "../hmm/initial-state.js";
 import { buildObservationTensor, type Observation } from "../hmm/observation.js";
 import { buildStateSpace, type FocusPlaceRef, type State, stateKey } from "../hmm/state-space.js";
 import { buildTransitionMatrix } from "../hmm/transitions.js";
@@ -96,6 +97,7 @@ interface CliArgs {
 	userId: string;
 	tz: string;
 	dates: string[];
+	render: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -104,11 +106,13 @@ function parseArgs(): CliArgs {
 	let tz = "Europe/London";
 	let days = 7;
 	let explicitDate: string | null = null;
+	let render = false;
 	for (let i = 0; i < args.length; i++) {
 		if (args[i] === "--user") userId = args[++i] ?? userId;
 		else if (args[i] === "--tz") tz = args[++i] ?? tz;
 		else if (args[i] === "--days") days = Number(args[++i] ?? days) || days;
 		else if (args[i] === "--date") explicitDate = args[++i] ?? null;
+		else if (args[i] === "--render") render = true;
 	}
 	let dates: string[];
 	if (explicitDate) {
@@ -122,20 +126,21 @@ function parseArgs(): CliArgs {
 			dates.push(date.toISOString().slice(0, 10));
 		}
 	}
-	return { userId, tz, dates };
+	return { userId, tz, dates, render };
 }
 
 interface PlaceWithCoords extends FocusPlaceRef {
 	lat: number;
 	lon: number;
 	hourProfile: readonly number[] | null;
+	totalDwellSec: number;
 }
 
 async function loadFocusPlacesForUser(userId: string): Promise<PlaceWithCoords[]> {
 	const rows = await db()
 		.selectFrom("focus_places")
 		.where("user_id", "=", userId)
-		.select(["id", "display_name", "centroid_lat", "centroid_lon", "hour_profile"])
+		.select(["id", "display_name", "centroid_lat", "centroid_lon", "hour_profile", "total_dwell_sec"])
 		.execute();
 	return rows.map((r) => ({
 		id: r.id,
@@ -143,6 +148,7 @@ async function loadFocusPlacesForUser(userId: string): Promise<PlaceWithCoords[]
 		lat: Number(r.centroid_lat),
 		lon: Number(r.centroid_lon),
 		hourProfile: parseHourProfile(r.hour_profile),
+		totalDwellSec: Number(r.total_dwell_sec),
 	}));
 }
 
@@ -205,20 +211,26 @@ async function decodeDay(
 	const states = buildStateSpace({ focusPlaces: cache.focusPlaces, knownLines: KNOWN_LINES });
 	const placeCoords = new Map<number, { lat: number; lon: number }>();
 	const placeHourProfiles = new Map<number, readonly number[]>();
+	const placeVisitWeights = new Map<number, number>();
+	const totalDwell = cache.focusPlaces.reduce((s, p) => s + p.totalDwellSec, 0);
 	for (const p of cache.focusPlaces) {
 		placeCoords.set(p.id, { lat: p.lat, lon: p.lon });
 		if (p.hourProfile !== null) placeHourProfiles.set(p.id, p.hourProfile);
+		placeVisitWeights.set(p.id, totalDwell > 0 ? p.totalDwellSec / totalDwell : 1 / cache.focusPlaces.length);
 	}
 	const transition = buildTransitionMatrix({
 		states,
 		placeNearLine: (placeId, lineName) => cache.placeNearLine.has(`${placeId}|${lineName}`),
+		placeHourProfiles,
 	});
-	const emission = buildEmissionFn({ placeCoords, placeHourProfiles });
+	const emission = buildEmissionFn({ placeCoords });
+	const initialLogProb = buildInitialStatePrior({ placeVisitWeights });
 	const hmmStates = viterbi({
 		observations: tensor,
 		states,
 		transitionLogProb: transition,
 		emissionLogProb: emission,
+		initialLogProb,
 	});
 	const dt = Date.now() - t0;
 	console.error(
@@ -280,8 +292,70 @@ function formatTime(ts: number, tz: string): string {
 	return new Date(ts * 1000).toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
 }
 
+function heuristicRowFor(seg: EnrichedSegment): string {
+	const mode = seg.refinedMode ?? seg.mode;
+	const parts: string[] = [mode];
+	if (seg.place) parts.push(`@ ${seg.place}`);
+	if (seg.wayName) parts.push(`on ${seg.wayName}`);
+	return parts.join(" ");
+}
+
+function placeLabelFor(placeId: number, places: readonly PlaceWithCoords[]): string {
+	const p = places.find((q) => q.id === placeId);
+	if (!p) return `#${placeId}`;
+	return p.displayName ?? `#${placeId}`;
+}
+
+function hmmStateLabel(s: State, places: readonly PlaceWithCoords[]): string {
+	if (s.mode === "stationary") {
+		if (s.placeId === null) return "stationary @ (none)";
+		return `stationary @ ${placeLabelFor(s.placeId, places)}`;
+	}
+	if (s.mode === "train") return `train · ${s.lineName ?? "?"}`;
+	return s.mode;
+}
+
+/** Render the day's heuristic + HMM side-by-side. Output is a
+ *  three-column table: time range / heuristic / HMM. Adjacent rows
+ *  with the same (heuristic, HMM) tuple are merged. */
+function renderSideBySide(result: DayResult, places: readonly PlaceWithCoords[], tz: string): string {
+	const lines: string[] = [];
+	lines.push("");
+	lines.push("```");
+	lines.push("   Time           Heuristic                            HMM");
+	lines.push("   -------------  -----------------------------------  -----------------------------------");
+	// For each minute, format heuristic + HMM label. Merge adjacent
+	// minutes with identical (heur, hmm) tuples.
+	type Row = { startMin: number; endMin: number; heur: string; hmm: string };
+	const rows: Row[] = [];
+	for (let m = 0; m < result.tensor.length; m++) {
+		const ts = result.tensor[m].ts;
+		const hSeg = result.heuristicSegments.find((s) => s.startTs <= ts && ts < s.endTs);
+		const heur = hSeg ? heuristicRowFor(hSeg) : "(no segment)";
+		const hmm = hmmStateLabel(result.hmmStates[m], places);
+		const prev = rows[rows.length - 1];
+		if (prev && prev.heur === heur && prev.hmm === hmm) {
+			prev.endMin = m;
+		} else {
+			rows.push({ startMin: m, endMin: m, heur, hmm });
+		}
+	}
+	for (const r of rows) {
+		const startTs = result.tensor[r.startMin].ts;
+		const endTs =
+			r.endMin + 1 < result.tensor.length ? result.tensor[r.endMin + 1].ts : result.tensor[r.endMin].ts + 60;
+		const span = `${formatTime(startTs, tz)}-${formatTime(endTs, tz)}`;
+		const heurCol = r.heur.padEnd(36).slice(0, 36);
+		const hmmCol = r.hmm.padEnd(36).slice(0, 36);
+		const tag = r.heur === r.hmm ? "   " : " ≠ ";
+		lines.push(`${tag}${span.padEnd(13)}  ${heurCol} ${hmmCol}`);
+	}
+	lines.push("```");
+	return lines.join("\n");
+}
+
 async function main(): Promise<void> {
-	const { userId, tz, dates } = parseArgs();
+	const { userId, tz, dates, render } = parseArgs();
 	initPool(config.db);
 	await withConnection(migrate);
 
@@ -324,6 +398,9 @@ async function main(): Promise<void> {
 				for (const [k, v] of sorted) {
 					console.log(`  ${k}: ${v.count} min`);
 				}
+			}
+			if (render) {
+				console.log(renderSideBySide(result, focusPlaces, tz));
 			}
 		} catch (e) {
 			console.error(`  [${date}] FAILED: ${e}`);
