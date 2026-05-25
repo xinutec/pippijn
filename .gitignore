@@ -1,6 +1,7 @@
 # Cache and generated or secret configs.
 /.bash_history
 /.cache
+/node_modules
 /.docker
 /.gnupg
 /.keychain
