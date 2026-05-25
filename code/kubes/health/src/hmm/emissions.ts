@@ -154,6 +154,35 @@ interface ModePrior {
 // place-distance, which are actually discriminative.
 const UNIFORM_GPS_PRESENT_PROB = 0.85;
 
+/** Per-minute log P(mode) prior — the unconditional rate at which
+ *  the user is in each mode across all hours of the day. Applied
+ *  per-minute regardless of other evidence. Stationary dominates
+ *  because that's the empirical reality: most life-minutes are
+ *  spent in one place.
+ *
+ *  Why per-minute here (and NOT also per-place): the per-place
+ *  hour-of-day choice fires once per segment at entry — see
+ *  `entry-prior.ts`. The mode-level rate is independent of the
+ *  specific place and applies every minute. It restores the
+ *  "stay continuation" pressure that the per-minute hour-of-day
+ *  boost was incidentally providing before the entry-prior move
+ *  (post-move the HSMM over-classified daytime stays as movement
+ *  because nothing pulled per-minute toward stationary).
+ *
+ *  Empirical: pippijn's life is ~70% stationary (Home/Work/Clinic),
+ *  ~10% walking, ~5% train, occasional driving, rare cycling/plane.
+ *  Sums roughly to 1; we don't strictly normalise because the
+ *  log-likelihood scoring is unaffected by global constants. */
+const MODE_PRIOR_LOG: Record<State["mode"], number> = {
+	stationary: Math.log(0.7),
+	walking: Math.log(0.1),
+	cycling: Math.log(0.01),
+	driving: Math.log(0.02),
+	train: Math.log(0.05),
+	plane: Math.log(0.005),
+	unknown: Math.log(0.1),
+};
+
 /** P(Fitbit-tracked sleep at this minute | mode) — a soft factor
  *  applied per-minute when `obs.inBed === true`. Calibrated such
  *  that combined across a typical overnight (~480 minutes asleep):
@@ -328,6 +357,11 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 	return (state: State, obs: Observation): number => {
 		const prior = effectivePriors[state.mode];
 		let logProb = 0;
+
+		// Per-minute mode prior — `log P(mode)` independent of evidence.
+		// Stationary is the default daytime state; movement modes need
+		// positive evidence to overcome the prior. See MODE_PRIOR_LOG.
+		logProb += MODE_PRIOR_LOG[state.mode];
 
 		// GPS-present Bernoulli — fires every minute.
 		logProb += logBernoulli(obs.gps !== null, prior.gpsPresentProb);
