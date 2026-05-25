@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: health-decode-recent
+  namespace: health
+spec:
+  # Daily at 06:00 UTC — after focus-refresh (Sunday 04:00) and
+  # rail-refresh (daily 05:00) so the HSMM decode sees fresh
+  # focus_places + rail geometry inputs. ~15s per day × 7 days
+  # per user → ~2 min for the single-user fleet.
+  schedule: "0 6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: decode
+              image: xinutec/health-sync:latest
+              command: ["node", "dist/cli/decode-day.js", "--user", "pippijn", "--tz", "Europe/London", "--days", "7"]
+              env:
+                - name: DB_HOST
+                  value: health-db
+                - name: DB_NAME
+                  value: health
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_PASSWORD
+                - name: NC_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: NC_CLIENT_ID
+                - name: NC_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: NC_CLIENT_SECRET
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 1000m
+                  memory: 768Mi
