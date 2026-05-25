@@ -108,6 +108,16 @@ export const MIN_SAMPLES_PER_PLACE = 50;
  *  rest); a fit smaller than this is overconfident. */
 export const HR_STD_FLOOR = 5;
 
+/** Per-place HR fits use a tighter sample threshold (50+) but still
+ *  have far less data than per-mode fits (thousands of samples).
+ *  Without a wider floor, narrow per-place σ values (5-7 from ~100
+ *  samples) cause rare places to dominate Home overnight just
+ *  because the tight Gaussian happens to land closer to the
+ *  observed HR. Floor matches the per-mode global stationary scale
+ *  (~12) so per-place can pull the distribution centre but not
+ *  overfit its width. */
+export const PER_PLACE_HR_STD_FLOOR = 12;
+
 /** Floor on speed stddev. Similar rationale. */
 const SPEED_STD_FLOOR = 1;
 
@@ -216,7 +226,7 @@ export function fitPerModeEmissions(samples: readonly LabeledSample[]): LearnedE
 	const perPlaceHr: Record<string, GaussianFit> = {};
 	for (const [placeId, hrValues] of stationaryByPlace.entries()) {
 		if (hrValues.length < MIN_SAMPLES_PER_PLACE) continue;
-		perPlaceHr[String(placeId)] = fitGaussian(hrValues, HR_STD_FLOOR);
+		perPlaceHr[String(placeId)] = fitGaussian(hrValues, PER_PLACE_HR_STD_FLOOR);
 	}
 
 	return {

@@ -114,6 +114,27 @@ const PLACE_DISTANCE_FLOOR = -3;
  *  strong. */
 const HOUR_PROFILE_FLOOR = 0.001;
 
+/** Hyper-prior on per-place HR for stationary @ known-place states
+ *  that don't have a per-place fit (insufficient training data).
+ *  Wide resting baseline. NOT the per-mode learned distribution,
+ *  which pools all stationary minutes and is dominated by Work-
+ *  elevated-HR data (μ≈75), making unfitted places spuriously
+ *  beat fitted places like Home (μ≈69) at HR=75. */
+const HYPER_PLACE_HR_MEAN = 70;
+const HYPER_PLACE_HR_STD = 15;
+
+/** Sleep-state HR override. When `obs.inBed === true`, the user's
+ *  HR is dominated by their asleep / resting baseline (typically
+ *  55-65bpm), not by per-place patterns — your sleep HR doesn't
+ *  depend on which bed. Without this override, per-place HR fits
+ *  trained on daytime visits (Home μ=69) get beaten by
+ *  whichever rare place happens to have been visited at sleep
+ *  times (e.g. a hotel stay during travel; μ=64 from those
+ *  overnight minutes), causing overnight place-bouncing. The
+ *  sleep override re-anchors place attribution at rest. */
+const ASLEEP_HR_MEAN = 58;
+const ASLEEP_HR_STD = 10;
+
 /** Fixed log-prior for the off-network stationary state when the
  *  observation has a GPS fix. Calibrated against the floored
  *  place-distance penalty so:
@@ -354,16 +375,38 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 		// any mode — the Fitbit-on-charger case). Per-place HR fit
 		// (Phase 2.5: a clinic visit's HR baseline differs from Home's)
 		// overrides the per-mode HR when the state is
-		// `stationary @ knownPlace` AND a per-place fit exists. Falls
-		// through to per-mode (which itself may be learned) otherwise.
+		// `stationary @ knownPlace` AND a per-place fit exists.
+		//
+		// For stationary @ knownPlace WITHOUT a per-place fit, use a
+		// hyper-prior (wide resting baseline) rather than inheriting
+		// the per-mode learned distribution. Per-mode-learned is
+		// pooled across all stationary minutes — dominated by
+		// Work/Stay minutes with elevated HR — so it'd score HR=75
+		// HIGHER for an unfitted place than for Home with its
+		// per-place fit at μ=69. The hyper-prior reflects "we don't
+		// know this place's typical HR; assume wide resting."
 		if (obs.hr !== null) {
 			let hrMean = prior.hrMean;
 			let hrStd = prior.hrStd;
-			if (state.mode === "stationary" && state.placeId !== null && perPlaceHr !== null) {
-				const fit = perPlaceHr[String(state.placeId)];
-				if (fit !== undefined) {
-					hrMean = fit.mean;
-					hrStd = fit.std;
+			if (state.mode === "stationary" && state.placeId !== null) {
+				if (obs.inBed) {
+					// At sleep, P(HR | place X) ≈ P(HR | asleep) regardless of X.
+					// Use the universal asleep-HR distribution so place
+					// attribution falls to the other factors (visit-frequency
+					// init prior + place-distance) rather than per-place HR
+					// idiosyncrasies from limited training data.
+					hrMean = ASLEEP_HR_MEAN;
+					hrStd = ASLEEP_HR_STD;
+				} else {
+					const fit = perPlaceHr !== null ? perPlaceHr[String(state.placeId)] : undefined;
+					if (fit !== undefined) {
+						hrMean = fit.mean;
+						hrStd = fit.std;
+					} else {
+						// Hyper-prior for known place with no per-place fit.
+						hrMean = HYPER_PLACE_HR_MEAN;
+						hrStd = HYPER_PLACE_HR_STD;
+					}
 				}
 			}
 			logProb += logNormalPdf(obs.hr, hrMean, hrStd);

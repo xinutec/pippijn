@@ -43,6 +43,7 @@ import {
 	logDurationProb,
 } from "../hmm/duration-dist.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
+import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import type { LearnedEmissionParameters } from "../hmm/fit-emissions.js";
 import { hsmmMarginals, type Marginals } from "../hmm/hsmm-marginals.js";
 import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
@@ -273,10 +274,19 @@ async function decodeDay(
 	const velResult = await computeVelocity(config, userId, date, tz);
 	const bounds = dateBoundsUtc(date, tz);
 	const biom = await loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz);
+	// HMM-specific GPS outlier filter (more aggressive than the
+	// velocity-pipeline qualityFilterGps, which preserves no-bridge
+	// sustained-motion fixes by design). Drops fixes outside the
+	// recent-window cluster median — eliminates the rogue stale-buffer
+	// fixes that otherwise drive overnight place-bouncing.
+	// HMM-specific GPS outlier filter (more aggressive than the
+	// velocity-pipeline qualityFilterGps which preserves no-bridge
+	// sustained-motion fixes by design).
+	const cleanedPoints = dropGpsOutliers(velResult.points);
 	const tensor = buildObservationTensor({
 		date,
 		tz,
-		points: velResult.points,
+		points: cleanedPoints,
 		hr: biom.hr,
 		steps: biom.steps,
 		sleep: biom.sleep,
