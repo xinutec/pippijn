@@ -65,18 +65,6 @@ export interface BuildEmissionFnOpts {
 	 *  the minute to the right state. */
 	placeCoords?: ReadonlyMap<number, { lat: number; lon: number }>;
 
-	/** Per-place hour-of-day visit profile, 24 normalised buckets
-	 *  summing to 1 (as mined into `focus_places.hour_profile`).
-	 *  When provided, `stationary @ placeId` gains a time-of-day
-	 *  log-prior boost: `log(24 × hour_profile[hourLocal])`. Positive
-	 *  at the place's typical hours, negative at unusual ones.
-	 *
-	 *  Addresses the Phase 1.5 audit's "stuck in train after the ride
-	 *  ends" residual: at 16:00 the boost makes `stationary @ Work`
-	 *  preferred over `train @ Victoria Line` even without GPS
-	 *  evidence at the transition minute. */
-	placeHourProfiles?: ReadonlyMap<number, readonly number[]>;
-
 	/** Phase 2: learned per-mode emission distributions fit from
 	 *  heuristic-labeled minutes. When provided, the per-mode
 	 *  parameters in `learnedEmissions.perMode[mode]` OVERRIDE the
@@ -106,13 +94,6 @@ const PLACE_RADIUS_M = 150;
  *  (≈1% × log) so the HMM weighs a single rogue fix evidentially
  *  rather than letting it veto a high-prior place. */
 const PLACE_DISTANCE_FLOOR = -3;
-
-/** Floor on the per-hour fraction when computing the time-of-day
- *  boost. A place with no recorded visits at hour H gets
- *  log(24 × 0.001) ≈ -3.73 nats, not -Infinity — focus_places
- *  mining can miss an hour for any reason; a hard-zero is too
- *  strong. */
-const HOUR_PROFILE_FLOOR = 0.001;
 
 /** Hyper-prior on per-place HR for stationary @ known-place states
  *  that don't have a per-place fit (insufficient training data).
@@ -309,7 +290,6 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 
 export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProbFn {
 	const places = opts.placeCoords ?? null;
-	const hourProfiles = opts.placeHourProfiles ?? null;
 	const learned = opts.learnedEmissions ?? null;
 	const perPlaceHr = learned?.perPlaceHr ?? null;
 
@@ -427,18 +407,6 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 		// constraint — strong evidence can still override.
 		if (obs.inBed) {
 			logProb += Math.log(IN_BED_PROB_BY_MODE[state.mode]);
-		}
-
-		// Time-of-day prior for stationary @ known-place. Fires every
-		// minute regardless of GPS presence — the hour is always
-		// known. Boost = log(24 × hour_profile[h]), with a floor to
-		// avoid hard-zeroing places that lack data for a given hour.
-		if (state.mode === "stationary" && state.placeId !== null && hourProfiles !== null) {
-			const profile = hourProfiles.get(state.placeId);
-			if (profile !== undefined && profile.length === 24) {
-				const f = Math.max(profile[obs.hourLocal], HOUR_PROFILE_FLOOR);
-				logProb += Math.log(24 * f);
-			}
 		}
 
 		// Place-distance emission for stationary states. Without this

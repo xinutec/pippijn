@@ -57,6 +57,12 @@ export interface HsmmInput<State, Obs> {
 	durationLogProb: (state: State, durationMinutes: number) => number;
 	/** Optional initial-state log-prob at t=0. Default uniform 0. */
 	initialLogProb?: (state: State) => number;
+	/** Optional per-segment-entry log-prior, applied at t=0 and at
+	 *  every new-segment transition (when a fresh segment of state s
+	 *  begins at time t). Use for factors that should fire ONCE per
+	 *  segment rather than per-minute — e.g. hour-of-day arrival
+	 *  rate. Default 0 (no entry prior). */
+	entryLogProb?: (state: State, obs: Obs) => number;
 	/** Cap on the within-trellis duration counter. Segments
 	 *  effectively can't exceed this length. Default 240 (4 hours)
 	 *  — should be at least longer than the realistic max stay
@@ -67,12 +73,14 @@ export interface HsmmInput<State, Obs> {
 const DEFAULT_MAX_DURATION = 240;
 
 export function hsmmViterbi<State, Obs>(input: HsmmInput<State, Obs>): State[] {
-	const { observations, states, transitionLogProb, emissionLogProb, durationLogProb, initialLogProb } = input;
+	const { observations, states, transitionLogProb, emissionLogProb, durationLogProb, initialLogProb, entryLogProb } =
+		input;
 	const T = observations.length;
 	const S = states.length;
 	const MAX_D = input.maxDurationMinutes ?? DEFAULT_MAX_DURATION;
 	if (T === 0 || S === 0) return [];
 	const initFn = initialLogProb ?? ((): number => 0);
+	const entryFn = entryLogProb ?? ((): number => 0);
 
 	// trellis[s][τ] = max log-prob ending now in state s with segment-length τ.
 	// Rolling: keep current and previous time step.
@@ -100,7 +108,7 @@ export function hsmmViterbi<State, Obs>(input: HsmmInput<State, Obs>): State[] {
 	// t = 0: initial state. Only τ=1 entries are valid; rest stay at -∞.
 	for (let s = 0; s < S; s++) {
 		const emit = emissionLogProb(states[s], observations[0]);
-		prev[idx(s, 1)] = initFn(states[s]) + emit;
+		prev[idx(s, 1)] = initFn(states[s]) + entryFn(states[s], observations[0]) + emit;
 		// no backpointer needed at t=0
 	}
 
@@ -165,7 +173,7 @@ export function hsmmViterbi<State, Obs>(input: HsmmInput<State, Obs>): State[] {
 				}
 			}
 			if (bestNewScore !== Number.NEGATIVE_INFINITY) {
-				cur[idx(s, 1)] = bestNewScore + emit;
+				cur[idx(s, 1)] = bestNewScore + entryFn(states[s], obs) + emit;
 				backPrev[t][s] = bestPrevState;
 				backTau[t][s] = bestPrevTau;
 			}

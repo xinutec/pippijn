@@ -58,6 +58,9 @@ export interface HsmmMarginalsInput<State, Obs> {
 	emissionLogProb: (state: State, obs: Obs) => number;
 	durationLogProb: (state: State, durationMinutes: number) => number;
 	initialLogProb?: (state: State) => number;
+	/** See {@link HsmmInput.entryLogProb} — applied at t=0 and at each
+	 *  new-segment transition. Default 0 (no entry prior). */
+	entryLogProb?: (state: State, obs: Obs) => number;
 	maxDurationMinutes?: number;
 }
 
@@ -84,12 +87,14 @@ export function hsmmMarginals<State, Obs>(
 	marginals: Marginals;
 	logZ: number;
 } {
-	const { observations, states, transitionLogProb, emissionLogProb, durationLogProb, initialLogProb } = input;
+	const { observations, states, transitionLogProb, emissionLogProb, durationLogProb, initialLogProb, entryLogProb } =
+		input;
 	const T = observations.length;
 	const S = states.length;
 	const MAX_D = input.maxDurationMinutes ?? DEFAULT_MAX_DURATION;
 	if (T === 0 || S === 0) return { marginals: [], logZ: Number.NEGATIVE_INFINITY };
 	const initFn = initialLogProb ?? ((): number => 0);
+	const entryFn = entryLogProb ?? ((): number => 0);
 
 	const idx = (s: number, tau: number): number => s * MAX_D + (tau - 1); // 1-indexed tau
 
@@ -101,9 +106,10 @@ export function hsmmMarginals<State, Obs>(
 		alpha[t].fill(Number.NEGATIVE_INFINITY);
 	}
 
-	// t = 0: only τ=1 valid; initial prior + first-minute emission.
+	// t = 0: only τ=1 valid; initial prior + entry prior + first-minute emission.
 	for (let s = 0; s < S; s++) {
-		alpha[0][idx(s, 1)] = initFn(states[s]) + emissionLogProb(states[s], observations[0]);
+		alpha[0][idx(s, 1)] =
+			initFn(states[s]) + entryFn(states[s], observations[0]) + emissionLogProb(states[s], observations[0]);
 	}
 
 	for (let t = 1; t < T; t++) {
@@ -149,7 +155,7 @@ export function hsmmMarginals<State, Obs>(
 				acc = logSumExp(acc, cm + trans);
 			}
 			if (acc !== Number.NEGATIVE_INFINITY) {
-				aCur[idx(s, 1)] = acc + emit;
+				aCur[idx(s, 1)] = acc + entryFn(states[s], obs) + emit;
 			}
 		}
 	}

@@ -38,6 +38,7 @@ import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, type EnrichedSegment, loadBiometrics } from "../geo/velocity.js";
 import { DEFAULT_MIN_DURATION_BY_MODE, type GammaFit, logDurationProb } from "../hmm/duration-dist.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
+import { buildEntryPrior } from "../hmm/entry-prior.js";
 import type { LearnedEmissionParameters } from "../hmm/fit-emissions.js";
 import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { hsmmMarginals, type Marginals } from "../hmm/hsmm-marginals.js";
@@ -302,10 +303,10 @@ async function decodeDay(
 	});
 	const emission = buildEmissionFn({
 		placeCoords,
-		placeHourProfiles,
 		learnedEmissions: cache.learnedEmissions ?? undefined,
 	});
 	const initialLogProb = buildInitialStatePrior({ placeVisitWeights });
+	const entryLogProb = buildEntryPrior({ placeHourProfiles });
 	const hmmStates = cache.useHsmm
 		? hsmmViterbi({
 				observations: tensor,
@@ -313,6 +314,7 @@ async function decodeDay(
 				transitionLogProb: transition,
 				emissionLogProb: emission,
 				initialLogProb,
+				entryLogProb,
 				durationLogProb: (state, d) =>
 					logDurationProb(d, state.mode, BASELINE_DURATION_FITS[state.mode], DEFAULT_MIN_DURATION_BY_MODE[state.mode]),
 			})
@@ -331,6 +333,7 @@ async function decodeDay(
 			transitionLogProb: transition,
 			emissionLogProb: emission,
 			initialLogProb,
+			entryLogProb,
 			durationLogProb: (state, d) =>
 				logDurationProb(d, state.mode, BASELINE_DURATION_FITS[state.mode], DEFAULT_MIN_DURATION_BY_MODE[state.mode]),
 		});

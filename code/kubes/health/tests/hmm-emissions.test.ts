@@ -129,52 +129,8 @@ describe("buildEmissionFn", () => {
 		expect(withPlaceScore).toBe(withoutPlaceScore);
 	});
 
-	it("applies time-of-day boost when placeHourProfiles is provided", () => {
-		// Work has a profile peaked at 14:00 (10% of visits at that hour);
-		// quiet at 04:00 (1%).
-		const workProfile = new Array(24).fill(0.04);
-		workProfile[14] = 0.1;
-		workProfile[4] = 0.01;
-		const emissionTod = buildEmissionFn({
-			placeCoords,
-			placeHourProfiles: new Map([[1, workProfile]]),
-		});
-		const at14 = obs({ ts: 1_700_000_000, hourLocal: 14, gps: null, hr: 80, cadence: null });
-		const at04 = obs({ ts: 1_700_000_000, hourLocal: 4, gps: null, hr: 80, cadence: null });
-		const score14 = emissionTod(state("stationary", 1), at14);
-		const score04 = emissionTod(state("stationary", 1), at04);
-		// The 14:00 score gets log(24×0.1) = +0.875 boost; 04:00 gets log(24×0.01) = -1.43.
-		// Delta ≈ 2.3 nats.
-		expect(score14 - score04).toBeCloseTo(Math.log(24 * 0.1) - Math.log(24 * 0.01), 2);
-	});
-
-	it("clamps zero hour_profile entries to a floor (no hard-zero)", () => {
-		// A place that has NO visits at hour 7 (0% of profile).
-		const profile = new Array(24).fill(0.043); // sums to ~1
-		profile[7] = 0;
-		const emissionTod = buildEmissionFn({
-			placeCoords,
-			placeHourProfiles: new Map([[1, profile]]),
-		});
-		const at7 = obs({ ts: 1_700_000_000, hourLocal: 7, gps: null, hr: 80, cadence: null });
-		const score = emissionTod(state("stationary", 1), at7);
-		expect(Number.isFinite(score)).toBe(true);
-		// Floor is log(24 × 0.001) ≈ -3.73, not -Infinity.
-		expect(score).toBeGreaterThan(-100);
-	});
-
-	it("only applies time-of-day boost to stationary@knownPlace, not to off-network or movement", () => {
-		const profile = new Array(24).fill(0).map((_, i) => (i === 14 ? 0.5 : 0.022));
-		const emissionTod = buildEmissionFn({ placeHourProfiles: new Map([[1, profile]]) });
-		const at14 = obs({ ts: 1_700_000_000, hourLocal: 14, gps: null, hr: 80, cadence: null });
-		// The boost only applies to state{mode:stationary, placeId:1}.
-		// Other states get no boost — verify by re-running without profiles.
-		const emissionPlain = buildEmissionFn({});
-		expect(emissionTod(state("walking"), at14)).toBe(emissionPlain(state("walking"), at14));
-		expect(emissionTod(state("stationary", null), at14)).toBe(emissionPlain(state("stationary", null), at14));
-		// And stationary@1 DOES get the boost.
-		expect(emissionTod(state("stationary", 1), at14)).toBeGreaterThan(emissionPlain(state("stationary", 1), at14));
-	});
+	// Time-of-day boost moved to src/hmm/entry-prior.ts — see
+	// tests/hmm-entry-prior.test.ts. Emission no longer applies it.
 
 	it("plane needs very high speed", () => {
 		const cruise = obs({ gps: { lat: 51.5, lon: -0.1, speedKmh: 600 }, cadence: 0, hr: 70 });
