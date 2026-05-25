@@ -8,6 +8,8 @@ import { sql } from "kysely";
 import tzLookup from "tz-lookup";
 import { db } from "../db/pool.js";
 import { getSyncState } from "../db/sync-state.js";
+import { loadDecode } from "../hmm/persist.js";
+import { applyHsmmPlaceOverride } from "../hmm/place-override.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 import { type DayState, segmentsToDayStates } from "../sleep/day-state.js";
@@ -938,9 +940,27 @@ export async function computeVelocity(
 
 	// Final cross-modal enrichment: attach HR / sleep / steps stats per
 	// segment. Missing Fitbit data → biometrics fields are null/zero.
-	const withBiometrics = timeSync("biomEnrich", () =>
+	const enrichedSegments = timeSync("biomEnrich", () =>
 		withDisplayTz.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep, steps) })),
 	);
+
+	// HSMM place override — when an HSMM decode exists in decoded_days
+	// for this (user, date), use its place picks to override the
+	// pipeline's `place` attribution on stationary segments. The HSMM
+	// scores ~96% place vs ground truth (2026-05-25 audit) where the
+	// pipeline drifts on multi-candidate clusters. Falls back to the
+	// pipeline's label when no decode exists (cron hasn't run yet) or
+	// the HSMM is uncertain.
+	const hmmDecode = await time("hsmmDecode", loadDecode(db(), userId, date));
+	const withBiometrics = hmmDecode
+		? timeSync("hsmmOverride", () => {
+				const placeLookup = new Map<number, { displayName: string | null }>();
+				for (const p of knownPlaces) {
+					if (typeof p.id === "number") placeLookup.set(p.id, { displayName: p.displayName });
+				}
+				return applyHsmmPlaceOverride(enrichedSegments, hmmDecode, placeLookup);
+			})
+		: enrichedSegments;
 
 	const total = Date.now() - t0;
 	const summary = Object.entries(phaseTimes)
