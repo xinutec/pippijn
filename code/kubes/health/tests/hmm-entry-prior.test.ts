@@ -83,4 +83,46 @@ describe("buildEntryPrior", () => {
 		const fn = buildEntryPrior({ placeHourProfiles: new Map([[1, shortProfile]]) });
 		expect(fn(stationary(1), obs())).toBe(0);
 	});
+
+	it("favours heavy-visit places when placeVisitWeights is supplied", () => {
+		const weights = new Map([
+			[1, 0.5],
+			[2, 0.05],
+			[3, 0.01],
+		]);
+		const fn = buildEntryPrior({ placeVisitWeights: weights });
+		expect(fn(stationary(1), obs())).toBeGreaterThan(fn(stationary(2), obs()));
+		expect(fn(stationary(2), obs())).toBeGreaterThan(fn(stationary(3), obs()));
+	});
+
+	it("falls back to a small fraction for unknown placeId with weights present", () => {
+		const weights = new Map([[1, 0.5]]);
+		const fn = buildEntryPrior({ placeVisitWeights: weights });
+		expect(Number.isFinite(fn(stationary(999), obs()))).toBe(true);
+	});
+
+	it("composes weights + hour profile additively (joint prior)", () => {
+		// A peaky profile on a rare place vs a flat profile on a
+		// dominant place: visit-weight should dominate, so Home beats
+		// the rare place even at the rare place's peak hour.
+		const weights = new Map([
+			[1, 0.6], // Home — dominant
+			[2, 0.001], // rare place
+		]);
+		const profiles = new Map([
+			[1, new Array(24).fill(1 / 24)], // Home: flat
+			[2, new Array(24).fill(0).map((_, i) => (i === 3 ? 0.95 : 0.005 / 23))], // rare: peaky at 03:00
+		]);
+		const fn = buildEntryPrior({ placeVisitWeights: weights, placeHourProfiles: profiles });
+		const at3 = obs({ hourLocal: 3 });
+		expect(fn(stationary(1), at3)).toBeGreaterThan(fn(stationary(2), at3));
+	});
+
+	it("returns 0 for movement / off-network states even when weights and profiles are supplied", () => {
+		const weights = new Map([[1, 0.5]]);
+		const profile = new Array(24).fill(1 / 24);
+		const fn = buildEntryPrior({ placeVisitWeights: weights, placeHourProfiles: new Map([[1, profile]]) });
+		expect(fn({ mode: "walking", placeId: null, lineName: null }, obs())).toBe(0);
+		expect(fn(stationary(null), obs())).toBe(0);
+	});
 });

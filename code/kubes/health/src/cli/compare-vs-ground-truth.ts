@@ -316,8 +316,8 @@ async function decodeHsmm(
 		placeNearLine: (placeId, lineName) => placeNearLine.has(`${placeId}|${lineName}`),
 	});
 	const emission = buildEmissionFn({ placeCoords });
-	const initialLogProb = buildInitialStatePrior({ placeVisitWeights });
-	const entryLogProb = buildEntryPrior({ placeHourProfiles });
+	const initialLogProb = buildInitialStatePrior();
+	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
 	const hmmStates = hsmmViterbi({
 		observations: tensor,
 		states,

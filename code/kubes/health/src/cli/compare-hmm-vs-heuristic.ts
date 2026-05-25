@@ -305,8 +305,8 @@ async function decodeDay(
 		placeCoords,
 		learnedEmissions: cache.learnedEmissions ?? undefined,
 	});
-	const initialLogProb = buildInitialStatePrior({ placeVisitWeights });
-	const entryLogProb = buildEntryPrior({ placeHourProfiles });
+	const initialLogProb = buildInitialStatePrior();
+	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
 	const hmmStates = cache.useHsmm
 		? hsmmViterbi({
 				observations: tensor,

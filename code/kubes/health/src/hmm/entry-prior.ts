@@ -35,10 +35,24 @@ export type EntryLogProbFn = (state: State, obs: Observation) => number;
 export interface BuildEntryPriorOpts {
 	/** Per-place hour-of-day visit profile (24 normalised buckets
 	 *  summing to ~1, as mined into `focus_places.hour_profile`).
-	 *  Stationary @ knownPlace gets an entry boost of
-	 *  `log(24 × hour_profile[hourLocal])` — positive at the place's
-	 *  typical hours, negative at unusual ones. */
+	 *  Contributes `log(24 × hour_profile[hourLocal])` — positive at
+	 *  the place's typical hours, negative at unusual ones. */
 	placeHourProfiles?: ReadonlyMap<number, readonly number[]>;
+	/** Per-place visit-frequency weight (fraction of total stationary
+	 *  time at each known place). When provided, contributes
+	 *  `log(N_places × weight)` to the entry prior for
+	 *  `stationary @ knownPlace`. Compositionally:
+	 *
+	 *    log P(start a stay at P at hour h)
+	 *      ≈ log P(P)            ← visit_weight
+	 *        + log P(h | P)      ← hour_profile
+	 *        + const
+	 *
+	 *  Without the visit_weight term, mid-night new-segment
+	 *  transitions over-favor rare places with peaky hour profiles
+	 *  (a one-off late-night visit places spuriously beats Home).
+	 *  See the 2026-05-25 ground-truth audit. */
+	placeVisitWeights?: ReadonlyMap<number, number>;
 }
 
 /** Floor on the per-hour fraction. A place with no recorded visits
@@ -49,12 +63,24 @@ const HOUR_PROFILE_FLOOR = 0.001;
 
 export function buildEntryPrior(opts: BuildEntryPriorOpts = {}): EntryLogProbFn {
 	const hourProfiles = opts.placeHourProfiles ?? null;
+	const visitWeights = opts.placeVisitWeights ?? null;
+	const nPlaces = visitWeights !== null ? visitWeights.size : 0;
+	const fallbackWeight = nPlaces > 0 ? 1 / (10 * nPlaces) : 0;
+
 	return (state: State, obs: Observation): number => {
-		if (hourProfiles === null) return 0;
 		if (state.mode !== "stationary" || state.placeId === null) return 0;
-		const profile = hourProfiles.get(state.placeId);
-		if (profile === undefined || profile.length !== 24) return 0;
-		const f = Math.max(profile[obs.hourLocal], HOUR_PROFILE_FLOOR);
-		return Math.log(24 * f);
+		let logProb = 0;
+		if (hourProfiles !== null) {
+			const profile = hourProfiles.get(state.placeId);
+			if (profile !== undefined && profile.length === 24) {
+				const f = Math.max(profile[obs.hourLocal], HOUR_PROFILE_FLOOR);
+				logProb += Math.log(24 * f);
+			}
+		}
+		if (visitWeights !== null && nPlaces > 0) {
+			const w = visitWeights.get(state.placeId) ?? fallbackWeight;
+			logProb += Math.log(nPlaces * w);
+		}
+		return logProb;
 	};
 }
