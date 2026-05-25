@@ -317,9 +317,44 @@ must keep going. Concretely:
   200. The frontend distinguishes this from "linked but empty" via
   `/api/me.nextcloudLinked` and can prompt the user to link.
 
+## Classification system
+
+The per-segment mode classification in `segments.ts` is the
+heuristic that has shipped since day one. A **probabilistic
+constraint solver** (HMM → HSMM with learned emissions, posterior
+marginals, sleep-conditional factors) is being built alongside it
+under `src/hmm/`. The two coexist:
+
+- The heuristic still produces `velResult.segments` consumed by
+  the frontend.
+- The HSMM consumes the same observations + heuristic-as-labels,
+  produces per-day decodes cached in `decoded_days`, and surfaces
+  posterior marginals exposing model uncertainty.
+
+The HSMM hasn't replaced the heuristic in the user-facing path
+yet — only the audit CLI (`compare-hmm-vs-heuristic`) consumes
+it. Decision to enable in prod comes after audit shows the HSMM
+is consistently better than the heuristic on the residuals it's
+designed to address.
+
+**Read `docs/design/probabilistic-principles.md` before adding
+new factors, tuning parameters, or proposing changes.** That
+document captures the architectural philosophy, the ground rules
+(no hard constraints; graduated probabilities; runtime budget is
+offline-side; expose uncertainty), and the current factor library.
+
+Active proposals under `docs/proposals/` cover the per-phase
+detail:
+
+- `2026-05-joint-sequence-model.md` — Phase 1, HMM (Viterbi + state
+  space + emission + transition)
+- `2026-05-hmm-learned-emissions.md` — Phase 2, supervised MLE
+  per-mode + per-place distributions
+- `2026-05-hsmm-physical-constraints.md` — Phase 3, HSMM with
+  duration distributions and soft physical-constraint factors
+
 ## Future extensions
 
-- HMM smoothing for state transitions in `segments.ts` (low priority).
 - Altitude-aware features (e.g. distinguish flat walk from stairs).
 - "Patterns" tab — health × location correlations (largest product win).
 - Off-site backup of `health` PVC (tracked under fleet-wide odin work).
