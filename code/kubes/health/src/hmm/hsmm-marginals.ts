@@ -78,7 +78,9 @@ function logSumExp(a: number, b: number): number {
 	return max + Math.log(Math.exp(a - max) + Math.exp(b - max));
 }
 
-export function hsmmMarginals<State, Obs>(input: HsmmMarginalsInput<State, Obs>): {
+export function hsmmMarginals<State, Obs>(
+	input: HsmmMarginalsInput<State, Obs>,
+): {
 	marginals: Marginals;
 	logZ: number;
 } {

@@ -48,7 +48,6 @@ export interface BuildTransitionMatrixOpts {
 }
 
 const DEFAULT_SELF_LOOP = Math.log(0.95);
-const DEFAULT_CROSS_STATE = Math.log(0.02);
 
 function sameState(a: State, b: State): boolean {
 	return a.mode === b.mode && a.placeId === b.placeId && a.lineName === b.lineName;

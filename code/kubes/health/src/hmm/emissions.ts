@@ -297,8 +297,6 @@ function logCadencePdf(cadence: number, prior: ModePrior): number {
 	return positiveMix + logNormalPdf(cadence, prior.cadencePositiveMean, prior.cadencePositiveStd);
 }
 
-const M_PER_DEG_LAT = 111_320;
-
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
 	const R = 6_371_000;
 	const dLat = ((lat2 - lat1) * Math.PI) / 180;

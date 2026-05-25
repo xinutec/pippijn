@@ -100,8 +100,20 @@ describe("hsmmMarginals", () => {
 			const want: Record<string, string> = { 0: "A", 1: "B", 2: "A" };
 			return s.id === want[o.idx.toString()] ? 0 : -10;
 		};
-		const viterbi = hsmmViterbi({ observations, states, transitionLogProb, emissionLogProb, durationLogProb: uniformDuration });
-		const { marginals } = hsmmMarginals({ observations, states, transitionLogProb, emissionLogProb, durationLogProb: uniformDuration });
+		const viterbi = hsmmViterbi({
+			observations,
+			states,
+			transitionLogProb,
+			emissionLogProb,
+			durationLogProb: uniformDuration,
+		});
+		const { marginals } = hsmmMarginals({
+			observations,
+			states,
+			transitionLogProb,
+			emissionLogProb,
+			durationLogProb: uniformDuration,
+		});
 		const argmaxSeq = marginals.map((row) => (row[0] > row[1] ? A : B));
 		expect(argmaxSeq.map((s) => s.id)).toEqual(viterbi.map((s) => s.id));
 	});

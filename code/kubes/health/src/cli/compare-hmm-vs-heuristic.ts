@@ -36,15 +36,10 @@ import { parseHourProfile } from "../geo/focus-places.js";
 import { stationsOnLine } from "../geo/line-stations.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, type EnrichedSegment, loadBiometrics } from "../geo/velocity.js";
-import {
-	DEFAULT_MIN_DURATION_BY_MODE,
-	fitDurationDistribution,
-	type GammaFit,
-	logDurationProb,
-} from "../hmm/duration-dist.js";
+import { DEFAULT_MIN_DURATION_BY_MODE, type GammaFit, logDurationProb } from "../hmm/duration-dist.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
-import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import type { LearnedEmissionParameters } from "../hmm/fit-emissions.js";
+import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { hsmmMarginals, type Marginals } from "../hmm/hsmm-marginals.js";
 import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
@@ -495,7 +490,8 @@ function renderSideBySide(result: DayResult, places: readonly PlaceWithCoords[],
 	}
 	for (const r of rows) {
 		const startTs = result.tensor[r.startMin].ts;
-		const endTs = r.endMin + 1 < result.tensor.length ? result.tensor[r.endMin + 1].ts : result.tensor[r.endMin].ts + 60;
+		const endTs =
+			r.endMin + 1 < result.tensor.length ? result.tensor[r.endMin + 1].ts : result.tensor[r.endMin].ts + 60;
 		const span = `${formatTime(startTs, tz)}-${formatTime(endTs, tz)}`;
 		const heurCol = r.heur.padEnd(36).slice(0, 36);
 		const hmmCol = r.hmm.padEnd(36).slice(0, 36);

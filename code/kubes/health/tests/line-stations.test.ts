@@ -19,10 +19,6 @@
 import { describe, expect, it } from "vitest";
 import { filterStationsByLineProximity, type StationCandidate, type WayGeometry } from "../src/geo/line-stations.js";
 
-function pointToWkt(lat: number, lon: number): string {
-	return `POINT(${lon} ${lat})`;
-}
-
 function lineToWkt(coords: Array<[number, number]>): string {
 	// coords are [lat, lon] pairs; WKT wants lon lat space-separated.
 	const pairs = coords.map(([lat, lon]) => `${lon} ${lat}`).join(",");

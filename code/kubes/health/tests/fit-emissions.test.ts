@@ -19,9 +19,8 @@ import { describe, expect, it } from "vitest";
 import {
 	fitPerModeEmissions,
 	HR_STD_FLOOR,
-	MIN_SAMPLES_PER_MODE,
-	MIN_SAMPLES_PER_PLACE,
 	type LabeledSample,
+	MIN_SAMPLES_PER_MODE,
 } from "../src/hmm/fit-emissions.js";
 
 function sample(over: Partial<LabeledSample> = {}): LabeledSample {

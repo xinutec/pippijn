@@ -153,7 +153,7 @@ function logGamma(z: number): number {
 		// Reflection formula: Γ(z)Γ(1−z) = π / sin(πz)
 		return Math.log(Math.PI / Math.sin(Math.PI * z)) - logGamma(1 - z);
 	}
-	let zMinusOne = z - 1;
+	const zMinusOne = z - 1;
 	let x = c[0];
 	for (let i = 1; i < g + 2; i++) x += c[i] / (zMinusOne + i);
 	const t = zMinusOne + g + 0.5;

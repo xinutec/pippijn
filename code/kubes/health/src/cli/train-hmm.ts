@@ -36,9 +36,9 @@
 import { z } from "zod";
 import { db, initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
-import { dateBoundsUtc } from "../geo/timezone.js";
 import type { TransportMode } from "../geo/segments.js";
-import { computeVelocity, type EnrichedSegment, loadBiometrics } from "../geo/velocity.js";
+import { dateBoundsUtc } from "../geo/timezone.js";
+import { computeVelocity, loadBiometrics } from "../geo/velocity.js";
 import { fitPerModeEmissions, type LabeledSample } from "../hmm/fit-emissions.js";
 import { buildObservationTensor } from "../hmm/observation.js";
 
@@ -131,10 +131,6 @@ function* dateRange(fromIso: string, toIso: string): Generator<string> {
 	for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
 		yield d.toISOString().slice(0, 10);
 	}
-}
-
-function heuristicModeForMinute(segments: readonly EnrichedSegment[], ts: number): EnrichedSegment | null {
-	return segments.find((s) => s.startTs <= ts && ts < s.endTs) ?? null;
 }
 
 interface PlaceCoord {

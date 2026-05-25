@@ -203,7 +203,8 @@ describe("buildEmissionFn", () => {
 					},
 				},
 			},
-			trainingSummary: { totalSampleCount: 100, samplesPerMode: { stationary: 100 } },
+			perPlaceHr: {},
+			trainingSummary: { totalSampleCount: 100, samplesPerMode: { stationary: 100 }, samplesPerPlace: {} },
 		};
 		const handTuned = buildEmissionFn({});
 		const learnedFn = buildEmissionFn({ learnedEmissions: learned });
