@@ -87,12 +87,34 @@ const AUDIT_HEADING = /^##\s+Audit\s+of\s+/i;
 const HEADING = /^##\s+/;
 const TABLE_ROW = /^\s*\|/;
 
-/** Parse a single ground-truth markdown file into structured form. */
+/** Raw row before day-anchoring: just the parsed window HH:MM values. */
+interface RawRow {
+	windowText: string;
+	startHh: number;
+	startMm: number;
+	endHh: number;
+	endMm: number;
+	blessedText: string;
+	statusText: string;
+	correctVersionText: string | null;
+}
+
+/** Parse a single ground-truth markdown file into structured form.
+ *
+ *  Day-anchoring convention: rows are walked in table order, tracking
+ *  a "current day cursor." When a row's start time decreases relative
+ *  to the previous row, the cursor advances by 1 day — that's how
+ *  the audit tables encode "tonight's sleep" rows at the bottom that
+ *  belong to the next calendar day.
+ *
+ *  The first row's anchor is yesterday IF it starts after noon
+ *  (representing the previous evening's sleep continuing into the
+ *  file's date), otherwise today. This matches the convention used
+ *  across all blessed ground-truth files. */
 export function parseGroundTruth(markdown: string, date: string, tz: string): GroundTruthDay {
 	const lines = markdown.split("\n");
-	const rows: GroundTruthRow[] = [];
+	const rawRows: RawRow[] = [];
 
-	// Find the `## Audit of ...` section. Take rows until the next `##`.
 	let inAudit = false;
 	for (const line of lines) {
 		if (AUDIT_HEADING.test(line)) {
@@ -105,31 +127,75 @@ export function parseGroundTruth(markdown: string, date: string, tz: string): Gr
 
 		const cells = splitTableRow(line);
 		if (cells.length < 3) continue;
-		// Skip header + separator rows.
 		if (isHeaderRow(cells)) continue;
 		if (isSeparatorRow(cells)) continue;
 
 		const windowText = cells[0].trim();
+		const m = /^(\d{2}):(\d{2})\s*[–-]\s*(\d{2}):(\d{2})$/.exec(windowText);
+		if (!m) continue;
+
 		const blessedText = cells[1].trim();
 		const statusText = cells[2].trim();
 		const correctVersion = cells.length >= 4 ? cells.slice(3).join("|").trim() : "";
 
-		const window = parseWindow(windowText, date, tz);
-		if (window === null) continue;
-
-		rows.push({
+		rawRows.push({
 			windowText,
-			startTs: window.startTs,
-			endTs: window.endTs,
+			startHh: Number(m[1]),
+			startMm: Number(m[2]),
+			endHh: Number(m[3]),
+			endMm: Number(m[4]),
 			blessedText,
-			blessed: parseBlessedCell(blessedText),
-			status: normaliseStatus(statusText),
 			statusText,
 			correctVersionText: correctVersion.length === 0 ? null : correctVersion,
 		});
 	}
 
+	// Day-anchor: first row anchors to yesterday when start time is
+	// after noon (previous evening's sleep into today's morning);
+	// otherwise to today. Subsequent rows advance the cursor when
+	// start time decreases below the previous row's start time.
+	let anchorDay = rawRows.length > 0 && rawRows[0].startHh >= 12 ? prevDay(date) : date;
+	let prevStartMinutes = -1;
+
+	const rows: GroundTruthRow[] = [];
+	for (const r of rawRows) {
+		const curStartMinutes = r.startHh * 60 + r.startMm;
+		if (prevStartMinutes !== -1 && curStartMinutes < prevStartMinutes) {
+			anchorDay = nextDay(anchorDay);
+		}
+		prevStartMinutes = curStartMinutes;
+
+		const startTs = fitbitTsToUnix(`${anchorDay} ${pad2(r.startHh)}:${pad2(r.startMm)}:00`, tz);
+		const endHhmm = r.endHh * 60 + r.endMm;
+		const endDay = endHhmm <= curStartMinutes ? nextDay(anchorDay) : anchorDay;
+		const endTs = fitbitTsToUnix(`${endDay} ${pad2(r.endHh)}:${pad2(r.endMm)}:00`, tz);
+
+		if (Number.isNaN(startTs) || Number.isNaN(endTs)) continue;
+
+		rows.push({
+			windowText: r.windowText,
+			startTs,
+			endTs,
+			blessedText: r.blessedText,
+			blessed: parseBlessedCell(r.blessedText),
+			status: normaliseStatus(r.statusText),
+			statusText: r.statusText,
+			correctVersionText: r.correctVersionText,
+		});
+	}
+
 	return { date, tz, rows };
+}
+
+function pad2(n: number): string {
+	return String(n).padStart(2, "0");
+}
+
+function prevDay(date: string): string {
+	const [y, mo, d] = date.split("-").map(Number);
+	const dt = new Date(Date.UTC(y, mo - 1, d));
+	dt.setUTCDate(dt.getUTCDate() - 1);
+	return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
 }
 
 /** Split a markdown table row on `|`, dropping the leading/trailing
@@ -155,29 +221,11 @@ function isSeparatorRow(cells: readonly string[]): boolean {
 	return cells.every((c) => /^[\s:-]+$/.test(c));
 }
 
-/** Parse "HH:MM – HH:MM" into UTC unix seconds in `tz`. Returns null
- *  when the text doesn't match. End < start → window crosses midnight,
- *  end is the next calendar day. */
-function parseWindow(text: string, date: string, tz: string): { startTs: number; endTs: number } | null {
-	const m = /^(\d{2}):(\d{2})\s*[–-]\s*(\d{2}):(\d{2})$/.exec(text);
-	if (!m) return null;
-	const [, sh, sm, eh, em] = m;
-	const startTs = fitbitTsToUnix(`${date} ${sh}:${sm}:00`, tz);
-	let endTs = fitbitTsToUnix(`${date} ${eh}:${em}:00`, tz);
-	if (endTs <= startTs) {
-		const next = nextDay(date);
-		endTs = fitbitTsToUnix(`${next} ${eh}:${em}:00`, tz);
-	}
-	if (Number.isNaN(startTs) || Number.isNaN(endTs)) return null;
-	return { startTs, endTs };
-}
-
 function nextDay(date: string): string {
 	const [y, mo, d] = date.split("-").map(Number);
 	const dt = new Date(Date.UTC(y, mo - 1, d));
 	dt.setUTCDate(dt.getUTCDate() + 1);
-	const pad = (n: number): string => String(n).padStart(2, "0");
-	return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+	return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
 }
 
 /** Map free-text status to one of four canonical values. Bold markers

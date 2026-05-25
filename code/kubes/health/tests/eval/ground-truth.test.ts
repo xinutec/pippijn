@@ -76,9 +76,42 @@ describe("parseGroundTruth", () => {
 		const out = parseGroundTruth(MINIMAL_THREE_COL_WITH_TRAILING_NOTES, "2026-04-29", "Europe/Amsterdam");
 		const sleepRow = out.rows.find((r) => r.windowText === "22:16 – 08:08");
 		if (sleepRow === undefined) throw new Error("sleep row missing");
-		// 22:16 on 2026-04-29 → 08:08 on 2026-04-30 in Europe/Amsterdam.
-		// We expect end > start by ~9h52m = 35520s.
+		// 9h52m = 35520s duration, regardless of anchor day.
 		expect(sleepRow.endTs - sleepRow.startTs).toBe(9 * 3600 + 52 * 60);
+	});
+
+	it("anchors a first-row evening-sleep to YESTERDAY's date, not the file date", () => {
+		// 22:16 – 08:08 on a file dated 2026-04-29 in Europe/Amsterdam.
+		// The convention is: row 1 with start hour >= 12 represents
+		// the previous evening's sleep into THIS morning. So startTs
+		// should be 2026-04-28 22:16 local, not 2026-04-29 22:16.
+		const out = parseGroundTruth(MINIMAL_THREE_COL_WITH_TRAILING_NOTES, "2026-04-29", "Europe/Amsterdam");
+		const sleepRow = out.rows.find((r) => r.windowText === "22:16 – 08:08");
+		if (sleepRow === undefined) throw new Error("sleep row missing");
+		// 22:16 Amsterdam on 2026-04-28 = 20:16 UTC on 2026-04-28.
+		// Unix epoch for that: Date.UTC(2026, 3, 28, 20, 16, 0) / 1000.
+		const expected = Date.UTC(2026, 3, 28, 20, 16, 0) / 1000;
+		expect(sleepRow.startTs).toBe(expected);
+	});
+
+	it("advances the day cursor when a later row's start time wraps backward", () => {
+		// File-dated table with daytime rows followed by a tonight-sleep
+		// row that starts after midnight — that row should anchor to
+		// the NEXT day, not the file date.
+		const md = `## Audit of 2026-05-22 blessed golden
+
+| Window         | Blessed                    | Status     |
+| -------------- | -------------------------- | ---------- |
+| 09:00 – 11:00  | stationary @ Home          | correct    |
+| 12:00 – 18:00  | stationary @ Work          | correct    |
+| 00:30 – 08:00  | sleeping @ Home            | correct    |
+`;
+		const out = parseGroundTruth(md, "2026-05-22", "Europe/London");
+		expect(out.rows.length).toBe(3);
+		const lastRow = out.rows[2];
+		// 00:30 BST on 2026-05-23 = 23:30 UTC on 2026-05-22.
+		const expected = Date.UTC(2026, 4, 22, 23, 30, 0) / 1000;
+		expect(lastRow.startTs).toBe(expected);
 	});
 
 	it("classifies blessed cells: sleeping / stationary @ Place / walking / driving / train", () => {
