@@ -57,6 +57,16 @@ export interface Observation {
 	 *  plane (where sleep is plausible). Used as a soft factor in
 	 *  emission — never a hard constraint. */
 	inBed: boolean;
+	/** Most recent GPS fix AT OR BEFORE this minute. Used by the
+	 *  geometric feasibility factor — when this minute's `gps` is
+	 *  null, a stationary @ knownPlace state can be scored against
+	 *  the implied teleport speed from `prevGpsFix` to the place
+	 *  centroid. When the minute itself has GPS, `prevGpsFix === gps`. */
+	prevGpsFix: { ts: number; lat: number; lon: number } | null;
+	/** Most recent GPS fix AT OR AFTER this minute. Symmetric to
+	 *  `prevGpsFix` for the forward direction — a stat @ A pick at
+	 *  minute t must also be consistent with the next observed fix. */
+	nextGpsFix: { ts: number; lat: number; lon: number } | null;
 }
 
 export interface ObservationTensorInput {
@@ -168,7 +178,10 @@ export function buildObservationTensor(input: ObservationTensorInput): Observati
 		}
 	}
 
-	const tensor: Observation[] = new Array(MINUTES_PER_DAY);
+	// First pass: build the per-minute aggregates without
+	// prev/next-fix context.
+	type Aggregated = Omit<Observation, "prevGpsFix" | "nextGpsFix">;
+	const aggregated: Aggregated[] = new Array(MINUTES_PER_DAY);
 	for (let m = 0; m < MINUTES_PER_DAY; m++) {
 		const ts = startUtc + m * SECONDS_PER_MINUTE;
 		const { hour, dayOfWeek } = localCtx(ts, tz);
@@ -189,7 +202,7 @@ export function buildObservationTensor(input: ObservationTensorInput): Observati
 		const stepRows = stepBuckets[m];
 		const cadence = stepRows === null ? null : stepRows.reduce((sum, s) => sum + s.steps, 0);
 
-		tensor[m] = {
+		aggregated[m] = {
 			ts,
 			inBed: inBedBuckets[m],
 			gps,
@@ -200,5 +213,27 @@ export function buildObservationTensor(input: ObservationTensorInput): Observati
 		};
 	}
 
+	// Second pass: fill prevGpsFix (forward) and nextGpsFix (backward
+	// scan). Each is O(N) with a single accumulator carrying the
+	// last-seen-fix forward or backward.
+	const prevFixes: Observation["prevGpsFix"][] = new Array(MINUTES_PER_DAY).fill(null);
+	const nextFixes: Observation["nextGpsFix"][] = new Array(MINUTES_PER_DAY).fill(null);
+	let runningPrev: Observation["prevGpsFix"] = null;
+	for (let m = 0; m < MINUTES_PER_DAY; m++) {
+		const a = aggregated[m];
+		if (a.gps !== null) runningPrev = { ts: a.ts, lat: a.gps.lat, lon: a.gps.lon };
+		prevFixes[m] = runningPrev;
+	}
+	let runningNext: Observation["nextGpsFix"] = null;
+	for (let m = MINUTES_PER_DAY - 1; m >= 0; m--) {
+		const a = aggregated[m];
+		if (a.gps !== null) runningNext = { ts: a.ts, lat: a.gps.lat, lon: a.gps.lon };
+		nextFixes[m] = runningNext;
+	}
+
+	const tensor: Observation[] = new Array(MINUTES_PER_DAY);
+	for (let m = 0; m < MINUTES_PER_DAY; m++) {
+		tensor[m] = { ...aggregated[m], prevGpsFix: prevFixes[m], nextGpsFix: nextFixes[m] };
+	}
 	return tensor;
 }

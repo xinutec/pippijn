@@ -23,6 +23,8 @@ function obs(over: Partial<Observation> = {}): Observation {
 		hourLocal: 12,
 		dayOfWeekLocal: 1,
 		inBed: false,
+		prevGpsFix: null,
+		nextGpsFix: null,
 		...over,
 	};
 }

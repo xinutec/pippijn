@@ -21,10 +21,11 @@ import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, loadBiometrics } from "../geo/velocity.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
 import { buildEntryPrior } from "../hmm/entry-prior.js";
+import { buildGeometricFeasibility } from "../hmm/geometric-feasibility.js";
 import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
 import { buildObservationTensor } from "../hmm/observation.js";
-import { buildStateSpace, type FocusPlaceRef, stateKey } from "../hmm/state-space.js";
+import { buildStateSpace, type FocusPlaceRef, type State, stateKey } from "../hmm/state-space.js";
 
 const config = z
 	.object({
@@ -157,7 +158,9 @@ async function main(): Promise<void> {
 		if (p.hourProfile !== null) placeHourProfiles.set(p.id, p.hourProfile);
 		placeVisitWeights.set(p.id, totalDwell > 0 ? p.totalDwellSec / totalDwell : 1 / places.length);
 	}
-	const emission = buildEmissionFn({ placeCoords });
+	const baseEmission = buildEmissionFn({ placeCoords });
+	const geometricFn = buildGeometricFeasibility({ placeCoords });
+	const emission = (state: State, o: typeof obs): number => baseEmission(state, o) + geometricFn(state, o);
 	const initialLogProb = buildInitialStatePrior();
 	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
 

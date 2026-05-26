@@ -23,6 +23,7 @@ import { computeVelocity, loadBiometrics } from "../geo/velocity.js";
 import { DEFAULT_MIN_DURATION_BY_MODE, type GammaFit, logDurationProb } from "../hmm/duration-dist.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
 import { buildEntryPrior } from "../hmm/entry-prior.js";
+import { buildGeometricFeasibility } from "../hmm/geometric-feasibility.js";
 import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
@@ -174,7 +175,10 @@ async function decodeAndPersist(
 		states,
 		placeNearLine: (placeId, lineName) => placeNearLine.has(`${placeId}|${lineName}`),
 	});
-	const emission = buildEmissionFn({ placeCoords });
+	const baseEmission = buildEmissionFn({ placeCoords });
+	const geometricFn = buildGeometricFeasibility({ placeCoords });
+	const emission = (state: State, obs: (typeof tensor)[number]): number =>
+		baseEmission(state, obs) + geometricFn(state, obs);
 	const initialLogProb = buildInitialStatePrior();
 	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
 	const hmmStates = hsmmViterbi({

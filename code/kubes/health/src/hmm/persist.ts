@@ -26,8 +26,13 @@ import type { State } from "./state-space.js";
 
 /** Bump when the classifier output for a typical day would change
  *  in a meaningful way. Stale rows in `decoded_days` carry the old
- *  version; consumers re-decode on mismatch. */
-export const CLASSIFIER_VERSION = 1;
+ *  version; consumers re-decode on mismatch.
+ *
+ *  Version log:
+ *  - 1: initial HSMM (entry-prior + visit-frequency + mode-prior)
+ *  - 2: added geometric feasibility factor (prev/next-fix
+ *       teleport-speed penalty for stat @ knownPlace) */
+export const CLASSIFIER_VERSION = 2;
 
 /** Per-segment HSMM decode shape. Same conceptual model as the
  *  pipeline's `EnrichedSegment` but trimmed to the fields the HSMM
