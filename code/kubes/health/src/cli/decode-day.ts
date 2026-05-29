@@ -29,6 +29,7 @@ import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
 import { buildObservationTensor } from "../hmm/observation.js";
 import { groupStatesIntoSegments, saveDecode } from "../hmm/persist.js";
+import { buildRailCorridorBoost } from "../hmm/rail-corridor-boost.js";
 import { buildStateSpace, type FocusPlaceRef, type State } from "../hmm/state-space.js";
 import { buildTransitionMatrix } from "../hmm/transitions.js";
 
@@ -123,22 +124,30 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-async function buildPlaceNearLine(places: readonly PlaceWithCoords[], lines: readonly string[]): Promise<Set<string>> {
+async function buildLineGraph(
+	places: readonly PlaceWithCoords[],
+	lines: readonly string[],
+): Promise<{ placeNearLine: Set<string>; stationsByLine: Map<string, readonly { lat: number; lon: number }[]> }> {
 	const WALK_DIST_M = 400;
-	const set = new Set<string>();
+	const placeNearLine = new Set<string>();
+	const stationsByLine = new Map<string, readonly { lat: number; lon: number }[]>();
 	for (const line of lines) {
 		const stations = await stationsOnLine(line);
 		if (stations.length === 0) continue;
+		stationsByLine.set(
+			line,
+			stations.map((s) => ({ lat: s.lat, lon: s.lon })),
+		);
 		for (const p of places) {
 			for (const s of stations) {
 				if (haversineMeters(p.lat, p.lon, s.lat, s.lon) <= WALK_DIST_M) {
-					set.add(`${p.id}|${line}`);
+					placeNearLine.add(`${p.id}|${line}`);
 					break;
 				}
 			}
 		}
 	}
-	return set;
+	return { placeNearLine, stationsByLine };
 }
 
 async function decodeAndPersist(
@@ -147,6 +156,7 @@ async function decodeAndPersist(
 	tz: string,
 	places: readonly PlaceWithCoords[],
 	placeNearLine: Set<string>,
+	stationsByLine: ReadonlyMap<string, readonly { lat: number; lon: number }[]>,
 ): Promise<{ segmentCount: number; minuteCount: number; durationMs: number }> {
 	const t0 = Date.now();
 	const velResult = await computeVelocity(config, userId, date, tz);
@@ -177,8 +187,9 @@ async function decodeAndPersist(
 	});
 	const baseEmission = buildEmissionFn({ placeCoords });
 	const geometricFn = buildGeometricFeasibility({ placeCoords });
+	const railCorridorFn = buildRailCorridorBoost({ stationsByLine });
 	const emission = (state: State, obs: (typeof tensor)[number]): number =>
-		baseEmission(state, obs) + geometricFn(state, obs);
+		baseEmission(state, obs) + geometricFn(state, obs) + railCorridorFn(state, obs);
 	const initialLogProb = buildInitialStatePrior();
 	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
 	const hmmStates = hsmmViterbi({
@@ -242,12 +253,12 @@ async function main(): Promise<void> {
 
 	console.error(`# decode-day — user=${userId} tz=${tz} dates=${dates.join(",")}`);
 	const places = await loadFocusPlacesForUser(userId);
-	const placeNearLine = await buildPlaceNearLine(places, KNOWN_LINES);
+	const { placeNearLine, stationsByLine } = await buildLineGraph(places, KNOWN_LINES);
 	console.error(`# loaded ${places.length} focus_places, ${placeNearLine.size} place-line pairs`);
 
 	for (const date of dates) {
 		try {
-			const result = await decodeAndPersist(userId, date, tz, places, placeNearLine);
+			const result = await decodeAndPersist(userId, date, tz, places, placeNearLine, stationsByLine);
 			console.log(
 				`  ${date}: ${result.segmentCount} segments / ${result.minuteCount} minutes in ${result.durationMs}ms`,
 			);

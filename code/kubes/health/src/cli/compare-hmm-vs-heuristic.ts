@@ -182,22 +182,30 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
  *  walking-distance compatible. The HMM transition matrix uses this
  *  as the station-graph hard-zero — a train on line L cannot alight
  *  at place P (and vice versa) when no station on L is near P. */
-async function buildPlaceNearLine(places: readonly PlaceWithCoords[], lines: readonly string[]): Promise<Set<string>> {
+async function buildLineGraph(
+	places: readonly PlaceWithCoords[],
+	lines: readonly string[],
+): Promise<{ placeNearLine: Set<string>; stationsByLine: Map<string, readonly { lat: number; lon: number }[]> }> {
 	const WALK_DIST_M = 400;
-	const set = new Set<string>();
+	const placeNearLine = new Set<string>();
+	const stationsByLine = new Map<string, readonly { lat: number; lon: number }[]>();
 	for (const line of lines) {
 		const stations = await stationsOnLine(line);
 		if (stations.length === 0) continue;
+		stationsByLine.set(
+			line,
+			stations.map((s) => ({ lat: s.lat, lon: s.lon })),
+		);
 		for (const p of places) {
 			for (const s of stations) {
 				if (haversineMeters(p.lat, p.lon, s.lat, s.lon) <= WALK_DIST_M) {
-					set.add(`${p.id}|${line}`);
+					placeNearLine.add(`${p.id}|${line}`);
 					break;
 				}
 			}
 		}
 	}
-	return set;
+	return { placeNearLine, stationsByLine };
 }
 
 interface DayResult {
@@ -262,6 +270,7 @@ async function decodeDay(
 	cache: {
 		focusPlaces: PlaceWithCoords[];
 		placeNearLine: Set<string>;
+		stationsByLine: ReadonlyMap<string, readonly { lat: number; lon: number }[]>;
 		learnedEmissions: LearnedEmissionParameters | null;
 		useHsmm: boolean;
 		marginals: boolean;
@@ -523,7 +532,7 @@ async function main(): Promise<void> {
 	// Per-user lookups loaded once and reused across dates.
 	console.error(`# loading user state (focus_places + station-graph${modelVersion ? " + learned model" : ""})`);
 	const focusPlaces = await loadFocusPlacesForUser(userId);
-	const placeNearLine = await buildPlaceNearLine(focusPlaces, KNOWN_LINES);
+	const { placeNearLine, stationsByLine } = await buildLineGraph(focusPlaces, KNOWN_LINES);
 	const learnedEmissions = modelVersion ? await loadLearnedModel(userId, modelVersion) : null;
 	console.error(`  ${focusPlaces.length} focus_places, ${placeNearLine.size} place-line pairs in walking distance`);
 
@@ -536,6 +545,7 @@ async function main(): Promise<void> {
 			const result = await decodeDay(userId, date, tz, {
 				focusPlaces,
 				placeNearLine,
+				stationsByLine,
 				learnedEmissions,
 				useHsmm: hsmm,
 				marginals,
