@@ -63,6 +63,16 @@ function hsmm(startMin: number, endMin: number, mode: HmmSegment["mode"], placeI
 	};
 }
 
+function hsmmTrain(startMin: number, endMin: number, lineName: string | null): HmmSegment {
+	return {
+		startTs: TS + startMin * MIN,
+		endTs: TS + endMin * MIN,
+		mode: "train",
+		placeId: null,
+		lineName,
+	};
+}
+
 const PLACES = new Map<number, { displayName: string | null }>([
 	[1, { displayName: "Home" }],
 	[2, { displayName: "Cleveland Clinic London" }],
@@ -136,6 +146,49 @@ describe("applyHsmmPlaceOverride", () => {
 		const out = applyHsmmPlaceOverride(segments, hmm, PLACES);
 		expect(out[0].place).toBe("Home");
 		expect(out[2].place).toBe("Cleveland Clinic London");
+	});
+
+	it("overrides driving → train when HSMM has a confident train pick on a movement segment", () => {
+		// Pipeline mislabels a tube ride as driving (the 2026-05-22
+		// 20:05 Euston Underpass case). HSMM picked `train @ Met`.
+		// The override rewrites mode to train and wayName to the
+		// HSMM line.
+		const segments = [moving(0, 13, "driving")];
+		(segments[0] as { avgSpeed: number }).avgSpeed = 23;
+		const hmm = [hsmmTrain(0, 13, "Metropolitan Line")];
+		const out = applyHsmmPlaceOverride(segments, hmm, PLACES);
+		expect(out[0].mode).toBe("train");
+		expect(out[0].wayName).toBe("Metropolitan Line");
+	});
+
+	it("does NOT override slow-walk → train (the user is walking to the tube, not riding it yet)", () => {
+		// 19:55-20:04 on 2026-05-22: pipeline says walking @ 1.8 km/h
+		// to Pentonville Road tube entrance. HSMM picked train @ Met
+		// for the bookend but the user was walking. Min-speed guard
+		// prevents the over-aggressive flip.
+		const segments = [moving(0, 9, "walking")];
+		(segments[0] as { avgSpeed: number }).avgSpeed = 1.8;
+		const hmm = [hsmmTrain(0, 9, "Metropolitan Line")];
+		const out = applyHsmmPlaceOverride(segments, hmm, PLACES);
+		expect(out[0].mode).toBe("walking");
+	});
+
+	it("does NOT override mode when pipeline already says train (avoids losing pipeline's line attribution)", () => {
+		// Pipeline says train · Jubilee; HSMM says train · Met (wrong
+		// line, right mode). Trust pipeline's line — it has finer-
+		// grained station knowledge than the route graph yet.
+		const segments = [moving(0, 9, "train")];
+		segments[0].wayName = "Baker Street → Green Park · Jubilee Line";
+		const hmm = [hsmmTrain(0, 9, "Metropolitan Line")];
+		const out = applyHsmmPlaceOverride(segments, hmm, PLACES);
+		expect(out[0].wayName).toBe("Baker Street → Green Park · Jubilee Line");
+	});
+
+	it("does NOT override walking → train without explicit train evidence (HSMM unknown_rail does not fire)", () => {
+		const segments = [moving(0, 13, "walking")];
+		const hmm = [hsmmTrain(0, 13, "unknown_rail")];
+		const out = applyHsmmPlaceOverride(segments, hmm, PLACES);
+		expect(out[0].mode).toBe("walking");
 	});
 
 	it("does not mutate input arrays or segment objects", () => {

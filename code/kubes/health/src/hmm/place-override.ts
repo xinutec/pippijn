@@ -58,8 +58,25 @@ function maybeOverride(
 	hmmSegments: readonly HmmSegment[],
 	places: ReadonlyMap<number, PlaceLookup>,
 ): EnrichedSegment {
-	if (seg.mode !== "stationary") return seg;
+	const effectiveMode = seg.refinedMode ?? seg.mode;
+	if (effectiveMode === "stationary") {
+		return maybeOverridePlace(seg, hmmSegments, places);
+	}
+	// Movement segments: if HSMM has a confident train @ knownLine
+	// pick across this segment, rewrite to train. Skips train-vs-
+	// train cases — pipeline's line attribution is finer-grained
+	// than the per-line route-graph evidence today.
+	if (effectiveMode !== "train") {
+		return maybeOverrideMovementToTrain(seg, hmmSegments);
+	}
+	return seg;
+}
 
+function maybeOverridePlace(
+	seg: EnrichedSegment,
+	hmmSegments: readonly HmmSegment[],
+	places: ReadonlyMap<number, PlaceLookup>,
+): EnrichedSegment {
 	const dominantPlaceId = findDominantStationaryPlaceId(seg, hmmSegments);
 	if (dominantPlaceId === null) return seg;
 
@@ -69,6 +86,59 @@ function maybeOverride(
 	if (place.displayName === seg.place) return seg;
 
 	return { ...seg, place: place.displayName };
+}
+
+/** Minimum avg segment speed for movement→train override. Below
+ *  this the segment is more consistent with walking-pace movement
+ *  to/from a tube entrance than with riding the train itself. Tube
+ *  averages 20-30 km/h; a brisk walk is 5-6 km/h. 8 km/h splits
+ *  cleanly. */
+const MOVEMENT_TO_TRAIN_MIN_AVG_KMH = 8;
+
+function maybeOverrideMovementToTrain(seg: EnrichedSegment, hmmSegments: readonly HmmSegment[]): EnrichedSegment {
+	if (seg.avgSpeed < MOVEMENT_TO_TRAIN_MIN_AVG_KMH) return seg;
+	const dominantLine = findDominantTrainLineName(seg, hmmSegments);
+	if (dominantLine === null) return seg;
+	// Set both `mode` and `refinedMode` so the override sticks
+	// through to the user-facing display (which uses
+	// `refinedMode ?? mode`). Clear the `refinedReason` since the
+	// pipeline's biometric / cadence reclassification reasoning no
+	// longer applies — HSMM's route-graph evidence supersedes it.
+	return {
+		...seg,
+		mode: "train",
+		refinedMode: "train",
+		refinedReason: `hsmm route evidence — ${dominantLine}`,
+		wayName: dominantLine,
+	};
+}
+
+/** For the time window of `seg`, find the rail line name that the
+ *  HSMM attributes the most train-overlap-seconds to. Returns null
+ *  when no train-with-knownLine HSMM segment dominates the overlap
+ *  (no train, only unknown_rail, etc.). */
+function findDominantTrainLineName(seg: EnrichedSegment, hmmSegments: readonly HmmSegment[]): string | null {
+	const counts = new Map<string, number>();
+	for (const h of hmmSegments) {
+		if (h.endTs <= seg.startTs) continue;
+		if (h.startTs >= seg.endTs) break;
+		if (h.mode !== "train") continue;
+		if (h.lineName === null || h.lineName === "unknown_rail") continue;
+		const overlapStart = Math.max(seg.startTs, h.startTs);
+		const overlapEnd = Math.min(seg.endTs, h.endTs);
+		const overlap = overlapEnd - overlapStart;
+		if (overlap <= 0) continue;
+		counts.set(h.lineName, (counts.get(h.lineName) ?? 0) + overlap);
+	}
+	let bestLine: string | null = null;
+	let bestOverlap = 0;
+	for (const [line, n] of counts) {
+		if (n > bestOverlap) {
+			bestLine = line;
+			bestOverlap = n;
+		}
+	}
+	return bestLine;
 }
 
 /** For the time window of `seg`, find the focus_place id that the
