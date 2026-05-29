@@ -11,12 +11,12 @@
  *   scripts/prod-db.sh node dist/cli/dump-route-graph.js --probe 51.530,-0.124
  */
 
-import { z } from "zod";
-import { initPool, withConnection, db } from "../db/pool.js";
-import { migrate } from "../db/schema.js";
 import { sql } from "kysely";
-import { bboxFromFixes, loadRouteGraphForBbox } from "../geo/route-graph-loader.js";
+import { z } from "zod";
+import { db, initPool, withConnection } from "../db/pool.js";
+import { migrate } from "../db/schema.js";
 import type { RouteEdge, RouteGraph } from "../geo/route-graph.js";
+import { bboxFromFixes, loadRouteGraphForBbox } from "../geo/route-graph-loader.js";
 
 const config = z
 	.object({

@@ -32,6 +32,8 @@ import { type GroundTruthDay, parseGroundTruth } from "../eval/ground-truth.js";
 import { type DayScore, type DecoderMinute, scoreDay } from "../eval/score-day.js";
 import { parseHourProfile } from "../geo/focus-places.js";
 import { stationsOnLine } from "../geo/line-stations.js";
+import type { RouteGraph } from "../geo/route-graph.js";
+import { bboxFromFixes, loadRouteGraphForBbox } from "../geo/route-graph-loader.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, type EnrichedSegment, loadBiometrics } from "../geo/velocity.js";
 import { DEFAULT_MIN_DURATION_BY_MODE, type GammaFit, logDurationProb } from "../hmm/duration-dist.js";
@@ -42,7 +44,7 @@ import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
 import { buildObservationTensor } from "../hmm/observation.js";
-import { buildRailCorridorBoost } from "../hmm/rail-corridor-boost.js";
+import { buildRouteRailEvidence } from "../hmm/route-rail-evidence.js";
 import { buildStateSpace, type FocusPlaceRef, type State } from "../hmm/state-space.js";
 import { buildTransitionMatrix } from "../hmm/transitions.js";
 
@@ -245,20 +247,12 @@ function collectAllPlaceNames(days: readonly GroundTruthDay[]): Set<string> {
 	return names;
 }
 
-async function buildLineGraph(
-	places: readonly PlaceWithCoords[],
-	lines: readonly string[],
-): Promise<{ placeNearLine: Set<string>; stationsByLine: Map<string, readonly { lat: number; lon: number }[]> }> {
+async function buildPlaceNearLine(places: readonly PlaceWithCoords[], lines: readonly string[]): Promise<Set<string>> {
 	const WALK_DIST_M = 400;
 	const placeNearLine = new Set<string>();
-	const stationsByLine = new Map<string, readonly { lat: number; lon: number }[]>();
 	for (const line of lines) {
 		const stations = await stationsOnLine(line);
 		if (stations.length === 0) continue;
-		stationsByLine.set(
-			line,
-			stations.map((s) => ({ lat: s.lat, lon: s.lon })),
-		);
 		for (const p of places) {
 			for (const s of stations) {
 				if (haversineMeters(p.lat, p.lon, s.lat, s.lon) <= WALK_DIST_M) {
@@ -268,7 +262,7 @@ async function buildLineGraph(
 			}
 		}
 	}
-	return { placeNearLine, stationsByLine };
+	return placeNearLine;
 }
 
 /** Shift a `YYYY-MM-DD` date string by N calendar days (negative = back). */
@@ -298,7 +292,7 @@ async function decodeHsmm(
 	tz: string,
 	places: readonly PlaceWithCoords[],
 	placeNearLine: Set<string>,
-	stationsByLine: ReadonlyMap<string, readonly { lat: number; lon: number }[]>,
+	routeGraph: RouteGraph,
 ): Promise<DecoderMinute[]> {
 	const velResult = await computeVelocity(config, userId, date, tz);
 	const bounds = dateBoundsUtc(date, tz);
@@ -328,9 +322,9 @@ async function decodeHsmm(
 	});
 	const baseEmission = buildEmissionFn({ placeCoords });
 	const geometricFn = buildGeometricFeasibility({ placeCoords });
-	const railCorridorFn = buildRailCorridorBoost({ stationsByLine });
+	const routeRailFn = buildRouteRailEvidence({ routeGraph });
 	const emission = (state: State, obs: (typeof tensor)[number]): number =>
-		baseEmission(state, obs) + geometricFn(state, obs) + railCorridorFn(state, obs);
+		baseEmission(state, obs) + geometricFn(state, obs) + routeRailFn(state, obs);
 	const initialLogProb = buildInitialStatePrior();
 	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
 	const hmmStates = hsmmViterbi({
@@ -467,13 +461,15 @@ async function main(): Promise<void> {
 		console.error(`# unresolved: ${unresolved.join(", ")}`);
 	}
 
-	const { placeNearLine, stationsByLine } =
-		args.source === "hsmm"
-			? await buildLineGraph(places, KNOWN_LINES)
-			: {
-					placeNearLine: new Set<string>(),
-					stationsByLine: new Map<string, readonly { lat: number; lon: number }[]>(),
-				};
+	let placeNearLine: Set<string> = new Set();
+	let routeGraph: RouteGraph | null = null;
+	if (args.source === "hsmm") {
+		placeNearLine = await buildPlaceNearLine(places, KNOWN_LINES);
+		const bbox = bboxFromFixes(places.map((p) => ({ lat: p.lat, lon: p.lon })));
+		if (bbox === null) throw new Error("no focus places — cannot build route graph");
+		routeGraph = await loadRouteGraphForBbox(bbox, { featureTypes: ["railway"] });
+		console.error(`# loaded ${routeGraph.edges.size} rail edges for route-rail-evidence`);
+	}
 
 	// For the pipeline path: a separate display_name → id lookup so a
 	// pipeline-emitted "Home (residence)" maps to the same id as the
@@ -502,7 +498,7 @@ async function main(): Promise<void> {
 			for (const d of adjacentDates) {
 				const chunk =
 					args.source === "hsmm"
-						? await decodeHsmm(args.userId, d, day.tz, places, placeNearLine, stationsByLine)
+						? await decodeHsmm(args.userId, d, day.tz, places, placeNearLine, routeGraph as RouteGraph)
 						: await decodePipeline(args.userId, d, day.tz, pipelineNameToId);
 				decoderChunks.push(...chunk);
 			}

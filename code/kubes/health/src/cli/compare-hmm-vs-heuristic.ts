@@ -34,6 +34,8 @@ import { db, initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import { parseHourProfile } from "../geo/focus-places.js";
 import { stationsOnLine } from "../geo/line-stations.js";
+import type { RouteGraph } from "../geo/route-graph.js";
+import { bboxFromFixes, loadRouteGraphForBbox } from "../geo/route-graph-loader.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, type EnrichedSegment, loadBiometrics } from "../geo/velocity.js";
 import { DEFAULT_MIN_DURATION_BY_MODE, type GammaFit, logDurationProb } from "../hmm/duration-dist.js";
@@ -46,6 +48,7 @@ import { hsmmMarginals, type Marginals } from "../hmm/hsmm-marginals.js";
 import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
 import { buildObservationTensor, type Observation } from "../hmm/observation.js";
+import { buildRouteRailEvidence } from "../hmm/route-rail-evidence.js";
 import { buildStateSpace, type FocusPlaceRef, type State, stateKey } from "../hmm/state-space.js";
 import { buildTransitionMatrix } from "../hmm/transitions.js";
 import { viterbi } from "../hmm/viterbi.js";
@@ -182,20 +185,12 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
  *  walking-distance compatible. The HMM transition matrix uses this
  *  as the station-graph hard-zero — a train on line L cannot alight
  *  at place P (and vice versa) when no station on L is near P. */
-async function buildLineGraph(
-	places: readonly PlaceWithCoords[],
-	lines: readonly string[],
-): Promise<{ placeNearLine: Set<string>; stationsByLine: Map<string, readonly { lat: number; lon: number }[]> }> {
+async function buildPlaceNearLine(places: readonly PlaceWithCoords[], lines: readonly string[]): Promise<Set<string>> {
 	const WALK_DIST_M = 400;
 	const placeNearLine = new Set<string>();
-	const stationsByLine = new Map<string, readonly { lat: number; lon: number }[]>();
 	for (const line of lines) {
 		const stations = await stationsOnLine(line);
 		if (stations.length === 0) continue;
-		stationsByLine.set(
-			line,
-			stations.map((s) => ({ lat: s.lat, lon: s.lon })),
-		);
 		for (const p of places) {
 			for (const s of stations) {
 				if (haversineMeters(p.lat, p.lon, s.lat, s.lon) <= WALK_DIST_M) {
@@ -205,7 +200,7 @@ async function buildLineGraph(
 			}
 		}
 	}
-	return { placeNearLine, stationsByLine };
+	return placeNearLine;
 }
 
 interface DayResult {
@@ -270,7 +265,7 @@ async function decodeDay(
 	cache: {
 		focusPlaces: PlaceWithCoords[];
 		placeNearLine: Set<string>;
-		stationsByLine: ReadonlyMap<string, readonly { lat: number; lon: number }[]>;
+		routeGraph: RouteGraph;
 		learnedEmissions: LearnedEmissionParameters | null;
 		useHsmm: boolean;
 		marginals: boolean;
@@ -316,8 +311,9 @@ async function decodeDay(
 		learnedEmissions: cache.learnedEmissions ?? undefined,
 	});
 	const geometricFn = buildGeometricFeasibility({ placeCoords });
+	const routeRailFn = buildRouteRailEvidence({ routeGraph: cache.routeGraph });
 	const emission = (state: State, obs: (typeof tensor)[number]): number =>
-		baseEmission(state, obs) + geometricFn(state, obs);
+		baseEmission(state, obs) + geometricFn(state, obs) + routeRailFn(state, obs);
 	const initialLogProb = buildInitialStatePrior();
 	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
 	const hmmStates = cache.useHsmm
@@ -532,7 +528,11 @@ async function main(): Promise<void> {
 	// Per-user lookups loaded once and reused across dates.
 	console.error(`# loading user state (focus_places + station-graph${modelVersion ? " + learned model" : ""})`);
 	const focusPlaces = await loadFocusPlacesForUser(userId);
-	const { placeNearLine, stationsByLine } = await buildLineGraph(focusPlaces, KNOWN_LINES);
+	const placeNearLine = await buildPlaceNearLine(focusPlaces, KNOWN_LINES);
+	const bbox = bboxFromFixes(focusPlaces.map((p) => ({ lat: p.lat, lon: p.lon })));
+	if (bbox === null) throw new Error("no focus places — cannot build route graph");
+	const routeGraph = await loadRouteGraphForBbox(bbox, { featureTypes: ["railway"] });
+	console.error(`# loaded ${routeGraph.edges.size} rail edges for route-rail-evidence`);
 	const learnedEmissions = modelVersion ? await loadLearnedModel(userId, modelVersion) : null;
 	console.error(`  ${focusPlaces.length} focus_places, ${placeNearLine.size} place-line pairs in walking distance`);
 
@@ -545,7 +545,7 @@ async function main(): Promise<void> {
 			const result = await decodeDay(userId, date, tz, {
 				focusPlaces,
 				placeNearLine,
-				stationsByLine,
+				routeGraph,
 				learnedEmissions,
 				useHsmm: hsmm,
 				marginals,
