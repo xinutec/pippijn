@@ -86,11 +86,30 @@ describe("buildRouteRailEvidence", () => {
 		expect(fn(train("Metropolitan Line"), o)).toBe(0);
 	});
 
-	it("boosts train @ L when underground edges of L bookend both fixes (Met Line tube case)", () => {
+	it("boosts train @ L when underground edges of L bookend both fixes AND a path connects them on L (Met Line tube case)", () => {
+		// Connected chain of Met edges KX → mid → Finchley. Each edge
+		// shares an endpoint node with the next, so the route graph's
+		// per-line connectivity check passes.
 		const graph = buildRouteGraph(
 			[
-				line({ osm_id: 1n, name: "Metropolitan Line", subtype: "subway", geom: MET_KX }),
-				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "subway", geom: MET_FINCHLEY }),
+				line({
+					osm_id: 1n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.125 51.5300, -0.130 51.5350)",
+				}),
+				line({
+					osm_id: 2n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.130 51.5350, -0.155 51.5410)",
+				}),
+				line({
+					osm_id: 3n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.155 51.5410, -0.181 51.5474)",
+				}),
 			],
 			[],
 		);
@@ -124,10 +143,28 @@ describe("buildRouteRailEvidence", () => {
 	});
 
 	it("only boosts the specific line — Metropolitan ≠ Victoria evidence", () => {
+		// Connected Met chain so the boost fires for Met; no Victoria
+		// edges at all so Victoria fails the linesPresent check.
 		const graph = buildRouteGraph(
 			[
-				line({ osm_id: 1n, name: "Metropolitan Line", subtype: "subway", geom: MET_KX }),
-				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "subway", geom: MET_FINCHLEY }),
+				line({
+					osm_id: 1n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.125 51.5300, -0.130 51.5350)",
+				}),
+				line({
+					osm_id: 2n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.130 51.5350, -0.155 51.5410)",
+				}),
+				line({
+					osm_id: 3n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.155 51.5410, -0.181 51.5474)",
+				}),
 			],
 			[],
 		);
@@ -219,6 +256,76 @@ describe("buildRouteRailEvidence", () => {
 		// Surface-only evidence does not boost — train @ surface needs
 		// GPS-observed speed / direction evidence to win, not gap-based.
 		expect(fn(train("East Coast Main Line"), o)).toBe(0);
+	});
+
+	it("does NOT boost when the bookend underground edges of L are NOT graph-connected on L's subgraph", () => {
+		// KX and Finchley sides BOTH have Met edges underground, but
+		// the two are not in the same Met-subgraph connected component
+		// in this synthetic graph (no edge endpoints align). The boost
+		// should NOT fire — without connectivity, Met has no path
+		// between the bookend stations.
+		const graph = buildRouteGraph(
+			[
+				line({
+					osm_id: 1n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.125 51.5300, -0.122 51.5316)",
+				}),
+				// Disconnected from edge 1 (no shared endpoint).
+				line({
+					osm_id: 2n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.182 51.5470, -0.179 51.5478)",
+				}),
+			],
+			[],
+		);
+		const fn = buildRouteRailEvidence({ routeGraph: graph });
+		const ts = 1_700_000_000;
+		const o = obs({
+			ts,
+			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
+			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+		});
+		expect(fn(train("Metropolitan Line"), o)).toBe(0);
+	});
+
+	it("DOES boost when the bookend underground edges of L are graph-connected via a chain", () => {
+		// Chain of Met Line edges KX → mid → Finchley, each sharing an
+		// endpoint node with the next. Connectivity check passes.
+		const graph = buildRouteGraph(
+			[
+				line({
+					osm_id: 1n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.125 51.5300, -0.130 51.5350)",
+				}),
+				line({
+					osm_id: 2n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.130 51.5350, -0.155 51.5410)",
+				}),
+				line({
+					osm_id: 3n,
+					name: "Metropolitan Line",
+					subtype: "subway",
+					geom: "LINESTRING(-0.155 51.5410, -0.181 51.5474)",
+				}),
+			],
+			[],
+		);
+		const fn = buildRouteRailEvidence({ routeGraph: graph });
+		const ts = 1_700_000_000;
+		const o = obs({
+			ts,
+			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
+			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+		});
+		expect(fn(train("Metropolitan Line"), o)).toBeGreaterThan(2);
 	});
 
 	it("memoises fix lookups (idempotent calls don't re-query the graph)", () => {
