@@ -30,7 +30,7 @@ function obs(over: Partial<Observation> = {}): Observation {
 }
 
 function stationary(placeId: number | null): State {
-	return { mode: "stationary", placeId, lineName: null };
+	return { mode: "stationary", placeId, lineName: null, trainEdgeId: null };
 }
 
 describe("buildEntryPrior", () => {
@@ -65,8 +65,8 @@ describe("buildEntryPrior", () => {
 		const fn = buildEntryPrior({ placeHourProfiles: new Map([[1, profile]]) });
 		const at14 = obs({ hourLocal: 14 });
 		// Movement: no boost regardless of profile.
-		expect(fn({ mode: "walking", placeId: null, lineName: null }, at14)).toBe(0);
-		expect(fn({ mode: "train", placeId: null, lineName: null }, at14)).toBe(0);
+		expect(fn({ mode: "walking", placeId: null, lineName: null, trainEdgeId: null }, at14)).toBe(0);
+		expect(fn({ mode: "train", placeId: null, lineName: null, trainEdgeId: null }, at14)).toBe(0);
 		// Off-network stationary: no boost (no place to look up).
 		expect(fn(stationary(null), at14)).toBe(0);
 		// stationary@knownPlace WITH a profile: positive boost.
@@ -124,7 +124,7 @@ describe("buildEntryPrior", () => {
 		const weights = new Map([[1, 0.5]]);
 		const profile = new Array(24).fill(1 / 24);
 		const fn = buildEntryPrior({ placeVisitWeights: weights, placeHourProfiles: new Map([[1, profile]]) });
-		expect(fn({ mode: "walking", placeId: null, lineName: null }, obs())).toBe(0);
+		expect(fn({ mode: "walking", placeId: null, lineName: null, trainEdgeId: null }, obs())).toBe(0);
 		expect(fn(stationary(null), obs())).toBe(0);
 	});
 });

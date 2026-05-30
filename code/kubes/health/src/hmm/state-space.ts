@@ -36,8 +36,23 @@ export interface State {
 	placeId: number | null;
 	/** Named rail line when `mode === "train"`; `"unknown_rail"` for
 	 *  the catch-all rail-but-not-in-known-set state; `null` for any
-	 *  non-train mode. */
+	 *  non-train mode.
+	 *
+	 *  In Phase 1 of the route-aware decoder, train states can also
+	 *  carry a specific edge id (see `trainEdgeId`). When `trainEdgeId`
+	 *  is non-null, `lineName` is the derived display label (the most
+	 *  prominent line membership of that edge, or null for unknown
+	 *  rail-on-an-unnamed-way cases). */
 	lineName: string | null;
+	/** When `mode === "train"`, the specific OSM rail-way id the user
+	 *  is traversing (composite `${osm_type}:${osm_id}` from
+	 *  RouteGraph). `null` for the legacy line-only train states and
+	 *  for all non-train modes. Phase 1 introduces this to ground
+	 *  train classification in track geometry — emissions can then
+	 *  use the edge's underground attribute, transitions enforce
+	 *  graph-adjacency, and route-rail-evidence becomes a structural
+	 *  property of the state rather than a per-line lookup. */
+	trainEdgeId: string | null;
 }
 
 /** Minimal focus-place identity needed for state enumeration. The
@@ -48,9 +63,32 @@ export interface FocusPlaceRef {
 	displayName: string | null;
 }
 
+/** Minimal route-edge identity needed for state enumeration. The
+ *  HMM doesn't care about coordinates / geometry / underground
+ *  status here — those come in via the emission and transition
+ *  models, which look them up by id. */
+export interface RouteEdgeRef {
+	id: string;
+	/** Display line name derived from the edge's
+	 *  `lineMemberships`. The caller picks the convention — typically
+	 *  the most prominent / first membership, or null if the edge
+	 *  has no line tag. */
+	lineName: string | null;
+}
+
 export interface BuildStateSpaceInput {
 	focusPlaces: readonly FocusPlaceRef[];
+	/** Legacy: line-only train states. One `train @ lineName` state
+	 *  per entry, plus an `unknown_rail` catch-all. Used when
+	 *  `railEdges` is empty. */
 	knownLines: readonly string[];
+	/** Phase 1 route-aware train states. One `train @ edgeId` state
+	 *  per entry (carrying lineName as a derived display label). When
+	 *  this is non-empty, the line-only train states from
+	 *  `knownLines` are skipped — the edge-grained states subsume
+	 *  them. The `unknown_rail` catch-all is still emitted regardless,
+	 *  since it represents "rail-but-no-specific-edge-evidence." */
+	railEdges?: readonly RouteEdgeRef[];
 }
 
 /** Stable string key for a state — used as a Map key or
@@ -58,7 +96,10 @@ export interface BuildStateSpaceInput {
  *  distinct states produce distinct keys. */
 export function stateKey(s: State): string {
 	if (s.mode === "stationary") return `stationary|${s.placeId ?? "none"}`;
-	if (s.mode === "train") return `train|${s.lineName ?? "unknown_rail"}`;
+	if (s.mode === "train") {
+		if (s.trainEdgeId !== null) return `train|${s.trainEdgeId}`;
+		return `train|${s.lineName ?? "unknown_rail"}`;
+	}
 	return s.mode;
 }
 
@@ -75,25 +116,34 @@ export function buildStateSpace(input: BuildStateSpaceInput): State[] {
 		states.push(s);
 	}
 
-	// Movement modes (no place, no line).
+	// Movement modes (no place, no line, no edge).
 	for (const mode of MOVEMENT_MODES) {
-		push({ mode, placeId: null, lineName: null });
+		push({ mode, placeId: null, lineName: null, trainEdgeId: null });
 	}
 
 	// Off-network stationary (the user is stationary somewhere not in
 	// their focus_places set — an unfamiliar café, a friend's flat).
-	push({ mode: "stationary", placeId: null, lineName: null });
+	push({ mode: "stationary", placeId: null, lineName: null, trainEdgeId: null });
 
 	// One stationary state per focus place.
 	for (const p of input.focusPlaces) {
-		push({ mode: "stationary", placeId: p.id, lineName: null });
+		push({ mode: "stationary", placeId: p.id, lineName: null, trainEdgeId: null });
 	}
 
-	// Train states: one per known line + the unknown_rail catch-all.
-	for (const lineName of input.knownLines) {
-		push({ mode: "train", placeId: null, lineName });
+	// Train states: prefer per-edge states (Phase 1 route-aware
+	// decoder) when railEdges is supplied; fall back to per-line
+	// states otherwise. The unknown_rail catch-all is always emitted.
+	const edges = input.railEdges ?? [];
+	if (edges.length > 0) {
+		for (const e of edges) {
+			push({ mode: "train", placeId: null, lineName: e.lineName, trainEdgeId: e.id });
+		}
+	} else {
+		for (const lineName of input.knownLines) {
+			push({ mode: "train", placeId: null, lineName, trainEdgeId: null });
+		}
 	}
-	push({ mode: "train", placeId: null, lineName: "unknown_rail" });
+	push({ mode: "train", placeId: null, lineName: "unknown_rail", trainEdgeId: null });
 
 	return states;
 }

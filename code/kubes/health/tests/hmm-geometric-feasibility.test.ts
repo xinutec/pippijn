@@ -18,7 +18,7 @@ const PLACE_COORDS = new Map<number, { lat: number; lon: number }>([
 ]);
 
 function stationary(placeId: number | null): State {
-	return { mode: "stationary", placeId, lineName: null };
+	return { mode: "stationary", placeId, lineName: null, trainEdgeId: null };
 }
 
 function obs(over: Partial<Observation>): Observation {
@@ -39,8 +39,8 @@ function obs(over: Partial<Observation>): Observation {
 describe("buildGeometricFeasibility", () => {
 	it("returns 0 for non-stationary states", () => {
 		const fn = buildGeometricFeasibility({ placeCoords: PLACE_COORDS });
-		expect(fn({ mode: "walking", placeId: null, lineName: null }, obs({}))).toBe(0);
-		expect(fn({ mode: "train", placeId: null, lineName: "Met" }, obs({}))).toBe(0);
+		expect(fn({ mode: "walking", placeId: null, lineName: null, trainEdgeId: null }, obs({}))).toBe(0);
+		expect(fn({ mode: "train", placeId: null, lineName: "Met", trainEdgeId: null }, obs({}))).toBe(0);
 	});
 
 	it("returns 0 for off-network stationary (placeId=null)", () => {

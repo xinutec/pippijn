@@ -107,13 +107,13 @@ describe("buildStateSpace", () => {
 	});
 
 	it("stateKey is stable and round-trippable for transitions", () => {
-		const s1 = { mode: "stationary" as const, placeId: 42, lineName: null };
-		const s2 = { mode: "train" as const, placeId: null, lineName: "Jubilee Line" };
-		const s3 = { mode: "walking" as const, placeId: null, lineName: null };
+		const s1 = { mode: "stationary" as const, placeId: 42, lineName: null, trainEdgeId: null };
+		const s2 = { mode: "train" as const, placeId: null, lineName: "Jubilee Line", trainEdgeId: null };
+		const s3 = { mode: "walking" as const, placeId: null, lineName: null, trainEdgeId: null };
 		// Distinct keys per distinct state.
 		expect(stateKey(s1)).not.toBe(stateKey(s2));
 		expect(stateKey(s2)).not.toBe(stateKey(s3));
 		// Same state object → same key.
-		expect(stateKey(s1)).toBe(stateKey({ mode: "stationary", placeId: 42, lineName: null }));
+		expect(stateKey(s1)).toBe(stateKey({ mode: "stationary", placeId: 42, lineName: null, trainEdgeId: null }));
 	});
 });

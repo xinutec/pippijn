@@ -11,7 +11,7 @@ import type { State } from "../src/hmm/state-space.js";
  */
 
 function s(mode: State["mode"], placeId: number | null = null, lineName: string | null = null): State {
-	return { mode, placeId, lineName };
+	return { mode, placeId, lineName, trainEdgeId: null };
 }
 
 function ts(min: number): number {

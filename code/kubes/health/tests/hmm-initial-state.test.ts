@@ -12,7 +12,7 @@ import { buildInitialStatePrior } from "../src/hmm/initial-state.js";
 import type { State } from "../src/hmm/state-space.js";
 
 function state(mode: State["mode"], placeId: number | null = null, lineName: string | null = null): State {
-	return { mode, placeId, lineName };
+	return { mode, placeId, lineName, trainEdgeId: null };
 }
 
 describe("buildInitialStatePrior", () => {

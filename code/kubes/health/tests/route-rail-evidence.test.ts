@@ -26,7 +26,7 @@ function line(over: Partial<RawOsmLine>): RawOsmLine {
 }
 
 function train(lineName: string | null): State {
-	return { mode: "train", placeId: null, lineName };
+	return { mode: "train", placeId: null, lineName, trainEdgeId: null };
 }
 
 function obs(over: Partial<Observation> = {}): Observation {
@@ -57,8 +57,8 @@ describe("buildRouteRailEvidence", () => {
 	it("returns 0 for non-train states", () => {
 		const graph = buildRouteGraph([], []);
 		const fn = buildRouteRailEvidence({ routeGraph: graph });
-		expect(fn({ mode: "stationary", placeId: 1, lineName: null }, obs({}))).toBe(0);
-		expect(fn({ mode: "walking", placeId: null, lineName: null }, obs({}))).toBe(0);
+		expect(fn({ mode: "stationary", placeId: 1, lineName: null, trainEdgeId: null }, obs({}))).toBe(0);
+		expect(fn({ mode: "walking", placeId: null, lineName: null, trainEdgeId: null }, obs({}))).toBe(0);
 	});
 
 	it("returns 0 for train @ unknown_rail (no specific line)", () => {
