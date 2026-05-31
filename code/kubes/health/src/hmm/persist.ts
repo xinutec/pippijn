@@ -33,8 +33,11 @@ import type { State } from "./state-space.js";
  *  - 2: added geometric feasibility factor (prev/next-fix
  *       teleport-speed penalty for stat @ knownPlace)
  *  - 3: rail-corridor-boost (station-list) → route-rail-evidence
- *       (route-graph track-geometry, composite-name-aware) */
-export const CLASSIFIER_VERSION = 3;
+ *       (route-graph track-geometry, composite-name-aware)
+ *  - 4: connectivity check in route-rail-evidence + per-line
+ *       GPS-distance factor (line-proximity) at GPS-present
+ *       minutes. */
+export const CLASSIFIER_VERSION = 4;
 
 /** Per-segment HSMM decode shape. Same conceptual model as the
  *  pipeline's `EnrichedSegment` but trimmed to the fields the HSMM

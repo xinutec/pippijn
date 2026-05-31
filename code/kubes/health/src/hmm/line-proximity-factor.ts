@@ -1,0 +1,113 @@
+/**
+ * Per-line GPS-distance factor.
+ *
+ * Complements `route-rail-evidence` (which fires only at GPS-NULL
+ * minutes during a tube tunnel gap). This factor fires at
+ * GPS-PRESENT minutes, scoring `train @ L` by whether the observed
+ * GPS fix sits on L's track corridor in the route graph.
+ *
+ * Why both:
+ *   - Route-rail-evidence: structural — "are the bookends near
+ *     underground L?" Catches tube rides during the GPS gap.
+ *   - Line-proximity-factor: continuous — "is THIS minute's fix
+ *     near L's track?" Catches everything else (surface rail, the
+ *     GPS-present minutes inside a tube ride, mode-continuation
+ *     errors where HSMM stays on the wrong line because per-minute
+ *     evidence doesn't discriminate).
+ *
+ * Decision shape per minute:
+ *   - L not present in the graph at all: 0 (we don't punish a line
+ *     we can't see)
+ *   - L's edges within NEAR_M of GPS: boost (+)
+ *   - L modeled but NOT within NEAR_M: penalty (−)
+ *
+ * The earlier two-radius design (NEAR_M / FAR_M) left a dead zone
+ * between 250m and 1000m. At urban interchanges that dead zone
+ * covered the wrong-line case — e.g. Bond St mid-Jubilee-ride sees
+ * Met track ~600m north (on Marylebone Rd) and so paid no penalty
+ * for staying on a wrong Met segment. Collapsing to a single tight
+ * radius forces a per-minute verdict.
+ *
+ * Pure with respect to the route graph; per-minute cache keyed off
+ * coarse GPS coords.
+ */
+
+import type { RouteGraph } from "../geo/route-graph.js";
+import type { Observation } from "./observation.js";
+import type { State } from "./state-space.js";
+
+export interface BuildLineProximityFactorOpts {
+	routeGraph: RouteGraph;
+}
+
+export type LineProximityFactorFn = (state: State, obs: Observation) => number;
+
+/** Single proximity radius: L edges within this distance of the GPS
+ *  fix count as "on track" and earn the boost; otherwise (provided
+ *  L is modeled in the graph somewhere) earn the penalty. 250m
+ *  absorbs GPS noise + the vertical-projection of an underground
+ *  line that runs ~150m beneath the street. */
+const NEAR_M = 250;
+
+/** Boost when GPS sits on L's track. Calibrated so a 4-5 minute
+ *  ride on the right line beats the per-minute cross-state
+ *  transition cost (~5 nats) of switching away from a wrong line
+ *  HSMM is continuing by inertia. */
+const NEAR_BOOST = 1.5;
+
+/** Penalty when L is modeled but GPS is not near any L edge.
+ *  Larger than the boost — actively pushes HSMM out of a wrong-line
+ *  continuation rather than just discouraging entry. */
+const FAR_PENALTY = -2.5;
+
+function fixCacheKey(lat: number, lon: number): string {
+	return `${lat.toFixed(4)},${lon.toFixed(4)}`;
+}
+
+/** Lines for which the route graph has at least one edge within
+ *  the given radius of the fix. */
+function linesWithinRadius(routeGraph: RouteGraph, lat: number, lon: number, radiusM: number): Set<string> {
+	const lines = new Set<string>();
+	for (const edge of routeGraph.edgesNear(lat, lon, radiusM)) {
+		for (const line of edge.attrs.lineMemberships) lines.add(line);
+	}
+	return lines;
+}
+
+/** Set of every line that appears anywhere in the route graph.
+ *  Used to gate the penalty: don't punish a line the graph doesn't
+ *  model. */
+function linesInGraph(routeGraph: RouteGraph): Set<string> {
+	const lines = new Set<string>();
+	for (const edge of routeGraph.edges.values()) {
+		for (const line of edge.attrs.lineMemberships) lines.add(line);
+	}
+	return lines;
+}
+
+export function buildLineProximityFactor(opts: BuildLineProximityFactorOpts): LineProximityFactorFn {
+	const routeGraph = opts.routeGraph;
+	const cache = new Map<string, ReadonlySet<string>>();
+	const modeledLines = linesInGraph(routeGraph);
+
+	function nearAt(lat: number, lon: number): ReadonlySet<string> {
+		const key = fixCacheKey(lat, lon);
+		let v = cache.get(key);
+		if (v === undefined) {
+			v = linesWithinRadius(routeGraph, lat, lon, NEAR_M);
+			cache.set(key, v);
+		}
+		return v;
+	}
+
+	return (state: State, obs: Observation): number => {
+		if (state.mode !== "train") return 0;
+		if (state.lineName === null || state.lineName === "unknown_rail") return 0;
+		if (obs.gps === null) return 0;
+		const line = state.lineName;
+		if (!modeledLines.has(line)) return 0;
+
+		const near = nearAt(obs.gps.lat, obs.gps.lon);
+		return near.has(line) ? NEAR_BOOST : FAR_PENALTY;
+	};
+}

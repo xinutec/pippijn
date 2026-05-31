@@ -47,6 +47,7 @@ import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { hsmmMarginals, type Marginals } from "../hmm/hsmm-marginals.js";
 import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
+import { buildLineProximityFactor } from "../hmm/line-proximity-factor.js";
 import { buildObservationTensor, type Observation } from "../hmm/observation.js";
 import { buildRouteRailEvidence } from "../hmm/route-rail-evidence.js";
 import { buildStateSpace, type FocusPlaceRef, type State, stateKey } from "../hmm/state-space.js";
@@ -312,8 +313,9 @@ async function decodeDay(
 	});
 	const geometricFn = buildGeometricFeasibility({ placeCoords });
 	const routeRailFn = buildRouteRailEvidence({ routeGraph: cache.routeGraph });
+	const lineProximityFn = buildLineProximityFactor({ routeGraph: cache.routeGraph });
 	const emission = (state: State, obs: (typeof tensor)[number]): number =>
-		baseEmission(state, obs) + geometricFn(state, obs) + routeRailFn(state, obs);
+		baseEmission(state, obs) + geometricFn(state, obs) + routeRailFn(state, obs) + lineProximityFn(state, obs);
 	const initialLogProb = buildInitialStatePrior();
 	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
 	const hmmStates = cache.useHsmm

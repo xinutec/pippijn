@@ -29,6 +29,7 @@ import { buildGeometricFeasibility } from "../hmm/geometric-feasibility.js";
 import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
+import { buildLineProximityFactor } from "../hmm/line-proximity-factor.js";
 import { buildObservationTensor } from "../hmm/observation.js";
 import { groupStatesIntoSegments, saveDecode } from "../hmm/persist.js";
 import { buildRouteRailEvidence } from "../hmm/route-rail-evidence.js";
@@ -182,8 +183,9 @@ async function decodeAndPersist(
 	const baseEmission = buildEmissionFn({ placeCoords });
 	const geometricFn = buildGeometricFeasibility({ placeCoords });
 	const routeRailFn = buildRouteRailEvidence({ routeGraph });
+	const lineProximityFn = buildLineProximityFactor({ routeGraph });
 	const emission = (state: State, obs: (typeof tensor)[number]): number =>
-		baseEmission(state, obs) + geometricFn(state, obs) + routeRailFn(state, obs);
+		baseEmission(state, obs) + geometricFn(state, obs) + routeRailFn(state, obs) + lineProximityFn(state, obs);
 	const initialLogProb = buildInitialStatePrior();
 	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
 	const hmmStates = hsmmViterbi({
