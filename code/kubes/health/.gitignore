@@ -24,3 +24,8 @@ tests/fixtures/railsnap/
 # test. Real coords / times — local only. Captured by
 # capture-focusplaces-fixture.js.
 tests/fixtures/focusplaces/
+
+# Route-graph fixtures: OSM rail geometry for a bbox corridor, used
+# by the route-aware decoder acceptance test. Real London coords —
+# local only. Captured by capture-route-graph-fixture.js.
+tests/fixtures/route-graphs/

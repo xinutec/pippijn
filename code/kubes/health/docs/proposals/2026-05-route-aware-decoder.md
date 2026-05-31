@@ -383,5 +383,221 @@ per-user route graph) that several downstream features can read.
 
 - 2026-05-29 — proposal drafted, status `design`. Awaiting Pippijn
   review.
-- _next_ — review outcome, scope adjustments, decision to commit
-  or further iterate.
+- 2026-05-30 — Phase 0 shipped. Phase 1A (route-rail-evidence,
+  bookend underground gap boost) + 1A++ (per-line connectivity
+  check) + 1B (line-proximity-factor at GPS-present minutes)
+  shipped as intermediate improvements. Aggregate eval moved 0pp
+  on line score (0/6 → 0/6). Diagnosis: the failure mode isn't
+  weak per-line evidence — it's the HSMM keeping a single
+  `train @ line` segment across an underground board-change at an
+  interchange station (e.g. Met → Jubilee at Baker St on 2026-05-22),
+  because no per-minute factor can split a segment that's entirely
+  GPS-null between bookends. Phase 1A/B were the right structural
+  additions but cannot move the eval without the segmentation fix
+  below.
+- 2026-05-31 — committed to Phase 1 proper (per-edge state) with
+  the implementation design appended below.
+
+## Phase 1 — Implementation: hierarchical inner-outer decoder
+
+This section is the concrete plan for Phase 1 proper. Earlier
+phases (1A, 1B) were per-minute factor additions that left the
+core HSMM state space unchanged at `(mode, place, line)`. Phase 1
+proper is the structural change: the train state space becomes
+edge-aware, decoded by a hierarchical Viterbi that respects the
+distinction between *outer* mode-segment boundaries (which pay
+duration cost) and *inner* edge transitions within a train run
+(which do not).
+
+### The single failure mode this fixes
+
+Today's HSMM on 2026-05-22 produces:
+
+```
+13:18 → 13:29   train · Metropolitan Line   (HSMM, one segment)
+13:18 → 13:26   train · Metropolitan Line   (ground truth, Wembley → Baker St)
+13:26 → 13:35   train · Jubilee Line        (ground truth, Baker St → Green Park)
+```
+
+Both train segments are entirely underground. The HSMM has no
+GPS-present minutes at the boundary (13:26). Every per-minute
+factor we've layered on top (rail-corridor, route-rail-evidence,
+line-proximity) is uniform across the entire 13:18–13:29 gap from
+the HSMM's perspective: the prev-fix bookend is at Wembley, the
+next-fix bookend is at Green Park, and these bookends don't change
+as we step through the GPS-null minutes. Met-evidence at the next
+bookend (Green Park) is absent, but the score is identical
+whether we're at the Wembley end or the Baker St middle. The
+HSMM has no information to prefer splitting at 13:26 over
+keeping a single Met segment.
+
+The only signal that *could* split the segment is the **edge
+sequence**. Met track east of Baker St runs Marylebone Rd →
+Great Portland St → Euston Sq → KX. Jubilee track south of
+Baker St runs Bond St → Green Park → Westminster. Between
+the Wembley bookend and the Green Park bookend, the only edge
+path that exists on the Met subgraph alone is Wembley → Baker St
+(it doesn't continue south). The only edge path on Jubilee
+alone is Wembley → Baker St → Bond St → Green Park (Jubilee
+goes through Wembley Park on shared track with Met).
+
+If the decoder is forced to commit to a single edge sequence
+across the full 13:18–13:29 span, no single-line path can
+reach Green Park from Wembley via Met-only edges. A single-line
+Jubilee path exists. So a single-line decoder would pick
+Jubilee. A *segment-aware* decoder can do better: split at
+Baker St and use Met for the first half (where shared track
+allows it, but the Wembley → Baker St sub-path is most natural
+as Met), then Jubilee for the second half. That's the win.
+
+### State space
+
+Outer state — same as today:
+
+```
+OuterState = { mode: TransportMode, placeId: number | null, lineName: string | null }
+```
+
+Inner state, only meaningful for `mode = train, lineName = L`:
+
+```
+InnerState = { edgeId: string }   // refers to a RouteEdge.id on line L's subgraph
+```
+
+For non-train modes, the inner state is degenerate (single
+"degenerate" edge). For `train @ unknown_rail`, the inner state
+is also degenerate (no edge graph to walk).
+
+This is the meaning of the `trainEdgeId` field already present
+in `State` (added by Phase 1A++): it's the inner state. The
+outer state is `{mode, placeId, lineName, trainEdgeId: null}`.
+The decoder will produce states with `trainEdgeId` populated
+on train segments.
+
+### Decoder shape
+
+Two-layer Viterbi:
+
+1. **Inner Viterbi** — one call per candidate train-segment
+   `(t1, t2, L)`. Operates on the per-line subgraph of route
+   edges. Returns:
+     - `innerLogScore`: max-likelihood log-prob of the best
+       edge sequence
+     - `edgePath`: the actual sequence of edge IDs, one per
+       minute in `[t1, t2]`
+   Transitions: edge → edge that shares a node on L's subgraph
+   (cost 0). Non-adjacent edges: blocked. Emission per minute:
+   - GPS observed → Gaussian log-prob of perpendicular fix-to-
+     edge distance, σ ~ 100 m for rail.
+   - GPS null → log-prob of underground-emission for the edge
+     (~0 for tunneled edges, large negative for surface edges
+     where GPS would normally be observed).
+   - Speed feasibility: edge dwell time should match physical
+     train speed (≤ 70 km/h on Tube, ≤ 200 km/h on mainline).
+
+2. **Outer HSMM Viterbi** — same shape as today's hsmmViterbi,
+   but the per-segment emission score for `train @ L` segments
+   is the inner-Viterbi `innerLogScore` instead of
+   sum-of-per-minute-emissions. The duration prior, entry
+   prior, transition prior all stay as-is. For non-train outer
+   states, sum-of-emissions stays the same.
+
+The two-layer split preserves the duration model. Inner edge
+transitions within a train segment cost nothing (no duration
+penalty per edge). Outer mode-segment closures pay the same
+gamma duration cost as today. The "trains last ~30 min on
+average" prior remains intact.
+
+### Complexity
+
+For each candidate `(t1, t2, L)`:
+- Inner Viterbi: O(d × |edges_on_L|²) where d = t2 - t1
+- For a per-day route graph with ~100 lines and ~50 edges per
+  line in active bbox, |edges_on_L|² ≈ 2,500
+- Per-segment inner cost: 2,500 × d ≈ 2,500 × 30 = 75K ops
+
+For each outer HSMM Viterbi iteration:
+- ~21 outer states (today's count)
+- Candidate segment lengths d ∈ [1, D_max]; D_max ≈ 60 for train
+- Per-minute outer cost: 21 × 60 × inner_cost ≈ 21 × 60 × 75K = 94M
+
+Per day (T = 1440 minutes): 94M × 1440 = 135B ops. Too slow.
+
+Memoise inner Viterbi by `(t1, t2, L, entry_edge_set,
+exit_edge_set)`. Entry/exit edge sets are determined by the
+prev/next observed GPS fixes — they change only when crossing
+a GPS-present minute. For a typical day with ~50 train minutes
+across the whole day, memoised inner calls reduce to O(50 × 30
+× 11 lines) = 16K calls. Per-call ~75K ops = 1.2B ops/day —
+still a lot but tractable with the per-(t1, t2) memoisation.
+
+Real concern is that outer HSMM iterates over candidate `(t1,
+t2)` pairs; need to integrate the inner call into the existing
+Viterbi loop without re-computing from scratch. The
+implementation will cache inner scores per `(t1, t2, L)` and
+look them up during outer scoring.
+
+### Persistence
+
+`State.trainEdgeId` already exists. The decoded segments persisted
+to `decoded_days` include the edge sequence as a JSON column on
+train segments. `CLASSIFIER_VERSION → 5`.
+
+### Subsumed factors
+
+Both Phase 1A (`route-rail-evidence`) and Phase 1B
+(`line-proximity-factor`) become unused on train states once the
+inner Viterbi runs the same evidence directly on edge geometry
+with a proper probabilistic emission. The intention is to retire
+them in Phase 4 — keep them dormant during Phase 1 to allow A/B
+comparison.
+
+### Test strategy
+
+The high-level acceptance test is at
+`tests/route-aware-decoder-board-change.test.ts`. It constructs
+a synthetic scenario that mirrors the 2026-05-22 board change:
+
+- Synthetic route graph with two lines (`MetLine` and `JubLine`)
+  sharing track Wembley → Finchley Rd → BakerSt, then Met
+  continuing east (BakerSt → GtPortland → KX) and Jubilee
+  continuing south (BakerSt → BondSt → GreenPark).
+- Synthetic observation tensor: walking near Wembley → GPS-null
+  train (10 min) → GPS-null train (10 min) → walking near
+  GreenPark. No GPS at the boundary (entirely underground).
+- The decoder MUST split the train run at the BakerSt boundary
+  and attribute the first half to Met, the second half to
+  Jubilee.
+
+The test fails today (HSMM produces one Met or one Jubilee
+segment). It must pass after the per-edge state space + inner
+Viterbi land. This is the definition of "Phase 1 working."
+
+Additional lower-level unit tests:
+
+- Inner Viterbi correctness: given a known edge sequence,
+  inner Viterbi recovers it from synthetic observations.
+- Inner Viterbi connectivity: edges that aren't graph-connected
+  on the line's subgraph cannot appear in adjacent positions
+  of the recovered sequence.
+- Inner Viterbi GPS-null underground emission: GPS-null minutes
+  prefer tunnel edges; GPS-null minutes near surface rail incur
+  penalty.
+
+### Rollout plan
+
+1. Write the high-level failing test (this commit).
+2. Build inner Viterbi as a pure module. Unit-tested independently.
+3. Wire inner Viterbi into the outer HSMM Viterbi via the
+   per-segment emission score replacement. Keep the legacy
+   per-minute factors active for safety; gate the new path
+   behind a `USE_INNER_VITERBI=1` env var.
+4. Run live eval. Confirm line score moves; confirm no mode/place
+   regression.
+5. Flip default to on. Bump CLASSIFIER_VERSION. Deploy.
+6. Phase 4 cleanup: retire route-rail-evidence and
+   line-proximity-factor.
+
+Estimated effort: 1–2 weeks of focused work. Each step is
+incrementally verifiable with the high-level test as the
+end-state acceptance criterion.
