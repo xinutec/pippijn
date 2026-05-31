@@ -134,8 +134,11 @@ function parseLineStringWkt(wkt: string): { lat: number; lon: number }[] {
 
 /** Parse OSM tags_json safely. Returns an empty object on null /
  *  malformed input. */
-function parseTags(tagsJson: string | null): Record<string, string> {
+function parseTags(tagsJson: string | Record<string, string> | null): Record<string, string> {
 	if (tagsJson === null) return {};
+	// MariaDB JSON columns sometimes come back already parsed; the
+	// capture-fixture round-trip writes them as objects. Accept both.
+	if (typeof tagsJson === "object") return tagsJson as Record<string, string>;
 	try {
 		const parsed = JSON.parse(tagsJson);
 		if (parsed && typeof parsed === "object") return parsed as Record<string, string>;
@@ -187,11 +190,23 @@ function isUnderground(tags: Record<string, string>, subtype: string | null): bo
  *  Returns an empty set for names that don't end in "Line"/"Lines".  */
 export function parseLineMemberships(name: string | null): Set<string> {
 	if (name === null || name === "") return new Set();
-	let stripped: string;
-	if (name.endsWith(" Lines")) {
-		stripped = name.slice(0, -" Lines".length);
-	} else if (name.endsWith(" Line")) {
-		stripped = name.slice(0, -" Line".length);
+	// Strip trailing directionals before line/lines pruning. OSM tags
+	// many physical-track ways as "Jubilee Line Eastbound" or
+	// "Metropolitan Line Westbound" to distinguish the two parallel
+	// tracks. The line membership is the same either way.
+	let cleaned = name.trim();
+	const DIRECTIONALS = [" Eastbound", " Westbound", " Northbound", " Southbound", " Inner Rail", " Outer Rail"];
+	let stripped: string | null = null;
+	for (const dir of DIRECTIONALS) {
+		if (cleaned.endsWith(dir)) {
+			cleaned = cleaned.slice(0, -dir.length).trim();
+			break;
+		}
+	}
+	if (cleaned.endsWith(" Lines")) {
+		stripped = cleaned.slice(0, -" Lines".length);
+	} else if (cleaned.endsWith(" Line")) {
+		stripped = cleaned.slice(0, -" Line".length);
 	} else {
 		return new Set();
 	}
@@ -337,15 +352,29 @@ export function buildRouteGraph(rawLines: readonly RawOsmLine[], rawPoints: read
 	}
 
 	// Annotate nodes with station metadata when an osm_points row
-	// coincides within ~30 m of a node. Tube station POI coords are
-	// typically the central platform / entrance point, which can be
-	// 10-30 m from the actual way endpoint in OSM.
-	const STATION_MERGE_RADIUS_M = 30;
+	// coincides within ~150 m of a node. Tube station POIs in OSM
+	// are tagged at the street entrance, which can sit 50–150 m
+	// from the platform-aligned way endpoint of the underground
+	// rail (the station hall, escalators, and ticket gates are
+	// typically that far above the platform).
+	//
+	// 150 m is the upper-end "yes this POI is this station node"
+	// hard cutoff — at this distance every London Tube station POI
+	// gets attached to a way endpoint. The candidate generator
+	// applies a wider GENEROUS hard cutoff (250 m) downstream and
+	// lets the scorer weigh distance softly. See
+	// `docs/proposals/2026-05-constraint-first-decoder.md` on
+	// generator/scorer radii.
+	const STATION_MERGE_RADIUS_M = 150;
 	for (const p of rawPoints) {
 		const tags = parseTags(p.tags_json);
 		const isStation =
 			tags.railway === "station" ||
+			tags.railway === "stop" ||
+			tags.railway === "halt" ||
 			tags.public_transport === "station" ||
+			tags.public_transport === "stop_position" ||
+			tags.subway === "yes" ||
 			tags.amenity === "tram_stop" ||
 			tags.highway === "bus_stop";
 		if (!isStation) continue;
