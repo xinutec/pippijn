@@ -215,6 +215,41 @@ Estimated effort: ~1 week. The route graph already has nodes +
 line memberships; this is a derived index + an enumeration loop +
 filter wiring.
 
+### Phase 1.5 — Mode-class lock (universal physical facts)
+
+Shipped 2026-05-31 (`src/hmm/mode-class-lock.ts`). Per-minute
+"lock" derived from sustained signal over a 5-minute window using
+universal human-physiology + GPS-noise constants — not
+user-specific tuning, not learned, not configurable per-user:
+
+| Lock | Condition | Implication |
+|---|---|---|
+| `foot` | ≥ 3 of 5 window minutes have cadence ≥ 30 spm | Walking-class; not vehicle, not stationary |
+| `vehicle` | GPS-window displacement (or per-minute prev/next bookend) implies > 12 km/h AND no sustained cadence | Vehicle-class; not walking, not stationary |
+| `stationary` | GPS cluster ≤ 80 m AND no sustained cadence AND some cadence signal exists | Stationary; not walking, not vehicle |
+| `null` | none of the above triggered | Silent; scorer decides |
+
+Wired into the route-aware decoder's `segmentEmission` as a hard
+rejection: a segment whose mode is incompatible with the lock at
+any minute it covers scores -∞. This is the universal physical-
+fact filter the other phases (train generator, walking veto,
+continuity, sleep-window) layer on top of. The lock alone
+eliminates large swaths of the per-minute hypothesis space
+without any user-specific knowledge.
+
+Eval outcome on 2026-05-22 (1 day): line score 0/6 → 6/8 (75%),
+mode 97.7% → 98.2% (over the no-lock route-aware baseline). The
+Victoria Line ride 15:30-15:38 flipped from L:mismatch to
+L:match.
+
+Why this works structurally: the lock encodes what the user MUST
+be doing in three of the four physically-decidable cases (foot
+motion / vehicle motion / true stationarity). The remaining
+ambiguous minutes (sparse data, transitions, edge cases) are
+where the scorer's per-minute factor library has discriminative
+power. The previous architecture asked the scorer to solve all
+four cases at once and routinely lost on the easy three.
+
 ### Phase 2 — Walking veto + stationary coherence (C2 + C3)
 
 Track #176 (walking veto for motorised peak speed). Also extend
