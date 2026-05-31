@@ -99,7 +99,7 @@ export interface RouteGraph {
 /** Round a coordinate to ~1m precision for stable node-id derivation.
  *  5 decimal places of latitude ≈ 1.1m on the surface; longitude is
  *  similar at London latitude. */
-function nodeKey(lat: number, lon: number): string {
+export function nodeKey(lat: number, lon: number): string {
 	return `${lat.toFixed(5)},${lon.toFixed(5)}`;
 }
 
