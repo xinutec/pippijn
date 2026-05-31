@@ -41,6 +41,7 @@ import { buildEmissionFn } from "./emissions.js";
 import { buildEntryPrior } from "./entry-prior.js";
 import { buildInitialStatePrior } from "./initial-state.js";
 import { type InnerViterbiResult, innerViterbi } from "./inner-viterbi-edges.js";
+import { computeModeClassLocks, type ModeClass } from "./mode-class-lock.js";
 import type { Observation } from "./observation.js";
 import { buildStateSpace, type FocusPlaceRef, type State, stateKey } from "./state-space.js";
 import { buildTransitionMatrix } from "./transitions.js";
@@ -221,6 +222,43 @@ export function routeAwareDecode(input: RouteAwareDecodeInput): RouteAwareDecode
 		prefix[s] = arr;
 	}
 
+	// Per-minute physical-fact mode-class locks. Used as a hard
+	// segment-emission filter: a segment whose mode is incompatible
+	// with the lock on any of its minutes scores -∞. See
+	// `mode-class-lock.ts`. The constraint encodes universal physical
+	// facts (sustained cadence = walking; window-displacement faster
+	// than walking ceiling = vehicle; tight GPS cluster = stationary)
+	// not user-specific behaviour.
+	const modeClassLocks = computeModeClassLocks({ observations: input.observations });
+
+	/** Whether `mode` is compatible with a given physical lock. The
+	 *  lock encodes what the user MUST be doing; the mode must be
+	 *  consistent with that. `null` lock is unconstrained. */
+	function modeCompatibleWithLock(mode: State["mode"], lock: ModeClass): boolean {
+		if (lock === null) return true;
+		switch (lock) {
+			case "foot":
+				// Cadence-confirmed walking; only walking can match.
+				return mode === "walking";
+			case "vehicle":
+				// Window-displacement-confirmed vehicle motion; only
+				// vehicle-class modes match.
+				return mode === "train" || mode === "driving" || mode === "cycling" || mode === "plane";
+			case "stationary":
+				return mode === "stationary";
+		}
+	}
+
+	/** Does any minute in `[t1, t2]` carry a lock incompatible with
+	 *  `mode`? If so, the segment is not a physically valid
+	 *  hypothesis. */
+	function segmentViolatesLock(mode: State["mode"], t1: number, t2: number): boolean {
+		for (let t = t1; t <= t2; t++) {
+			if (!modeCompatibleWithLock(mode, modeClassLocks[t])) return true;
+		}
+		return false;
+	}
+
 	// Pre-compute, for each minute, the set of known lines that have
 	// at least one edge within TRAIN_LINE_PRESENCE_RADIUS_M of the
 	// observation's GPS fix. Minutes with no GPS contribute nothing.
@@ -275,17 +313,16 @@ export function routeAwareDecode(input: RouteAwareDecodeInput): RouteAwareDecode
 
 	function segmentEmission(s: number, t1: number, t2: number): number {
 		const state = states[s];
+		// Hard physical-fact filter: reject any segment whose mode
+		// contradicts the per-minute mode-class lock at any minute it
+		// covers. Cadence / GPS displacement / stationarity are
+		// universal facts about the world; the decoder doesn't get to
+		// override them.
+		if (segmentViolatesLock(state.mode, t1, t2)) return Number.NEGATIVE_INFINITY;
 		const perMinSum = prefix[s][t2 + 1] - prefix[s][t1];
 		if (usesInnerViterbi(state, knownLineSet)) {
 			const r = inner(state.lineName as string, t1, t2);
 			if (r === null) return Number.NEGATIVE_INFINITY;
-			// Inner Viterbi scores edge geometry vs GPS / underground
-			// expectation, calibrated as a log-ratio vs the
-			// `unknown_rail` fallback. The per-minute mode prior
-			// (speed, HR, cadence) is orthogonal evidence and still
-			// applies: a 4-minute 0 km/h dwell on a tube platform
-			// should penalise `train@L` independent of how well the
-			// GPS projects onto L's track.
 			return r.logScore + perMinSum;
 		}
 		return perMinSum;
