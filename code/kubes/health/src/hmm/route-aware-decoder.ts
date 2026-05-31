@@ -50,6 +50,14 @@ export interface RouteAwareDecodeInput {
 	routeGraph: RouteGraph;
 	knownLines: readonly string[];
 	focusPlaces: readonly (FocusPlaceRef & { lat?: number; lon?: number })[];
+	/** Per-place hour-of-day visit profile (24 entries summing to ~1).
+	 *  Used by the entry prior to score arrival times. Caller can omit
+	 *  for a uniform prior (tests). */
+	placeHourProfiles?: ReadonlyMap<number, readonly number[]>;
+	/** Per-place visit frequency weight (fraction of total dwell time
+	 *  across all known places). Used by the entry prior. Caller can
+	 *  omit for uniform. */
+	placeVisitWeights?: ReadonlyMap<number, number>;
 	/** Max segment duration (minutes) considered by the outer HSMM.
 	 *  Caps O(T²) work. Defaults to 240 (4 h). */
 	maxDurationMinutes?: number;
@@ -71,6 +79,28 @@ const BASELINE_DURATION_FITS: Record<State["mode"], GammaFit> = {
 	plane: { alpha: 1.0, beta: 0.011, sampleCount: 0 },
 	unknown: { alpha: 0.45, beta: 0.0034, sampleCount: 15 },
 };
+
+/** Per-mode maximum segment duration (minutes) considered by the
+ *  outer HSMM. Caps the τ loop. Trains cap at 90 — no single rail
+ *  ride lasts longer in practice; long-haul mainline is unusual
+ *  for our user and even Met end-to-end is ~75 min. */
+const MAX_DURATION_BY_MODE: Record<State["mode"], number> = {
+	stationary: 720, // up to 12 h for overnight sleep blocks
+	walking: 120,
+	cycling: 90,
+	driving: 180,
+	train: 90,
+	plane: 720,
+	unknown: 180,
+};
+
+/** Search radius (m) for the train@L short-circuit. A candidate
+ *  train@L window must have at least one minute whose observed GPS
+ *  fix lies within this many metres of an edge on L; otherwise
+ *  inner Viterbi is skipped (returns null) without running.
+ *  Looser than the inner-Viterbi candidate radius — we just need
+ *  ONE minute in the window to make the line plausible. */
+const TRAIN_LINE_PRESENCE_RADIUS_M = 1_500;
 
 /** Radius (m) used to derive entry / exit edge sets from the GPS
  *  context at a segment boundary. Wider than the inner Viterbi's
@@ -177,8 +207,8 @@ export function routeAwareDecode(input: RouteAwareDecodeInput): RouteAwareDecode
 	});
 	const initialFn = buildInitialStatePrior();
 	const entryFn = buildEntryPrior({
-		placeHourProfiles: new Map(),
-		placeVisitWeights: new Map(),
+		placeHourProfiles: input.placeHourProfiles ?? new Map(),
+		placeVisitWeights: input.placeVisitWeights ?? new Map(),
 	});
 
 	// Prefix sums of per-minute emission per state — O(T × S)
@@ -191,12 +221,47 @@ export function routeAwareDecode(input: RouteAwareDecodeInput): RouteAwareDecode
 		prefix[s] = arr;
 	}
 
+	// Pre-compute, for each minute, the set of known lines that have
+	// at least one edge within TRAIN_LINE_PRESENCE_RADIUS_M of the
+	// observation's GPS fix. Minutes with no GPS contribute nothing.
+	// Used to short-circuit inner Viterbi calls for (t1, t2, line)
+	// windows where the line isn't plausibly present at any minute —
+	// expensive Viterbi avoided for the bulk of overnight/at-home
+	// candidate segments the outer HSMM enumerates.
+	const linePresentAt: ReadonlyArray<ReadonlySet<string>> = (() => {
+		const arr = new Array<Set<string>>(T);
+		for (let t = 0; t < T; t++) arr[t] = new Set<string>();
+		for (let t = 0; t < T; t++) {
+			const ob = input.observations[t];
+			if (ob.gps === null) continue;
+			for (const edge of input.routeGraph.edgesNear(ob.gps.lat, ob.gps.lon, TRAIN_LINE_PRESENCE_RADIUS_M)) {
+				for (const line of edge.attrs.lineMemberships) {
+					if (knownLineSet.has(line)) arr[t].add(line);
+				}
+			}
+		}
+		return arr;
+	})();
+
 	// Cached inner Viterbi per (line, t1, t2).
 	const innerCache = new Map<string, InnerViterbiResult | null>();
 	function inner(line: string, t1: number, t2: number): InnerViterbiResult | null {
 		const key = `${line}|${t1}|${t2}`;
 		const hit = innerCache.get(key);
 		if (hit !== undefined) return hit;
+		// Short-circuit: if no minute in [t1, t2] has L within
+		// presence radius of its GPS, skip the Viterbi entirely.
+		let plausible = false;
+		for (let t = t1; t <= t2; t++) {
+			if (linePresentAt[t].has(line)) {
+				plausible = true;
+				break;
+			}
+		}
+		if (!plausible) {
+			innerCache.set(key, null);
+			return null;
+		}
 		const result = innerViterbi({
 			routeGraph: input.routeGraph,
 			line,
@@ -226,7 +291,7 @@ export function routeAwareDecode(input: RouteAwareDecodeInput): RouteAwareDecode
 		return perMinSum;
 	}
 
-	const MAX_D = input.maxDurationMinutes ?? 240;
+	const MAX_D_DEFAULT = input.maxDurationMinutes ?? 240;
 	const NEG_INF = Number.NEGATIVE_INFINITY;
 
 	// alpha[t][s] = best log-prob of any path covering observations[0..t]
@@ -245,7 +310,8 @@ export function routeAwareDecode(input: RouteAwareDecodeInput): RouteAwareDecode
 	for (let t = 0; t < T; t++) {
 		for (let s = 0; s < S; s++) {
 			const state = states[s];
-			const maxTau = Math.min(MAX_D, t + 1);
+			const modeMaxD = Math.min(MAX_DURATION_BY_MODE[state.mode], MAX_D_DEFAULT);
+			const maxTau = Math.min(modeMaxD, t + 1);
 			for (let tau = 1; tau <= maxTau; tau++) {
 				const segStart = t - tau + 1;
 				const dlp = logDurationProb(

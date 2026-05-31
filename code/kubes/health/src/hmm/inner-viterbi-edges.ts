@@ -117,9 +117,11 @@ const CANDIDATE_RADIUS_M = 800;
 
 /** Cap on the BFS expansion from entry/exit edges to capture
  *  candidates not near any GPS fix (the tunnel case where the
- *  window has NO observed GPS). Generous enough to cross London
- *  via Tube. */
-const CANDIDATE_BFS_MAX_HOPS = 30;
+ *  window has NO observed GPS). 15 hops covers a typical
+ *  inner-London tube ride end-to-end. Wider used to be 30 but
+ *  blows up per-call work for full-day decoding without
+ *  meaningfully changing decoded paths. */
+const CANDIDATE_BFS_MAX_HOPS = 15;
 
 /** Approximate planar distance from point (px,py) to segment
  *  ((ax,ay)-(bx,by)) in meters. (lat, lon) treated as planar over

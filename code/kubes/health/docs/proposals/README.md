@@ -18,23 +18,29 @@ the `status` frontmatter updated.
 
 | File | Status | Topic |
 |---|---|---|
-| `2026-05-scored-classification.md` | active | Replace today's rule-cascade classification with factor-decomposed scoring + commute-history prior; staged path with optional HMM escalation at the end |
-| `2026-05-utc-three-tier.md` | active | Add `ts_utc` + `tz_source` columns to Fitbit intraday tables; three-tier `ts`/`ts_utc`/`tz_source` framing keeps the verbatim Fitbit response immutable while making `ts_utc` recomputable |
-| `2026-05-weighted-place-accumulation.md` | paused | Focus-place centroid weighting + multi-signal naming. All phases implemented and **fully reverted** — kept as the investigation record (dwell unmineable from focus_places; accuracy-weighting not outlier-robust). See the proposal's Outcome |
-| `2026-05-conflated-place-clusters.md` | active | Disambiguate co-located places (a café and a residence ~115 m apart, merged by the 150 m clustering radius) using time-of-day: an hour-of-day profile on `focus_places` splits the conflated cluster and routes stays at runtime; distance-aware landmark priority; opening-hours soft vote; confidence gate + manual labels. Builds on the paused proposal's §6 |
-| `2026-05-physical-plausibility.md` | active | Reject mode classifications that violate basic physics (walking @ 60 km/h, train @ 0.5 km/h). Pre-dates the HSMM duration factors; some overlap |
-| `2026-05-honest-gaps.md` | shipped | Emit `unknown` for unobserved time rather than synthesising plausible-looking placeholder states |
-| `2026-05-joint-sequence-model.md` | active | Phase 1 HMM (state space + Viterbi + emission + transition). Anchor for the classification rewrite |
-| `2026-05-hmm-learned-emissions.md` | active | Phase 2: per-mode + per-place HR/cadence/speed distributions fit from heuristic labels via supervised MLE |
-| `2026-05-hsmm-physical-constraints.md` | active | Phase 3: Hidden Semi-Markov Model with explicit duration distributions and a soft-factor library for physical constraints (sleep coherence, geometric feasibility, HR continuity) |
-| `2026-05-route-aware-decoder.md` | design | Phase 4: promote state from `mode` to `(mode, route, position)` on the OSM graph. Subsumes geometric feasibility, rail-corridor boost, station-graph, place-distance, off-network factors into one topological framework. ~7-9 weeks, staged: train-only → walking/driving → stationary → retire approximating factors. Direct response to the 2026-05-22 Met Line audit |
+| `2026-05-constraint-first-decoder.md` | **design (current architecture)** | Generator/scorer split: hard physical constraints (train (board, line, alight) triples; walking speed bounds; cross-segment continuity; sleep-window coherence) filter the candidate space, then the existing HSMM scores the survivors. Architectural anchor for all current and future classification work; supersedes the per-minute factor-stack approach taken by the route-aware decoder + joint-sequence model |
+| `2026-05-physical-plausibility.md` | vision | Quality bar — what "physically plausible + logically sensible" means as an output property. The constraint-first decoder is the architecture that meets it |
+| `2026-05-scored-classification.md` | active (factor-scorer Phase 1) | Replace today's rule-cascade with factor-decomposed scoring + commute-history prior. Most phases shipped; the factor scorer is the per-minute scoring layer in the constraint-first architecture |
+| `2026-05-utc-three-tier.md` | shipped | Three-tier `ts`/`ts_utc`/`tz_source` schema for Fitbit intraday |
+| `2026-05-weighted-place-accumulation.md` | paused | Focus-place centroid weighting + multi-signal naming. All phases implemented and **fully reverted** — kept as the investigation record (dwell unmineable from focus_places; accuracy-weighting not outlier-robust) |
+| `2026-05-conflated-place-clusters.md` | shipped | Disambiguate co-located places using time-of-day profiles; distance-aware landmark priority; confidence gate |
+| `2026-05-honest-gaps.md` | shipped | Emit `unknown` for unobserved time + trajectory-segmented `findStays` |
+| `2026-05-hmm-learned-emissions.md` | partly shipped | Per-mode emission distributions fit from heuristic labels; supervised-learning pipeline lives at #208 |
+| `2026-05-hsmm-physical-constraints.md` | shipped | HSMM Viterbi + per-state duration distributions + sleep-coherence + HR continuity. The constraint-first decoder reuses this as its scorer |
+| `2026-05-joint-sequence-model.md` | shipped (Phases 0a-1.7) | MVP HMM bridge from factor scorer to per-day decoder. Architectural successor is `2026-05-constraint-first-decoder.md` |
+| `2026-05-route-aware-decoder.md` | superseded | Promoted state from `mode` to `(mode, route, position)` via inner edge-Viterbi. Phases 0, 1A, 1A++, 1B, and Phase 1 proper all shipped; Phase 1 proper regressed mode by 0.6 pp on the eval. Successor: `2026-05-constraint-first-decoder.md` |
 
 **Read `docs/design/probabilistic-principles.md` before adding new
 factors, tuning parameters, or proposing alternatives.** That
-document is the contract behind all of the Phase 1–3 proposals: it
-explains the philosophy (probabilistic constraint solver, not
-heuristic stack), the rules (no hard constraints; graduated
+document is the contract behind all of the proposals: it explains
+the philosophy (probabilistic constraint solver, not heuristic
+stack), the rules (no hard constraints in *scoring*; graduated
 probabilities; offline precompute; do it right not MVP-shortcut),
 and the current factor library.
+
+The 2026-05-31 update: hard constraints belong in the *generator*
+(filter the candidate space upstream), not in the scorer
+(per-minute soft penalties downstream). See
+`2026-05-constraint-first-decoder.md`.
 
 Rail-snap shipped 2026-05-18 (station-anchored, offline-precomputed) — its proposal was retired into `docs/design/rail-snap.md`.

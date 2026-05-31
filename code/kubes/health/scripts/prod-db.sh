@@ -83,7 +83,13 @@ trap cleanup EXIT
 # open a fresh one: Mac:LOCAL_PORT -(ssh -L)- isis:LOCAL_PORT
 # -(kubectl)- svc/health-db:3306.
 ssh "$HEALTH_HOST" "pkill -f '$PF_PATTERN' 2>/dev/null || true" 2>/dev/null || true
-ssh -o ExitOnForwardFailure=yes -L "$LOCAL_PORT:127.0.0.1:$LOCAL_PORT" "$HEALTH_HOST" \
+# ServerAlive* keeps the long-lived tunnel from idling out during
+# CPU-heavy phases that aren't touching the DB (e.g. the route-aware
+# HSMM decode loop) — without these the upstream resets the
+# connection after a few minutes of silence and the MariaDB pool
+# fails on the next query.
+ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=60 -o ServerAliveCountMax=10 \
+	-L "$LOCAL_PORT:127.0.0.1:$LOCAL_PORT" "$HEALTH_HOST" \
 	"kubectl -n $NS port-forward svc/health-db $LOCAL_PORT:3306" &
 TUNNEL_PID=$!
 

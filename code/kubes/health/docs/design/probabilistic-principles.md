@@ -10,64 +10,100 @@ proposing alternatives. The technical specifics of any one
 component live in its own proposal under `docs/proposals/`; this
 file is the contract on which all of those proposals operate.
 
-## The frame: probabilistic physical constraint solver
+## The frame: generator + probabilistic scorer
 
-We are building a *probabilistic constraint solver*, not a stack
-of heuristics. The system encodes everything we know about how
-the user's day physically works — including biological,
-geometric, and social regularities — as soft probabilistic
-factors that compose multiplicatively (additively in log-space)
-into a joint posterior over state sequences.
+We are building a *constraint-first probabilistic decoder*, in
+two layers:
+
+1. **Generator: enumerate only physically possible state
+   sequences.** Hard structural constraints (a train segment has
+   a valid `(board, alight, line)` station triple; adjacent
+   segments share a physical endpoint; a `walking` segment has
+   peak speed ≤ 12 km/h) filter the candidate space. A sequence
+   that violates physics is not a candidate — the decoder doesn't
+   weigh it, doesn't score it, doesn't consider it.
+2. **Scorer: pick the highest-evidence candidate.** Per-minute
+   probabilistic factors (HR Gaussian, speed Gaussian,
+   place-distance, duration prior, hour-of-day entry) score the
+   survivors as a joint posterior. Composes multiplicatively
+   (additively in log-space). When the data is unambiguous, the
+   posterior concentrates on one candidate. When the data is
+   genuinely ambiguous, the posterior spreads — and the
+   user-facing presentation reflects that.
+
+The earlier framing of this document — "every constraint is a
+probability, no hard constraints" — was incomplete. It correctly
+identified that *unlikely-but-possible* cases must stay soft (a
+London → Karlsruhe teleport via mis-timestamped fix is rare but
+real). It incorrectly conflated *unlikely-but-possible* with
+*genuinely impossible* (a Met train alighting at a station that
+doesn't exist on Met). Soft-penalty modelling of genuine
+physical impossibilities was the architectural mistake the
+per-minute factor stack made; the constraint-first decoder
+(`docs/proposals/2026-05-constraint-first-decoder.md`) corrects
+it.
 
 The classification pipeline isn't a sequence of `if/else`
-discrimination rules layered on top of a Markov chain. It is a
-factor graph in which:
+discrimination rules. It also isn't a flat factor graph that
+scores every cartesian-product tuple of `(mode, place, line)`.
+It is a generator that produces the physically-valid candidate
+set, followed by a factor-graph scorer over the survivors.
 
-- The hidden state at each minute is a `(mode, place, line)`
-  tuple drawn from the user's known places and rail lines.
-- Each piece of evidence (a GPS fix, an HR reading, a Fitbit
-  sleep stage, a Kalman-smoothed speed, a duration) contributes
-  a calibrated log-probability factor.
-- Inference (Viterbi for MAP, forward-backward for posterior
-  marginals) finds the state sequence that jointly maximises
-  those factors.
+## Rule 1: hard constraints belong in the generator, soft constraints in the scorer
 
-When the data is unambiguous, the posterior concentrates on one
-answer. When the data is genuinely ambiguous (sparse GPS, sensor
-gaps, overnight indoor noise), the posterior spreads — and the
-user-facing presentation must reflect that.
+A constraint is *hard* if it forbids physically impossible
+configurations — the kind of constraint a careful human would
+not even consider as a hypothesis. Examples:
 
-## Rule 1: there are no hard constraints
+- A train segment that boards or alights mid-tunnel (no
+  station).
+- A `walking` segment with peak GPS speed > 12 km/h.
+- Adjacent segments whose endpoints are 5 km apart (a teleport).
+- A sleep-window place 30 km from the user's last pre-sleep GPS
+  fix.
 
-Every constraint is a probability, even ones that "feel
-impossible." A 1-minute teleport between London and Karlsruhe is
-not literally probability zero — it is probability ~10⁻⁴⁵ from a
-mis-timestamped fix, a buffered stale GPS coordinate, or an
-adversarial input we haven't anticipated. Modelling it as
-`-Infinity` collapses a graduated belief into a binary veto, and
-loses information at exactly the moments we need to weigh
-evidence rather than dictate it.
+These are filtered by the *generator*. A candidate sequence
+violating them is not in the search space.
+
+A constraint is *soft* if it expresses graduated preference
+between physically valid hypotheses:
+
+- The user is more likely on a specific tube line they always
+  take versus a parallel-track alternative.
+- A 60-minute stationary is more likely a stay; a 3-minute
+  stationary is more likely a traffic-light pause.
+- A high-HR minute is more consistent with cycling than walking.
+
+These are encoded by the *scorer* as log-probability factors.
+Composes multiplicatively in log-space; MAP path picks the joint
+maximum.
 
 In practice this means:
 
-- **Don't write `return -Infinity` for impossibilities.** Use a
-  very-low-finite log-prob (e.g. `-10` to `-15` nats) that
-  encodes "essentially impossible but recoverable if every
-  other factor screams the opposite."
-- **The `-Infinity` exceptions** are reserved for mathematical
-  identities (`log(0)`, division by zero, invalid arguments) —
-  not probabilistic statements.
-- **Hard-zero transitions** (`stationary @ A → stationary @ B`
-  no-teleport; `train @ L → stationary @ P` station-graph) are
-  *currently* implemented as `-Infinity` for computational
-  shortcut, but the framework permits softening them to finite
-  high-penalty factors at any time. Their MAP outcome doesn't
-  change.
+- **Don't write `return -Infinity` from a scoring function for
+  unlikely-but-possible cases.** Use a calibrated low log-prob
+  (e.g. `-10` to `-15` nats) so the factor remains comparable
+  in the MAP sum. The London → Karlsruhe-teleport scenario
+  stays a scoring concern, not a generator concern.
+- **Do write generator filters for genuinely impossible cases.**
+  A train hypothesis with no valid `(board, alight, line)` triple
+  is not a candidate, full stop. Generator code can literally
+  short-circuit out of the candidate-enumeration loop.
+- **The `-Infinity` exceptions inside the scorer** are reserved
+  for mathematical identities (`log(0)`, division by zero) — not
+  probabilistic statements.
+- **The previous generation's "hard-zero transitions"** (e.g.
+  `stationary @ A → stationary @ B` no-teleport,
+  `train @ L → stationary @ P` station-graph) were implemented
+  as `-Infinity` in the scorer's transition matrix. They're
+  being moved to the generator (cross-segment continuity
+  constraint C4) where they belong. Same MAP outcome, structural
+  rather than numerical.
 
-The deeper reason: forcing absolute certainty is exactly the
-heuristic-patching pattern this system was built to escape. If a
-new constraint feels like it needs a hard veto, that's the
-signal to model it more carefully, not to add one.
+The deeper reason: forcing absolute certainty *inside the
+scorer* is the heuristic-patching pattern. But filtering the
+candidate space *upstream of scoring* isn't a patch — it's the
+encoding of what we know about how the world works.
 
 ## Rule 2: probabilities are graduated and conditional
 
@@ -168,13 +204,34 @@ uncertainty. The metric to optimise is *calibration* (the
 posterior matches the long-run frequency of being right), not
 top-1 agreement.
 
-## The current factor library
+## The current generator constraints
 
-These are the factors that exist as of the writing of this
-document. Each is a soft probabilistic contribution; none is a
-hard constraint (except the `-Infinity` shortcuts noted above
-that are mathematically equivalent to very-low-penalty soft
-factors at the MAP scale).
+These are the hard generator constraints — properties a
+candidate state sequence must satisfy to be in the search space
+at all. See `docs/proposals/2026-05-constraint-first-decoder.md`
+for the architectural justification.
+
+| Constraint | Applies to | Status |
+|---|---|---|
+| C1: Train `(board, line, alight)` triple — both stations on L, graph-connected on L's edge subgraph | `train @ L` segments | Planned (proposal Phase 1) |
+| C2: Walking peak GPS speed ≤ 12 km/h | `walking` segments | Planned (proposal Phase 2; task #176) |
+| C3: Stationary fixes within R_place of centroid | `stationary @ P` segments | Planned (proposal Phase 2) |
+| C4: Adjacent segments share endpoint (station node, place polygon, or walkable handoff) | All transitions | Planned (proposal Phase 3) |
+| C5: Sleep-window place ∈ lodging/residence POIs near last pre-sleep GPS | `sleeping @ P` segments | Partly shipped (post-midnight-place); proposal Phase 4 codifies |
+| Back-to-back train legs share a station | Adjacent train segments | Shipped (task #175) |
+
+When a generator constraint is planned but not yet shipped, the
+soft factor that approximates it (e.g. route-rail-evidence
+approximates C1) remains active. Shipping the generator
+constraint retires the soft approximation.
+
+## The current scorer factor library
+
+These are the per-minute soft factors that score among
+physically valid candidates produced by the generator. Each
+returns a log-probability; the scorer sums them as the joint
+log-likelihood of a candidate sequence. None is a hard
+constraint — all are calibrated graduated preferences.
 
 | Layer        | Factor                       | Source                              | Status   |
 |--------------|------------------------------|-------------------------------------|----------|
@@ -189,32 +246,49 @@ factors at the MAP scale).
 | Emission     | Place-distance (heavy-tailed) | Gaussian capped at -3 nats          | Wired    |
 | Emission     | Off-network log-prior        | Calibrated against place-distance    | Wired    |
 | Transition   | Self-loop (HSMM duration-aware) | log(0.95) cross-mass split        | Wired    |
-| Transition   | Station-graph (train ↔ place) | OSM stations within 400m of place  | Wired    |
 | Transition   | Hour-of-day entry boost      | `focus_places.hour_profile`         | Wired    |
 | Segment      | Per-mode duration Gamma      | Hand-tuned from empirical histograms | Wired    |
 | Pre-process  | GPS outlier filter           | Cluster-median 2km deviation        | Wired    |
 | Pre-process  | GPS QC (anchor walk)         | Velocity pipeline `qualityFilterGps`| Wired    |
 
+### Scorer factors being retired
+
+These are scorer factors that approximated constraints which
+properly belong in the generator. They remain wired until the
+corresponding generator constraint ships, then are retired.
+
+| Factor | Approximates generator constraint | Retired when |
+|---|---|---|
+| `route-rail-evidence` | C1 (train (board, line, alight) triple) | Phase 1 of constraint-first-decoder ships |
+| `line-proximity-factor` | C1 | Phase 1 ships |
+| `inner-viterbi-edges` for train-line scoring | C1 | Phase 1 ships |
+| `geometric-feasibility` teleport-speed penalty | C4 (cross-segment continuity) | Phase 3 ships |
+| `route-aware-decoder` (Phase 1 hierarchical Viterbi) | C1 + C4 | Phases 1 + 3 ship |
+
+The route-graph extraction (Phase 0 of route-aware-decoder)
+survives — it's the substrate the generator builds on.
+
 Inference modes:
 
-- **Viterbi MAP** (HSMM) — single best state sequence; cached to
-  `decoded_days`.
+- **Viterbi MAP** (HSMM) — single best state sequence among the
+  generator's candidate set; cached to `decoded_days`.
 - **Forward-backward posterior marginals** (HSMM) — per-minute
-  distribution over states; exposes confidence for user-facing
-  presentation.
+  distribution over candidates; exposes confidence for
+  user-facing presentation.
 
-## Factors that are missing (the to-add list)
+## Factors / constraints that are missing (the to-add list)
 
-These compose into the same framework — each is a new factor
-function returning a log-probability, plumbed into the existing
-emission / transition / segment interfaces. None requires a
-framework rewrite.
+Generator constraints (filter the candidate space):
 
-- **Geometric feasibility on segment transitions**: when closing
-  a movement segment between two stationary places, the
-  segment's duration must be consistent with `distance(A, B) /
-  max_speed(movement_mode)`. Currently absent — manifests as
-  the overnight place-bouncing pathology.
+- **C1 through C5** as listed above. Phase 1 of
+  `2026-05-constraint-first-decoder.md` starts on C1.
+- **Cycling needs HR + cadence support**. A `cycling` candidate
+  with HR < 90 and cadence ~0 across the segment is not
+  physically a cycling candidate. (Task #139 is the soft-factor
+  veto; the generator version is the structural form.)
+
+Scorer factors (graduated preference among valid candidates):
+
 - **HR continuity**: pair-wise factor on `|HR_t - HR_{t-1}|`.
   HR doesn't jump 50 bpm in one minute without a mode change.
 - **Battery level**: low + decreasing implies the user isn't
@@ -255,11 +329,19 @@ mode metric alone has misled this work multiple times.
 
 If you find yourself:
 
-- Writing a `-Infinity` for a "real-world impossible" case →
-  use a calibrated low log-prob instead. See Rule 1.
-- Adding a flag / threshold / cutoff to control behaviour →
-  model whatever the flag is selecting between as two factors
-  with different log-probs.
+- Tempted to add a soft per-minute factor that's trying to
+  penalise a *physically impossible* configuration (a train
+  alighting in a tunnel, a walking segment moving at 60 km/h, a
+  teleport between adjacent segments) → that's a generator
+  constraint, not a scorer factor. Add it to the generator's
+  candidate-enumeration code. See Rule 1.
+- Writing a `-Infinity` inside the scorer for an
+  unlikely-but-possible case (a London → Karlsruhe teleport via
+  GPS noise) → use a calibrated low log-prob (-10 to -15 nats)
+  so the factor stays comparable in the MAP sum.
+- Adding a flag / threshold / cutoff to control behaviour in
+  the scorer → model whatever the flag is selecting between as
+  two factors with different log-probs.
 - Pushing through a tuning value that makes one day's audit
   number jump → re-render and check it didn't regress others;
   also check that the same change is justifiable from the data,
@@ -267,11 +349,12 @@ If you find yourself:
 - Tempted to hard-lock a state when a strong signal fires
   ("definitely asleep, must be stationary") → factor it as a
   per-minute soft factor with a strong log-ratio; let the
-  composition speak.
+  composition speak. (The "asleep ⇒ stationary" rule is in
+  practice a generator constraint, since the Fitbit signal is
+  external evidence about which configurations are possible.)
 - Adding a fast path / heuristic for "the common case" → don't.
-  The factor system is supposed to BE the common case. Anything
-  fast-path is admitting the framework is wrong somewhere.
+  Generator + scorer is supposed to BE the common case.
 
 These aren't style preferences — they're the difference between
-a probabilistic system and a stack of patches with a Bayesian
-veneer.
+a probabilistic system that respects physics and a stack of
+patches with a Bayesian veneer.

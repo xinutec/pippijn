@@ -1,10 +1,23 @@
 ---
 created: 2026-05-23
-updated: 2026-05-23
+updated: 2026-05-31
 status: vision
+references:
+  - 2026-05-constraint-first-decoder.md
 ---
 
 # Physical plausibility + logical coherence as the quality bar
+
+> **Architectural answer.** The "Layer 2 — Physical-plausibility
+> post-pass" sketched here was the right *goal* but the wrong
+> *placement*. Hard physical rules belong UPSTREAM of scoring —
+> as a candidate-set generator that the decoder picks from — not
+> downstream as a post-pass that rewrites violations. See
+> [`2026-05-constraint-first-decoder.md`](./2026-05-constraint-first-decoder.md)
+> for the architecture this doc's quality bar implies. This file
+> is kept as the *goal* statement (what "plausible + sensible"
+> means concretely); the constraint-first doc is *how we get
+> there*.
 
 The current "your day" output is full of cases where the literal pipeline
 output is physically or logically wrong: sleep attributed to a hospital the

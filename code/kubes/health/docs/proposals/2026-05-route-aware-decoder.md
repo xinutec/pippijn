@@ -1,15 +1,39 @@
 ---
 created: 2026-05-29
-updated: 2026-05-29
-status: design
+updated: 2026-05-31
+status: superseded
+supersededBy: 2026-05-constraint-first-decoder.md
 references:
   - ../design/probabilistic-principles.md
+  - 2026-05-constraint-first-decoder.md
   - 2026-05-joint-sequence-model.md
   - 2026-05-hmm-learned-emissions.md
   - 2026-05-hsmm-physical-constraints.md
 ---
 
 # Route-aware decoder — promoting state from `mode` to `(mode, route, position)`
+
+> **Superseded by [`2026-05-constraint-first-decoder.md`](./2026-05-constraint-first-decoder.md)**.
+>
+> Phases 0, 1A (route-rail-evidence), 1A++ (connectivity check),
+> 1B (line-proximity-factor), and Phase 1 proper (inner-Viterbi
+> hierarchical decoder) all shipped. On the 2026-05-31 eval the
+> Phase 1 decoder regressed mode by 0.6 pp on 2026-05-22 and left
+> the line score unchanged at 0/6. The diagnosis: a route-aware
+> state space is still a per-minute scoring approach over the
+> cartesian product of `(mode, place, line, edge)`. The
+> per-minute factor stack the proposal proposed adding can't
+> filter physically impossible candidates — only a *generator*
+> can. The successor proposal articulates that architecture.
+>
+> The shipped code (`src/geo/route-graph.ts`,
+> `src/hmm/route-rail-evidence.ts`,
+> `src/hmm/line-proximity-factor.ts`,
+> `src/hmm/inner-viterbi-edges.ts`,
+> `src/hmm/route-aware-decoder.ts`) is in maintenance until Phase
+> 5 of the constraint-first doc retires it. Route-graph
+> extraction (Phase 0) survives as the substrate the
+> constraint-first generator builds on.
 
 ## Why this proposal now
 

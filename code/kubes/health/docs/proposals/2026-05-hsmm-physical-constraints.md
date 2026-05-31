@@ -1,4 +1,26 @@
+---
+created: 2026-05-24
+updated: 2026-05-31
+status: shipped; architectural successor 2026-05-constraint-first-decoder.md
+references:
+  - 2026-05-constraint-first-decoder.md
+  - 2026-05-joint-sequence-model.md
+---
+
 # Hidden Semi-Markov Model: physical-constraint modelling
+
+> **Outcome (2026-05-31)**. The HSMM Viterbi (Formulation A,
+> explicit-duration augmented state) shipped at
+> `src/hmm/hsmm-viterbi.ts` with duration distributions in
+> `src/hmm/duration-dist.ts`, sleep-coherence + HR continuity as
+> emission components. It eliminated the overnight place-cycling
+> failure mode the proposal targeted. The framing — "physical
+> constraints as factors in a joint MAP score" — is the right
+> direction; the framing of "more factors" turns out to be the
+> wrong implementation. See
+> [`2026-05-constraint-first-decoder.md`](./2026-05-constraint-first-decoder.md)
+> for the generator/scorer split that makes the same physical
+> constraints structural rather than soft.
 
 Date: 2026-05-24
 

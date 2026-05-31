@@ -1,14 +1,30 @@
 ---
 created: 2026-05-24
-updated: 2026-05-24
-status: design
+updated: 2026-05-31
+status: shipped (Phases 0a-1.7); architectural successor 2026-05-constraint-first-decoder.md
 references:
   - ../archive/2025-model-hmm.md
   - 2026-05-physical-plausibility.md
   - 2026-05-scored-classification.md
+  - 2026-05-constraint-first-decoder.md
 ---
 
 # Joint sequence model — bridging the factor scorer to a per-day decoder
+
+> **Outcome (2026-05-31)**. Phases 0a (stable focus_place IDs),
+> 0b (`line_stations`), 0c (observation tensor + `decoded_days`),
+> and 1 (MVP HSMM with Viterbi, state-space, transition matrix,
+> emission model, entry priors) all shipped. The decoder is
+> running in prod via `applyHsmmPlaceOverride`. The 5-day
+> blessed eval (2026-05-31) gives mode 95.3%, place 97.8%, line
+> 0/6 — the joint-sequence approach reached the per-minute
+> factor library's structural ceiling. The architectural
+> successor that addresses the line-score ceiling is
+> [`2026-05-constraint-first-decoder.md`](./2026-05-constraint-first-decoder.md),
+> which replaces the per-minute filtering approach with a
+> generator/scorer split. The HSMM Viterbi shell built here is
+> reused by the constraint-first decoder as the scorer over the
+> generator's candidate set.
 
 ## Why this proposal now
 

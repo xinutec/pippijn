@@ -45,6 +45,7 @@ import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
 import { buildLineProximityFactor } from "../hmm/line-proximity-factor.js";
 import { buildObservationTensor } from "../hmm/observation.js";
+import { routeAwareDecode } from "../hmm/route-aware-decoder.js";
 import { buildRouteRailEvidence } from "../hmm/route-rail-evidence.js";
 import { buildStateSpace, type FocusPlaceRef, type State } from "../hmm/state-space.js";
 import { buildTransitionMatrix } from "../hmm/transitions.js";
@@ -104,7 +105,7 @@ const BASELINE_DURATION_FITS: Record<State["mode"], GammaFit> = {
 };
 
 interface CliArgs {
-	source: "hsmm" | "pipeline";
+	source: "hsmm" | "pipeline" | "route-aware";
 	userId: string;
 	dates: string[] | null; // null → all gitignored ground-truth files for the user
 	groundTruthDir: string;
@@ -347,6 +348,57 @@ async function decodeHsmm(
 	}));
 }
 
+/** Decode a day with the Phase 1 route-aware decoder (inner edge
+ *  Viterbi per train segment). Mirrors `decodeHsmm`'s shape but
+ *  uses `routeAwareDecode` for the outer + inner pass. */
+async function decodeRouteAware(
+	userId: string,
+	date: string,
+	tz: string,
+	places: readonly PlaceWithCoords[],
+	routeGraph: RouteGraph,
+): Promise<DecoderMinute[]> {
+	const velResult = await computeVelocity(config, userId, date, tz);
+	const bounds = dateBoundsUtc(date, tz);
+	const biom = await loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz);
+	const cleanedPoints = dropGpsOutliers(velResult.points);
+	const tensor = buildObservationTensor({
+		date,
+		tz,
+		points: cleanedPoints,
+		hr: biom.hr,
+		steps: biom.steps,
+		sleep: biom.sleep,
+	});
+	const placeHourProfiles = new Map<number, readonly number[]>();
+	const placeVisitWeights = new Map<number, number>();
+	const totalDwell = places.reduce((s, p) => s + p.totalDwellSec, 0);
+	for (const p of places) {
+		if (p.hourProfile !== null) placeHourProfiles.set(p.id, p.hourProfile);
+		placeVisitWeights.set(p.id, totalDwell > 0 ? p.totalDwellSec / totalDwell : 1 / places.length);
+	}
+	const focusPlaces = places.map((p) => ({
+		id: p.id,
+		displayName: p.displayName,
+		lat: p.lat,
+		lon: p.lon,
+	}));
+	const result = routeAwareDecode({
+		observations: tensor,
+		routeGraph,
+		knownLines: KNOWN_LINES,
+		focusPlaces,
+		placeHourProfiles,
+		placeVisitWeights,
+	});
+	return tensor.map((obs, i) => ({
+		ts: obs.ts,
+		mode: result.states[i].mode,
+		placeId: result.states[i].placeId,
+		lineName: result.states[i].lineName,
+	}));
+}
+
 /** Extract the rail line from a pipeline train segment's wayName,
  *  which is encoded as `Board → Alight · LineName` (or just
  *  `Board → Alight` when the line is unknown). Mirrors the encoding
@@ -465,12 +517,12 @@ async function main(): Promise<void> {
 
 	let placeNearLine: Set<string> = new Set();
 	let routeGraph: RouteGraph | null = null;
-	if (args.source === "hsmm") {
+	if (args.source === "hsmm" || args.source === "route-aware") {
 		placeNearLine = await buildPlaceNearLine(places, KNOWN_LINES);
 		const bbox = bboxFromFixes(places.map((p) => ({ lat: p.lat, lon: p.lon })));
 		if (bbox === null) throw new Error("no focus places — cannot build route graph");
 		routeGraph = await loadRouteGraphForBbox(bbox, { featureTypes: ["railway"] });
-		console.error(`# loaded ${routeGraph.edges.size} rail edges for route-rail-evidence`);
+		console.error(`# loaded ${routeGraph.edges.size} rail edges`);
 	}
 
 	// For the pipeline path: a separate display_name → id lookup so a
@@ -498,10 +550,14 @@ async function main(): Promise<void> {
 			const adjacentDates = [shiftDate(day.date, -1), day.date, shiftDate(day.date, 1)];
 			const decoderChunks: DecoderMinute[] = [];
 			for (const d of adjacentDates) {
-				const chunk =
-					args.source === "hsmm"
-						? await decodeHsmm(args.userId, d, day.tz, places, placeNearLine, routeGraph as RouteGraph)
-						: await decodePipeline(args.userId, d, day.tz, pipelineNameToId);
+				let chunk: DecoderMinute[];
+				if (args.source === "hsmm") {
+					chunk = await decodeHsmm(args.userId, d, day.tz, places, placeNearLine, routeGraph as RouteGraph);
+				} else if (args.source === "route-aware") {
+					chunk = await decodeRouteAware(args.userId, d, day.tz, places, routeGraph as RouteGraph);
+				} else {
+					chunk = await decodePipeline(args.userId, d, day.tz, pipelineNameToId);
+				}
 				decoderChunks.push(...chunk);
 			}
 			const score = scoreDay(day.rows, decoderChunks, resolved);
