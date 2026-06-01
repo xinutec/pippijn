@@ -33,8 +33,8 @@ line-proximity, route-rail-evidence with connectivity check, and
 the inner edge-Viterbi for train-on-line scoring. Each was added
 to push the joint posterior toward physically sensible
 classifications. Each individually was correct. The accumulated
-result, evaluated on the four blessed days (2026-04-30, 05-18,
-05-20, 05-22):
+result, evaluated on the five blessed days (2026-04-29, 04-30,
+05-18, 05-20, 05-22):
 
 | | mode | place | line |
 |---|---|---|---|
