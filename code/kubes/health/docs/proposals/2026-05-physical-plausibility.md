@@ -1,9 +1,10 @@
 ---
 created: 2026-05-23
-updated: 2026-05-31
+updated: 2026-06-01
 status: vision
 references:
   - 2026-05-constraint-first-decoder.md
+  - 2026-06-tube-journey-segment.md
 ---
 
 # Physical plausibility + logical coherence as the quality bar
@@ -78,6 +79,16 @@ This is mostly DB + scorer wiring. The candidates are already there in
 the mirror; they just aren't surfacing into pickBestPlace.
 
 ### Layer 2 — Physical-plausibility post-pass
+
+> The *tube journey* segment proposed in
+> [`2026-06-tube-journey-segment.md`](./2026-06-tube-journey-segment.md)
+> is the cleanest concrete instance of a Layer 2 pass: it groups
+> consecutive train + intra-station walk + platform wait minutes
+> into a single tube-journey segment, resolving the labelling
+> friction between the per-minute decoder's physical honesty and
+> the GT's absorb-walk-into-train convention. The same wrapper
+> pattern generalises to drive trips and commutes.
+
 
 After the segment + state pipeline produces a candidate sequence, a final
 pass walks it and rewrites violations of declarative rules. Examples:

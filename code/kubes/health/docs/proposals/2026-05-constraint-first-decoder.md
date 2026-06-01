@@ -1,6 +1,6 @@
 ---
 created: 2026-05-31
-updated: 2026-05-31
+updated: 2026-06-01
 status: design
 references:
   - ../design/probabilistic-principles.md
@@ -8,9 +8,21 @@ references:
   - 2026-05-route-aware-decoder.md
   - 2026-05-joint-sequence-model.md
   - 2026-05-hsmm-physical-constraints.md
+  - 2026-06-tube-journey-segment.md
 ---
 
 # Constraint-first decoder — generator + scorer split
+
+> **Companion proposal**:
+> [`2026-06-tube-journey-segment.md`](./2026-06-tube-journey-segment.md)
+> adds a post-decode composition layer on top of this decoder. The
+> per-minute classification this proposal builds stays unchanged;
+> the tube-journey proposal wraps consecutive train + intra-
+> station-walk + platform-wait minutes into a single segment-
+> level "tube journey" event for UI + eval purposes. The decoder
+> here is honest about every minute's physical mode; the wrapper
+> there says how the timeline aggregates those minutes into the
+> events a human narrates.
 
 ## Why this proposal supersedes the per-minute factor stack
 
@@ -214,6 +226,33 @@ remains soft-ambiguous since both station-pairs are valid).
 Estimated effort: ~1 week. The route graph already has nodes +
 line memberships; this is a derived index + an enumeration loop +
 filter wiring.
+
+### Open friction — labelling convention vs per-minute honesty
+
+The mode-class lock + per-minute decoder produce a *physically
+honest* answer at every minute: cadence > 0 stays foot, cluster-
+tight GPS with no cadence stays stationary, fast-displacement
+stays vehicle. When the user walks 2-3 minutes between Tube
+platforms during an interchange, the lock correctly says foot
+and the decoder correctly says walking. The ground-truth tables
++ existing pipeline (task #165, interchange absorber) absorb
+that walk into the surrounding train segments under a labelling
+convention. The eval then scores the decoder's honest walking
+minutes as mode-mismatches against the convention-train labels.
+
+Resolving this *inside* the per-minute decoder would require
+either lying about cadence-confirmed walking minutes (no) or a
+fragile post-decode adjustment that knows which walking minutes
+to absorb where. The cleaner resolution is the tube-journey
+wrapper proposed in
+[`2026-06-tube-journey-segment.md`](./2026-06-tube-journey-segment.md)
+— a composition layer above the per-minute decoder that groups
+consecutive train + intra-station-walk + platform-wait minutes
+into one *tube journey* segment. The per-minute physics stay
+honest (every minute keeps its mode), the eval and UI work at
+the journey level (matching the convention + the human
+narrative), and the daily step count still correctly attributes
+the intra-station walk to walking.
 
 ### Phase 1.5 — Mode-class lock (universal physical facts)
 

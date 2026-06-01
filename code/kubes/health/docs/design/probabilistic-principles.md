@@ -10,10 +10,10 @@ proposing alternatives. The technical specifics of any one
 component live in its own proposal under `docs/proposals/`; this
 file is the contract on which all of those proposals operate.
 
-## The frame: generator + probabilistic scorer
+## The frame: generator + probabilistic scorer + composition
 
 We are building a *constraint-first probabilistic decoder*, in
-two layers:
+three layers:
 
 1. **Generator: enumerate only physically possible state
    sequences.** Hard structural constraints (a train segment has
@@ -22,14 +22,24 @@ two layers:
    peak speed ≤ 12 km/h) filter the candidate space. A sequence
    that violates physics is not a candidate — the decoder doesn't
    weigh it, doesn't score it, doesn't consider it.
-2. **Scorer: pick the highest-evidence candidate.** Per-minute
-   probabilistic factors (HR Gaussian, speed Gaussian,
+2. **Scorer: pick the highest-evidence candidate per minute.**
+   Per-minute probabilistic factors (HR Gaussian, speed Gaussian,
    place-distance, duration prior, hour-of-day entry) score the
    survivors as a joint posterior. Composes multiplicatively
    (additively in log-space). When the data is unambiguous, the
    posterior concentrates on one candidate. When the data is
    genuinely ambiguous, the posterior spreads — and the
    user-facing presentation reflects that.
+3. **Composition: group per-minute classifications into the
+   events a human narrates.** A tube journey (train + intra-
+   station walk + platform wait + train) is one segment-level
+   event even though it contains multiple per-minute modes. The
+   per-minute decoder stays physically honest about every minute
+   (cadence-confirmed walking inside a station is walking); the
+   composition layer wraps consecutive minutes that belong to
+   the same logical event into a single segment for UI and eval.
+   See
+   [`../proposals/2026-06-tube-journey-segment.md`](../proposals/2026-06-tube-journey-segment.md).
 
 The earlier framing of this document — "every constraint is a
 probability, no hard constraints" — was incomplete. It correctly
@@ -335,6 +345,14 @@ If you find yourself:
   teleport between adjacent segments) → that's a generator
   constraint, not a scorer factor. Add it to the generator's
   candidate-enumeration code. See Rule 1.
+- Tempted to *lie* about a per-minute physical fact to match a
+  segment-level labelling convention (e.g. classify a cadence-
+  confirmed walking minute as "train" because the convention
+  absorbs intra-station walks into surrounding trains) → don't.
+  The per-minute decoder stays physically honest. If the
+  *labels* a user sees in their timeline differ from the
+  per-minute classifications, that belongs in the composition
+  layer (e.g. tube-journey wrapper), not in the decoder.
 - Writing a `-Infinity` inside the scorer for an
   unlikely-but-possible case (a London → Karlsruhe teleport via
   GPS noise) → use a calibrated low log-prob (-10 to -15 nats)
