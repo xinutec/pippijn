@@ -90,7 +90,7 @@ const config = z
  *  from training to make the audit comparison meaningful. Update
  *  in lockstep with `tests/golden/blessed-days.txt` (or whatever
  *  the canonical list is). */
-const BLESSED_DAYS = new Set(["2026-04-29", "2026-04-30", "2026-05-18", "2026-05-20", "2026-05-22"]);
+const BLESSED_DAYS = new Set(["2026-04-30", "2026-05-18", "2026-05-20", "2026-05-22"]);
 
 interface CliArgs {
 	userId: string;
