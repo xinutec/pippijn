@@ -120,54 +120,101 @@ $M_p \approx 12$. A one-off 10-min visit gets $M_p \approx 0.3$.
 The shape is intentionally heavy-tailed: a regular place dominates a
 one-off place by orders of magnitude.
 
-### 2. Magnet pull in candidate generation
+### 2. Biometric coupling — the magnet is loose, not rigid
 
-When scoring focus_place candidates for a segment, an additional
-**proximity-magnet term** is added to the existing
-`scorePlaceForSegment`:
+The location prior alone is too rigid. A user walking past Varley on the way
+to the playground is *spatially* near Varley but *biometrically* moving —
+elevated HR, steady step accumulation, sustained speed. The magnet must let
+real movement dissolve it; the location history is one signal, the user's
+current state of motion is another, and they are **loosely coupled**, not
+locked together.
+
+Define a per-segment **biometric coherence** $B_s \in [0, 1]$: the
+probability that the segment's HR + step pattern is consistent with
+"sitting inside a place" rather than "moving through one." Computed from
+data we already have:
 
 $$
-\log P_{\text{magnet}}(p) = M_p \cdot \mathbb{1}[d(p, c_{\text{segment}}) \le R_{\text{magnet}}(p)]
+B_s = \sigma\bigl(\beta_0 - \beta_{\text{steps}} \cdot r_{\text{steps}} - \beta_{\text{HR}} \cdot z_{\text{HR}}\bigr)
 $$
 
-where $R_{\text{magnet}}(p) = R_0 + k \cdot \sigma_p$, with $R_0 \approx
-30$ m and $\sigma_p$ the focus_place's empirical visit-centroid scatter
-(already stored or trivially computable from raw visits). $k \approx
-2$ so most legitimate noisy visits fall inside.
+where $r_{\text{steps}}$ is the segment's average steps/min, $z_{\text{HR}}$
+is the HR z-score against the user's resting baseline (already mined under
+the per-user mode-biometrics work), and $\sigma$ is the logistic. Tuned so
+$B_s \to 1$ for a flat resting segment (steady HR near resting, near-zero
+steps) and $B_s \to 0$ for an active one (HR elevated, steps accumulating).
 
-In English: if the segment's centroid is within Varley's magnet
-radius, Varley gets a log-score boost proportional to its magnet
-strength. A strong focus_place comfortably outranks any same-distance
-OSM POI; a weak one barely shifts the scoring.
+**The magnet pull is then $M_p \cdot B_s$.** Strong location history (high
+$M_p$) only translates into strong attribution when biometrics support it
+(high $B_s$):
 
-This is **a soft prior**, not a hard veto. A focus_place whose
-magnet pulls Varley into the lead can still lose to a much closer
-focus_place at the same coords (e.g., the actual playground if it
-ever becomes a focus_place after enough visits).
+$$
+\log P_{\text{magnet}}(p) = M_p \cdot B_s \cdot \mathbb{1}[d(p, c_{\text{segment}}) \le R_{\text{magnet}}(p)]
+$$
 
-### 3. Anti-drift: magnetic detachment from sustained movement
+with $R_{\text{magnet}}(p) = R_0 + k \cdot \sigma_p$, $R_0 \approx 30$ m,
+$\sigma_p$ the focus_place's empirical visit-centroid scatter.
 
-The user's caveat — *we have to detach if we walk outside* — is the
-critical guard. The magnet must not pull a moving user back to a
-recently-visited place.
+Three regimes the joint factor captures naturally:
 
-The detachment signal is **already in the data we collect**:
+1. **Inside the place, sitting**: high $M_p$, high $B_s$ → strong pull.
+   Varley wins decisively against a nearby playground POI on a relaxed
+   visit.
+2. **Walking past the place**: high $M_p$, low $B_s$ → near-zero pull.
+   A 7-minute walk through the Varley area with elevated HR and active
+   steps gets no anchoring; the segment classifies as walking on its own
+   merits.
+3. **At a place we don't recognise, sitting**: low $M_p$, high $B_s$ →
+   no pull, but no false anchoring either. The OSM POI lookup runs on
+   the unbiased centroid.
 
-- Movement evidence: sustained walking-mode classification (≥3 min),
-  GPS displacement > $R_{\text{magnet}}$, or step burst > 200 steps in
-  5 min.
-- The magnet only applies to **stationary segments** — moving
-  segments are not candidates for focus_place attribution at all.
-  This is a structural detachment, not a learned one: the segment
-  classifier (already biometric-aware) decides "moving" first, and
-  once moving the magnet is silent.
+The fourth regime — low $M_p$, low $B_s$ — is the transient pass-through
+that all the existing pipeline already handles correctly.
 
-The previous-stay history doesn't extend the magnet across a moving
-segment. If the user walks from Varley to the playground for 10
-minutes and then stops, the new stationary segment is scored fresh —
-no carry-over from "we were at Varley." This is the right behaviour:
-once the user actually leaves, the system has no business pulling
-them back.
+This is the formal statement of your "loosely connected" framing: location
+history and current movement evidence each contribute, neither alone
+decides. Either signal failing collapses the magnet — high $M_p$ alone
+cannot pull a moving user back to a recently-visited place, and high $B_s$
+alone cannot invent a place the user has never been to.
+
+This is **a soft prior**, not a hard veto. A focus_place whose magnet
+pulls Varley into the lead can still lose to a much closer focus_place at
+the same coords. The boost is bounded, range-gated, and biometric-
+modulated — three independent gates the proposal must pass before
+attribution shifts.
+
+### 3. Two layers of detachment
+
+The biometric coupling in §2 is the primary detachment mechanism: a
+moving user has $B_s \approx 0$, the magnet collapses to zero, the place
+prior loses its grip even when the GPS centroid is right on top of the
+place. This is the soft detachment — it works inside a single segment,
+it works on a transient pass-through, and it doesn't require any
+classification commitment from upstream.
+
+A second, structural detachment also applies: the magnet is **only
+evaluated on stationary segments**. A `walking` / `train` / `driving`
+classified segment is never a focus_place attribution candidate to
+begin with. This is the hard detachment: the mode classifier already
+decides "moving" first using its own biometric inputs (cadence-veto,
+HR-based vetoes), and once moving, focus_place attribution is silent
+by structure. The biometric coupling refines further *within* the
+stationary class — a "stationary" segment whose HR + steps don't quite
+match "actually sitting" gets only proportionally weaker anchoring.
+
+The two layers are complementary. The structural layer is binary and
+runs upstream; the biometric coupling is continuous and runs at
+attribution time. Together they give the loose connection you want:
+strong when both signals agree, weak when either weakens, off when
+either is clearly broken.
+
+Note one thing the design deliberately doesn't do: it doesn't carry
+the magnet forward across segments. If the user walks from Varley to
+the playground for 10 minutes and then stops, the new stationary
+segment is scored fresh — no carry-over "we were just at Varley."
+The reproducibility constraint from §4 of the paused proposal applies:
+each day, each segment is decoded as a pure function of inputs, no
+stateful drift.
 
 ### 4. What this does NOT do
 
@@ -210,17 +257,59 @@ which is the right design (a 2-km-away matching profile must not beat
 the place the user is standing in).
 
 With magnetism, Varley's $M_p \approx 12$ (recurring partner visits)
-adds a +12 log-score boost when the centroid is within Varley's magnet
-radius. Even if Varley's centroid is 50 m from the segment centroid
-vs the playground at 30 m, the magnet boost more than compensates —
-Varley wins, label is "Varley (apartments)", snap-to-stored-centroid
-keeps the downstream OSM lookup at the known building, not in the
-park.
+multiplied by $B_s \approx 0.95$ (resting HR ~70 bpm during the visit,
+~5 steps/min — bathroom and pancake-making count, but well below
+walking) yields a $\sim +11$ log-score boost when the centroid is
+within Varley's magnet radius. Even if Varley's centroid is 50 m from
+the segment centroid vs the playground at 30 m, the boost more than
+compensates — Varley wins, label is "Varley (apartments)", snap-to-
+stored-centroid keeps the downstream OSM lookup at the known building,
+not in the park.
+
+Contrast with **walking past Varley** on the way to the playground
+(hypothetical):
+
+- $M_{\text{Varley}} \approx 12$ (same recurring history)
+- $B_s \approx 0.05$ (elevated HR, sustained 90+ steps/min)
+- Boost $= 12 \times 0.05 = 0.6$ log-points
+
+Negligible — the geometric-distance term dominates and the segment is
+not attributed to Varley. Even better, this segment is most likely
+classified as `walking` upstream by the mode classifier, so the
+structural detachment in §3 means the magnet never fires at all.
 
 If on a future day the user actually visits the playground briefly
 (no recurring history yet, $M_{\text{playground}} = 0$), the magnet
 contributes nothing for the playground and the geometric-distance
 term picks correctly.
+
+### Note on the distance veto
+
+`pickBestPlace` currently applies a hard veto: any candidate further
+than `MAX_DISTANCE_SIGMAS × effectiveSigmaM` from the segment centroid
+is dropped before scoring. For Varley with ~10 visits the effective
+σ caps around 75–100 m; the veto distance is 225–300 m. If 05-25's
+merged centroid drifted further than that, Varley never enters the
+scoring at all and the magnet boost cannot save it.
+
+Two options handle this; **Phase 1 commits to (a) first** and re-
+evaluates after the 05-25 fixture replay:
+
+(a) **Veto-relaxation under high coupled magnet.** Extend the veto
+distance by a factor of $1 + M_p \cdot B_s / M_{\text{ref}}$ (with
+$M_{\text{ref}} \approx 10$, so a moderately-magnetic place + clearly-
+sitting biometrics roughly doubles the veto reach). A strong magnet
+earns more geographic tolerance; a weak one keeps the current strict
+gate.
+
+(b) **No veto for any candidate whose magnet × biometric product
+clears a threshold.** Simpler but harder to bound — leaves the
+priors free to outrun distance evidence in extreme cases.
+
+(a) is preferred because it keeps the Gaussian-on-distance term in
+control: even with the magnet, a candidate >3σ + magnet-extension
+away still loses. The veto remains structural, the magnet just buys
+some headroom for established places.
 
 ## Phasing
 
