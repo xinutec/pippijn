@@ -50,7 +50,12 @@ import { routeAwareDecode } from "../hmm/route-aware-decoder.js";
 import { buildRouteRailEvidence } from "../hmm/route-rail-evidence.js";
 import { buildStateSpace, type FocusPlaceRef, type State } from "../hmm/state-space.js";
 import { buildTransitionMatrix } from "../hmm/transitions.js";
-import { assembleTubeJourneys, type TubeJourney } from "../hmm/tube-journey-assembler.js";
+import {
+	assembleTubeJourneys,
+	assembleTubeJourneysFromSegments,
+	type JourneySegment,
+	type TubeJourney,
+} from "../hmm/tube-journey-assembler.js";
 
 const config = z
 	.object({
@@ -456,14 +461,22 @@ function pipelineToDecoderMinutes(
 	return minutes;
 }
 
+interface PipelineDecodeResult {
+	minutes: DecoderMinute[];
+	segments: readonly EnrichedSegment[];
+}
+
 async function decodePipeline(
 	userId: string,
 	date: string,
 	tz: string,
 	placeNameToId: ReadonlyMap<string, number>,
-): Promise<DecoderMinute[]> {
+): Promise<PipelineDecodeResult> {
 	const velResult = await computeVelocity(config, userId, date, tz);
-	return pipelineToDecoderMinutes(velResult.segments, date, tz, placeNameToId);
+	return {
+		minutes: pipelineToDecoderMinutes(velResult.segments, date, tz, placeNameToId),
+		segments: velResult.segments,
+	};
 }
 
 function formatPct(num: number, denom: number): string {
@@ -607,6 +620,7 @@ async function main(): Promise<void> {
 			const adjacentDates = [shiftDate(day.date, -1), day.date, shiftDate(day.date, 1)];
 			const decoderChunks: DecoderMinute[] = [];
 			let currentDayRouteAware: RouteAwareDecodeResult | null = null;
+			let currentDayPipeline: PipelineDecodeResult | null = null;
 			for (const d of adjacentDates) {
 				let chunk: DecoderMinute[];
 				if (args.source === "hsmm") {
@@ -616,7 +630,9 @@ async function main(): Promise<void> {
 					chunk = ra.minutes;
 					if (d === day.date) currentDayRouteAware = ra;
 				} else {
-					chunk = await decodePipeline(args.userId, d, day.tz, pipelineNameToId);
+					const pl = await decodePipeline(args.userId, d, day.tz, pipelineNameToId);
+					chunk = pl.minutes;
+					if (d === day.date) currentDayPipeline = pl;
 				}
 				decoderChunks.push(...chunk);
 			}
@@ -629,6 +645,17 @@ async function main(): Promise<void> {
 					routeGraph: routeGraph as RouteGraph,
 					trainCandidates: [],
 				});
+				renderJourneys(day.date, day.tz, journeys);
+			}
+			if (args.journey && currentDayPipeline !== null) {
+				const segs: JourneySegment[] = currentDayPipeline.segments.map((s) => ({
+					startTs: s.startTs,
+					endTs: s.endTs,
+					mode: s.refinedMode ?? s.mode,
+					wayName: s.wayName,
+					stepsTotal: s.biometrics?.stepsTotal ?? null,
+				}));
+				const journeys = assembleTubeJourneysFromSegments(segs);
 				renderJourneys(day.date, day.tz, journeys);
 			}
 			totalScorable += score.scorableMinutes;

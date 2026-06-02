@@ -132,6 +132,155 @@ function findCandidateForRun(
 	return null;
 }
 
+/** Segment-shaped input for the velocity-pipeline-fed assembler.
+ *  This is the subset of `EnrichedSegment` the assembler needs —
+ *  carrying it as a structural type avoids a cross-package import. */
+export interface JourneySegment {
+	startTs: number;
+	endTs: number;
+	mode: string;
+	/** velocity.ts encodes train segments as `From → To` or
+	 *  `From → To · Line Name`. The parser pulls station + line from
+	 *  this. Non-train segments may carry a road name, or nothing. */
+	wayName?: string;
+	/** Optional cadence-derived step count over the segment window,
+	 *  used to attribute walking-inside-station steps to the journey. */
+	stepsTotal?: number | null;
+}
+
+/** Regex matching the trailing ` · Line Name` in `velocity.ts`'s
+ *  train-segment wayName. Mirrors `PIPELINE_LINE_RE` in
+ *  `src/cli/compare-vs-ground-truth.ts`. */
+const TRAIN_LINE_RE = / · ([^·]+)$/;
+
+/** Parse a `From → To[ · Line]` wayName into board / alight / line.
+ *  Returns null pieces when the encoding is missing or malformed. */
+function parseTrainWayName(wayName: string | undefined): {
+	board: string | undefined;
+	alight: string | undefined;
+	line: string;
+} {
+	if (wayName === undefined) return { board: undefined, alight: undefined, line: "unknown_rail" };
+	const lineMatch = TRAIN_LINE_RE.exec(wayName);
+	const line = lineMatch?.[1] ?? "unknown_rail";
+	const beforeLine = lineMatch ? wayName.slice(0, lineMatch.index) : wayName;
+	const arrowIdx = beforeLine.indexOf(" → ");
+	if (arrowIdx === -1) return { board: undefined, alight: undefined, line };
+	return {
+		board: beforeLine.slice(0, arrowIdx).trim(),
+		alight: beforeLine.slice(arrowIdx + 3).trim(),
+		line,
+	};
+}
+
+/** Assembler variant fed by `velocity.ts`'s segment output.
+ *  Composes consecutive train segments — even back-to-back with no
+ *  walking minute between them — into single journeys with one leg
+ *  per train segment. The user's quick platform-to-platform tube
+ *  interchanges (no walking minute logged) render as one journey
+ *  with multiple legs; longer interchanges with a walking segment
+ *  in between render with the walking segment as an
+ *  `interchangeWalk` leg. */
+export function assembleTubeJourneysFromSegments(segments: readonly JourneySegment[]): TubeJourney[] {
+	const journeys: TubeJourney[] = [];
+
+	let i = 0;
+	while (i < segments.length) {
+		if (segments[i].mode !== "train") {
+			i++;
+			continue;
+		}
+		// Walk forward: keep including segments while they are either
+		// train, OR walking sitting between two train segments
+		// (interchange). Stop at the first non-train + non-interchange.
+		let j = i;
+		while (j < segments.length) {
+			const s = segments[j];
+			if (s.mode === "train") {
+				j++;
+				continue;
+			}
+			// Walking segment: only absorb if followed by another train.
+			if (s.mode === "walking") {
+				let k = j + 1;
+				while (k < segments.length && segments[k].mode === "walking") k++;
+				if (k < segments.length && segments[k].mode === "train") {
+					j = k;
+					continue;
+				}
+			}
+			break;
+		}
+
+		const journeySegs = segments.slice(i, j);
+		const startTs = journeySegs[0].startTs;
+		const endTs = journeySegs[journeySegs.length - 1].endTs;
+		const startMin = 0;
+		const endMin = Math.max(0, Math.round((endTs - startTs) / 60));
+
+		const legs: TubeLeg[] = [];
+		const lines: string[] = [];
+		let intraStepCount = 0;
+
+		for (let m = 0; m < journeySegs.length; m++) {
+			const s = journeySegs[m];
+			const segStartMin = Math.round((s.startTs - startTs) / 60);
+			const segEndMin = Math.round((s.endTs - startTs) / 60);
+			if (s.mode === "train") {
+				const { board, alight, line } = parseTrainWayName(s.wayName);
+				legs.push({
+					kind: "train",
+					startMin: segStartMin,
+					endMin: segEndMin,
+					line,
+					boardStationName: board,
+					alightStationName: alight,
+				});
+				if (!lines.includes(line)) lines.push(line);
+			} else if (s.mode === "walking") {
+				legs.push({
+					kind: "interchangeWalk",
+					startMin: segStartMin,
+					endMin: segEndMin,
+				});
+				if (s.stepsTotal !== undefined && s.stepsTotal !== null) intraStepCount += s.stepsTotal;
+			}
+		}
+
+		let boardStationName: string | undefined;
+		let alightStationName: string | undefined;
+		for (const leg of legs) {
+			if (leg.kind === "train" && leg.boardStationName !== undefined) {
+				boardStationName = leg.boardStationName;
+				break;
+			}
+		}
+		for (let m = legs.length - 1; m >= 0; m--) {
+			const leg = legs[m];
+			if (leg.kind === "train" && leg.alightStationName !== undefined) {
+				alightStationName = leg.alightStationName;
+				break;
+			}
+		}
+
+		journeys.push({
+			startMin,
+			endMin,
+			startTs,
+			endTs,
+			boardStationName,
+			alightStationName,
+			lines,
+			legs,
+			intraStepCount,
+		});
+
+		i = j;
+	}
+
+	return journeys;
+}
+
 export function assembleTubeJourneys(input: AssembleTubeJourneysInput): TubeJourney[] {
 	const T = input.observations.length;
 	if (T === 0) return [];
