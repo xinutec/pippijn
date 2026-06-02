@@ -1,6 +1,10 @@
-# HMM learned emissions (Phase 2 of joint-sequence-model)
+---
+status: partly shipped
+created: 2026-05-24
+updated: 2026-05-24
+---
 
-Date: 2026-05-24
+# HMM learned emissions (Phase 2 of joint-sequence-model)
 
 ## Why now
 

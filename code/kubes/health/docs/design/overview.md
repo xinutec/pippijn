@@ -130,7 +130,7 @@ src/
 │   │                         cycle / drive / rail / plane) + merge
 │   ├── place-snap.ts       # snap noisy fixes to known focus_places centroid
 │   ├── focus-places.ts     # cluster history → focus_places (overnight-aware,
-│   │                         carries sleep_hours signal)
+│   │                         carries hour_profile + visit counts + dwell)
 │   ├── osm.ts              # Overpass + Nominatim with mirror fallback,
 │   │                         negative caching, 4s per-mirror timeout
 │   ├── biometrics.ts       # enrich a segment with HR mean/std/min/max +
@@ -264,9 +264,13 @@ source of truth — wiping any of them is safe; the next request rebuilds.
 - **`focus_places`** (per-user) — clusters of overnight + frequent
   presence, computed offline by `refresh-focus-places.ts`. Used by
   `place-snap` to pull noisy GPS to a stable centroid, and by
-  velocity to short-circuit OSM lookups for Home/Work. Carries a
-  `sleep_hours` signal so any stay at a residential cluster prefers
-  the address over a daytime amenity at the same coords.
+  velocity to short-circuit OSM lookups for Home/Work. Carries an
+  `hour_profile` (24-bucket dwell-by-hour-of-day histogram) plus
+  visit counts and total dwell, so a stay at a co-located
+  residence + café is routed to whichever fits the stay's time-of-
+  day — superseding the earlier sleep/awake binary. See
+  `2026-05-conflated-place-clusters.md` (shipped) and
+  `2026-06-magnetic-focus-places.md` (design).
 - **`osm_cache`** (global) — keyed Overpass/Nominatim query → response.
   Stores both successful results and a sentinel `{_err, _at}` for
   failures, with a TTL so transient 429s and timeouts don't stick.

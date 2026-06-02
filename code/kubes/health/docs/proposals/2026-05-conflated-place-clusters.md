@@ -1,7 +1,7 @@
 ---
-status: active
+status: shipped
 created: 2026-05-21
-updated: 2026-05-22
+updated: 2026-06-02
 ---
 
 # Proposal — disambiguating co-located places by time-of-day
