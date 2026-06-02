@@ -23,6 +23,7 @@ import {
 	type SleepStageRecord,
 	type StepPoint,
 } from "./biometrics.js";
+import { bridgeStaysWithBiometrics } from "./bridge-stays-biometrics.js";
 import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour, parseHourProfile } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
@@ -623,8 +624,30 @@ export async function computeVelocity(
 	const preEnrichBiometrics = biometricFactorOn ? await biometricsPromise : null;
 	const preEnrichModeStats = biometricFactorOn ? await modeStatsPromise : null;
 	const biomForStaySplit = preEnrichBiometrics ?? (await biometricsPromise);
-	const refinedSegments = timeSync("staySplit", () =>
+	const splitSegments = timeSync("staySplit", () =>
 		splitStaysOnEvidence(segments, points, { hr: biomForStaySplit.hr, steps: biomForStaySplit.steps }),
+	);
+	// Multi-signal stay-continuity merge: heal stays the trajectory
+	// layer fragmented by a brief no-fix gap, when HR-resting + zero
+	// steps in the gap window confirm the user never actually moved.
+	// Symmetric to splitStaysOnEvidence above — same biometric series,
+	// opposite direction. Targets the Pizza Union / toilet-break class
+	// of failure (ground-truth #185).
+	const segCentroids: (readonly [number, number] | null)[] = splitSegments.map((s) => {
+		if (s.mode !== "stationary") return null;
+		const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
+		if (segPoints.length === 0) return null;
+		const cLat = segPoints.reduce((sum, p) => sum + p.lat, 0) / segPoints.length;
+		const cLon = segPoints.reduce((sum, p) => sum + p.lon, 0) / segPoints.length;
+		return [cLat, cLon] as const;
+	});
+	const refinedSegments = timeSync("bridgeStays", () =>
+		bridgeStaysWithBiometrics({
+			segments: splitSegments,
+			centroids: segCentroids,
+			hr: biomForStaySplit.hr,
+			steps: biomForStaySplit.steps,
+		}),
 	);
 
 	// Enrich each (post-stay-split) segment with OSM data

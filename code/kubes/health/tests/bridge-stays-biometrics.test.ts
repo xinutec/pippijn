@@ -157,6 +157,51 @@ describe("bridgeStaysWithBiometrics", () => {
 		expect(result).toHaveLength(2);
 	});
 
+	it("merges back-to-back stationary stays at the same place (no gap, the 05-12 Work pattern)", () => {
+		// Real shape: stationary @ Work (184 min) → stationary "was walking"
+		// reclassified (5 min) → stationary @ Work (26 min), all centroids
+		// at Work, no time gap between any of them.
+		const t0 = 1_700_000_000;
+		const stay1 = makeStay(t0, t0 + 184 * 60);
+		const stay2 = makeStay(t0 + 184 * 60, t0 + 189 * 60, 3);
+		const stay3 = makeStay(t0 + 189 * 60, t0 + 215 * 60);
+		const hr = restingHr(t0, t0 + 215 * 60);
+		const result = bridgeStaysWithBiometrics({
+			segments: [stay1, stay2, stay3],
+			centroids: [
+				[PIZZA_LAT, PIZZA_LON],
+				[PIZZA_LAT, PIZZA_LON],
+				[PIZZA_LAT, PIZZA_LON],
+			],
+			hr,
+			steps: [],
+		});
+		expect(result).toHaveLength(1);
+		expect(result[0].endTs - result[0].startTs).toBe(215 * 60);
+	});
+
+	it("does NOT merge co-located stays when the combined window shows exercise-grade HR", () => {
+		// Same shape as above but HR averages 140 — user was working out
+		// at a fixed place, not just sitting.
+		const t0 = 1_700_000_000;
+		const stay1 = makeStay(t0, t0 + 30 * 60);
+		const stay2 = makeStay(t0 + 30 * 60, t0 + 35 * 60, 3);
+		const stay3 = makeStay(t0 + 35 * 60, t0 + 60 * 60);
+		const hr: HrPoint[] = [];
+		for (let t = t0; t <= t0 + 60 * 60; t += 5) hr.push({ ts: t, bpm: 140 });
+		const result = bridgeStaysWithBiometrics({
+			segments: [stay1, stay2, stay3],
+			centroids: [
+				[PIZZA_LAT, PIZZA_LON],
+				[PIZZA_LAT, PIZZA_LON],
+				[PIZZA_LAT, PIZZA_LON],
+			],
+			hr,
+			steps: [],
+		});
+		expect(result).toHaveLength(3);
+	});
+
 	it("passes non-stationary segments through unchanged", () => {
 		const t0 = 1_700_000_000;
 		const stay = makeStay(t0, t0 + 11 * 60);

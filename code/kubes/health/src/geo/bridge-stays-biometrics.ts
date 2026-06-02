@@ -96,30 +96,74 @@ function gapLooksStationary(
 	return stepSum === 0;
 }
 
-/** Merge same-place stationary stays separated by a short
- *  biometrics-confirmed-stationary gap. Returns a new array;
- *  input is not mutated. */
+/** Mean HR above which we won't merge stays. Catches exercise-at-a-
+ *  fixed-place cases (gym, home workout) where the centroid is stable
+ *  but the user was actively moving. 130 bpm is conservative: a
+ *  moderate jog. Most sedentary or seated activity sits well below. */
+const MAX_MERGE_HR_MEAN = 130;
+
+/** Pull HR samples strictly inside `[startTs, endTs]` and return their
+ *  mean, or null when there are no samples. */
+function meanHrInWindow(startTs: number, endTs: number, hr: readonly HrPoint[]): number | null {
+	const inWin = hr.filter((p) => p.ts >= startTs && p.ts <= endTs);
+	if (inWin.length === 0) return null;
+	return inWin.reduce((s, p) => s + p.bpm, 0) / inWin.length;
+}
+
+/** Merge consecutive stationary stays at the same place. Two stays
+ *  count as "the same place" when their centroids sit within
+ *  `COLOCATION_RADIUS_M` of each other. Handles two distinct shapes:
+ *
+ *   1. Gap-bridging — the original toilet-break case. Two stays with
+ *      a no-GPS gap in between; merge only when HR + steps confirm
+ *      the user stayed put across the gap.
+ *
+ *   2. Co-location merge — consecutive stationary segments with no
+ *      gap (e.g., the middle 5-min was reclassified from walking to
+ *      stationary by a biometric signature pass). Merge when the
+ *      whole sequence's HR is below the exercise threshold.
+ *
+ *  Returns a new array; input is not mutated. */
 export function bridgeStaysWithBiometrics(input: BridgeStaysInput): TrackSegment[] {
 	const out: TrackSegment[] = [];
 	let i = 0;
 	while (i < input.segments.length) {
 		const cur = input.segments[i];
-		// Try to extend `cur` by absorbing the next stationary segment
-		// if it's co-located and the gap between them is biometrics-
-		// confirmed stationary.
+		if (cur.mode !== "stationary") {
+			out.push(cur);
+			i++;
+			continue;
+		}
+		// Walk forward to find the maximal co-located stationary run
+		// starting at i.
 		let j = i + 1;
 		let extended = { ...cur };
-		while (j < input.segments.length && extended.mode === "stationary" && input.segments[j].mode === "stationary") {
+		while (j < input.segments.length && input.segments[j].mode === "stationary") {
 			const next = input.segments[j];
-			const gapStart = extended.endTs;
-			const gapEnd = next.startTs;
-			if (gapEnd - gapStart > MAX_GAP_SEC) break;
 			const cCur = input.centroids[i];
 			const cNext = input.centroids[j];
 			if (cCur === null || cNext === null) break;
 			const colocated = haversineMeters(cCur[0], cCur[1], cNext[0], cNext[1]) <= COLOCATION_RADIUS_M;
 			if (!colocated) break;
-			if (!gapLooksStationary(gapStart, gapEnd, input.hr, input.steps)) break;
+
+			const gapStart = extended.endTs;
+			const gapEnd = next.startTs;
+			const gapSec = gapEnd - gapStart;
+			if (gapSec > MAX_GAP_SEC) break;
+
+			if (gapSec > 0) {
+				// True signal gap — original toilet-break case. Require
+				// positive HR + steps evidence the user stayed put.
+				if (!gapLooksStationary(gapStart, gapEnd, input.hr, input.steps)) break;
+			} else {
+				// Back-to-back stays — only the segment-level HR check.
+				// If the combined window shows exercise-grade HR, the
+				// user was likely moving even though the geometry says
+				// "same place" — leave separate.
+				const combinedMean = meanHrInWindow(extended.startTs, next.endTs, input.hr);
+				if (combinedMean !== null && combinedMean > MAX_MERGE_HR_MEAN) break;
+			}
+
 			extended = {
 				...extended,
 				endTs: next.endTs,
