@@ -44,11 +44,13 @@ import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
 import { buildInitialStatePrior } from "../hmm/initial-state.js";
 import { buildLineProximityFactor } from "../hmm/line-proximity-factor.js";
+import type { Observation } from "../hmm/observation.js";
 import { buildObservationTensor } from "../hmm/observation.js";
 import { routeAwareDecode } from "../hmm/route-aware-decoder.js";
 import { buildRouteRailEvidence } from "../hmm/route-rail-evidence.js";
 import { buildStateSpace, type FocusPlaceRef, type State } from "../hmm/state-space.js";
 import { buildTransitionMatrix } from "../hmm/transitions.js";
+import { assembleTubeJourneys, type TubeJourney } from "../hmm/tube-journey-assembler.js";
 
 const config = z
 	.object({
@@ -110,6 +112,11 @@ interface CliArgs {
 	dates: string[] | null; // null → all gitignored ground-truth files for the user
 	groundTruthDir: string;
 	manifestPath: string;
+	/** When set with `--source route-aware`, also runs the
+	 *  tube-journey assembler over the decoded states and prints
+	 *  the resulting journeys per day. Phase A of
+	 *  `docs/proposals/2026-06-tube-journey-segment.md`. */
+	journey: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -119,6 +126,7 @@ function parseArgs(): CliArgs {
 	let dates: string[] | null = null;
 	let groundTruthDir = "tests/golden/ground-truth";
 	let manifestPath = "tests/golden/manifest.json";
+	let journey = false;
 	for (let i = 0; i < args.length; i++) {
 		const a = args[i];
 		if (a === "--source") source = (args[++i] as CliArgs["source"]) ?? source;
@@ -126,8 +134,9 @@ function parseArgs(): CliArgs {
 		else if (a === "--date") dates = [args[++i] ?? ""].filter(Boolean);
 		else if (a === "--ground-truth-dir") groundTruthDir = args[++i] ?? groundTruthDir;
 		else if (a === "--manifest") manifestPath = args[++i] ?? manifestPath;
+		else if (a === "--journey") journey = true;
 	}
-	return { source, userId, dates, groundTruthDir, manifestPath };
+	return { source, userId, dates, groundTruthDir, manifestPath, journey };
 }
 
 interface ManifestEntry {
@@ -351,13 +360,19 @@ async function decodeHsmm(
 /** Decode a day with the Phase 1 route-aware decoder (inner edge
  *  Viterbi per train segment). Mirrors `decodeHsmm`'s shape but
  *  uses `routeAwareDecode` for the outer + inner pass. */
+interface RouteAwareDecodeResult {
+	minutes: DecoderMinute[];
+	tensor: readonly Observation[];
+	states: readonly State[];
+}
+
 async function decodeRouteAware(
 	userId: string,
 	date: string,
 	tz: string,
 	places: readonly PlaceWithCoords[],
 	routeGraph: RouteGraph,
-): Promise<DecoderMinute[]> {
+): Promise<RouteAwareDecodeResult> {
 	const velResult = await computeVelocity(config, userId, date, tz);
 	const bounds = dateBoundsUtc(date, tz);
 	const biom = await loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz);
@@ -391,12 +406,13 @@ async function decodeRouteAware(
 		placeHourProfiles,
 		placeVisitWeights,
 	});
-	return tensor.map((obs, i) => ({
+	const minutes = tensor.map((obs, i) => ({
 		ts: obs.ts,
 		mode: result.states[i].mode,
 		placeId: result.states[i].placeId,
 		lineName: result.states[i].lineName,
 	}));
+	return { minutes, tensor, states: result.states };
 }
 
 /** Extract the rail line from a pipeline train segment's wayName,
@@ -490,6 +506,47 @@ function renderDayReport(day: GroundTruthDay, score: DayScore, source: string): 
 	}
 }
 
+function formatHHMM(ts: number, tz: string): string {
+	return new Date(ts * 1000).toLocaleTimeString("en-GB", {
+		hour: "2-digit",
+		minute: "2-digit",
+		timeZone: tz,
+		hour12: false,
+	});
+}
+
+/** Print the tube journeys assembled for a single day. Phase A
+ *  output — visibility only; no scoring against ground truth yet. */
+function renderJourneys(date: string, tz: string, journeys: readonly TubeJourney[]): void {
+	console.log(`\n## ${date} — tube journeys (${journeys.length})`);
+	if (journeys.length === 0) {
+		console.log("  (none)");
+		return;
+	}
+	for (const j of journeys) {
+		const start = formatHHMM(j.startTs, tz);
+		const end = formatHHMM(j.endTs, tz);
+		const board = j.boardStationName ?? "?";
+		const alight = j.alightStationName ?? "?";
+		const lines = j.lines.length > 0 ? j.lines.join(" + ") : "(no line)";
+		console.log(
+			`  ${start}-${end}  ${board} → ${alight}  via ${lines}  legs=${j.legs.length} steps=${j.intraStepCount}`,
+		);
+		for (const leg of j.legs) {
+			const ls = formatHHMM(j.startTs + (leg.startMin - j.startMin) * 60, tz);
+			const le = formatHHMM(j.startTs + (leg.endMin - j.startMin) * 60, tz);
+			if (leg.kind === "train") {
+				const lb = leg.boardStationName ?? "?";
+				const la = leg.alightStationName ?? "?";
+				console.log(`      ${ls}-${le}  train  ${lb} → ${la} · ${leg.line}`);
+			} else {
+				const st = leg.stationName ?? "?";
+				console.log(`      ${ls}-${le}  interchange walk @ ${st}`);
+			}
+		}
+	}
+}
+
 async function main(): Promise<void> {
 	const args = parseArgs();
 	initPool(config.db);
@@ -549,12 +606,15 @@ async function main(): Promise<void> {
 			// stitch the per-minute output. Wasteful but simple.
 			const adjacentDates = [shiftDate(day.date, -1), day.date, shiftDate(day.date, 1)];
 			const decoderChunks: DecoderMinute[] = [];
+			let currentDayRouteAware: RouteAwareDecodeResult | null = null;
 			for (const d of adjacentDates) {
 				let chunk: DecoderMinute[];
 				if (args.source === "hsmm") {
 					chunk = await decodeHsmm(args.userId, d, day.tz, places, placeNearLine, routeGraph as RouteGraph);
 				} else if (args.source === "route-aware") {
-					chunk = await decodeRouteAware(args.userId, d, day.tz, places, routeGraph as RouteGraph);
+					const ra = await decodeRouteAware(args.userId, d, day.tz, places, routeGraph as RouteGraph);
+					chunk = ra.minutes;
+					if (d === day.date) currentDayRouteAware = ra;
 				} else {
 					chunk = await decodePipeline(args.userId, d, day.tz, pipelineNameToId);
 				}
@@ -562,6 +622,15 @@ async function main(): Promise<void> {
 			}
 			const score = scoreDay(day.rows, decoderChunks, resolved);
 			renderDayReport(day, score, args.source);
+			if (args.journey && currentDayRouteAware !== null) {
+				const journeys = assembleTubeJourneys({
+					observations: currentDayRouteAware.tensor,
+					states: currentDayRouteAware.states,
+					routeGraph: routeGraph as RouteGraph,
+					trainCandidates: [],
+				});
+				renderJourneys(day.date, day.tz, journeys);
+			}
 			totalScorable += score.scorableMinutes;
 			totalModeMatching += score.modeMatching;
 			totalPlaceScorable += score.placeScorable;
