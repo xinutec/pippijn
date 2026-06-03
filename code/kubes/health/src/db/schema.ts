@@ -569,7 +569,24 @@ const MIGRATIONS: readonly string[] = [
     UNIQUE KEY uniq_user_version (user_id, version)
   )`,
 
-	// Future migrations go here.
+	// presence_log: per-(user, date) roll-up of the HSMM's per-minute
+	// output. Phase 1 of `docs/proposals/2026-06-presence-continuity.md`.
+	// Pure function of (decoded_days, focus_places, current code) —
+	// DELETE+INSERT rebuilt nightly from a bounded backfill window.
+	// Stale rows from a prior algorithm version only live until the
+	// next nightly run.
+	`CREATE TABLE IF NOT EXISTS presence_log (
+    user_id              VARCHAR(64) NOT NULL,
+    date                 DATE NOT NULL,
+    tz                   VARCHAR(64) NOT NULL,
+    dominant_place_id    INT UNSIGNED NULL,
+    dominant_fraction    FLOAT NOT NULL,
+    end_of_day_place_id  INT UNSIGNED NULL,
+    end_of_day_ts        TIMESTAMP NULL,
+    end_of_day_posterior FLOAT NOT NULL,
+    computed_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, date)
+  )`,
 ];
 
 export async function migrate(conn: mariadb.Connection): Promise<void> {

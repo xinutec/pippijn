@@ -340,6 +340,34 @@ export interface RailRouteCacheTable {
  *  version mismatch and re-decoded on next read.
  *
  *  Pure cache — safe to truncate and rebuild. */
+/** `presence_log` — per-(user, date) roll-up of the HSMM's per-minute
+ *  output, used as the cross-day continuity seed for sparse-data days.
+ *  Phase 1 of `docs/proposals/2026-06-presence-continuity.md`. Pure
+ *  function of (decoded_days, focus_places, current code), rebuilt
+ *  nightly. */
+export interface PresenceLogTable {
+	user_id: string;
+	/** DATE in the user's displayTz, stored as 'YYYY-MM-DD'. */
+	date: string;
+	tz: string;
+	/** focus_places.id assigned to the largest fraction of decoded
+	 *  minutes on this day. Null when no focus_place dominates. */
+	dominant_place_id: number | null;
+	/** Fraction of the day's decoded minutes (0–1) assigned to
+	 *  `dominant_place_id`. 1.0 = entire day at one place. */
+	dominant_fraction: number;
+	/** focus_places.id of the day's last decoded minute when it sits at
+	 *  a known place; null otherwise. The next day's HSMM uses this as
+	 *  the continuation candidate seed. */
+	end_of_day_place_id: number | null;
+	/** Wall-clock UTC time of that last decoded minute. Null when
+	 *  `end_of_day_place_id` is null. */
+	end_of_day_ts: Date | null;
+	/** Posterior (0–1) the HSMM assigned to the end-of-day state. */
+	end_of_day_posterior: number;
+	computed_at: Generated<Date>;
+}
+
 export interface DecodedDaysTable {
 	user_id: string;
 	/** DATE in the user's displayTz, stored as 'YYYY-MM-DD'. */
@@ -400,6 +428,7 @@ export interface Database {
 	mode_biometrics: ModeBiometricsTable;
 	rail_route_cache: RailRouteCacheTable;
 	decoded_days: DecodedDaysTable;
+	presence_log: PresenceLogTable;
 	learned_hmm_models: LearnedHmmModelsTable;
 	schema_migrations: SchemaMigrationsTable;
 }
