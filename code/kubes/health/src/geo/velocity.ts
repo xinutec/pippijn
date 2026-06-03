@@ -15,6 +15,7 @@ import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.j
 import { type DayState, segmentsToDayStates } from "../sleep/day-state.js";
 import { detectKnownPlaceStays, type StayCandidate } from "../sleep/known-place-stays.js";
 import { enrichSleepWindows, loadDaySleepWindows } from "../sleep/load.js";
+import { biometricCoherence } from "./biometric-coherence.js";
 import {
 	type BiometricEnrichment,
 	correctModeFromCadence,
@@ -676,9 +677,23 @@ export async function computeVelocity(
 					// See `src/geo/place-prior.ts`.
 					const isSleepWindow = hasOvernightPresence(seg.startTs, seg.endTs, cLon);
 					const stayHourProfile = hourProfileForRange(seg.startTs, seg.endTs, cLon);
+					// Magnetic anchoring: pass biometric coherence so the
+					// scorer can boost established focus_places when the
+					// segment's HR + steps confirm the user was actually
+					// sitting (vs walking past). See
+					// `docs/proposals/2026-06-magnetic-focus-places.md`.
+					const segBs = biometricCoherence({
+						startTs: seg.startTs,
+						endTs: seg.endTs,
+						hr: biomForStaySplit.hr,
+						steps: biomForStaySplit.steps,
+					});
 					const winner =
 						knownPlaces.length > 0
-							? pickBestPlace(knownPlaces.map(toPlaceCandidate), cLat, cLon, { stayHourProfile })
+							? pickBestPlace(knownPlaces.map(toPlaceCandidate), cLat, cLon, {
+									stayHourProfile,
+									biometricCoherence: segBs,
+								})
 							: null;
 
 					if (winner !== null) {
