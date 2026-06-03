@@ -46,6 +46,7 @@
  * the per-place coordinates and per-line geometry are available.
  */
 
+import { type ContinuityContext, continuityLogLikelihood } from "./factors/presence-continuity.js";
 import type { LearnedEmissionParameters } from "./fit-emissions.js";
 import type { Observation } from "./observation.js";
 import type { State } from "./state-space.js";
@@ -76,6 +77,16 @@ export interface BuildEmissionFnOpts {
 	 *  Loaded via the `learned_hmm_models` table; see
 	 *  `docs/proposals/2026-05-hmm-learned-emissions.md`. */
 	learnedEmissions?: LearnedEmissionParameters;
+
+	/** Phase 3 of `docs/proposals/2026-06-presence-continuity.md`. When
+	 *  present, the no-fix-evidence emission factor adds a positive
+	 *  log-bonus for the `stationary @ priorPlaceId` state, decaying
+	 *  with `hoursSinceLastConfirmedFix`. Pulls the HSMM toward the
+	 *  continuation candidate when nothing contradicts it.
+	 *  Computed once per day from `presence_log[date - 1]`; callers
+	 *  set this to `null` when continuity is disabled (the feature
+	 *  flag is off, or no prior-day record exists). */
+	continuityContext?: ContinuityContext | null;
 }
 
 /** σ for the place-centroid Gaussian. Matches the
@@ -321,6 +332,7 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 	const places = opts.placeCoords ?? null;
 	const learned = opts.learnedEmissions ?? null;
 	const perPlaceHr = learned?.perPlaceHr ?? null;
+	const continuity = opts.continuityContext ?? null;
 
 	// Pre-resolve effective per-mode priors: for each mode, either a
 	// learned fit (when `learnedEmissions.perMode[mode]` is present and
@@ -362,6 +374,14 @@ export function buildEmissionFn(opts: BuildEmissionFnOpts = {}): EmissionLogProb
 		// Stationary is the default daytime state; movement modes need
 		// positive evidence to overcome the prior. See MODE_PRIOR_LOG.
 		logProb += MODE_PRIOR_LOG[state.mode];
+
+		// Presence-continuity bonus — Phase 3 of the continuity proposal.
+		// Silent under default (continuity null); under continuation it
+		// gives a positive log-bonus to `stationary @ priorPlaceId` on
+		// no-fix minutes, decaying with time-since-last-fix.
+		if (continuity !== null) {
+			logProb += continuityLogLikelihood(state, obs, continuity);
+		}
 
 		// GPS-present Bernoulli — fires every minute.
 		logProb += logBernoulli(obs.gps !== null, prior.gpsPresentProb);

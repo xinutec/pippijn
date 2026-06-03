@@ -16,6 +16,7 @@
 import { z } from "zod";
 import { initPool, db as kyselyDb, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
+import { useContinuityContinuation } from "../geo/factors/feature-flag.js";
 import { parseHourProfile } from "../geo/focus-places.js";
 import { stationsOnLine } from "../geo/line-stations.js";
 import type { RouteGraph } from "../geo/route-graph.js";
@@ -25,6 +26,7 @@ import { computeVelocity, loadBiometrics } from "../geo/velocity.js";
 import { DEFAULT_MIN_DURATION_BY_MODE, type GammaFit, logDurationProb } from "../hmm/duration-dist.js";
 import { buildEmissionFn } from "../hmm/emissions.js";
 import { buildEntryPrior } from "../hmm/entry-prior.js";
+import type { ContinuityContext } from "../hmm/factors/presence-continuity.js";
 import { buildGeometricFeasibility } from "../hmm/geometric-feasibility.js";
 import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
@@ -180,7 +182,13 @@ async function decodeAndPersist(
 		states,
 		placeNearLine: (placeId, lineName) => placeNearLine.has(`${placeId}|${lineName}`),
 	});
-	const baseEmission = buildEmissionFn({ placeCoords });
+	// Presence-continuity seed (Phase 3 of
+	// docs/proposals/2026-06-presence-continuity.md): when the flag is
+	// on, read the prior day's presence_log row to set the
+	// continuation context. Silent fallback if the row doesn't exist
+	// (chain start) or the flag is off.
+	const continuityContext = useContinuityContinuation() ? await loadContinuityContext(userId, date) : null;
+	const baseEmission = buildEmissionFn({ placeCoords, continuityContext });
 	const geometricFn = buildGeometricFeasibility({ placeCoords });
 	const routeRailFn = buildRouteRailEvidence({ routeGraph });
 	const lineProximityFn = buildLineProximityFactor({ routeGraph });
@@ -276,6 +284,34 @@ async function main(): Promise<void> {
 		}
 	}
 	process.exit(0);
+}
+
+/** Load the continuity seed for `userId` on `date`: returns the
+ *  context derived from `presence_log[date - 1]`, or null when no
+ *  prior-day record exists (chain start, or yesterday was a travel
+ *  day with no end-of-day stay). Phase 3 of
+ *  `docs/proposals/2026-06-presence-continuity.md`. */
+async function loadContinuityContext(userId: string, date: string): Promise<ContinuityContext | null> {
+	const priorDate = new Date(`${date}T00:00:00Z`);
+	priorDate.setUTCDate(priorDate.getUTCDate() - 1);
+	const priorDateStr = priorDate.toISOString().slice(0, 10);
+	const row = await kyselyDb()
+		.selectFrom("presence_log")
+		.where("user_id", "=", userId)
+		.where("date", "=", priorDateStr)
+		.select(["end_of_day_place_id", "end_of_day_ts", "end_of_day_posterior"])
+		.executeTakeFirst();
+	if (row === undefined || row.end_of_day_place_id === null || row.end_of_day_ts === null) {
+		return null;
+	}
+	const todayStart = new Date(`${date}T00:00:00Z`).getTime();
+	const lastFixMs = row.end_of_day_ts.getTime();
+	const hoursSinceLastConfirmedFix = Math.max(0, (todayStart - lastFixMs) / 3600_000);
+	return {
+		priorPlaceId: row.end_of_day_place_id,
+		hoursSinceLastConfirmedFix,
+		priorPosterior: row.end_of_day_posterior,
+	};
 }
 
 await main();
