@@ -307,8 +307,16 @@ async function loadContinuityContext(userId: string, date: string): Promise<Cont
 	const todayStart = new Date(`${date}T00:00:00Z`).getTime();
 	const lastFixMs = row.end_of_day_ts.getTime();
 	const hoursSinceLastConfirmedFix = Math.max(0, (todayStart - lastFixMs) / 3600_000);
+	const placeRow = await kyselyDb()
+		.selectFrom("focus_places")
+		.where("id", "=", row.end_of_day_place_id)
+		.select(["centroid_lat", "centroid_lon"])
+		.executeTakeFirst();
+	const priorPlaceCoord =
+		placeRow === undefined ? null : { lat: placeRow.centroid_lat, lon: placeRow.centroid_lon };
 	return {
 		priorPlaceId: row.end_of_day_place_id,
+		priorPlaceCoord,
 		hoursSinceLastConfirmedFix,
 		priorPosterior: row.end_of_day_posterior,
 	};

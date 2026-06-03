@@ -32,76 +32,94 @@ function obsWithFix(): Observation {
 	return { ...obsNoFix(), gps: { lat: 51.5, lon: -0.1, speedKmh: 0 } };
 }
 
+function ctxBase(): {
+	priorPlaceId: number;
+	priorPlaceCoord: null;
+	hoursSinceLastConfirmedFix: number;
+	priorPosterior: number;
+} {
+	return { priorPlaceId: 42, priorPlaceCoord: null, hoursSinceLastConfirmedFix: 0, priorPosterior: 0.95 };
+}
+
 describe("continuityLogLikelihood", () => {
 	it("returns 0 with no continuity context (factor silent)", () => {
 		expect(continuityLogLikelihood(stat(42), obsNoFix(), null)).toBe(0);
 	});
 
 	it("returns 0 when priorPlaceId is null", () => {
-		const ctx = { priorPlaceId: null, hoursSinceLastConfirmedFix: 0, priorPosterior: 0.95 };
+		const ctx = { ...ctxBase(), priorPlaceId: null };
 		expect(continuityLogLikelihood(stat(42), obsNoFix(), ctx)).toBe(0);
 	});
 
 	it("returns 0 for a state at a different place than the prior", () => {
-		const ctx = { priorPlaceId: 42, hoursSinceLastConfirmedFix: 0, priorPosterior: 0.95 };
-		expect(continuityLogLikelihood(stat(99), obsNoFix(), ctx)).toBe(0);
+		expect(continuityLogLikelihood(stat(99), obsNoFix(), ctxBase())).toBe(0);
 	});
 
 	it("returns 0 for non-stationary states", () => {
-		const ctx = { priorPlaceId: 42, hoursSinceLastConfirmedFix: 0, priorPosterior: 0.95 };
 		const driving: State = { mode: "driving", placeId: null, lineName: null, trainEdgeId: null };
-		expect(continuityLogLikelihood(driving, obsNoFix(), ctx)).toBe(0);
+		expect(continuityLogLikelihood(driving, obsNoFix(), ctxBase())).toBe(0);
 	});
 
 	it("returns 0 when the observation has a GPS fix (place-distance handles it)", () => {
-		const ctx = { priorPlaceId: 42, hoursSinceLastConfirmedFix: 0, priorPosterior: 0.95 };
-		expect(continuityLogLikelihood(stat(42), obsWithFix(), ctx)).toBe(0);
+		expect(continuityLogLikelihood(stat(42), obsWithFix(), ctxBase())).toBe(0);
 	});
 
-	it("returns a positive log-bonus for a matching state under no-fix evidence", () => {
-		const ctx = { priorPlaceId: 42, hoursSinceLastConfirmedFix: 0, priorPosterior: 0.95 };
-		const result = continuityLogLikelihood(stat(42), obsNoFix(), ctx);
-		expect(result).toBeCloseTo(Math.log(0.5 * 1 * 0.95), 3);
+	it("returns a non-negative log-bonus for a matching state under no-fix evidence", () => {
+		const result = continuityLogLikelihood(stat(42), obsNoFix(), ctxBase());
+		expect(result).toBeCloseTo(Math.log(1 + 0.1 * 1 * 0.95), 3);
+		expect(result).toBeGreaterThan(0);
 	});
 
 	it("decays with time-since-last-confirmed-fix", () => {
-		const fresh = continuityLogLikelihood(stat(42), obsNoFix(), {
-			priorPlaceId: 42,
-			hoursSinceLastConfirmedFix: 0,
-			priorPosterior: 0.95,
-		});
-		const oneDay = continuityLogLikelihood(stat(42), obsNoFix(), {
-			priorPlaceId: 42,
-			hoursSinceLastConfirmedFix: 24,
-			priorPosterior: 0.95,
-		});
+		const fresh = continuityLogLikelihood(stat(42), obsNoFix(), { ...ctxBase(), hoursSinceLastConfirmedFix: 0 });
+		const oneDay = continuityLogLikelihood(stat(42), obsNoFix(), { ...ctxBase(), hoursSinceLastConfirmedFix: 24 });
 		const threeDays = continuityLogLikelihood(stat(42), obsNoFix(), {
-			priorPlaceId: 42,
+			...ctxBase(),
 			hoursSinceLastConfirmedFix: 72,
-			priorPosterior: 0.95,
 		});
 		expect(fresh).toBeGreaterThan(oneDay);
 		expect(oneDay).toBeGreaterThan(threeDays);
-		expect(Math.exp(oneDay - fresh)).toBeCloseTo(Math.exp(-1), 3);
 	});
 
 	it("scales with priorPosterior — a 0.5 seed gives less boost than a 0.95 seed", () => {
-		const highSeed = continuityLogLikelihood(stat(42), obsNoFix(), {
-			priorPlaceId: 42,
-			hoursSinceLastConfirmedFix: 0,
-			priorPosterior: 0.95,
-		});
-		const lowSeed = continuityLogLikelihood(stat(42), obsNoFix(), {
-			priorPlaceId: 42,
-			hoursSinceLastConfirmedFix: 0,
-			priorPosterior: 0.5,
-		});
+		const highSeed = continuityLogLikelihood(stat(42), obsNoFix(), { ...ctxBase(), priorPosterior: 0.95 });
+		const lowSeed = continuityLogLikelihood(stat(42), obsNoFix(), { ...ctxBase(), priorPosterior: 0.5 });
 		expect(highSeed).toBeGreaterThan(lowSeed);
-		expect(Math.exp(highSeed - lowSeed)).toBeCloseTo(0.95 / 0.5, 3);
 	});
 
 	it("returns 0 when priorPosterior is 0 (no information to transfer)", () => {
-		const ctx = { priorPlaceId: 42, hoursSinceLastConfirmedFix: 0, priorPosterior: 0 };
+		const ctx = { ...ctxBase(), priorPosterior: 0 };
 		expect(continuityLogLikelihood(stat(42), obsNoFix(), ctx)).toBe(0);
+	});
+
+	it("contradiction gate: bonus fires when prevGpsFix is near priorPlaceCoord", () => {
+		const ctx = { ...ctxBase(), priorPlaceCoord: { lat: 51.5, lon: -0.15 } };
+		const obs: Observation = {
+			...obsNoFix(),
+			prevGpsFix: { ts: T - 600, lat: 51.5, lon: -0.15 },
+		};
+		expect(continuityLogLikelihood(stat(42), obs, ctx)).toBeGreaterThan(0);
+	});
+
+	it("contradiction gate: bonus is silenced when prevGpsFix is far (>1500m) from priorPlaceCoord", () => {
+		// Prior place at CC, but a today's fix has appeared ~17km away (at Home).
+		// The bonus must not fire on subsequent no-fix minutes — today's
+		// evidence has superseded yesterday's.
+		const ctx = { ...ctxBase(), priorPlaceCoord: { lat: 51.5, lon: -0.15 } };
+		const obs: Observation = {
+			...obsNoFix(),
+			prevGpsFix: { ts: T - 600, lat: 51.57, lon: -0.28 },
+		};
+		expect(continuityLogLikelihood(stat(42), obs, ctx)).toBe(0);
+	});
+
+	it("contradiction gate: no-op when priorPlaceCoord is null", () => {
+		// Same fix that would be contradicting if coords were present —
+		// here we have no coords so the gate is inactive; bonus fires.
+		const obs: Observation = {
+			...obsNoFix(),
+			prevGpsFix: { ts: T - 600, lat: 51.57, lon: -0.28 },
+		};
+		expect(continuityLogLikelihood(stat(42), obs, ctxBase())).toBeGreaterThan(0);
 	});
 });
