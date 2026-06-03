@@ -928,6 +928,16 @@ export async function computeVelocity(
 	// so it doesn't surface as a phantom place-stay. See absorbInterchanges.
 	const withInterchanges = timeSync("interchange", () => absorbInterchanges(withBoarding));
 
+	// Absorb a phantom drive-stop — a brief stationary segment
+	// sandwiched between two driving segments with zero/near-zero steps
+	// across it. The biometric data confirms the user stayed in the
+	// vehicle; the stop was just GPS noise at a traffic light or in
+	// dense urban congestion. See absorbDriveStops + the 2026-06-02
+	// "phantom Lanesborough" case in conversation context.
+	const withAbsorbedDriveStops = timeSync("driveStops", () =>
+		absorbDriveStops(withInterchanges, biomForStaySplit.steps),
+	);
+
 	// Physical constraint: back-to-back train legs must share a station.
 	// You can't step off one train and instantly be on another at a
 	// different station — so a leg whose independently-resolved boarding
@@ -935,7 +945,7 @@ export async function computeVelocity(
 	// where that leg alighted. Runs after the interchange absorber so it
 	// sees the final train-leg adjacency, and before rail-snap so the
 	// snap keys off the corrected station pair. See reconcileAdjacentRailLegs.
-	const withReconciledRail = timeSync("railReconcile", () => reconcileAdjacentRailLegs(withInterchanges));
+	const withReconciledRail = timeSync("railReconcile", () => reconcileAdjacentRailLegs(withAbsorbedDriveStops));
 
 	// Rail-snap: attach the precomputed rail-track geometry to each
 	// train run whose route is in rail_route_cache (filled offline by
@@ -1810,6 +1820,87 @@ export async function absorbBoardingPlatform(
  *  stop is longer — and a real stay would also have coalesced with its
  *  neighbours in mergeAdjacentStays. */
 const INTERCHANGE_SEGMENT_MAX_S = 8 * 60;
+
+/** Longest a phantom drive-stop can be and still get absorbed. Real
+ *  brief drive stops (drop-off, ATM, quick errand) tend to run a few
+ *  minutes; longer stops are genuine and shouldn't be absorbed even if
+ *  the user happened not to step out of the car. */
+const DRIVE_STOP_ABSORB_MAX_S = 15 * 60;
+
+/** Maximum steps accumulated inside a phantom drive-stop. Even briefly
+ *  getting out of a car generates a handful of step counts; zero or near-
+ *  zero is the biometric tell for "stayed in the vehicle the whole
+ *  time". */
+const DRIVE_STOP_ABSORB_MAX_STEPS = 5;
+
+/**
+ * Absorb a phantom drive-stop into the surrounding drives.
+ *
+ * A short `stationary` segment sandwiched between two `driving`
+ * segments — when the biometric data shows zero / near-zero steps
+ * across it — is a GPS-noise-driven phantom stop, not a real one.
+ * Classic shape: dense-urban congestion or signal occlusion drops the
+ * speed reading to zero, the classifier calls it stationary, and the
+ * nearest typed OSM POI (in our motivating case, "The Lanesborough")
+ * becomes the place label.
+ *
+ * If the user actually got out of the car, the watch records steps
+ * almost immediately — even three steps from the seat to the kerb
+ * appear. Zero steps over a 5–15 minute "stop" is the unambiguous
+ * tell that the vehicle never opened its doors.
+ *
+ * Mirrors `absorbInterchanges` for the road case. Only fires when
+ * the sandwich is `driving → short stationary → driving` — a stop at
+ * the start or end of a day, or before a longer stay, is left alone.
+ */
+export function absorbDriveStops(segments: EnrichedSegment[], steps: readonly StepPoint[]): EnrichedSegment[] {
+	const modeOf = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
+	const stepsBetween = (startTs: number, endTs: number): number => {
+		let total = 0;
+		for (const p of steps) if (p.ts >= startTs && p.ts <= endTs) total += p.steps;
+		return total;
+	};
+	const onePass = (input: EnrichedSegment[]): { out: EnrichedSegment[]; changed: boolean } => {
+		const out: EnrichedSegment[] = [];
+		let changed = false;
+		let i = 0;
+		while (i < input.length) {
+			const seg = input[i];
+			if (modeOf(seg) !== "driving" || i + 2 >= input.length) {
+				out.push(seg);
+				i++;
+				continue;
+			}
+			const middle = input[i + 1];
+			const next = input[i + 2];
+			const isPhantomStop =
+				modeOf(middle) === "stationary" &&
+				modeOf(next) === "driving" &&
+				middle.endTs - middle.startTs <= DRIVE_STOP_ABSORB_MAX_S &&
+				stepsBetween(middle.startTs, middle.endTs) <= DRIVE_STOP_ABSORB_MAX_STEPS;
+			if (isPhantomStop) {
+				out.push({
+					...seg,
+					endTs: next.endTs,
+					pointCount: seg.pointCount + middle.pointCount + next.pointCount,
+				});
+				i += 3;
+				changed = true;
+				continue;
+			}
+			out.push(seg);
+			i++;
+		}
+		return { out, changed };
+	};
+	let current = segments;
+	for (let guard = 0; guard < 10; guard++) {
+		const { out, changed } = onePass(current);
+		if (!changed) return out;
+		current = out;
+	}
+	return current;
+}
 
 /**
  * Absorb a transit interchange into the train it follows.
