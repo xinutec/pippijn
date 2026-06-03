@@ -65,8 +65,7 @@ export function biometricCoherence(input: BiometricCoherenceInput): number {
 	const stepsInSeg = input.steps.filter((p) => inSeg(p.ts));
 
 	const stepsPerMin = stepsInSeg.reduce((s, p) => s + p.steps, 0) / durationMin;
-	const hrMean =
-		hrInSeg.length > 0 ? hrInSeg.reduce((s, p) => s + p.bpm, 0) / hrInSeg.length : REST_HR_BASELINE;
+	const hrMean = hrInSeg.length > 0 ? hrInSeg.reduce((s, p) => s + p.bpm, 0) / hrInSeg.length : REST_HR_BASELINE;
 	const hrElevation = Math.max(0, hrMean - REST_HR_BASELINE);
 
 	return logistic(BETA_0 - BETA_STEPS * stepsPerMin - BETA_HR * hrElevation);

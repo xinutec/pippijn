@@ -338,7 +338,7 @@ describe("pickBestPlace", () => {
 		function varley(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
 			return {
 				id: 50,
-				centroidLat: 51.5630,
+				centroidLat: 51.563,
 				centroidLon: -0.2796,
 				radiusM: 30,
 				uniqueDays: 12,
@@ -351,7 +351,7 @@ describe("pickBestPlace", () => {
 		// hypothetical playground node.
 		const M_PER_DEG_LON = 111_320 * Math.cos((51.563 * Math.PI) / 180);
 		const driftedStay = {
-			lat: 51.5630,
+			lat: 51.563,
 			lon: -0.2796 + 70 / M_PER_DEG_LON,
 		};
 
@@ -382,23 +382,13 @@ describe("pickBestPlace", () => {
 		});
 
 		it("contributes nothing for a one-off place (low magnet strength)", () => {
-			const sitting = scorePlaceForSegment(
-				varley({ uniqueDays: 1 }),
-				driftedStay.lat,
-				driftedStay.lon,
-				{
-					stayHourProfile: daytimeStay,
-					biometricCoherence: 1.0,
-				},
-			);
-			const noCoherence = scorePlaceForSegment(
-				varley({ uniqueDays: 1 }),
-				driftedStay.lat,
-				driftedStay.lon,
-				{
-					stayHourProfile: daytimeStay,
-				},
-			);
+			const sitting = scorePlaceForSegment(varley({ uniqueDays: 1 }), driftedStay.lat, driftedStay.lon, {
+				stayHourProfile: daytimeStay,
+				biometricCoherence: 1.0,
+			});
+			const noCoherence = scorePlaceForSegment(varley({ uniqueDays: 1 }), driftedStay.lat, driftedStay.lon, {
+				stayHourProfile: daytimeStay,
+			});
 			// Boost ≈ log(2) · 1 ≈ 0.7. A small lift, not a dominant
 			// term.
 			expect(sitting - noCoherence).toBeLessThan(1);
@@ -407,7 +397,7 @@ describe("pickBestPlace", () => {
 		it("does NOT apply outside the magnet radius", () => {
 			// 500 m east of Varley — far outside its magnet (~230 m).
 			const farStay = {
-				lat: 51.5630,
+				lat: 51.563,
 				lon: -0.2796 + 500 / M_PER_DEG_LON,
 			};
 			const sitting = scorePlaceForSegment(varley(), farStay.lat, farStay.lon, {

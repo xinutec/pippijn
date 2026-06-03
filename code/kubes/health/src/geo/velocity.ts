@@ -1000,7 +1000,7 @@ export async function computeVelocity(
 	// pipeline's label when no decode exists (cron hasn't run yet) or
 	// the HSMM is uncertain.
 	const hmmDecode = await time("hsmmDecode", loadDecode(db(), userId, date));
-	const withBiometrics = hmmDecode
+	const overridden = hmmDecode
 		? timeSync("hsmmOverride", () => {
 				const placeLookup = new Map<number, { displayName: string | null }>();
 				for (const p of knownPlaces) {
@@ -1009,6 +1009,13 @@ export async function computeVelocity(
 				return applyHsmmPlaceOverride(enrichedSegments, hmmDecode, placeLookup);
 			})
 		: enrichedSegments;
+	// Final merge pass — by this point HSMM may have attached a place
+	// to a segment that was un-placed at the earlier merge (e.g., a
+	// walking-reclassified-to-stationary segment that the place-attribution
+	// stage skipped because its raw `mode` was still "walking"). Re-run
+	// mergeAdjacentStays so two consecutive same-place segments don't
+	// surface as duplicates — the 2026-06-02 "two Home stays" case.
+	const withBiometrics = timeSync("finalMerge", () => mergeAdjacentStays(overridden));
 
 	const total = Date.now() - t0;
 	const summary = Object.entries(phaseTimes)
@@ -1104,16 +1111,20 @@ const STAY_BRIDGE_MAX_GAP_S = 10 * 60;
 const STAY_BRIDGE_MAX_AVG_KMH = 2;
 
 export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment[] {
+	const effectiveMode = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
 	const result: EnrichedSegment[] = [];
 	for (const seg of segments) {
 		const prev = result[result.length - 1];
 		// Direct adjacency: two stationary segments at the same place,
 		// back-to-back. The classifier sometimes splits a continuous stay
-		// when GPS goes briefly dark or jitters; collapse them.
+		// when GPS goes briefly dark or jitters; collapse them. Use
+		// `refinedMode ?? mode` so a walking segment that biometricCorrect
+		// re-classified to stationary still merges with its same-place
+		// neighbour — the 2026-06-02 "two consecutive Home stays" case.
 		if (
 			prev &&
-			prev.mode === "stationary" &&
-			seg.mode === "stationary" &&
+			effectiveMode(prev) === "stationary" &&
+			effectiveMode(seg) === "stationary" &&
 			prev.place &&
 			prev.place === seg.place &&
 			seg.startTs - prev.endTs <= 5 * 60
@@ -1133,8 +1144,15 @@ export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment
 		if (
 			prev &&
 			prevPrev &&
-			seg.mode === "stationary" &&
-			prevPrev.mode === "stationary" &&
+			effectiveMode(seg) === "stationary" &&
+			effectiveMode(prevPrev) === "stationary" &&
+			// Bridge a middle segment that the *raw* classifier called
+			// non-stationary — including ones biometricCorrect later
+			// re-classified to stationary. Using `effectiveMode` here
+			// would wrongly exclude reclassified middles, which are
+			// exactly the GPS-jittered "moving sliver" the bridge is
+			// for. See the 2026-05-22 Royal Free 23:49-23:54 regression
+			// caught when this predicate was naively unified.
 			prev.mode !== "stationary" &&
 			prevPrev.place &&
 			prevPrev.place === seg.place &&

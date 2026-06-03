@@ -7,8 +7,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { HrPoint, StepPoint } from "../src/geo/biometrics.js";
 import { biometricCoherence } from "../src/geo/biometric-coherence.js";
+import type { HrPoint, StepPoint } from "../src/geo/biometrics.js";
 
 function restingHr(startTs: number, endTs: number, bpm = 68): HrPoint[] {
 	const out: HrPoint[] = [];
