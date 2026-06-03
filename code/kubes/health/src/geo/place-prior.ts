@@ -97,6 +97,29 @@ const POSTERIOR_FLOOR = -8;
  *  priors alone (the 2026-05-22 Pizza-Union-as-Work bug). */
 const MAX_DISTANCE_SIGMAS = 3;
 
+// --- Magnetic anchoring (2026-06-magnetic-focus-places.md) ---
+
+/** Reference visit count for normalising magnet strength. A place with
+ *  this many distinct visit-days gives $M_p \approx \log(11) \approx 2.4$ —
+ *  enough to materially boost a near-tie but not enough to override
+ *  strong distance evidence. */
+const MAGNET_REF_DAYS = 10;
+
+/** Base magnet radius (m) inside which a candidate can be boosted.
+ *  Combined additively with the place's $\sigma$ so well-established
+ *  places get a more generous range. */
+const MAGNET_BASE_RADIUS_M = 30;
+
+/** Multiplier on $\sigma_p$ in the magnet radius. With $\sigma_p$ up to
+ *  100 m and $k = 2$, an established place's magnet reaches ~230 m. */
+const MAGNET_SIGMA_MULTIPLIER = 2;
+
+/** Veto-relaxation ceiling: even with maximal magnet × coherence, the
+ *  veto cannot extend beyond this factor of the base $3\sigma$. Keeps
+ *  the Gaussian-on-distance term in control — no infinite reach for any
+ *  prior. */
+const MAGNET_VETO_RELAX_MAX = 2.0;
+
 /** The Gaussian σ a candidate effectively uses for distance scoring —
  *  `radiusM` floored to a GPS-noise tolerance that grows with how
  *  many distinct days the place has been visited. Shared between the
@@ -138,11 +161,27 @@ function hourProfileMatch(placeProfile: number[] | null, stayProfile: readonly n
 	return raw - stayTotal * uniformLog;
 }
 
+/** Magnet strength $M_p$ for a candidate. See
+ *  `docs/proposals/2026-06-magnetic-focus-places.md` §1. Pure
+ *  function of fields already on `PlaceCandidate`; bounded so
+ *  Home doesn't drown out everything else. */
+export function magnetStrength(candidate: PlaceCandidate): number {
+	return Math.log(1 + candidate.uniqueDays);
+}
+
+/** Magnet radius around a focus_place. A candidate further than this
+ *  from the segment centroid gets no magnet boost. Scales with the
+ *  place's empirical scatter — a tightly-clustered place has a tight
+ *  magnet, a well-established one a wider one. */
+function magnetRadiusM(candidate: PlaceCandidate): number {
+	return MAGNET_BASE_RADIUS_M + MAGNET_SIGMA_MULTIPLIER * effectiveSigmaM(candidate);
+}
+
 export function scorePlaceForSegment(
 	candidate: PlaceCandidate,
 	segCentroidLat: number,
 	segCentroidLon: number,
-	options: { stayHourProfile: readonly number[] },
+	options: { stayHourProfile: readonly number[]; biometricCoherence?: number },
 ): number {
 	const distM = haversineMeters(candidate.centroidLat, candidate.centroidLon, segCentroidLat, segCentroidLon);
 	// The GPS-noise σ floor is earned, continuously: a place's tolerance
@@ -165,7 +204,16 @@ export function scorePlaceForSegment(
 	// Time-of-day match against the place's mined hour-of-day profile.
 	const logPriorTimeOfDay = hourProfileMatch(candidate.hourProfile, options.stayHourProfile);
 
-	return logLikelihood + logPriorFreq + logPriorTimeOfDay;
+	// Magnetic anchoring boost: place a strong recurring place under a
+	// noisy-GPS visit, modulated by whether the segment's biometrics
+	// agree the user is actually sitting. Inside the magnet radius
+	// AND with positive biometric coherence → boost; otherwise zero.
+	// See `docs/proposals/2026-06-magnetic-focus-places.md` §2.
+	const Bs = options.biometricCoherence ?? 0;
+	const insideMagnet = distM <= magnetRadiusM(candidate);
+	const magnetBoost = insideMagnet ? magnetStrength(candidate) * Bs : 0;
+
+	return logLikelihood + logPriorFreq + logPriorTimeOfDay + magnetBoost;
 }
 
 /** Pick the focus_place with the highest posterior score, or
@@ -175,7 +223,7 @@ export function pickBestPlace(
 	candidates: readonly PlaceCandidate[],
 	segCentroidLat: number,
 	segCentroidLon: number,
-	options: { stayHourProfile: readonly number[] },
+	options: { stayHourProfile: readonly number[]; biometricCoherence?: number },
 ): { winner: PlaceCandidate; score: number } | null {
 	if (candidates.length === 0) return null;
 	let best: { winner: PlaceCandidate; score: number } | null = null;
@@ -189,7 +237,23 @@ export function pickBestPlace(
 		// in-cluster candidate still win when the far one would have
 		// otherwise topped the list.
 		const dist = haversineMeters(c.centroidLat, c.centroidLon, segCentroidLat, segCentroidLon);
-		if (dist > MAX_DISTANCE_SIGMAS * effectiveSigmaM(c)) continue;
+		// Veto-relaxation under high magnet × coherence: an established
+		// place with biometric agreement earns headroom on the distance
+		// gate. Bounded so the Gaussian-on-distance term stays in
+		// control — a candidate further than 2× the base 3σ never
+		// passes, regardless of how strong its prior is. AND the
+		// candidate must sit within its own magnet radius — outside
+		// it the magnet contributes nothing anyway, so relaxing the
+		// veto there would let a heavily-visited place steal a stay
+		// hundreds of metres away (the 2026-05-22 Pizza-Union-as-Work
+		// shape). See `docs/proposals/2026-06-magnetic-focus-places.md`
+		// §"Note on the distance veto".
+		const Bs = options.biometricCoherence ?? 0;
+		const insideMagnet = dist <= magnetRadiusM(c);
+		const magnetFactor = insideMagnet
+			? Math.min(MAGNET_VETO_RELAX_MAX, 1 + (magnetStrength(c) * Bs) / MAGNET_REF_DAYS)
+			: 1;
+		if (dist > MAX_DISTANCE_SIGMAS * effectiveSigmaM(c) * magnetFactor) continue;
 		if (!best || s > best.score) best = { winner: c, score: s };
 	}
 	if (best && best.score < POSTERIOR_FLOOR) return null;

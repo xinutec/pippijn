@@ -312,5 +312,113 @@ describe("pickBestPlace", () => {
 			const r = pickBestPlace([workish51_5(), near], stay.lat, stay.lon, { stayHourProfile: daytimeStay });
 			expect(r?.winner.id).toBe(101);
 		});
+
+		it("Pizza-Union-as-Work veto holds even with high biometric coherence", () => {
+			// The 2026-05-22 bug must NOT regress when magnet relaxation
+			// is added: Work 420 m away is far outside its own magnet
+			// radius (≤ 230 m for an established place), so the veto
+			// relaxation gate doesn't even apply. Pizza Union (or any
+			// stay) outside Work's magnet area still hits the unchanged
+			// 3σ veto.
+			const stay = eastOf(51.5, -0.13, 420);
+			const r = pickBestPlace([workish51_5()], stay.lat, stay.lon, {
+				stayHourProfile: daytimeStay,
+				biometricCoherence: 1.0,
+			});
+			expect(r).toBeNull();
+		});
+	});
+
+	describe("magnetic anchoring", () => {
+		// `docs/proposals/2026-06-magnetic-focus-places.md`. The magnet
+		// pulls an established focus_place into the lead when a noisy
+		// segment centroid drifts toward a co-located OSM POI — but
+		// only when biometrics agree the user is actually sitting.
+
+		function varley(overrides: Partial<PlaceCandidate> = {}): PlaceCandidate {
+			return {
+				id: 50,
+				centroidLat: 51.5630,
+				centroidLon: -0.2796,
+				radiusM: 30,
+				uniqueDays: 12,
+				hourProfile: DAYTIME,
+				...overrides,
+			};
+		}
+
+		// Stay centroid drifted ~70 m east of Varley toward the
+		// hypothetical playground node.
+		const M_PER_DEG_LON = 111_320 * Math.cos((51.563 * Math.PI) / 180);
+		const driftedStay = {
+			lat: 51.5630,
+			lon: -0.2796 + 70 / M_PER_DEG_LON,
+		};
+
+		it("boosts a focus_place when the stay's biometrics show resting", () => {
+			const sitting = scorePlaceForSegment(varley(), driftedStay.lat, driftedStay.lon, {
+				stayHourProfile: daytimeStay,
+				biometricCoherence: 0.95,
+			});
+			const noCoherence = scorePlaceForSegment(varley(), driftedStay.lat, driftedStay.lon, {
+				stayHourProfile: daytimeStay,
+			});
+			// Boost ≈ log(13) · 0.95 ≈ 2.4 log-points — enough to beat a
+			// neighbouring POI a few metres closer.
+			expect(sitting - noCoherence).toBeGreaterThan(2);
+			expect(sitting - noCoherence).toBeLessThan(4);
+		});
+
+		it("does NOT boost when biometrics show movement (walking past the place)", () => {
+			const walkingPast = scorePlaceForSegment(varley(), driftedStay.lat, driftedStay.lon, {
+				stayHourProfile: daytimeStay,
+				biometricCoherence: 0.05,
+			});
+			const noCoherence = scorePlaceForSegment(varley(), driftedStay.lat, driftedStay.lon, {
+				stayHourProfile: daytimeStay,
+			});
+			// Boost ≈ log(13) · 0.05 ≈ 0.13 — negligible.
+			expect(walkingPast - noCoherence).toBeLessThan(0.5);
+		});
+
+		it("contributes nothing for a one-off place (low magnet strength)", () => {
+			const sitting = scorePlaceForSegment(
+				varley({ uniqueDays: 1 }),
+				driftedStay.lat,
+				driftedStay.lon,
+				{
+					stayHourProfile: daytimeStay,
+					biometricCoherence: 1.0,
+				},
+			);
+			const noCoherence = scorePlaceForSegment(
+				varley({ uniqueDays: 1 }),
+				driftedStay.lat,
+				driftedStay.lon,
+				{
+					stayHourProfile: daytimeStay,
+				},
+			);
+			// Boost ≈ log(2) · 1 ≈ 0.7. A small lift, not a dominant
+			// term.
+			expect(sitting - noCoherence).toBeLessThan(1);
+		});
+
+		it("does NOT apply outside the magnet radius", () => {
+			// 500 m east of Varley — far outside its magnet (~230 m).
+			const farStay = {
+				lat: 51.5630,
+				lon: -0.2796 + 500 / M_PER_DEG_LON,
+			};
+			const sitting = scorePlaceForSegment(varley(), farStay.lat, farStay.lon, {
+				stayHourProfile: daytimeStay,
+				biometricCoherence: 1.0,
+			});
+			const noCoherence = scorePlaceForSegment(varley(), farStay.lat, farStay.lon, {
+				stayHourProfile: daytimeStay,
+			});
+			// No boost at all — the magnet is range-gated.
+			expect(sitting).toBe(noCoherence);
+		});
 	});
 });
