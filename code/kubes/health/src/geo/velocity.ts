@@ -11,7 +11,7 @@ import { getSyncState } from "../db/sync-state.js";
 import { loadDecode } from "../hmm/persist.js";
 import { applyHsmmPlaceOverride } from "../hmm/place-override.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
-import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
+import { loadClassificationInputs } from "./load-classification-inputs.js";
 import { type DayState, segmentsToDayStates } from "../sleep/day-state.js";
 import { detectKnownPlaceStays, type StayCandidate } from "../sleep/known-place-stays.js";
 import { enrichSleepWindows, loadDaySleepWindows } from "../sleep/load.js";
@@ -524,24 +524,16 @@ export async function computeVelocity(
 	})();
 
 	const bounds = dateBoundsUtc(date, tz);
-	// Three PhoneTrack ranges off one context: today's fixes (full day) feed
-	// the classification pipeline; the next day's morning fixes (00:00-12:00
-	// UTC) and the prior day's evening fixes (12:00-24:00 UTC) feed sleep-place
-	// attribution. The cross-midnight fetches let derivePlaceForSleep see
-	// where the user actually slept when the sleep window's centroid sits in
-	// the neighbouring day's data — evening sleep starting past midnight
-	// (taxi home from a hospital) or morning sleep that began at a place
-	// only visible in yesterday's segments. The cross-day fixes never
-	// appear in `inDay`, so they can't pollute today's segments. See
-	// `src/sleep/known-place-stays.ts`.
-	const phoneTrackCtx = await time("phonetrack-ctx", openPhoneTrack(config, userId));
-	const nextDayMorningEnd = `${nextDay}T12:00:00Z`;
-	const prevDayEveningStart = `${prevDay}T12:00:00Z`;
-	const [raw, morningRaw, prevEveningRaw] = await Promise.all([
-		time("phonetrack", fetchTrackPointsRange(phoneTrackCtx, date, nextDay)),
-		time("phonetrackMorning", fetchTrackPointsRange(phoneTrackCtx, nextDay, nextDayMorningEnd)),
-		time("phonetrackPrevEvening", fetchTrackPointsRange(phoneTrackCtx, prevDayEveningStart, date)),
-	]);
+	// Phase 2a of docs/proposals/2026-06-deterministic-fixtures.md:
+	// the eager DB / HTTP reads at the top of the pipeline are
+	// consolidated into a single named `loadClassificationInputs`
+	// call so future phases can swap it for a fixture loader. Same
+	// queries, same wire calls, same projections — just named.
+	const inputs = await time(
+		"loadInputs",
+		loadClassificationInputs(config, { userId, date, displayTz: tz ?? "UTC" }),
+	);
+	const { today: raw, morning: morningRaw, priorEvening: prevEveningRaw } = inputs.phonetrack;
 	const inDay = raw.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc);
 
 	// Battery trace: derived straight from the raw in-day fixes, before
@@ -558,7 +550,7 @@ export async function computeVelocity(
 	// Place-snap: if a fix is unambiguously close to a known cluster (home,
 	// work, etc.), pull it to the cluster centroid. Reduces GPS noise around
 	// well-known locations and stabilises both segment timing and labels.
-	const knownPlaces = await time("loadPlaces", loadKnownPlaces(userId));
+	const knownPlaces = inputs.knownPlaces;
 	const snapped =
 		knownPlaces.length > 0
 			? cleaned.map((p) => {
@@ -605,14 +597,11 @@ export async function computeVelocity(
 	// pass after OSM enrichment, or — when `useBiometricFactor()` is on — by
 	// the factor scorer's candidate generator inside refineMode itself, in
 	// which case we need them before enrichment starts.
-	const biometricsPromise = time(
-		"biomLoad",
-		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz).catch((e: unknown) => {
-			console.warn(`loadBiometrics failed for user=${userId} date=${date}: ${e}`);
-			return { hr: [] as HrPoint[], sleep: [] as SleepStageRecord[], steps: [] as StepPoint[] };
-		}),
-	);
-	const modeStatsPromise = time("modeStatsLoad", loadModeBiometrics(userId));
+	// Already loaded by `loadClassificationInputs`. Kept as resolved
+	// Promises so the existing `await biometricsPromise` / `await
+	// modeStatsPromise` call sites downstream don't need changes.
+	const biometricsPromise = Promise.resolve(inputs.biometrics);
+	const modeStatsPromise = Promise.resolve(inputs.modeBiometrics);
 	const biometricFactorOn = useBiometricFactor();
 	// When the biometric factor is on, refineMode needs per-segment hr/cadence
 	// + modeStats inside the enrichment map, so await both biometric loads

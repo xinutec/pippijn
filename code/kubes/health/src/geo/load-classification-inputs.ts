@@ -40,7 +40,7 @@ import { loadBiometrics } from "./velocity.js";
  *  value the pipeline can consume; nothing in the value holds a DB
  *  handle. */
 export async function loadClassificationInputs(
-	config: { nextcloud: NextcloudConfig },
+	config: NextcloudConfig,
 	identity: DayIdentity,
 ): Promise<ClassificationInputs> {
 	const { userId, date, displayTz } = identity;
@@ -57,7 +57,7 @@ export async function loadClassificationInputs(
 	// PhoneTrack: open once, three parallel range fetches. Mirrors the
 	// pattern at velocity.ts:537-544 — three windows off one session
 	// context, same call shape.
-	const phoneTrackCtx = await openPhoneTrack(config.nextcloud, userId);
+	const phoneTrackCtx = await openPhoneTrack(config, userId);
 	const [today, morning, priorEvening] = await Promise.all([
 		fetchTrackPointsRange(phoneTrackCtx, date, nextDay),
 		fetchTrackPointsRange(phoneTrackCtx, nextDay, nextDayMorningEnd),
@@ -67,14 +67,16 @@ export async function loadClassificationInputs(
 	// Eager DB reads in parallel — known places, mode biometrics, and
 	// the per-day biometric streams. The biometric loader does its own
 	// three parallel queries (HR / sleep / steps), so we await the
-	// composite. Failure on biometrics is non-fatal in prod
-	// (computeVelocity catches and returns empty arrays); we let it
-	// throw here and the caller decides. The pipeline's tolerance is a
-	// concern of the wrapper, not the loader.
+	// composite. Failure on biometrics is non-fatal: prod has missing-
+	// Fitbit days and the pipeline tolerates empty arrays. Mirrors the
+	// `.catch` previously inlined inside `computeVelocity`.
 	const [knownPlaces, modeBiometrics, biometrics] = await Promise.all([
 		loadKnownPlacesQuery(userId),
 		loadModeBiometricsQuery(userId),
-		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, displayTz),
+		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, displayTz).catch((e: unknown) => {
+			console.warn(`loadBiometrics failed for user=${userId} date=${date}: ${e}`);
+			return { hr: [], sleep: [], steps: [] };
+		}),
 	]);
 
 	return {
