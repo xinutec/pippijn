@@ -696,7 +696,7 @@ export async function computeVelocity(
 							// label is just a clustering bucket, not a useful
 							// timeline name; fall through to address lookup.
 							if (wp.displayName === "Home" || wp.displayName === "Work") {
-								const namedPlace = await bestPlace(placeLat, placeLon, { preferResidential: true });
+								const namedPlace = await bestPlace(inputs.osm, placeLat, placeLon, { preferResidential: true });
 								const namedCity = extractCity(namedPlace);
 								return {
 									...seg,
@@ -713,7 +713,7 @@ export async function computeVelocity(
 							// its awake_hours.
 							const isResidential = wp.sleepHours >= RESIDENCE_SLEEP_THRESHOLD_H;
 							if (!isResidential && wp.amenityLabel) {
-								const namedPlace = await bestPlace(placeLat, placeLon, { preferResidential: false });
+								const namedPlace = await bestPlace(inputs.osm, placeLat, placeLon, { preferResidential: false });
 								const namedCity = extractCity(namedPlace);
 								return {
 									...seg,
@@ -730,7 +730,7 @@ export async function computeVelocity(
 							// the sleep gate misses — must show a neutral
 							// area/address, not a low-confidence nearby park.
 							const venueless = wp.amenityLabel === null;
-							const place = await bestPlace(placeLat, placeLon, {
+							const place = await bestPlace(inputs.osm, placeLat, placeLon, {
 								preferResidential: isResidential || venueless,
 							});
 							if (!place) return seg;
@@ -747,7 +747,7 @@ export async function computeVelocity(
 					// stay somewhere new. Use the day's centroid and the
 					// per-stay overnight check to decide residential preference.
 					const preferResidential = isSleepWindow;
-					const place = await bestPlace(cLat, cLon, { preferResidential });
+					const place = await bestPlace(inputs.osm, cLat, cLon, { preferResidential });
 					if (!place) return seg;
 					const city = extractCity(place);
 					return {
@@ -1058,7 +1058,7 @@ export async function computeVelocity(
 		Promise.all(
 			[...morningStays, ...prevEveningStays].map(async (stay) => {
 				if (!isGenericStayLabel(stay.place)) return stay;
-				const resolved = await bestPlace(stay.centroidLat, stay.centroidLon, { preferResidential: true });
+				const resolved = await bestPlace(inputs.osm, stay.centroidLat, stay.centroidLon, { preferResidential: true });
 				const placeName = resolved ? placeLabel(resolved) : stay.place;
 				return { ...stay, place: placeName };
 			}),

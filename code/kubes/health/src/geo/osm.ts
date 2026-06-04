@@ -20,6 +20,7 @@ import { railCorridor } from "./factors/rail-corridor.js";
 import { type BiometricContext, generateRefineModeCandidates } from "./factors/refine-mode-candidates.js";
 import { speedEmission } from "./factors/speed-emission.js";
 import type { Factor, ScoredRefinement } from "./factors/types.js";
+import type { OsmAdapter } from "./osm-adapter.js";
 import type { TransportMode } from "./segments.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
@@ -322,6 +323,7 @@ function withAddressFrom(result: NominatimResult, detailed: NominatimResult | nu
 }
 
 export async function bestPlace(
+	osm: OsmAdapter,
 	lat: number,
 	lon: number,
 	opts: BestPlaceOptions = {},
@@ -331,9 +333,9 @@ export async function bestPlace(
 	// institution, and that outranks even a Nominatim point-venue at the
 	// same coordinate — Nominatim happily names a stay after a cafe that
 	// shares the institution's site.
-	const landmarks = await nearbyLandmarks(lat, lon, 100);
+	const landmarks = await osm.nearbyLandmarks(lat, lon, 100);
 	const bestLandmark = landmarks.length > 0 ? pickBestLandmark(landmarks) : null;
-	const detailed = await reverseGeocode(lat, lon, 18);
+	const detailed = await osm.reverseGeocode(lat, lon, 18);
 
 	if (bestLandmark?.enclosing) {
 		return withAddressFrom(landmarkToResult(bestLandmark), detailed);
@@ -366,7 +368,7 @@ export async function bestPlace(
 	// No specific venue and no nearby landmark — fall back to the address if we have one
 	if (detailed && hasResidentialAddress(detailed)) return detailed;
 
-	const area = await reverseGeocode(lat, lon, 16);
+	const area = await osm.reverseGeocode(lat, lon, 16);
 	if (area && (hasSpecificVenue(area) || isLandmark(area))) return area;
 	return detailed ?? area;
 }

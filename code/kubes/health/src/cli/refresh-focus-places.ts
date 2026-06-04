@@ -31,6 +31,7 @@ import {
 } from "../geo/focus-places.js";
 import { type ExistingPlace, matchClusters } from "../geo/focus-places-identity.js";
 import { bestPlace, isLabelWorthyVenue, nearbyLandmarks, pickBestLandmark } from "../geo/osm.js";
+import { dbOsmAdapter } from "../geo/osm-adapter.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -335,7 +336,7 @@ async function warmOsmCache(clusters: Cluster[]): Promise<void> {
 	for (const c of ordered) {
 		try {
 			await Promise.all([
-				bestPlace(c.centroidLat, c.centroidLon, { preferResidential: true }),
+				bestPlace(dbOsmAdapter, c.centroidLat, c.centroidLon, { preferResidential: true }),
 				nearbyLandmarks(c.centroidLat, c.centroidLon, 100),
 			]);
 			warmed++;
