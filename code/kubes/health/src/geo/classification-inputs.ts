@@ -28,6 +28,7 @@
  * working.
  */
 
+import type { HmmSegment } from "../hmm/persist.js";
 import type { HrPoint, SleepStageRecord, StepPoint } from "./biometrics.js";
 import type { ModeStats } from "./mode-biometrics.js";
 import type { KnownPlace } from "./place-snap.js";
@@ -89,9 +90,19 @@ export interface BiometricsSnapshot {
 }
 
 /**
- * The Phase 1 input closure. Fields are added in later phases;
- * callers consuming this shape today keep working when new fields
- * land (additive evolution).
+ * The classification pipeline's input closure. Evolves additively as
+ * later phases lift their external reads into named fields.
+ *
+ * Phases landed so far:
+ *   - Phase 1 / 2a: eager DB+HTTP loads (PhoneTrack, focus_places,
+ *     biometrics, mode_biometrics) consolidated through this value.
+ *   - Phase 4: `decoded_days[date]` for the HSMM place override.
+ *
+ * Remaining external reads (still go to the DB at request time;
+ * to be lifted in later phases):
+ *   - OSM (`nearbyWays`, `nearbyStations`, `ensureCovered`)
+ *   - `rail_route_cache` for train-segment snapped paths
+ *   - `presence_log[date-1]` (HSMM-only, decode-day Phase 7)
  */
 export interface ClassificationInputs {
 	identity: DayIdentity;
@@ -99,4 +110,11 @@ export interface ClassificationInputs {
 	knownPlaces: KnownPlaceProjection[];
 	biometrics: BiometricsSnapshot;
 	modeBiometrics: ModeStats[];
+	/** HSMM-decoded segments for this day from `decoded_days`, or
+	 *  null when no decode exists yet (cron hasn't run, or the day
+	 *  is too old / new for the rolling window). The velocity layer
+	 *  reads this to override stationary-segment placeId attribution
+	 *  with the HSMM's pick. Phase 4 of
+	 *  `docs/proposals/2026-06-deterministic-fixtures.md`. */
+	hsmmDecode: HmmSegment[] | null;
 }

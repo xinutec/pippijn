@@ -988,7 +988,7 @@ export async function computeVelocity(
 	// pipeline drifts on multi-candidate clusters. Falls back to the
 	// pipeline's label when no decode exists (cron hasn't run yet) or
 	// the HSMM is uncertain.
-	const hmmDecode = await time("hsmmDecode", loadDecode(db(), userId, date));
+	const hmmDecode = inputs.hsmmDecode;
 	const overridden = hmmDecode
 		? timeSync("hsmmOverride", () => {
 				const placeLookup = new Map<number, { displayName: string | null }>();

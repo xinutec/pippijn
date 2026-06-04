@@ -22,6 +22,7 @@
  */
 
 import { db } from "../db/pool.js";
+import { loadDecode } from "../hmm/persist.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 import type {
@@ -70,13 +71,14 @@ export async function loadClassificationInputs(
 	// composite. Failure on biometrics is non-fatal: prod has missing-
 	// Fitbit days and the pipeline tolerates empty arrays. Mirrors the
 	// `.catch` previously inlined inside `computeVelocity`.
-	const [knownPlaces, modeBiometrics, biometrics] = await Promise.all([
+	const [knownPlaces, modeBiometrics, biometrics, hsmmDecode] = await Promise.all([
 		loadKnownPlacesQuery(userId),
 		loadModeBiometricsQuery(userId),
 		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, displayTz).catch((e: unknown) => {
 			console.warn(`loadBiometrics failed for user=${userId} date=${date}: ${e}`);
 			return { hr: [], sleep: [], steps: [] };
 		}),
+		loadDecode(db(), userId, date),
 	]);
 
 	return {
@@ -89,6 +91,7 @@ export async function loadClassificationInputs(
 		knownPlaces,
 		biometrics,
 		modeBiometrics,
+		hsmmDecode,
 	};
 }
 
