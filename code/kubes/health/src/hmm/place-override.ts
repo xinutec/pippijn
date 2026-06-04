@@ -72,6 +72,16 @@ function maybeOverride(
 	return seg;
 }
 
+/** Generic clustering-bucket markers assigned by `assignDisplayNames`
+ *  in `src/geo/focus-places.ts`. These are NOT venue labels — they
+ *  identify a cluster's *kind* (you sleep here sometimes) without
+ *  naming the venue. The pipeline's `bestPlace` lookup has already
+ *  resolved a real venue name (e.g. "Cleveland Clinic London"); the
+ *  HSMM override must not overwrite it with the bucket marker. The
+ *  sleep-stay resolver in `src/geo/velocity.ts:1014` treats the same
+ *  value the same way. */
+const GENERIC_BUCKET_LABELS: ReadonlySet<string> = new Set(["Stay"]);
+
 function maybeOverridePlace(
 	seg: EnrichedSegment,
 	hmmSegments: readonly HmmSegment[],
@@ -82,6 +92,8 @@ function maybeOverridePlace(
 
 	const place = places.get(dominantPlaceId);
 	if (!place || place.displayName === null) return seg;
+
+	if (GENERIC_BUCKET_LABELS.has(place.displayName)) return seg;
 
 	if (place.displayName === seg.place) return seg;
 

@@ -77,6 +77,12 @@ const PLACES = new Map<number, { displayName: string | null }>([
 	[1, { displayName: "Home" }],
 	[2, { displayName: "Cleveland Clinic London" }],
 	[3, { displayName: null }], // place with no display name (just an id)
+	// Clusters that qualify for the "Stay" bucket in
+	// `assignDisplayNames` — overnight presence but not Home/Work
+	// territory. The string `"Stay"` is a clustering category, not a
+	// venue label; the pipeline's `bestPlace` lookup already attached
+	// a venue name and the override must not overwrite it.
+	[4, { displayName: "Stay" }],
 ]);
 
 describe("applyHsmmPlaceOverride", () => {
@@ -138,6 +144,30 @@ describe("applyHsmmPlaceOverride", () => {
 		const out = applyHsmmPlaceOverride(segments, hmm, PLACES);
 		// Can't surface "#3" as a human label — keep pipeline's.
 		expect(out[0].place).toBe("Home");
+	});
+
+	it("skips override when the focus_place's displayName is the generic 'Stay' bucket", () => {
+		// Cleveland Clinic on 2026-05-22: pipeline ran bestPlace and
+		// attached "Cleveland Clinic London" from OSM. HSMM picked the
+		// (8-night) cluster whose displayName is "Stay" in the mining
+		// bucket sense. The override must NOT overwrite the venue name
+		// with the bucket label — `velocity.ts:1014` already treats
+		// "Stay" as a placeholder that needs an OSM re-resolve.
+		const segments = [stationary(0, 60, "Cleveland Clinic London")];
+		const hmm = [hsmm(0, 60, "stationary", 4)]; // placeId 4 → displayName="Stay"
+		const out = applyHsmmPlaceOverride(segments, hmm, PLACES);
+		expect(out[0].place).toBe("Cleveland Clinic London");
+	});
+
+	it("skips override when seg.place is undefined AND HSMM's displayName is 'Stay'", () => {
+		// Defensive: even if the pipeline failed to attach a venue
+		// name (bestPlace returned null), surfacing "@ Stay" is
+		// worse than surfacing "stationary" with no place — the
+		// generic bucket label is misleading as a venue.
+		const segments = [stationary(0, 60, null)];
+		const hmm = [hsmm(0, 60, "stationary", 4)];
+		const out = applyHsmmPlaceOverride(segments, hmm, PLACES);
+		expect(out[0].place).toBeUndefined();
 	});
 
 	it("handles multiple stationary segments independently", () => {
