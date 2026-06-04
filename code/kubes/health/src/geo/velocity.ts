@@ -8,7 +8,6 @@ import { sql } from "kysely";
 import tzLookup from "tz-lookup";
 import { db } from "../db/pool.js";
 import { getSyncState } from "../db/sync-state.js";
-import { loadDecode } from "../hmm/persist.js";
 import { applyHsmmPlaceOverride } from "../hmm/place-override.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { loadClassificationInputs } from "./load-classification-inputs.js";
