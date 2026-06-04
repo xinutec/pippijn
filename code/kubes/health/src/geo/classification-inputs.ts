@@ -117,4 +117,20 @@ export interface ClassificationInputs {
 	 *  with the HSMM's pick. Phase 4 of
 	 *  `docs/proposals/2026-06-deterministic-fixtures.md`. */
 	hsmmDecode: HmmSegment[] | null;
+	/** Pre-computed rail-line geometries keyed by `<board> → <alight>`
+	 *  string. `annotateSnappedPaths` looks up each train segment's
+	 *  `wayName` against this set to attach a `snappedPath`. The cache
+	 *  is global (not user-scoped) and small enough to load in full
+	 *  for the day. Phase 5 of the deterministic-fixtures proposal. */
+	railRouteCache: RailRouteEntry[];
+}
+
+/** A single `rail_route_cache` row, projected to the columns
+ *  `annotateSnappedPaths` reads. */
+export interface RailRouteEntry {
+	routeKey: string;
+	/** WKT-free JSON encoding of the route polyline: an array of
+	 *  `{lat, lon}` objects. Same shape `annotateSnappedPaths` parses
+	 *  out of `geometry_json` today. */
+	geometryJson: string;
 }

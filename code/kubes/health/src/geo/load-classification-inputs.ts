@@ -71,7 +71,7 @@ export async function loadClassificationInputs(
 	// composite. Failure on biometrics is non-fatal: prod has missing-
 	// Fitbit days and the pipeline tolerates empty arrays. Mirrors the
 	// `.catch` previously inlined inside `computeVelocity`.
-	const [knownPlaces, modeBiometrics, biometrics, hsmmDecode] = await Promise.all([
+	const [knownPlaces, modeBiometrics, biometrics, hsmmDecode, railRouteCache] = await Promise.all([
 		loadKnownPlacesQuery(userId),
 		loadModeBiometricsQuery(userId),
 		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, displayTz).catch((e: unknown) => {
@@ -79,6 +79,7 @@ export async function loadClassificationInputs(
 			return { hr: [], sleep: [], steps: [] };
 		}),
 		loadDecode(db(), userId, date),
+		loadRailRouteCacheQuery(),
 	]);
 
 	return {
@@ -92,7 +93,18 @@ export async function loadClassificationInputs(
 		biometrics,
 		modeBiometrics,
 		hsmmDecode,
+		railRouteCache,
 	};
+}
+
+/** Pre-load the entire `rail_route_cache`. The table is global (not
+ *  user-scoped) and small — a few hundred rows of polyline JSON in
+ *  total, easily under 1 MB. `annotateSnappedPaths` does an in-memory
+ *  `Map` lookup on what's loaded; routes the day doesn't use are
+ *  simply ignored, no extra cost beyond the eager load. */
+async function loadRailRouteCacheQuery(): Promise<Array<{ routeKey: string; geometryJson: string }>> {
+	const rows = await db().selectFrom("rail_route_cache").select(["route_key", "geometry_json"]).execute();
+	return rows.map((r) => ({ routeKey: r.route_key, geometryJson: r.geometry_json }));
 }
 
 function shiftDay(date: string, days: number): string {

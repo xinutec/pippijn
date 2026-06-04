@@ -940,7 +940,7 @@ export async function computeVelocity(
 	// train run whose route is in rail_route_cache (filled offline by
 	// refresh-rail-routes). One indexed lookup — purely additive, the
 	// raw track is untouched. See annotateSnappedPaths.
-	const withSnapped = await time("railSnap", annotateSnappedPaths(withReconciledRail));
+	const withSnapped = timeSync("railSnap", () => annotateSnappedPaths(withReconciledRail, inputs.railRouteCache));
 
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
@@ -2035,24 +2035,21 @@ export function reconcileAdjacentRailLegs(segments: EnrichedSegment[]): Enriched
  * run. Purely additive: the raw track and day-state timeline are
  * untouched.
  */
-export async function annotateSnappedPaths(segments: EnrichedSegment[]): Promise<EnrichedSegment[]> {
-	const keys = [
-		...new Set(
-			segments.filter((s) => (s.refinedMode ?? s.mode) === "train" && s.wayName).map((s) => s.wayName as string),
-		),
-	];
-	if (keys.length === 0) return segments;
+export function annotateSnappedPaths(
+	segments: EnrichedSegment[],
+	railRouteCache: ReadonlyArray<{ routeKey: string; geometryJson: string }>,
+): EnrichedSegment[] {
+	const keys = new Set(
+		segments.filter((s) => (s.refinedMode ?? s.mode) === "train" && s.wayName).map((s) => s.wayName as string),
+	);
+	if (keys.size === 0) return segments;
 
-	const rows = await db()
-		.selectFrom("rail_route_cache")
-		.select(["route_key", "geometry_json"])
-		.where("route_key", "in", keys)
-		.execute();
 	const geomByKey = new Map<string, Array<{ lat: number; lon: number }>>();
-	for (const r of rows) {
+	for (const r of railRouteCache) {
+		if (!keys.has(r.routeKey)) continue;
 		try {
-			const geom = JSON.parse(r.geometry_json) as Array<{ lat: number; lon: number }>;
-			if (Array.isArray(geom) && geom.length >= 2) geomByKey.set(r.route_key, geom);
+			const geom = JSON.parse(r.geometryJson) as Array<{ lat: number; lon: number }>;
+			if (Array.isArray(geom) && geom.length >= 2) geomByKey.set(r.routeKey, geom);
 		} catch {
 			// A malformed cache row is non-fatal — skip it; the run draws raw.
 		}
