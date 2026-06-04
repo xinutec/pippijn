@@ -31,6 +31,7 @@
 import type { HmmSegment } from "../hmm/persist.js";
 import type { HrPoint, SleepStageRecord, StepPoint } from "./biometrics.js";
 import type { ModeStats } from "./mode-biometrics.js";
+import type { OsmSnapshot } from "./osm-pure.js";
 import type { KnownPlace } from "./place-snap.js";
 
 /** A PhoneTrack fix as returned by `fetchTrackPointsRange`. Mirrors
@@ -123,6 +124,12 @@ export interface ClassificationInputs {
 	 *  is global (not user-scoped) and small enough to load in full
 	 *  for the day. Phase 5 of the deterministic-fixtures proposal. */
 	railRouteCache: RailRouteEntry[];
+	/** All `osm_lines` / `osm_points` rows within the day's PhoneTrack
+	 *  bbox (plus a buffer), parsed once. The pure spatial helpers in
+	 *  `osm-pure.ts` filter this by feature_type and distance. Pre-
+	 *  fetched at the boundary so the request path runs no OSM queries.
+	 *  Phase 6 of the deterministic-fixtures proposal. */
+	osm: OsmSnapshot;
 }
 
 /** A single `rail_route_cache` row, projected to the columns
