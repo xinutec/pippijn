@@ -24,7 +24,7 @@ import {
 } from "./biometrics.js";
 import { bridgeStaysWithBiometrics } from "./bridge-stays-biometrics.js";
 import { useBiometricFactor } from "./factors/feature-flag.js";
-import { hourProfileForRange, localSolarHour, parseHourProfile } from "./focus-places.js";
+import { hourProfileForRange, localSolarHour } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
@@ -238,26 +238,6 @@ interface NamedPlace extends KnownPlace {
  *  hours) at it for at least RESIDENCE_SLEEP_THRESHOLD_H total hours. */
 const RESIDENCE_SLEEP_THRESHOLD_H = 5;
 
-/** Load the user's mined per-mode biometric signatures. Returns an empty
- *  array for cold-start users (no `mode_biometrics` rows) so callers can
- *  treat absent-data as no-op without special-casing. */
-async function loadModeBiometrics(userId: string): Promise<ModeStats[]> {
-	const rows = await db().selectFrom("mode_biometrics").selectAll().where("user_id", "=", userId).execute();
-	return rows.map((r) => ({
-		mode: r.mode,
-		hrMean: r.hr_mean !== null ? Number(r.hr_mean) : null,
-		hrStd: r.hr_std !== null ? Number(r.hr_std) : null,
-		hrSampleCount: r.hr_sample_count,
-		cadenceMean: r.cadence_mean !== null ? Number(r.cadence_mean) : null,
-		cadenceStd: r.cadence_std !== null ? Number(r.cadence_std) : null,
-		cadenceSampleCount: r.cadence_sample_count,
-		speedMean: r.speed_mean !== null ? Number(r.speed_mean) : null,
-		speedStd: r.speed_std !== null ? Number(r.speed_std) : null,
-		speedSampleCount: r.speed_sample_count,
-		sampleCount: r.sample_count,
-	}));
-}
-
 /** Mean of HR / cadence stream values over a segment's time range. */
 function meanInWindow<T extends { ts: number }>(
 	stream: T[],
@@ -315,35 +295,6 @@ function applyBiometricSignature(
 		refinedMode: r.mode,
 		refinedReason: `re-classified as ${r.mode} by biometric signature`,
 	};
-}
-
-async function loadKnownPlaces(userId: string): Promise<NamedPlace[]> {
-	const rows = await db()
-		.selectFrom("focus_places")
-		.select([
-			"id",
-			"centroid_lat",
-			"centroid_lon",
-			"radius_m",
-			"display_name",
-			"sleep_hours",
-			"amenity_label",
-			"unique_days",
-			"hour_profile",
-		])
-		.where("user_id", "=", userId)
-		.execute();
-	return rows.map((r) => ({
-		id: r.id,
-		centroidLat: Number(r.centroid_lat),
-		centroidLon: Number(r.centroid_lon),
-		radiusM: r.radius_m,
-		displayName: r.display_name,
-		sleepHours: r.sleep_hours ?? 0,
-		amenityLabel: r.amenity_label,
-		uniqueDays: r.unique_days,
-		hourProfile: parseHourProfile(r.hour_profile),
-	}));
 }
 
 /** Rail-only OSM way subtypes used by the rail-corridor signal. Tram
@@ -511,17 +462,6 @@ export async function computeVelocity(
 			phaseTimes[phase] = (phaseTimes[phase] ?? 0) + (Date.now() - start);
 		}
 	};
-
-	const nextDay = (() => {
-		const d = new Date(date);
-		d.setDate(d.getDate() + 1);
-		return d.toISOString().slice(0, 10);
-	})();
-	const prevDay = (() => {
-		const d = new Date(date);
-		d.setDate(d.getDate() - 1);
-		return d.toISOString().slice(0, 10);
-	})();
 
 	const bounds = dateBoundsUtc(date, tz);
 	// Phase 2a of docs/proposals/2026-06-deterministic-fixtures.md:
