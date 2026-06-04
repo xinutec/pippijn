@@ -96,12 +96,7 @@ export function continuityLogLikelihood(state: State, obs: Observation, ctx: Con
 	// place, so the gate naturally lets the bonus fire across the
 	// morning no-fix stretch — exactly the case the factor is for.
 	if (ctx.priorPlaceCoord !== null && obs.prevGpsFix !== null) {
-		const d = haversineMeters(
-			obs.prevGpsFix.lat,
-			obs.prevGpsFix.lon,
-			ctx.priorPlaceCoord.lat,
-			ctx.priorPlaceCoord.lon,
-		);
+		const d = haversineMeters(obs.prevGpsFix.lat, obs.prevGpsFix.lon, ctx.priorPlaceCoord.lat, ctx.priorPlaceCoord.lon);
 		if (d > CONTRADICTION_RADIUS_M) return 0;
 	}
 	const decay = Math.exp(-Math.max(0, ctx.hoursSinceLastConfirmedFix) / TAU_HOURS);

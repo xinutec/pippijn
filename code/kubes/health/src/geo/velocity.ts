@@ -10,7 +10,6 @@ import { db } from "../db/pool.js";
 import { getSyncState } from "../db/sync-state.js";
 import { applyHsmmPlaceOverride } from "../hmm/place-override.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
-import { loadClassificationInputs } from "./load-classification-inputs.js";
 import { type DayState, segmentsToDayStates } from "../sleep/day-state.js";
 import { detectKnownPlaceStays, type StayCandidate } from "../sleep/known-place-stays.js";
 import { enrichSleepWindows, loadDaySleepWindows } from "../sleep/load.js";
@@ -29,6 +28,7 @@ import { hourProfileForRange, localSolarHour, parseHourProfile } from "./focus-p
 import { qualityFilterGps } from "./gps-quality.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
+import { loadClassificationInputs } from "./load-classification-inputs.js";
 import { correctModeBySignature, gateCycling, type ModeStats } from "./mode-biometrics.js";
 import {
 	bestPlace,
@@ -528,10 +528,7 @@ export async function computeVelocity(
 	// consolidated into a single named `loadClassificationInputs`
 	// call so future phases can swap it for a fixture loader. Same
 	// queries, same wire calls, same projections — just named.
-	const inputs = await time(
-		"loadInputs",
-		loadClassificationInputs(config, { userId, date, displayTz: tz ?? "UTC" }),
-	);
+	const inputs = await time("loadInputs", loadClassificationInputs(config, { userId, date, displayTz: tz ?? "UTC" }));
 	const { today: raw, morning: morningRaw, priorEvening: prevEveningRaw } = inputs.phonetrack;
 	const inDay = raw.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc);
 

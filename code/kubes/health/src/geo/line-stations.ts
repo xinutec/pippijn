@@ -135,7 +135,6 @@ export function pointToLineDistanceMParsed(
 	return min;
 }
 
-
 /** WKT LINESTRING parser. Returns `[lat, lon]` pairs. Exported so
  *  the OSM-snapshot loader can pre-parse geometry once at fixture
  *  load time. */

@@ -72,12 +72,7 @@ export interface OsmSnapshot {
  *
  *  Distance kernel matches `pointToLineDistanceM` — the same
  *  equirectangular projection used by `MariaDB ST_Distance`. */
-export function nearbyWaysInSnapshot(
-	snapshot: OsmSnapshot,
-	lat: number,
-	lon: number,
-	radiusM = 50,
-): NearbyWay[] {
+export function nearbyWaysInSnapshot(snapshot: OsmSnapshot, lat: number, lon: number, radiusM = 50): NearbyWay[] {
 	const ways: NearbyWay[] = [];
 	const LINE_TYPES = new Set(["highway", "railway", "waterway", "aeroway"]);
 	for (const line of snapshot.lines) {

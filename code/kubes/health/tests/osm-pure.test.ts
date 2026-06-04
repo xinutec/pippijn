@@ -143,9 +143,9 @@ describe("nearbyStationsInSnapshot", () => {
 	it("derives tram subtype from tags.tram=yes", () => {
 		const snapshot: OsmSnapshot = {
 			lines: [],
-			points: [point("railway", "tram_stop", "Phipps Bridge", 51.40, -0.18, { tram: "yes" })],
+			points: [point("railway", "tram_stop", "Phipps Bridge", 51.4, -0.18, { tram: "yes" })],
 		};
-		const result = nearbyStationsInSnapshot(snapshot, 51.40, -0.18, 200);
+		const result = nearbyStationsInSnapshot(snapshot, 51.4, -0.18, 200);
 		expect(result[0].subtype).toBe("tram");
 	});
 

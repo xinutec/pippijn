@@ -312,8 +312,7 @@ async function loadContinuityContext(userId: string, date: string): Promise<Cont
 		.where("id", "=", row.end_of_day_place_id)
 		.select(["centroid_lat", "centroid_lon"])
 		.executeTakeFirst();
-	const priorPlaceCoord =
-		placeRow === undefined ? null : { lat: placeRow.centroid_lat, lon: placeRow.centroid_lon };
+	const priorPlaceCoord = placeRow === undefined ? null : { lat: placeRow.centroid_lat, lon: placeRow.centroid_lon };
 	return {
 		priorPlaceId: row.end_of_day_place_id,
 		priorPlaceCoord,
