@@ -177,18 +177,19 @@ function nodesConnectedOnLine(
  *  in the observation sequence. */
 function gpsContextAt(observations: readonly Observation[], t: number): { lat: number; lon: number } | null {
 	if (t < 0 || t >= observations.length) return null;
-	if (observations[t].gps !== null) {
-		return { lat: observations[t].gps!.lat, lon: observations[t].gps!.lon };
-	}
+	const here = observations[t].gps;
+	if (here !== null) return { lat: here.lat, lon: here.lon };
 	// Search outward.
 	for (let d = 1; d < observations.length; d++) {
 		const left = t - d;
 		const right = t + d;
-		if (left >= 0 && observations[left].gps !== null) {
-			return { lat: observations[left].gps!.lat, lon: observations[left].gps!.lon };
+		if (left >= 0) {
+			const lg = observations[left].gps;
+			if (lg !== null) return { lat: lg.lat, lon: lg.lon };
 		}
-		if (right < observations.length && observations[right].gps !== null) {
-			return { lat: observations[right].gps!.lat, lon: observations[right].gps!.lon };
+		if (right < observations.length) {
+			const rg = observations[right].gps;
+			if (rg !== null) return { lat: rg.lat, lon: rg.lon };
 		}
 	}
 	// Fall back to prev/nextGpsFix on this minute (set by callers).

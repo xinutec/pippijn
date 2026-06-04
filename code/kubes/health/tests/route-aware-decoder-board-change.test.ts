@@ -33,7 +33,6 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildRouteGraph, type RawOsmLine, type RawOsmPoint, type RouteGraph } from "../src/geo/route-graph.js";
 import type { Observation } from "../src/hmm/observation.js";
-// biome-ignore lint/correctness/noUnusedImports: import drives the failing-test contract
 import { routeAwareDecode } from "../src/hmm/route-aware-decoder.js";
 
 const DAY_FIXTURE_URL = new URL("./fixtures/days/2026-05-22-pippijn.json", import.meta.url);

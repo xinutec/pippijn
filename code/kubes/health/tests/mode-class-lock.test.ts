@@ -46,7 +46,6 @@ function obs(over: Partial<Observation>): Observation {
 }
 
 const HOME = { lat: 51.5635, lon: -0.2796 };
-const NEAR_HOME = { lat: 51.5635, lon: -0.27955 }; // ~30m away
 
 function buildWalkSequence(t0: number, durationMin: number): Observation[] {
 	// Walking westward at ~5 km/h with cadence 100 spm.

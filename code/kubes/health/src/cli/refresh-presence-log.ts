@@ -44,9 +44,10 @@ const config = z
 const DEFAULT_LOOKBACK_DAYS = 30;
 
 async function main(): Promise<void> {
-	const lookback = Number(process.argv[2] ?? DEFAULT_LOOKBACK_DAYS);
+	const raw = process.argv[2];
+	const lookback = Number(raw ?? DEFAULT_LOOKBACK_DAYS);
 	if (!Number.isFinite(lookback) || lookback <= 0) {
-		console.error(`refresh-presence-log: invalid lookback ${process.argv[2]!}`);
+		console.error(`refresh-presence-log: invalid lookback ${raw ?? "(undefined)"}`);
 		process.exit(2);
 	}
 

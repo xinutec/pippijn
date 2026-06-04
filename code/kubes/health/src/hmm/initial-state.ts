@@ -20,8 +20,6 @@ import type { State } from "./state-space.js";
 
 export type InitialLogProbFn = (state: State) => number;
 
-export type BuildInitialStatePriorOpts = {};
-
-export function buildInitialStatePrior(_opts: BuildInitialStatePriorOpts = {}): InitialLogProbFn {
+export function buildInitialStatePrior(): InitialLogProbFn {
 	return (): number => 0;
 }

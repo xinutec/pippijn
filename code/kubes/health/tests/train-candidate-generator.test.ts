@@ -22,8 +22,6 @@
 import { describe, expect, it } from "vitest";
 import { buildRouteGraph, type RawOsmLine, type RawOsmPoint } from "../src/geo/route-graph.js";
 import type { Observation } from "../src/hmm/observation.js";
-// Import drives the failing-test contract; module lands in Phase 1.
-// biome-ignore lint/correctness/noUnusedImports: contract import
 import { enumerateTrainCandidates } from "../src/hmm/train-candidate-generator.js";
 
 function makeLine(over: Partial<RawOsmLine>): RawOsmLine {

@@ -213,7 +213,7 @@ function generateCandidates(input: InnerViterbiInput): Set<string> {
 	const candidates = new Set<string>();
 	const onLine = (id: string): boolean => {
 		const e = input.routeGraph.edges.get(id);
-		return e !== undefined && e.attrs.lineMemberships.has(input.line);
+		return e?.attrs.lineMemberships.has(input.line) ?? false;
 	};
 	if (input.entryEdges !== null) for (const id of input.entryEdges) if (onLine(id)) candidates.add(id);
 	if (input.exitEdges !== null) for (const id of input.exitEdges) if (onLine(id)) candidates.add(id);
