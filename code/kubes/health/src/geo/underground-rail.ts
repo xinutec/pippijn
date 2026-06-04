@@ -25,7 +25,8 @@
  */
 
 import type { NearbyStation } from "./osm.js";
-import { linesAtPoint, nearbyStations, pickBestStation } from "./osm.js";
+import { pickBestStation } from "./osm.js";
+import { dbOsmAdapter } from "./osm-adapter.js";
 import type { EnrichedSegment } from "./velocity.js";
 
 /** A raw GPS fix with its reported accuracy radius, in metres. */
@@ -51,6 +52,18 @@ export interface UndergroundRun {
  *  fallback ("coarse"), not a real GPS fix. Open-air GPS sits well
  *  under this; ~100 m is the typical network-positioning floor. */
 export const COARSE_ACCURACY_M = 100;
+
+/** Radius (m) for the `nearbyStations` lookups annotateUndergroundRuns
+ *  uses. Wider than annotateRailRuns' 400 m because underground coarse
+ *  fixes have larger reported uncertainty and the station node may sit
+ *  outside the run's centroid. Exported so the velocity-layer caller
+ *  threads the same radius when passing its own adapter-backed lookup. */
+export const UNDERGROUND_STATION_RADIUS_M = 350;
+
+/** Radius (m) for the `linesAtPoint` lookups annotateUndergroundRuns
+ *  uses. Wider than the default 100 m because the coarse fix's
+ *  reported coordinate may sit further from the actual track. */
+export const UNDERGROUND_LINES_RADIUS_M = 300;
 
 /** Accuracy (m) above which even a coarse fix is unusable: its
  *  reported coordinate is so uncertain that snapping it to a station
@@ -179,8 +192,8 @@ function equirectMeters(lat1: number, lon1: number, lat2: number, lon2: number):
 export async function annotateUndergroundRuns(
 	segments: EnrichedSegment[],
 	rawFixes: CoarseFix[],
-	stationsLookup: StationsLookup = (lat, lon) => nearbyStations(lat, lon, 350),
-	linesLookup: LinesLookup = (lat, lon) => linesAtPoint(lat, lon, 300),
+	stationsLookup: StationsLookup = (lat, lon) => dbOsmAdapter.nearbyStations(lat, lon, UNDERGROUND_STATION_RADIUS_M),
+	linesLookup: LinesLookup = (lat, lon) => dbOsmAdapter.linesAtPoint(lat, lon, UNDERGROUND_LINES_RADIUS_M),
 ): Promise<EnrichedSegment[]> {
 	const good = rawFixes.filter((f) => f.accuracy == null || f.accuracy < COARSE_ACCURACY_M);
 	const result: EnrichedSegment[] = [];

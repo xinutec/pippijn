@@ -34,17 +34,14 @@ import {
 	bestPlace,
 	commonCity,
 	extractCity,
-	linesAtPoint,
 	type NearbyStation,
 	type NearbyWay,
-	nearbyStations,
-	nearbyWays,
 	pickBestStation,
 	placeLabel,
 	refineMode,
 	rejectImplausibleDriving,
-	reverseGeocode,
 } from "./osm.js";
+import { dbOsmAdapter } from "./osm-adapter.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import { interpolateTimes, type SnappedPoint } from "./rail-snap.js";
@@ -52,7 +49,11 @@ import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
 import { splitStaysOnEvidence } from "./stay-split.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
-import { annotateUndergroundRuns } from "./underground-rail.js";
+import {
+	annotateUndergroundRuns,
+	UNDERGROUND_LINES_RADIUS_M,
+	UNDERGROUND_STATION_RADIUS_M,
+} from "./underground-rail.js";
 
 /** Format a unix-second instant as a `YYYY-MM-DD HH:MM:SS` UTC DATETIME
  *  string for filtering against `ts_utc` columns. */
@@ -766,12 +767,12 @@ export async function computeVelocity(
 				const movingStart = segPoints[0];
 				const movingEnd = segPoints[segPoints.length - 1];
 				const [wayResults, startPlace, endPlace] = await Promise.all([
-					Promise.all(sampleIdxs.map((i) => nearbyWays(segPoints[i].lat, segPoints[i].lon))),
+					Promise.all(sampleIdxs.map((i) => inputs.osm.nearbyWays(segPoints[i].lat, segPoints[i].lon))),
 					// Endpoint reverseGeocode: tag the segment with a city iff
 					// both endpoints agree. A walk inside one city gets a city
 					// header; a drive between two cities stays untagged.
-					reverseGeocode(movingStart.lat, movingStart.lon),
-					reverseGeocode(movingEnd.lat, movingEnd.lon),
+					inputs.osm.reverseGeocode(movingStart.lat, movingStart.lon),
+					inputs.osm.reverseGeocode(movingEnd.lat, movingEnd.lon),
 				]);
 				// Dedup by (type, subtype, name) but keep the *minimum* distance
 				// across sample points. A road we brushed past at one sample
@@ -895,18 +896,36 @@ export async function computeVelocity(
 
 	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(physicallyCorrected)));
 
-	const withStations = await annotateRailRuns(merged, points);
+	const withStations = await annotateRailRuns(
+		merged,
+		points,
+		(lat, lon) => inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+		(lat, lon) => inputs.osm.linesAtPoint(lat, lon),
+	);
 
 	// Underground reconstruction: a tube ride leaves only coarse
 	// cell-network fixes, which annotateRailRuns cannot resolve. Mine
 	// those coarse fixes (from the raw, pre-Kalman track) to identify the
 	// line and split the swallowing walk into walk → train → walk.
-	const withUnderground = await time("undergroundRail", annotateUndergroundRuns(withStations, inDay));
+	const withUnderground = await time(
+		"undergroundRail",
+		annotateUndergroundRuns(
+			withStations,
+			inDay,
+			(lat, lon) => inputs.osm.nearbyStations(lat, lon, UNDERGROUND_STATION_RADIUS_M),
+			(lat, lon) => inputs.osm.linesAtPoint(lat, lon, UNDERGROUND_LINES_RADIUS_M),
+		),
+	);
 
 	// Absorb a platform / concourse wait into the boarding of its train
 	// run, so a station wait doesn't surface as a standalone stay
 	// mislabelled with the nearest focus place.
-	const withBoarding = await time("boardingPlatform", absorbBoardingPlatform(withUnderground, points));
+	const withBoarding = await time(
+		"boardingPlatform",
+		absorbBoardingPlatform(withUnderground, points, (lat, lon) =>
+			inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+		),
+	);
 
 	// Absorb a transit interchange — a run of short stationary segments
 	// between a train and onward movement — into the preceding train,
@@ -1426,8 +1445,8 @@ export async function annotateRailRuns(
 	segments: EnrichedSegment[],
 	points: FilteredPoint[],
 	stationsLookup: (lat: number, lon: number) => Promise<NearbyStation[]> = (lat, lon) =>
-		nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
-	linesLookup: (lat: number, lon: number) => Promise<Set<string>> = linesAtPoint,
+		dbOsmAdapter.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+	linesLookup: (lat: number, lon: number) => Promise<Set<string>> = (lat, lon) => dbOsmAdapter.linesAtPoint(lat, lon),
 ): Promise<EnrichedSegment[]> {
 	const isRailLike = (s: EnrichedSegment): boolean => {
 		if (s.mode === "train" || s.refinedMode === "train") return true;
@@ -1780,7 +1799,7 @@ export async function absorbBoardingPlatform(
 	segments: EnrichedSegment[],
 	points: FilteredPoint[],
 	stationsLookup: (lat: number, lon: number) => Promise<NearbyStation[]> = (lat, lon) =>
-		nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+		dbOsmAdapter.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
 ): Promise<EnrichedSegment[]> {
 	const absorbed = new Set<number>();
 	const extendTo = new Map<number, number>();
