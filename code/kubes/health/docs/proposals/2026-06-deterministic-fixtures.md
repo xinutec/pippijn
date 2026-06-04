@@ -1,7 +1,7 @@
 ---
 created: 2026-06-04
 updated: 2026-06-04
-status: design
+status: design (revised — adapter pattern for unbounded sources)
 references:
   - 2026-05-scored-classification.md
   - 2026-06-presence-continuity.md
@@ -72,6 +72,27 @@ not a side effect of running anything.
 
 ## Design
 
+### Bounded vs unbounded sources
+
+The external reads split in two by call pattern:
+
+- **Bounded sources** — a fixed set of queries per (user, date) returning
+  fixed-shape projections. Three PhoneTrack window fetches; one
+  `focus_places` user-scoped query; biometric streams clipped to the
+  day's UTC window; the single `decoded_days[date]` row; the whole-table
+  `rail_route_cache`. For these, the right capture is the *row set*:
+  copy the projection into the inputs value, replay by reading the field.
+- **Unbounded sources** — query count and arguments depend on
+  pipeline-internal decisions (segment shape, sample points, rail-run
+  triggers, sleep-window recursion). OSM (`nearbyWays`, `nearbyStations`,
+  `nearbyLandmarks`, `linesAtPoint`) and Nominatim (`reverseGeocode`)
+  are both unbounded. For these, the right capture is *the adapter
+  interface*: define the lookups as a typed interface, pass an
+  implementation through inputs, and let production use a DB-backed
+  implementation while tests use a fixture-backed one.
+
+The bounded sources stay row-set. The unbounded sources become adapters.
+
 ### The input boundary
 
 Introduce `ClassificationInputs`:
@@ -103,11 +124,10 @@ interface ClassificationInputs {
   // Place / line snapshots — the relevant rows only.
   focusPlaces: FocusPlaceRow[];            // all user rows
   presenceLogPriorDay: PresenceLogRow | null;
-  osm: {
-    lines: OsmLineRow[];                   // spatial bbox of the day
-    points: OsmPointRow[];                 // spatial bbox of the day
-    coverage: OsmCoverageRow[];            // any tile flagged covered
-  };
+
+  // Unbounded sources — adapter interface, not row set. See
+  // "Bounded vs unbounded sources" above.
+  osm: OsmAdapter;
   railRoutes: RailRouteCacheRow[];         // routes used by the day's runs
 
   // Optional HSMM override — when testing the HSMM decode in isolation
@@ -120,6 +140,54 @@ interface ClassificationInputs {
 The shape mirrors what the pipeline reads from the DB today. No new
 fields, no anonymisation pass. The whole point is that this is the
 exact closure of inputs.
+
+### The OSM adapter
+
+```ts
+interface OsmAdapter {
+  nearbyWays(lat: number, lon: number, radiusM?: number): Promise<NearbyWay[]>;
+  nearbyStations(lat: number, lon: number, radiusM?: number): Promise<NearbyStation[]>;
+  nearbyLandmarks(lat: number, lon: number, radiusM?: number): Promise<NearbyLandmark[]>;
+  linesAtPoint(lat: number, lon: number, radiusM?: number): Promise<Set<string>>;
+  reverseGeocode(lat: number, lon: number, zoom?: number): Promise<NominatimResult | null>;
+}
+```
+
+Three implementations:
+
+- `DbOsmAdapter` — wraps the existing `osm.ts` top-level functions.
+  Production injects this; behaviour is byte-identical to today.
+- `RecordingOsmAdapter` — wraps another adapter (typically `DbOsmAdapter`),
+  records every returned row into a deduped row-set keyed by `osm_id`,
+  and records every `reverseGeocode` call's response by exact
+  `(lat, lon, zoom)` key. Used during `capture-day-v2`.
+- `FixtureOsmAdapter` — answers OSM queries by filtering the captured
+  row-set with the pure helpers in `osm-pure.ts` (matches the prod
+  spatial-kernel to sub-percent); answers `reverseGeocode` by exact
+  key lookup. Used during `golden-check-v2`.
+
+Why the hybrid (row-set for OSM, exact key for Nominatim):
+
+- OSM lookups are spatially indexed; the row set is a closure of every
+  row any captured query returned. A small Kalman perturbation between
+  capture and replay leaves the same row set valid for the slightly
+  shifted query, since the rows are already in memory and the pure
+  helper re-filters by distance. Replay is correct as long as the
+  replayed query's radius is ≤ the captured radius and the query point
+  is inside the captured envelope.
+- Nominatim returns a Nominatim place object that is keyed by exact
+  coordinate at Nominatim's end. Re-running at a perturbed coordinate
+  genuinely yields a different response. Exact-key replay is the right
+  semantic: if the pipeline asks a coordinate Nominatim hasn't been
+  consulted for in capture, replay throws "uncaptured query → re-bless
+  required". That makes the test failure point straight at the changed
+  code path.
+
+The unbounded-source over-capture problem the row-set framing has when
+applied to OSM (load everything the pipeline might query, in advance,
+to a bbox big enough to be safe — measured at 16 minutes per day on the
+King's Cross radius) does not arise here: capture is exactly the row
+set the pipeline asked for, by construction.
 
 ### The function refactor
 
@@ -260,95 +328,134 @@ explicit bless on the diff).
 Each phase is small enough to bisect against, large enough to be
 useful on its own. Phases land in order; nothing is half-shipped.
 
-### Phase 1: `ClassificationInputs` type + production loader
+The split between bounded-source row-set phases (1, 2a, 4, 5) and the
+unbounded-source adapter phases (6c onward) is deliberate: the row-set
+work landed without architectural friction; the OSM/Nominatim phases
+need the adapter shape (see "Bounded vs unbounded sources" in Design).
 
-- Define the interface in `src/geo/classification-inputs.ts`.
-- Implement `loadClassificationInputs(config, userId, date, tz)` by
-  lifting the DB reads currently at the top of `computeVelocity`.
-- No callers move yet; the loader exists as a duplicate of the live
-  read path. Test: running it produces the same in-memory values as
-  inlining.
-- Outcome: a place where every external read for a (user, date) is
-  named.
+### Phase 1: `ClassificationInputs` type + production loader  ✅
 
-### Phase 2: Refactor `computeVelocity` to take inputs
+- Type defined in `src/geo/classification-inputs.ts`.
+- `loadClassificationInputs` implements the eager DB+HTTP read path
+  used by `computeVelocity` (PhoneTrack windows, focus_places,
+  biometrics, mode_biometrics).
+- Smoke test pins the shape so additive evolution stays additive.
 
-- Change `computeVelocity(config, userId, date, tz)` to
-  `computeVelocity(inputs)`.
-- Update callers (`/api/velocity`, `capture-day`, `golden-check`,
-  `decode-day` if it reuses) to call `loadClassificationInputs` then
-  `computeVelocity`.
-- All existing tests still pass (no behaviour change).
-- Outcome: `computeVelocity` is pure-in-inputs. No
-  `selectFrom`/`openPhoneTrack` inside. Same for `decodeAndPersist` in
-  a follow-up.
+### Phase 2a: consolidate eager loads through the loader  ✅
 
-### Phase 3: Fixture serialisation + `capture-day-v2`
+- `computeVelocity` calls `loadClassificationInputs` once instead of
+  the inlined eager reads. No API change to `computeVelocity` yet.
 
-- Define `CapturedDay` zod schema with `fixtureFormatVersion: 1`.
-- Implement `serializeInputs` / `deserializeInputs`.
-- Implement `capture-day-v2 <date> <user> <tz>` CLI. Writes to
-  `tests/golden/days/<date>-<user>.json`.
-- Test: capture a day, deserialize, byte-equal what came in.
-- Outcome: one new CLI; one new fixture lives on disk.
+### Phase 4: lift `decoded_days[date]`  ✅
 
-### Phase 4: `golden-check-v2` + migration of one golden
+- One row added to inputs; velocity reads the HSMM override from
+  there instead of `loadDecode(...)` at request time.
 
-- Implement `golden-check-v2.js`. Reads `tests/golden/days/*.json`,
-  runs `computeVelocity(fixture.inputs)`, diffs against
-  `fixture.expected.velocity`. `--bless` updates expected.
-- Pick one existing golden day (e.g. 2026-05-15 — multi-modal, no
-  known sparse-day weirdness). Run `capture-day-v2` to produce the
-  v2 fixture. Verify the v2 output matches the v1 expected baseline.
-  Commit the v2 fixture.
-- Both v1 and v2 harnesses pass for that day.
-- Outcome: proof of concept on one day end-to-end.
+### Phase 5: lift `rail_route_cache`  ✅
 
-### Phase 5: Migrate the remaining 9 golden days
+- Whole-table load (a few hundred polylines) added to inputs.
+- `annotateSnappedPaths` becomes pure in the rail-route cache argument.
 
-- Run `capture-day-v2` for each remaining day in the v1 manifest.
-- For each: verify v2 expected matches v1 expected (or document why
-  it doesn't — could be the same drift this proposal is solving for).
-- Commit each migration as its own commit so any per-day surprise is
-  bisectable.
+### Phase 6a: pure spatial helpers (superseded role)  ✅
 
-### Phase 6: Decommission v1
+- `nearbyWaysInSnapshot` / `nearbyStationsInSnapshot` in
+  `src/geo/osm-pure.ts` originally intended as the
+  "filter a row-set" half of the now-replaced row-set frame.
+- These helpers stay — they become the spatial kernel inside
+  `FixtureOsmAdapter` (see Phase 6e).
+
+### Phase 6b: snapshot field placeholder (superseded)  ✅ (will be revised)
+
+- `osm: OsmSnapshot` field added to `ClassificationInputs`; loader
+  populated an empty snapshot pending the design call.
+- Phase 6c renames the field to `osm: OsmAdapter` and changes its
+  type. The empty-snapshot loader path is removed.
+
+### Phase 6c: OSM adapter interface + `DbOsmAdapter`
+
+- Define `OsmAdapter` in `src/geo/osm-adapter.ts`.
+- Implement `DbOsmAdapter` as a 5-method wrapper over the existing
+  `nearbyWays` / `nearbyStations` / `nearbyLandmarks` / `linesAtPoint`
+  / `reverseGeocode` functions in `osm.ts`.
+- Change `ClassificationInputs.osm` from `OsmSnapshot` to `OsmAdapter`.
+- `loadClassificationInputs` constructs a `DbOsmAdapter`.
+- velocity.ts callers unchanged in this phase — they still call the
+  top-level functions; Phase 6d migrates them.
+- Drop the dead `loadOsmSnapshotForDay` / `loadOsmLinesWithGeom` /
+  `loadOsmPointsWithGeom` machinery from `load-classification-inputs.ts`.
+- Outcome: the unbounded-source boundary is named; no behaviour change.
+
+### Phase 6d: migrate velocity.ts call sites to `inputs.osm`
+
+- One call site at a time: `nearbyWays(...)` → `inputs.osm.nearbyWays(...)`.
+- Threading: velocity.ts already receives `inputs` after Phase 2a;
+  internal helpers that need OSM access (`bestPlace`, the rail-run
+  annotators) get an explicit adapter parameter.
+- After this phase, `computeVelocity` reads OSM exclusively through
+  the adapter. No top-level imports of `nearbyWays` etc. in the
+  pipeline.
+
+### Phase 6e: `RecordingOsmAdapter` + `FixtureOsmAdapter`
+
+- `RecordingOsmAdapter(inner)`: every call delegates to `inner`,
+  records returned rows into a deduped row-set keyed by `osm_id`,
+  records `reverseGeocode` responses keyed by exact (lat, lon, zoom).
+- `FixtureOsmAdapter(trace)`: implements the interface via the
+  `osm-pure.ts` helpers over the row-set; answers `reverseGeocode`
+  by exact-key lookup; throws on uncaptured Nominatim query.
+- Unit tests cover both adapters in isolation.
+
+### Phase 6f: fixture format + `capture-day-v2` + first migration
+
+- `CapturedDay` zod schema with `fixtureFormatVersion: 1`. Contains
+  the row-set fields from inputs plus the captured `OsmTrace`.
+- `capture-day-v2 <date> <user> <tz>` CLI: builds inputs with a
+  `RecordingOsmAdapter`, runs `computeVelocity`, writes the fixture.
+- `golden-check-v2`: reads fixture, builds inputs with a
+  `FixtureOsmAdapter`, runs `computeVelocity`, diffs vs
+  `expected.velocity`. `--bless` updates `expected.velocity` only.
+- Migrate one existing golden day (2026-05-15 — multi-modal, no
+  sparse-day weirdness). Both v1 and v2 pass for that day.
+
+### Phase 6g–6h: migrate the remaining 9 golden days
+
+- One commit per day. Per-day v1↔v2 expected diff reviewed and
+  documented in the commit message.
+
+### Phase 6i: decommission v1
 
 - Delete `tests/golden/manifest.json`, `tests/golden/expected/`,
-  `src/cli/golden-check.ts`, `src/cli/capture-day.ts`,
-  `scripts/golden.sh`.
-- Rename `golden-check-v2.js` → `golden-check.js`,
-  `capture-day-v2.js` → `capture-day.js`, etc.
-- Update `npm run golden` to point at the new harness.
-- Outcome: one harness, one format, no parallel maintenance.
+  `src/cli/golden-check.ts`, `src/cli/capture-day.ts`.
+- Rename `*-v2` → `*`. `npm run golden` points at the new harness.
+- Outcome: one harness, one format.
 
-### Phase 7: HSMM-layer refactor — `HsmmInputs` + production loader
+### Phase 7: HSMM-layer refactor — `HsmmInputs` + adapters
 
-- Define `HsmmInputs` (the closure of `decodeAndPersist`'s reads:
-  filtered points after Kalman, biometrics, focus_places, OSM, route
-  graph, and `presence_log[date-1]`).
-- Implement `loadHsmmInputs(config, userId, date, tz)`.
-- Refactor `decodeAndPersist(config, userId, date, ...)` to
-  `decodeHsmm(inputs: HsmmInputs): HsmmResult` + a thin wrapper that
-  calls `loadHsmmInputs` then `decodeHsmm` then persists. Production
-  cron and `decode-day` CLI use the wrapper; tests use `decodeHsmm`.
-- No behaviour change.
+- Same shape as the velocity layer:
+  - Row-set fields for the bounded sources `decodeAndPersist` reads:
+    filtered points, biometrics, focus_places, route graph,
+    `presence_log[date-1]`.
+  - Adapter field for any unbounded source the HSMM uses. (Today
+    the HSMM reuses the velocity layer's OSM access, so this is
+    likely just propagating `OsmAdapter` into `HsmmInputs`.)
+- `loadHsmmInputs(config, userId, date, tz)` and
+  `decodeHsmm(inputs): HsmmResult` + a thin wrapper that loads,
+  decodes, and persists. Production cron + `decode-day` CLI use the
+  wrapper; tests use `decodeHsmm` directly.
 
 ### Phase 8: HSMM-isolated golden harness
 
-- Fixture format `tests/golden/decoded_days/<date>-<user>.json`:
-  `HsmmInputs` + expected decoded segments.
-- `capture-hsmm-day-v2` + `golden-check-hsmm-v2`.
-- Migrate hospital-week days (a small set first) as HSMM goldens,
-  since cross-day continuity is HSMM-layer behaviour and is exactly
-  what got us here.
+- Fixture format `tests/golden/decoded_days/<date>-<user>.json`.
+- `capture-hsmm-day-v2` + `golden-check-hsmm-v2`, both following the
+  Phase 6 pattern.
+- Migrate hospital-week days first — cross-day continuity is the
+  HSMM-layer behaviour that started this work.
 
-### Phase 9: Decommission HSMM flags
+### Phase 9: retire flags
 
-- With HSMM goldens in place, the continuity flag's "we can't yet
-  test this safely" rationale evaporates. Remove
-  `USE_CONTINUITY_CONTINUATION`; ship default-on. Same for any other
-  HSMM-gating flag that exists only because we couldn't isolate it.
+- With HSMM goldens in place, `USE_CONTINUITY_CONTINUATION` retires
+  to default-on. Any other HSMM-gating flag whose only reason to
+  exist was "we couldn't test this safely" follows the same path.
 - This is the payoff: feature flags retire once tests can hold the
   behaviour they were protecting.
 
@@ -356,35 +463,41 @@ useful on its own. Phases land in order; nothing is half-shipped.
 
 ```
 production:
-  /api/velocity      → loadClassificationInputs(...) → computeVelocity(inputs)
-  decode-day cron    → loadHsmmInputs(...)       → decodeHsmm(inputs) → persist
-  capture-day        → loadClassificationInputs(...) → write fixture
-  capture-hsmm-day   → loadHsmmInputs(...)       → write fixture
+  /api/velocity      → loadClassificationInputs(..., DbOsmAdapter)
+                       → computeVelocity(inputs)
+  decode-day cron    → loadHsmmInputs(..., DbOsmAdapter)
+                       → decodeHsmm(inputs) → persist
+  capture-day        → loadClassificationInputs(..., RecordingOsmAdapter)
+                       → write fixture (row-set + OsmTrace)
+  capture-hsmm-day   → loadHsmmInputs(..., RecordingOsmAdapter)
+                       → write fixture
 
 tests:
-  golden-check       → read fixture → computeVelocity(inputs)   → diff expected
-  golden-check-hsmm  → read fixture → decodeHsmm(inputs)        → diff expected
+  golden-check       → read fixture → computeVelocity(inputs with FixtureOsmAdapter)
+                       → diff expected
+  golden-check-hsmm  → read fixture → decodeHsmm(inputs with FixtureOsmAdapter)
+                       → diff expected
 
-  No DB. No network. Pure functions only.
+  No DB. No network. Pure given (data inputs, adapter).
 ```
 
-Two pure pipelines, two thin wrappers, two fixture types. No flags
-protecting un-tested code paths. No `decoded_days` drift hiding
-behaviour change.
+Two pipelines, two thin wrappers, two fixture types, one adapter
+interface shared across both. No flags protecting un-tested code
+paths. No `decoded_days` drift hiding behaviour change. No OSM drift
+hiding behaviour change.
 
 ## Open questions
 
-1. **Fixture size**: capturing the full OSM bbox for a day with a
-   long train run can be megabytes. Acceptable on local disk; would
-   matter for CI. Note for the anonymisation/CI follow-on.
+1. **Fixture size**: capturing the OSM row-set via
+   `RecordingOsmAdapter` records only the rows the pipeline actually
+   touches (deduped by `osm_id`). A typical London day touches
+   ~5–50K unique rows; serialised this is ~500 KB to 5 MB per
+   fixture. Acceptable on local disk; on the boundary of "matters
+   for CI" — revisit at Phase 6f when the first real fixture exists.
 
-2. **PhoneTrack response replay**: capturing the three-window
-   PhoneTrack fetch as JSON is straightforward. Replaying it in a
-   test means the pipeline's HTTP layer needs an injection point.
-   The cleanest answer: `loadClassificationInputs` calls a
-   `PhonetrackSource` interface; production passes the HTTP
-   implementation, fixtures pass an in-memory one. Not a big change
-   if we plan for it in Phase 1.
+2. **PhoneTrack response replay**: captured as row-sets (three
+   windows) under the bounded-source path. Phase 1 already plumbed
+   this — no separate injection point needed.
 
 3. **`decoded_days` as input vs computed**: for velocity-layer
    goldens, the HSMM output is an input (so we don't have to
