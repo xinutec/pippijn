@@ -15,13 +15,14 @@ import type {
 	KnownPlaceProjection,
 	PhonetrackWindows,
 } from "../src/geo/classification-inputs.js";
+import type { OsmAdapter } from "../src/geo/osm-adapter.js";
 
 describe("ClassificationInputs shape", () => {
 	it("requires all eight closure fields", () => {
 		// This test exists to make the type a load-bearing contract: any
 		// future change that drops a field breaks the build here. The
-		// shape evolved across Phases 1, 4, 5, 6b — every required field
-		// must be constructible from an empty/null baseline.
+		// shape evolved across Phases 1, 4, 5, 6b–6c — every required
+		// field must be constructible from an empty/null baseline.
 		const inputs: ClassificationInputs = {
 			identity: minimalIdentity(),
 			phonetrack: emptyPhonetrack(),
@@ -30,7 +31,7 @@ describe("ClassificationInputs shape", () => {
 			modeBiometrics: [],
 			hsmmDecode: null,
 			railRouteCache: [],
-			osm: { lines: [], points: [] },
+			osm: stubOsmAdapter(),
 		};
 		expect(inputs.identity.userId).toBe("pippijn");
 	});
@@ -75,4 +76,19 @@ function emptyPhonetrack(): PhonetrackWindows {
 
 function emptyBiometrics(): BiometricsSnapshot {
 	return { hr: [], sleep: [], steps: [] };
+}
+
+/** A throw-on-call OsmAdapter for the shape test. Tests that need a
+ *  real adapter use `FixtureOsmAdapter` (Phase 6e). */
+function stubOsmAdapter(): OsmAdapter {
+	const unreached = () => {
+		throw new Error("stub OsmAdapter — shape test only");
+	};
+	return {
+		nearbyWays: unreached,
+		nearbyStations: unreached,
+		nearbyLandmarks: unreached,
+		linesAtPoint: unreached,
+		reverseGeocode: unreached,
+	};
 }

@@ -31,7 +31,7 @@
 import type { HmmSegment } from "../hmm/persist.js";
 import type { HrPoint, SleepStageRecord, StepPoint } from "./biometrics.js";
 import type { ModeStats } from "./mode-biometrics.js";
-import type { OsmSnapshot } from "./osm-pure.js";
+import type { OsmAdapter } from "./osm-adapter.js";
 import type { KnownPlace } from "./place-snap.js";
 
 /** A PhoneTrack fix as returned by `fetchTrackPointsRange`. Mirrors
@@ -94,16 +94,22 @@ export interface BiometricsSnapshot {
  * The classification pipeline's input closure. Evolves additively as
  * later phases lift their external reads into named fields.
  *
+ * Bounded sources (fixed query count, fixed-shape projection) are
+ * row-set fields; unbounded sources (OSM, Nominatim — query count
+ * and locations depend on pipeline-internal decisions) are adapter
+ * fields. See `docs/proposals/2026-06-deterministic-fixtures.md`
+ * → "Bounded vs unbounded sources".
+ *
  * Phases landed so far:
  *   - Phase 1 / 2a: eager DB+HTTP loads (PhoneTrack, focus_places,
  *     biometrics, mode_biometrics) consolidated through this value.
  *   - Phase 4: `decoded_days[date]` for the HSMM place override.
+ *   - Phase 5: `rail_route_cache` for train-segment snapped paths.
+ *   - Phase 6c: `osm: OsmAdapter` (this revision; replaces the
+ *     row-set `OsmSnapshot` field shipped in Phase 6b).
  *
- * Remaining external reads (still go to the DB at request time;
- * to be lifted in later phases):
- *   - OSM (`nearbyWays`, `nearbyStations`, `ensureCovered`)
- *   - `rail_route_cache` for train-segment snapped paths
- *   - `presence_log[date-1]` (HSMM-only, decode-day Phase 7)
+ * Still-bounded-source-not-yet-lifted:
+ *   - `presence_log[date-1]` (HSMM-only, lands in Phase 7).
  */
 export interface ClassificationInputs {
 	identity: DayIdentity;
@@ -124,12 +130,12 @@ export interface ClassificationInputs {
 	 *  is global (not user-scoped) and small enough to load in full
 	 *  for the day. Phase 5 of the deterministic-fixtures proposal. */
 	railRouteCache: RailRouteEntry[];
-	/** All `osm_lines` / `osm_points` rows within the day's PhoneTrack
-	 *  bbox (plus a buffer), parsed once. The pure spatial helpers in
-	 *  `osm-pure.ts` filter this by feature_type and distance. Pre-
-	 *  fetched at the boundary so the request path runs no OSM queries.
-	 *  Phase 6 of the deterministic-fixtures proposal. */
-	osm: OsmSnapshot;
+	/** OSM + Nominatim lookups, as an adapter interface. Production
+	 *  injects `dbOsmAdapter` (delegates to the top-level functions in
+	 *  `osm.ts`); test fixtures will inject `FixtureOsmAdapter`
+	 *  (replays captured rows + Nominatim responses, lands Phase 6e).
+	 *  Phase 6c of the deterministic-fixtures proposal. */
+	osm: OsmAdapter;
 }
 
 /** A single `rail_route_cache` row, projected to the columns
