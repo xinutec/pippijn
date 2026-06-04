@@ -111,7 +111,21 @@ async function loadAllRailwayStations(): Promise<StationCandidate[]> {
  * distance computation as production.
  */
 export function pointToLineDistanceM(pointLat: number, pointLon: number, wkt: string): number {
-	const coords = parseLineStringWkt(wkt);
+	return pointToLineDistanceMParsed(pointLat, pointLon, parseLineStringWkt(wkt));
+}
+
+/**
+ * Distance (m) from a point to a polyline, given the polyline already
+ * parsed to `[lat, lon]` pairs. Used by the OSM-snapshot path
+ * (`src/geo/osm-pure.ts`) where the WKT is parsed once at snapshot
+ * load time and the per-call hot path skips re-parsing. Same
+ * equirectangular kernel as `pointToLineDistanceM`.
+ */
+export function pointToLineDistanceMParsed(
+	pointLat: number,
+	pointLon: number,
+	coords: ReadonlyArray<readonly [number, number]>,
+): number {
 	if (coords.length < 2) return Infinity;
 	let min = Infinity;
 	for (let i = 1; i < coords.length; i++) {
@@ -121,7 +135,11 @@ export function pointToLineDistanceM(pointLat: number, pointLon: number, wkt: st
 	return min;
 }
 
-function parseLineStringWkt(wkt: string): Array<[number, number]> {
+
+/** WKT LINESTRING parser. Returns `[lat, lon]` pairs. Exported so
+ *  the OSM-snapshot loader can pre-parse geometry once at fixture
+ *  load time. */
+export function parseLineStringWkt(wkt: string): Array<[number, number]> {
 	// WKT: LINESTRING(lon1 lat1,lon2 lat2,...)
 	const inner = wkt.match(/^LINESTRING\s*\(([^)]+)\)$/i)?.[1];
 	if (!inner) return [];
@@ -137,7 +155,12 @@ function metersPerDegLon(lat: number): number {
 	return M_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180);
 }
 
-function pointToSegmentM(pLat: number, pLon: number, a: [number, number], b: [number, number]): number {
+function pointToSegmentM(
+	pLat: number,
+	pLon: number,
+	a: readonly [number, number],
+	b: readonly [number, number],
+): number {
 	// Equirectangular projection at the segment midpoint — accurate
 	// for sub-km distances. Convert to metres then standard
 	// point-to-segment distance in 2D.
