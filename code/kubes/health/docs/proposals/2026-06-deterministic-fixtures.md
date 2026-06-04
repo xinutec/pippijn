@@ -157,37 +157,40 @@ Three implementations:
 
 - `DbOsmAdapter` — wraps the existing `osm.ts` top-level functions.
   Production injects this; behaviour is byte-identical to today.
-- `RecordingOsmAdapter` — wraps another adapter (typically `DbOsmAdapter`),
-  records every returned row into a deduped row-set keyed by `osm_id`,
-  and records every `reverseGeocode` call's response by exact
-  `(lat, lon, zoom)` key. Used during `capture-day-v2`.
-- `FixtureOsmAdapter` — answers OSM queries by filtering the captured
-  row-set with the pure helpers in `osm-pure.ts` (matches the prod
-  spatial-kernel to sub-percent); answers `reverseGeocode` by exact
-  key lookup. Used during `golden-check-v2`.
+- `RecordingOsmAdapter` — wraps another adapter (typically
+  `DbOsmAdapter`), delegates each call, and records the
+  `(args → result)` pair into an `OsmTrace` keyed by
+  `${lat}|${lon}|${radius?}`. Used during `capture-day-v2`. `Set<string>`
+  results (`linesAtPoint`) serialise as `string[]` for fixture JSON
+  round-trip; deserialisation rebuilds the Set.
+- `FixtureOsmAdapter` — answers calls by exact-key lookup in the
+  trace. An uncaptured query throws an actionable error
+  ("uncaptured nearbyWays(51.5, -0.1, 50) — re-capture required");
+  the harness surfaces it as the test failure rather than the diff
+  against `expected.velocity`, pointing the developer at the actual
+  cause. Used during `golden-check-v2`.
 
-Why the hybrid (row-set for OSM, exact key for Nominatim):
+Why exact-key replay for every primitive (not row-set filtering):
 
-- OSM lookups are spatially indexed; the row set is a closure of every
-  row any captured query returned. A small Kalman perturbation between
-  capture and replay leaves the same row set valid for the slightly
-  shifted query, since the rows are already in memory and the pure
-  helper re-filters by distance. Replay is correct as long as the
-  replayed query's radius is ≤ the captured radius and the query point
-  is inside the captured envelope.
-- Nominatim returns a Nominatim place object that is keyed by exact
-  coordinate at Nominatim's end. Re-running at a perturbed coordinate
-  genuinely yields a different response. Exact-key replay is the right
-  semantic: if the pipeline asks a coordinate Nominatim hasn't been
-  consulted for in capture, replay throws "uncaptured query → re-bless
-  required". That makes the test failure point straight at the changed
-  code path.
+- The classification pipeline is deterministic in its inputs. Kalman
+  is pure; segmentation is pure; OSM call sites are reached at the
+  same `(lat, lon, radius)` for the same captured PhoneTrack window.
+  Exact-key replay returns byte-identical results.
+- A code change that moves a call site (different coordinates,
+  different radius) is exactly the kind of change the golden should
+  catch. Replay throws "uncaptured query", which is a clearer and
+  more localised failure mode than a downstream behaviour diff. The
+  developer re-captures explicitly, which is the deliberate-capture
+  property the proposal promises.
+- Serialisation is trivial: the trace is `Record<string, T>` keyed
+  by call args. No row-set parsing, no spatial-kernel kernel at
+  replay time, no question of "did we capture a wide enough radius".
 
-The unbounded-source over-capture problem the row-set framing has when
-applied to OSM (load everything the pipeline might query, in advance,
-to a bbox big enough to be safe — measured at 16 minutes per day on the
-King's Cross radius) does not arise here: capture is exactly the row
-set the pipeline asked for, by construction.
+The unbounded-source over-capture problem that bbox-scale loading
+would have (load everything the pipeline might query, in advance, to a
+bbox big enough to be safe — measured at 16 minutes per day on the
+King's Cross radius) does not arise here: capture is exactly what the
+pipeline asked for, by construction.
 
 ### The function refactor
 

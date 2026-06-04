@@ -116,12 +116,10 @@ export function pointToLineDistanceM(pointLat: number, pointLon: number, wkt: st
 
 /**
  * Distance (m) from a point to a polyline, given the polyline already
- * parsed to `[lat, lon]` pairs. Used by the OSM-snapshot path
- * (`src/geo/osm-pure.ts`) where the WKT is parsed once at snapshot
- * load time and the per-call hot path skips re-parsing. Same
- * equirectangular kernel as `pointToLineDistanceM`.
+ * parsed to `[lat, lon]` pairs. Internal helper for
+ * `pointToLineDistanceM`; the equirectangular kernel is the same.
  */
-export function pointToLineDistanceMParsed(
+function pointToLineDistanceMParsed(
 	pointLat: number,
 	pointLon: number,
 	coords: ReadonlyArray<readonly [number, number]>,
@@ -135,10 +133,8 @@ export function pointToLineDistanceMParsed(
 	return min;
 }
 
-/** WKT LINESTRING parser. Returns `[lat, lon]` pairs. Exported so
- *  the OSM-snapshot loader can pre-parse geometry once at fixture
- *  load time. */
-export function parseLineStringWkt(wkt: string): Array<[number, number]> {
+/** WKT LINESTRING parser. Returns `[lat, lon]` pairs. */
+function parseLineStringWkt(wkt: string): Array<[number, number]> {
 	// WKT: LINESTRING(lon1 lat1,lon2 lat2,...)
 	const inner = wkt.match(/^LINESTRING\s*\(([^)]+)\)$/i)?.[1];
 	if (!inner) return [];
