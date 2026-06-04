@@ -359,13 +359,15 @@ need the adapter shape (see "Bounded vs unbounded sources" in Design).
 - Whole-table load (a few hundred polylines) added to inputs.
 - `annotateSnappedPaths` becomes pure in the rail-route cache argument.
 
-### Phase 6a: pure spatial helpers (superseded role)  ✅
+### Phase 6a: pure spatial helpers (retired)  ✅ → reverted
 
 - `nearbyWaysInSnapshot` / `nearbyStationsInSnapshot` in
-  `src/geo/osm-pure.ts` originally intended as the
-  "filter a row-set" half of the now-replaced row-set frame.
-- These helpers stay — they become the spatial kernel inside
-  `FixtureOsmAdapter` (see Phase 6e).
+  `src/geo/osm-pure.ts` originally intended as the "filter a row-set"
+  half of the now-replaced row-set frame. Phase 6e moved to exact-key
+  replay, which has no use for the snapshot helpers. The whole module
+  + its tests were deleted in `0db84dc`. `pointToLineDistanceMParsed`
+  and `parseLineStringWkt` in `line-stations.ts` un-exported (they had
+  no other consumer).
 
 ### Phase 6b: snapshot field placeholder (superseded)  ✅ (will be revised)
 
@@ -398,15 +400,19 @@ need the adapter shape (see "Bounded vs unbounded sources" in Design).
   the adapter. No top-level imports of `nearbyWays` etc. in the
   pipeline.
 
-### Phase 6e: `RecordingOsmAdapter` + `FixtureOsmAdapter`
+### Phase 6e: `RecordingOsmAdapter` + `FixtureOsmAdapter`  ✅
 
-- `RecordingOsmAdapter(inner)`: every call delegates to `inner`,
-  records returned rows into a deduped row-set keyed by `osm_id`,
-  records `reverseGeocode` responses keyed by exact (lat, lon, zoom).
-- `FixtureOsmAdapter(trace)`: implements the interface via the
-  `osm-pure.ts` helpers over the row-set; answers `reverseGeocode`
-  by exact-key lookup; throws on uncaptured Nominatim query.
-- Unit tests cover both adapters in isolation.
+- `RecordingOsmAdapter(inner)`: every call delegates to `inner` and
+  records the `(args → result)` pair into an `OsmTrace` keyed by
+  `${lat}|${lon}|${radius?}`. `Set<string>` results serialise as
+  `string[]` for fixture JSON round-trip.
+- `FixtureOsmAdapter(trace)`: answers each call by exact-key lookup.
+  An uncaptured query throws an actionable error
+  ("uncaptured nearbyWays(51.5, -0.1, 50) — re-capture required") so
+  the harness points at the actual cause rather than a downstream
+  behaviour diff.
+- Eleven unit tests cover capture, replay, error path, and JSON
+  round-trip in `tests/osm-adapter-recording-fixture.test.ts`.
 
 ### Phase 6f: fixture format + `capture-day-v2` + first migration
 
