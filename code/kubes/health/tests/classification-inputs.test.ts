@@ -17,15 +17,20 @@ import type {
 } from "../src/geo/classification-inputs.js";
 
 describe("ClassificationInputs shape", () => {
-	it("requires identity, phonetrack, knownPlaces, biometrics, modeBiometrics", () => {
+	it("requires all eight closure fields", () => {
 		// This test exists to make the type a load-bearing contract: any
-		// future change that drops a field breaks the build here.
+		// future change that drops a field breaks the build here. The
+		// shape evolved across Phases 1, 4, 5, 6b — every required field
+		// must be constructible from an empty/null baseline.
 		const inputs: ClassificationInputs = {
 			identity: minimalIdentity(),
 			phonetrack: emptyPhonetrack(),
 			knownPlaces: [],
 			biometrics: emptyBiometrics(),
 			modeBiometrics: [],
+			hsmmDecode: null,
+			railRouteCache: [],
+			osm: { lines: [], points: [] },
 		};
 		expect(inputs.identity.userId).toBe("pippijn");
 	});
