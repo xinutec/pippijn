@@ -55,6 +55,7 @@ NC_CLIENT_SECRET=$(get NC_CLIENT_SECRET)
 # uses; just credentials isn't enough.
 USE_FACTOR_SCORER=$(get USE_FACTOR_SCORER)
 USE_BIOMETRIC_FACTOR=$(get USE_BIOMETRIC_FACTOR)
+USE_CONTINUITY_CONTINUATION=$(get USE_CONTINUITY_CONTINUATION)
 [ -n "$DB_PASSWORD" ] || {
 	echo "DB_PASSWORD not found in pod env" >&2
 	exit 1
@@ -65,6 +66,7 @@ export DB_HOST=127.0.0.1 DB_PORT="$LOCAL_PORT" TZ=UTC
 # an empty string is not the same as unset (the code reads === "1").
 [ -n "$USE_FACTOR_SCORER" ] && export USE_FACTOR_SCORER || true
 [ -n "$USE_BIOMETRIC_FACTOR" ] && export USE_BIOMETRIC_FACTOR || true
+[ -n "$USE_CONTINUITY_CONTINUATION" ] && export USE_CONTINUITY_CONTINUATION || true
 # NC_BASE_URL is usually unset in the pod (the app falls back to a
 # built-in default). Only export it when prod actually sets it —
 # exporting an empty string would fail URL validation.

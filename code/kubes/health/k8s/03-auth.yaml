@@ -85,6 +85,13 @@ spec:
             #   value: "1"
             # - name: USE_BIOMETRIC_FACTOR
             #   value: "1"
+            # Presence-continuity emission factor — same flag the
+            # decode cron uses. velocity.ts in the auth pod does not
+            # read this directly, but it must be present on the auth
+            # pod env so scripts/prod-db.sh can mirror it via printenv
+            # for the golden harness. See feedback_parity_tools_must_mirror_env.
+            - name: USE_CONTINUITY_CONTINUATION
+              value: "1"
           resources:
             requests:
               cpu: 10m
