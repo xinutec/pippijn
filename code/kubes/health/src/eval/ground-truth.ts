@@ -23,6 +23,51 @@ import { fitbitTsToUnix } from "../geo/timezone.js";
 
 export type AuditStatus = "correct" | "wrong" | "partial" | "unclear";
 
+/**
+ * How a ground-truth verdict is known — the provenance ladder, strongest
+ * first. A verdict's *status* says what is true; its *provenance* says how
+ * much to trust that claim, which is what stops a pipeline guess from
+ * masquerading as fact.
+ *
+ *   - `corroborated` — independent sources agree (e.g. GPS + watch + an
+ *     external record like a hospital dossier). Strongest; beats memory.
+ *   - `user` — the user stated it directly, no external record.
+ *   - `derived` — computed from the raw signal (cadence / physics / GPS
+ *     proximity). Re-verifiable and immune to label contamination.
+ *   - `inferred` — read back from the pipeline's own output. This is NOT
+ *     truth; it can only ever be a hypothesis. The 2026-04-29 "hair
+ *     appointment" was this, wearing a `correct` badge.
+ *   - `unspecified` — no provenance tag present. Treated as untrustworthy
+ *     (same gate as `inferred`) so an un-annotated legacy row never
+ *     silently gates a regression check.
+ *
+ * Tagged inline in an audit row with `{user}` / `{derived}` /
+ * `{corroborated}` / `{inferred}` (in the status or notes cell).
+ */
+export type Provenance = "corroborated" | "user" | "derived" | "inferred" | "unspecified";
+
+/** Provenance values trustworthy enough to gate a verification check. A
+ *  `correct`/`wrong` verdict only becomes an enforceable truth when its
+ *  provenance clears this bar — `inferred` and `unspecified` never do. */
+export const TRUSTED_PROVENANCE: ReadonlySet<Provenance> = new Set<Provenance>(["corroborated", "user", "derived"]);
+
+/** Read a provenance tag (`{user}`, `{derived}`, `{corroborated}`,
+ *  `{inferred}`) from free-text. Returns `unspecified` when no tag is
+ *  present. Case-insensitive; the first recognised tag wins. */
+export function parseProvenance(text: string): Provenance {
+	const m = text.toLowerCase().match(/\{(corroborated|user|derived|inferred)\}/);
+	return (m?.[1] as Provenance) ?? "unspecified";
+}
+
+/** Is this row an enforceable truth — a definite verdict (`correct` or
+ *  `wrong`) backed by trustworthy provenance? Only such rows should gate a
+ *  pipeline-vs-truth check; `partial`/`unclear` verdicts and
+ *  `inferred`/`unspecified` provenance are advisory, never enforced. */
+export function isEnforceableTruth(row: Pick<GroundTruthRow, "status" | "provenance">): boolean {
+	if (row.status !== "correct" && row.status !== "wrong") return false;
+	return TRUSTED_PROVENANCE.has(row.provenance);
+}
+
 export type GroundTruthMode = "sleeping" | "stationary" | "walking" | "cycling" | "driving" | "train" | "plane";
 
 export interface ParsedBlessed {
@@ -66,6 +111,11 @@ export interface GroundTruthRow {
 	 *  edge case in the narrative). */
 	blessed: ParsedBlessed | null;
 	status: AuditStatus;
+	/** How this verdict is known — see {@link Provenance}. Parsed from an
+	 *  inline `{...}` tag in the status or notes cell; `unspecified` when
+	 *  absent. Determines whether the verdict can gate a verification check
+	 *  (see {@link isEnforceableTruth}). */
+	provenance: Provenance;
 	/** Raw status cell, useful for diagnostics. */
 	statusText: string;
 	/** "Correct version" or trailing-notes cell content — free-text the
@@ -179,6 +229,7 @@ export function parseGroundTruth(markdown: string, date: string, tz: string): Gr
 			blessedText: r.blessedText,
 			blessed: parseBlessedCell(r.blessedText),
 			status: normaliseStatus(r.statusText),
+			provenance: parseProvenance(`${r.statusText} ${r.correctVersionText ?? ""}`),
 			statusText: r.statusText,
 			correctVersionText: r.correctVersionText,
 		});

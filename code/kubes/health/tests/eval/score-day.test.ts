@@ -27,6 +27,7 @@ function gt(
 		startTs: TS_START + startMin * MIN,
 		endTs: TS_START + endMin * MIN,
 		status,
+		provenance: "unspecified",
 		statusText: status,
 		blessedText: "",
 		blessed,

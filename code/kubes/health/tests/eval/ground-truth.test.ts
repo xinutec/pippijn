@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseGroundTruth } from "../../src/eval/ground-truth.js";
+import { isEnforceableTruth, parseGroundTruth, parseProvenance } from "../../src/eval/ground-truth.js";
 
 /**
  * Parser tests cover the format variants seen across the five real
@@ -156,5 +156,70 @@ describe("parseGroundTruth", () => {
 		const ts = Date.UTC(2026, 4, 21, 23, 30, 0) / 1000; // 00:30 BST = 23:30 UTC prev day
 		const row = out.rows.find((r) => r.startTs <= ts && ts < r.endTs);
 		expect(row?.blessed?.mode).toBe("sleeping");
+	});
+});
+
+describe("parseProvenance", () => {
+	it("reads each tag", () => {
+		expect(parseProvenance("correct {user}")).toBe("user");
+		expect(parseProvenance("notes... {derived} ...")).toBe("derived");
+		expect(parseProvenance("**wrong** {corroborated}")).toBe("corroborated");
+		expect(parseProvenance("hair appointment {inferred}")).toBe("inferred");
+	});
+	it("is case-insensitive", () => {
+		expect(parseProvenance("{USER}")).toBe("user");
+	});
+	it("defaults to unspecified when no tag", () => {
+		expect(parseProvenance("correct")).toBe("unspecified");
+		expect(parseProvenance("")).toBe("unspecified");
+	});
+});
+
+describe("isEnforceableTruth — only a trustworthy definite verdict gates a check", () => {
+	const row = (status: string, provenance: string) =>
+		({ status, provenance }) as Parameters<typeof isEnforceableTruth>[0];
+
+	it("enforces a correct/wrong verdict backed by user/derived/corroborated", () => {
+		expect(isEnforceableTruth(row("correct", "user"))).toBe(true);
+		expect(isEnforceableTruth(row("wrong", "corroborated"))).toBe(true);
+		expect(isEnforceableTruth(row("correct", "derived"))).toBe(true);
+	});
+
+	it("does NOT enforce an inferred or unspecified verdict (the contamination guard)", () => {
+		// The 2026-04-29 "hair appointment" was status=correct but really inferred
+		// from the pipeline's own label — it must never gate.
+		expect(isEnforceableTruth(row("correct", "inferred"))).toBe(false);
+		expect(isEnforceableTruth(row("correct", "unspecified"))).toBe(false);
+	});
+
+	it("does NOT enforce partial/unclear verdicts however trusted", () => {
+		expect(isEnforceableTruth(row("partial", "user"))).toBe(false);
+		expect(isEnforceableTruth(row("unclear", "corroborated"))).toBe(false);
+	});
+});
+
+describe("parseGroundTruth — provenance per row", () => {
+	const MD = `# 2026-04-29 — ground truth
+
+## Audit of 2026-04-29
+
+| Window         | Blessed                                      | Status     | Notes                                  |
+| -------------- | -------------------------------------------- | ---------- | -------------------------------------- |
+| 14:36 – 16:19  | stationary @ Kapsalon Marian (hairdresser)   | **wrong**  | HMC outpatient visit {corroborated}    |
+| 12:25 – 12:35  | walking on Hudson Walk                        | correct    | cadence + GPS {derived}                |
+| 09:00 – 10:00  | stationary @ Home                             | correct    |                                        |
+`;
+	it("attaches the tagged provenance and leaves untagged rows unspecified", () => {
+		const out = parseGroundTruth(MD, "2026-04-29", "Europe/Amsterdam");
+		const byWindow = (w: string) => out.rows.find((r) => r.windowText.includes(w));
+		expect(byWindow("14:36")?.provenance).toBe("corroborated");
+		expect(byWindow("14:36")?.status).toBe("wrong");
+		expect(byWindow("12:25")?.provenance).toBe("derived");
+		expect(byWindow("09:00")?.provenance).toBe("unspecified");
+		// Enforceability flows from both fields.
+		const hmc = byWindow("14:36");
+		expect(hmc && isEnforceableTruth(hmc)).toBe(true);
+		const home = byWindow("09:00");
+		expect(home && isEnforceableTruth(home)).toBe(false); // correct but unspecified
 	});
 });
