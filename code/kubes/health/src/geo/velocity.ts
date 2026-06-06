@@ -49,6 +49,7 @@ import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
 import { splitStaysOnEvidence } from "./stay-split.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
+import { stationAtTrainAlight } from "./transit-place.js";
 import {
 	annotateUndergroundRuns,
 	UNDERGROUND_LINES_RADIUS_M,
@@ -580,7 +581,7 @@ export async function computeVelocity(
 	// Enrich each (post-stay-split) segment with OSM data
 	const enrichStart = Date.now();
 	const enriched: EnrichedSegment[] = await Promise.all(
-		refinedSegments.map(async (seg) => {
+		refinedSegments.map(async (seg, i) => {
 			// Synthetic gap segments (inferred-walking or `unknown`) carry
 			// pointCount=0 — no real GPS data. Enriching with road names /
 			// OSM places would invent context we don't have. Pass them
@@ -593,6 +594,19 @@ export async function computeVelocity(
 				if (seg.mode === "stationary") {
 					const cLat = segPoints.reduce((s, p) => s + p.lat, 0) / segPoints.length;
 					const cLon = segPoints.reduce((s, p) => s + p.lon, 0) / segPoints.length;
+
+					// Transit continuity: a stay immediately after a train,
+					// within station range, is at the station the user just
+					// alighted at — not at a co-located café (2026-05-22
+					// Finchley Road ambulance wait, mislabelled "Loft Coffee
+					// Company"). Takes precedence over the focus_place /
+					// OSM-amenity picker below.
+					const alightStation = await stationAtTrainAlight(refinedSegments[i - 1], cLat, cLon, inputs.osm);
+					if (alightStation !== null) {
+						const namedPlace = await bestPlace(inputs.osm, cLat, cLon, { preferResidential: false });
+						const city = extractCity(namedPlace);
+						return { ...seg, place: alightStation, ...(city ? { city } : {}) };
+					}
 
 					// Probabilistic place assignment: rank candidates from
 					// focus_places by combined log-likelihood (Gaussian on
