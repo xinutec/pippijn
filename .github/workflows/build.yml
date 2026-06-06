@@ -24,7 +24,28 @@ jobs:
       username: ${{ secrets.DOCKERHUB_USERNAME }}
       password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
+  # Gate the health-sync image on the full analysis suite — typecheck,
+  # schema-drift, Biome + angular-eslint, and the backend + frontend
+  # unit tests. Same `npm run verify` deploy.sh runs locally, so a
+  # direct push to main is held to the same bar as a scripted deploy.
+  # (The golden harness is not here: it needs DB access and runs from a
+  # tunnel / cron, not plain CI.)
+  health-verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: code/kubes/health
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm ci --prefix frontend
+      - run: npm run verify
+
   health-sync:
+    needs: health-verify
     uses: xinutec/pippijn/.github/workflows/docker.yml@main
     with:
       path: code/kubes/health
