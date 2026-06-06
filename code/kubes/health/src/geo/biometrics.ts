@@ -136,6 +136,20 @@ export function cadenceForSegment(segment: TrackSegment, stepPoints: StepPoint[]
 	return (total / durationSec) * 60;
 }
 
+/** Highest single per-minute step count inside a segment's window. Fitbit
+ *  `steps_intraday` is per-minute, so each `StepPoint` is one minute's steps
+ *  and the max over the window is the segment's peak cadence. Returns 0 if no
+ *  step rows fall in the window. Unlike the mean (`cadenceForSegment`), the
+ *  peak survives a window that is slow / interrupted overall but contains one
+ *  unmistakable walking minute. */
+export function peakCadenceForSegment(segment: TrackSegment, stepPoints: StepPoint[]): number {
+	let peak = 0;
+	for (const sp of stepPoints) {
+		if (sp.ts >= segment.startTs && sp.ts <= segment.endTs && sp.steps > peak) peak = sp.steps;
+	}
+	return peak;
+}
+
 // --- Cadence-based mode correction ---
 
 /** A walking-classified segment with cadence below this is almost certainly
@@ -159,6 +173,24 @@ const CADENCE_CORRECTION_MIN_DURATION_S = 3 * 60;
  *  — cadence correction shouldn'\''t fight that boundary. */
 const WALKING_MAX_SPEED_KMH = 15;
 
+/** A "stationary" segment carrying a single minute at or above this step
+ *  count was almost certainly a walk the GPS read as a stop — 80 steps in one
+ *  minute is an unmistakable walking burst, not the incidental shuffling of
+ *  someone genuinely still. The *peak* minute (not the segment mean) is the
+ *  robust signal: a real walk-through is often slow / interrupted overall
+ *  (window-shopping, a park stroll) so its mean cadence looks ambiguous, but
+ *  at least one minute hits a clear walking burst. */
+const STATIONARY_WALK_PEAK_CADENCE = 80;
+
+/** ...but only flip when the GPS also shows the segment actually translated.
+ *  Pacing in place at an established stay (home, a hospital ward) produces the
+ *  same step burst with ~0 net GPS movement; a walk-through moves you. 1.0
+ *  km/h cleanly separates a meandering park walk-through (~1.4 km/h observed
+ *  on 2026-05-25) from in-place pacing (~0–0.2 km/h observed at home / the
+ *  ward). This is the GPS + watch fusion: steps alone cannot tell
+ *  walking-in-place from walking-somewhere — GPS translation can. */
+const STATIONARY_WALK_MIN_AVG_SPEED_KMH = 1.0;
+
 /** Require at least one step row at or after the segment'\''s end within this
  *  window — proof that Fitbit data has been synced through the segment'\''s
  *  time period. Without this, "no steps recorded" might just mean "we
@@ -167,9 +199,12 @@ const WALKING_MAX_SPEED_KMH = 15;
 const CADENCE_CORRECTION_FRESHNESS_S = 30 * 60;
 
 /** Use cadence to correct mode classifications that GPS alone got wrong.
- *  Today: only the walking-with-no-steps case → relabel as driving (typical
- *  pattern is "passenger stuck in slow traffic"). Other corrections may
- *  follow as we learn what'\''s useful.
+ *  This pass handles the walking → driving direction: a "walking" segment
+ *  with near-zero cadence is almost certainly a passenger in slow traffic /
+ *  on an escalator. The symmetric stationary → walking direction lives in
+ *  `correctStationaryWalkThrough` (it must run at a different pipeline stage).
+ *
+ *  Runs BEFORE merge so a neighbouring drive can absorb the relabelled leg.
  *
  *  Pure: needs a `TrackSegment`-shaped input plus the day'\''s step rows.
  *  Returns a segment with `refinedMode` / `refinedReason` updated when a
@@ -211,4 +246,129 @@ export function correctModeFromCadence<T extends TrackSegment & { refinedMode?: 
 		refinedMode: "driving",
 		refinedReason: segment.refinedReason ? `${segment.refinedReason}; ${reason}` : reason,
 	};
+}
+
+/**
+ * Symmetric counterpart to `correctModeFromCadence`: relabel a "stationary"
+ * segment the GPS read as a stop into walking, when the watch recorded an
+ * unmistakable walking burst AND the GPS shows the segment actually
+ * translated. A slow, meandering walk-through (a park stroll, a wander between
+ * two close stops) scores as stationary on GPS alone; the step counter knows
+ * better. The two guards are what keep this safe:
+ *   - peak (not mean) cadence ≥ `STATIONARY_WALK_PEAK_CADENCE` — one clear
+ *     walking minute, so a slow / interrupted real walk still qualifies even
+ *     though its mean cadence looks ambiguous;
+ *   - avgSpeed ≥ `STATIONARY_WALK_MIN_AVG_SPEED_KMH` — in-place pacing at a
+ *     real stay (home, a hospital ward) produces the same step burst with no
+ *     GPS movement, so the translation guard protects genuine stays.
+ * No freshness guard is needed: the trigger is the PRESENCE of a high-cadence
+ * minute inside the window, which is itself proof Fitbit has data for it.
+ *
+ * MUST run AFTER the rail / drive absorbers (annotateUndergroundRuns,
+ * absorbBoardingPlatform, absorbInterchanges, absorbDriveStops): walking
+ * through a station during an underground interchange is genuine walking
+ * (steps + translation), but it belongs to the train journey and those
+ * specialised passes claim it first. Flipping it early chops the train run
+ * and surfaces phantom concourse stops (the 2026-05-15 regression).
+ *
+ * Pure; conservative on missing data (empty `stepPoints` → no change).
+ */
+export function correctStationaryWalkThrough<T extends TrackSegment & { refinedMode?: string; refinedReason?: string }>(
+	segment: T,
+	stepPoints: StepPoint[],
+): T {
+	if (stepPoints.length === 0) return segment;
+	const duration = segment.endTs - segment.startTs;
+	if (duration < CADENCE_CORRECTION_MIN_DURATION_S) return segment;
+
+	const currentMode = segment.refinedMode ?? segment.mode;
+	if (currentMode !== "stationary") return segment;
+	if (segment.avgSpeed < STATIONARY_WALK_MIN_AVG_SPEED_KMH) return segment;
+
+	const peak = peakCadenceForSegment(segment, stepPoints);
+	if (peak < STATIONARY_WALK_PEAK_CADENCE) return segment;
+
+	const reason = `walking burst (${peak.toFixed(0)}/min) with GPS movement`;
+	return {
+		...segment,
+		refinedMode: "walking",
+		refinedReason: segment.refinedReason ? `${segment.refinedReason}; ${reason}` : reason,
+	};
+}
+
+/** Segment shape the walk-through sequence pass needs: a TrackSegment plus the
+ *  refined-mode / place / wayName fields carried by enriched segments. */
+type WalkThroughSeg = TrackSegment & {
+	refinedMode?: string;
+	refinedReason?: string;
+	place?: string;
+	city?: string;
+	wayName?: string;
+};
+
+const segMode = (s: WalkThroughSeg): string => s.refinedMode ?? s.mode;
+
+/** Coalesce consecutive WALKING segments into one. Only touches walking —
+ *  never trains or drives — so it cannot collapse two distinct train legs at
+ *  an interchange (that bug killed the 2026-05-22 golden when a blanket
+ *  mergeAdjacentMoving ran post-line-assignment). The merged run keeps a real
+ *  `wayName` if either part has one, drops any stale stay `place`, and unions
+ *  the time span / point count / max speed. */
+function mergeAdjacentWalking<T extends WalkThroughSeg>(segments: T[]): T[] {
+	const out: T[] = [];
+	for (const seg of segments) {
+		const prev = out[out.length - 1];
+		if (prev && segMode(prev) === "walking" && segMode(seg) === "walking") {
+			prev.endTs = seg.endTs;
+			prev.pointCount += seg.pointCount;
+			prev.maxSpeed = Math.max(prev.maxSpeed, seg.maxSpeed);
+			if (!prev.wayName && seg.wayName) prev.wayName = seg.wayName;
+			continue;
+		}
+		out.push({ ...seg });
+	}
+	return out;
+}
+
+/**
+ * Apply `correctStationaryWalkThrough` across a time-ordered segment
+ * sequence, with the cross-segment guard the per-segment rule can't see, then
+ * tidy the result:
+ *
+ *  1. Place-continuity guard — a stationary stop bracketed by the SAME place
+ *     on both sides is intra-place pacing (walking to the office bathroom and
+ *     back), part of that stay, not a journey leg. Only a stop that
+ *     TRANSITIONS between different places (or sits between moving legs) is a
+ *     genuine walk-through. This is what kept the 2026-05-12 "stationary @
+ *     Work" afternoon from fragmenting.
+ *  2. Flip eligible stops to walking and drop their stay `place` label — a
+ *     walk-through is no longer a stop.
+ *  3. Merge adjacent walking runs (walking-only — see `mergeAdjacentWalking`)
+ *     so the reclassified walk coalesces with the walk beside it instead of
+ *     surfacing as a separate "walking @ <park>" sliver.
+ *
+ * MUST run after the rail / drive absorbers — see the contract on
+ * `correctStationaryWalkThrough`.
+ */
+export function applyStationaryWalkThrough<T extends WalkThroughSeg>(segments: T[], stepPoints: StepPoint[]): T[] {
+	const flipped = segments.map((seg, i) => {
+		if (segMode(seg) !== "stationary") return seg;
+
+		const prev = segments[i - 1];
+		const next = segments[i + 1];
+		const bracketedBySamePlace =
+			prev !== undefined &&
+			next !== undefined &&
+			segMode(prev) === "stationary" &&
+			segMode(next) === "stationary" &&
+			prev.place != null &&
+			prev.place === next.place;
+		if (bracketedBySamePlace) return seg;
+
+		const out = correctStationaryWalkThrough(seg, stepPoints);
+		if (out === seg || out.refinedMode !== "walking") return out;
+		// Reclassified to walking → the stay label no longer applies.
+		return { ...out, place: undefined, city: undefined };
+	});
+	return mergeAdjacentWalking(flipped);
 }

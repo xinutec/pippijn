@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+	applyStationaryWalkThrough,
 	type BiometricEnrichment,
 	cadenceForSegment,
 	correctModeFromCadence,
+	correctStationaryWalkThrough,
 	enrichSegmentWithBiometrics,
 	type HrPoint,
 	type SleepStageRecord,
@@ -308,5 +310,140 @@ describe("correctModeFromCadence — passenger-in-traffic detection", () => {
 		expect(r.refinedMode).toBe("driving");
 		expect(r.refinedReason).toMatch(/near tertiary/);
 		expect(r.refinedReason).toMatch(/cadence/i);
+	});
+});
+
+describe("correctModeFromCadence — stationary walk-through detection (2026-05-25 Union Park)", () => {
+	const step = (ts: number, steps: number): StepPoint => ({ ts, steps });
+	type SegLike = TrackSegment & { refinedMode?: string; refinedReason?: string };
+	const stationarySeg = (avgSpeed: number, durationS: number): SegLike => ({
+		startTs: 0,
+		endTs: durationS,
+		mode: "stationary",
+		confidence: 0.9,
+		confidenceMargin: 100,
+		avgSpeed,
+		maxSpeed: Math.max(avgSpeed * 1.2, 5),
+		linearity: 0.1,
+		pointCount: 5,
+	});
+
+	it("flips stationary → walking on a walking burst WITH GPS translation (Union Park: peak 104/min, avg 1.4 km/h)", () => {
+		// Ground truth: walked through Union Park (a park, not a stop); the
+		// slow, meandering pace made the GPS classifier score it stationary.
+		// The watch recorded a 104-steps/min minute mid-window.
+		const seg = stationarySeg(1.4, 5 * 60);
+		const steps: StepPoint[] = [step(0, 8), step(60, 18), step(120, 104), step(180, 12), step(240, 0)];
+		const r = correctStationaryWalkThrough(seg, steps);
+		expect(r.refinedMode).toBe("walking");
+		expect(r.refinedReason).toMatch(/walk/i);
+	});
+
+	it("does NOT flip in-place pacing at an established stay (same step burst, ~0 GPS translation)", () => {
+		// Pacing across a room at home / a hospital ward: identical 104/min
+		// burst, but the GPS shows no translation (avg 0.1 km/h) → a real stay.
+		const seg = stationarySeg(0.1, 5 * 60);
+		const steps: StepPoint[] = [step(0, 8), step(60, 18), step(120, 104), step(180, 12), step(240, 0)];
+		const r = correctStationaryWalkThrough(seg, steps);
+		expect(r.refinedMode ?? r.mode).toBe("stationary");
+	});
+
+	it("does NOT flip a drifting stop without a clear walking burst (GPS translation but low peak cadence)", () => {
+		// Slow GPS drift around a stop with incidental shuffling (peak 30/min):
+		// translation present, but no unmistakable walking minute → stay put.
+		const seg = stationarySeg(1.4, 5 * 60);
+		const steps: StepPoint[] = [step(0, 10), step(60, 30), step(120, 20), step(180, 15), step(240, 5)];
+		const r = correctStationaryWalkThrough(seg, steps);
+		expect(r.refinedMode ?? r.mode).toBe("stationary");
+	});
+
+	it("does NOT flip a too-short stationary blip even with a burst (insufficient sample)", () => {
+		const seg = stationarySeg(1.4, 60);
+		const steps: StepPoint[] = [step(0, 104)];
+		const r = correctStationaryWalkThrough(seg, steps);
+		expect(r.refinedMode ?? r.mode).toBe("stationary");
+	});
+
+	it("does NOT flip when there is no step data at all", () => {
+		const seg = stationarySeg(1.4, 5 * 60);
+		const r = correctStationaryWalkThrough(seg, []);
+		expect(r.refinedMode ?? r.mode).toBe("stationary");
+	});
+});
+
+describe("applyStationaryWalkThrough — sequence-level guards", () => {
+	const step = (ts: number, steps: number): StepPoint => ({ ts, steps });
+	type Seg = TrackSegment & { refinedMode?: string; refinedReason?: string; place?: string; wayName?: string };
+	const stat = (startTs: number, endTs: number, avgSpeed: number, place?: string): Seg => ({
+		startTs,
+		endTs,
+		mode: "stationary",
+		confidence: 0.9,
+		confidenceMargin: 100,
+		avgSpeed,
+		maxSpeed: Math.max(avgSpeed * 1.2, 5),
+		linearity: 0.1,
+		pointCount: 5,
+		place,
+	});
+	const walk = (startTs: number, endTs: number, wayName?: string): Seg => ({
+		startTs,
+		endTs,
+		mode: "walking",
+		confidence: 0.9,
+		confidenceMargin: 100,
+		avgSpeed: 4,
+		maxSpeed: 6,
+		linearity: 0.5,
+		pointCount: 5,
+		wayName,
+	});
+	// A clear walking burst with GPS translation in 0..300s.
+	const burst: StepPoint[] = [step(0, 8), step(60, 18), step(120, 104), step(180, 12), step(240, 0)];
+
+	it("flips a standalone phantom stop AND merges it into the adjacent walk (Union Park → Hudson Walk)", () => {
+		const segs = [walk(0, 600, "Hudson Walk"), stat(600, 900, 1.4, "Union Park (park)"), walk(900, 1200)];
+		// Burst lands inside the stationary segment 600..900.
+		const steps = [step(660, 8), step(720, 18), step(780, 104), step(840, 12)];
+		const out = applyStationaryWalkThrough(segs, steps);
+		// All three collapse into a single walking run keeping the real wayName.
+		expect(out).toHaveLength(1);
+		expect(out[0].refinedMode ?? out[0].mode).toBe("walking");
+		expect(out[0].wayName).toBe("Hudson Walk");
+		expect(out[0].place).toBeUndefined();
+		expect(out[0].startTs).toBe(0);
+		expect(out[0].endTs).toBe(1200);
+	});
+
+	it("does NOT flip a stop bracketed by the SAME place (intra-Work pacing to the bathroom and back)", () => {
+		const segs = [stat(0, 600, 0, "Work"), stat(600, 900, 1.4, "Work"), stat(900, 1500, 0, "Work")];
+		const out = applyStationaryWalkThrough(
+			segs,
+			burst.map((p) => step(p.ts + 600, p.steps)),
+		);
+		// The middle stop is intra-place movement → stays stationary.
+		expect(out.every((s) => (s.refinedMode ?? s.mode) === "stationary")).toBe(true);
+	});
+
+	it("DOES flip a stop that transitions between two DIFFERENT places", () => {
+		const segs = [stat(0, 600, 0, "Varley"), stat(600, 900, 1.4, "Union Park (park)"), stat(900, 1500, 0, "Home")];
+		const steps = [step(660, 8), step(720, 104), step(780, 90)];
+		const out = applyStationaryWalkThrough(segs, steps);
+		const middle = out.find((s) => s.startTs === 600);
+		expect(middle?.refinedMode).toBe("walking");
+	});
+
+	it("never merges two non-walking segments (trains stay distinct)", () => {
+		const train = (startTs: number, endTs: number, wayName: string): Seg => ({
+			...walk(startTs, endTs, wayName),
+			mode: "train",
+			refinedMode: "train",
+			avgSpeed: 40,
+			maxSpeed: 60,
+		});
+		const segs = [train(0, 600, "Met line"), train(600, 1200, "Jubilee line")];
+		const out = applyStationaryWalkThrough(segs, burst);
+		expect(out).toHaveLength(2);
+		expect(out.map((s) => s.wayName)).toEqual(["Met line", "Jubilee line"]);
 	});
 });

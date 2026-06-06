@@ -15,6 +15,7 @@ import { detectKnownPlaceStays, type StayCandidate } from "../sleep/known-place-
 import { enrichSleepWindows, loadDaySleepWindows } from "../sleep/load.js";
 import { biometricCoherence } from "./biometric-coherence.js";
 import {
+	applyStationaryWalkThrough,
 	type BiometricEnrichment,
 	correctModeFromCadence,
 	enrichSegmentWithBiometrics,
@@ -906,11 +907,21 @@ export async function computeVelocity(
 	// snap keys off the corrected station pair. See reconcileAdjacentRailLegs.
 	const withReconciledRail = timeSync("railReconcile", () => reconcileAdjacentRailLegs(withAbsorbedDriveStops));
 
+	// Stationary walk-through correction (cadence + GPS-translation fusion):
+	// a "stationary" stop the watch shows was actually a walk-through — a clear
+	// per-minute step burst coinciding with real GPS translation. Runs HERE,
+	// after every rail / drive absorber has claimed the station-walking and
+	// drive-stop segments it owns, so this only touches genuine standalone
+	// phantom stops (the 2026-05-25 Union Park park-stroll case). The pass
+	// carries its own cross-segment guards (intra-place pacing, walking-only
+	// coalesce) — see applyStationaryWalkThrough.
+	const withWalkThrough = timeSync("walkThrough", () => applyStationaryWalkThrough(withReconciledRail, steps));
+
 	// Rail-snap: attach the precomputed rail-track geometry to each
 	// train run whose route is in rail_route_cache (filled offline by
 	// refresh-rail-routes). One indexed lookup — purely additive, the
 	// raw track is untouched. See annotateSnappedPaths.
-	const withSnapped = timeSync("railSnap", () => annotateSnappedPaths(withReconciledRail, inputs.railRouteCache));
+	const withSnapped = timeSync("railSnap", () => annotateSnappedPaths(withWalkThrough, inputs.railRouteCache));
 
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
