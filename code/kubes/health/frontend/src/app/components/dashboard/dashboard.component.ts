@@ -158,25 +158,44 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		},
 	});
 
+	/** Latches once the first day-load resolves. A day-navigation changes
+	 *  the resource's `params`, which Angular reports as `loading` (the
+	 *  same status as the very first load) — so status alone can't tell
+	 *  "booting" from "navigating". This flag does: the full-screen boot
+	 *  spinner shows only while it is false. Set in a constructor effect. */
+	private readonly hasLoadedOnce = signal(false);
+	/** The last successfully-resolved day payload. On a navigation load the
+	 *  resource's `value()` resets to the default (empty), so the view
+	 *  reads through this snapshot to keep the previous day's content on
+	 *  screen — dimmed by `.stale` — until the new day lands, instead of
+	 *  blanking it. Updated in the same constructor effect. */
+	private readonly lastDay = signal<DayData>({ stages: [], hr: [], velocity: null });
+	/** The day payload to render: the resolved value, or the last good one
+	 *  while a new day loads. */
+	private readonly displayedDay = computed(() =>
+		this.dayData.status() === "resolved" ? this.dayData.value() : this.lastDay(),
+	);
+
 	// ─── Derived view state (never set imperatively) ────────────────
 	readonly activity = computed(() => this.windowData.value().activity);
 	readonly sleep = computed(() => this.windowData.value().sleep);
-	readonly sleepStages = computed(() => this.dayData.value().stages);
-	readonly intradayHr = computed(() => this.dayData.value().hr);
-	readonly velocity = computed(() => this.dayData.value().velocity);
+	readonly sleepStages = computed(() => this.displayedDay().stages);
+	readonly intradayHr = computed(() => this.displayedDay().hr);
+	readonly velocity = computed(() => this.displayedDay().velocity);
 	readonly latestActivity = computed(() => selectDayActivity(this.activity(), this.selectedDate()));
 	readonly latestSleep = computed(() => selectDayMainSleep(this.sleep(), this.selectedDate()));
 
-	/** In-body spinner: the selected day's data is loading OR reloading. */
+	/** In-body overlay + dim: a day's data is loading (first time or on
+	 *  navigation). This is the spinner the user sees while stepping days. */
 	readonly dayLoading = computed(() => this.dayData.isLoading());
-	/** Full-screen boot spinner: auth not yet resolved, or the very first
-	 *  day-load hasn't returned (status `loading`, before any value).
-	 *  A subsequent day-navigation is `reloading` — handled by the
-	 *  in-body overlay, not this. */
+	/** Full-screen boot spinner: shown only before the dashboard first has
+	 *  any data — auth still resolving, or the first day-load hasn't
+	 *  returned. Once data has loaded once, navigation uses `dayLoading`
+	 *  (the in-body overlay), never this. */
 	readonly loading = computed(() => {
 		if (!this.authReady()) return true;
 		if (!this.authenticated() || !this.fitbitLinked()) return false;
-		return this.dayData.status() === "loading";
+		return !this.hasLoadedOnce() && this.dayData.isLoading();
 	});
 
 	/** Most recent PhoneTrack fix — drives the Map tab's live marker.
@@ -190,6 +209,17 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		// returns — rather than snapping in from the path's end.
 		const cached = this.readCachedFix();
 		if (cached) this.liveFix.set(cached);
+
+		// Latch first-load and remember the last resolved day. This is what
+		// lets the full-screen boot spinner fire only once, and keeps the
+		// previous day's content on screen (dimmed) during a navigation
+		// reload instead of blanking it. See hasLoadedOnce / lastDay.
+		effect(() => {
+			if (this.dayData.status() === "resolved") {
+				this.lastDay.set(this.dayData.value());
+				this.hasLoadedOnce.set(true);
+			}
+		});
 
 		// Poll for the latest PhoneTrack fix while today's Map tab is
 		// open. This lives on the dashboard, not MapComponent: the Map

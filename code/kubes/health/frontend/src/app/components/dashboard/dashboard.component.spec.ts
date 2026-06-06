@@ -3,6 +3,7 @@ import { signal } from "@angular/core";
 import { provideRouter } from "@angular/router";
 import { beforeEach, describe, expect, it } from "vitest";
 import { type ActivityDay, HealthService, type SleepLog, type VelocityData } from "../../services/health.service";
+import { todayLocal } from "../../time-utils";
 import { DashboardComponent } from "./dashboard.component";
 
 function activity(date: string, steps = 5000): ActivityDay {
@@ -202,5 +203,58 @@ describe("DashboardComponent — concurrent day navigation", () => {
 		// The stale 2026-05-14 payload was discarded; the current day's
 		// default (null) still stands.
 		expect(cmp.velocity()).toBeNull();
+	});
+});
+
+describe("DashboardComponent — loading UX (rendered DOM)", () => {
+	beforeEach(() => TestBed.resetTestingModule());
+
+	const q = (fixture: ComponentFixture<unknown>, sel: string): Element | null =>
+		(fixture.nativeElement as HTMLElement).querySelector(sel);
+
+	it("first paint shows the full-screen boot spinner, not the tabs", async () => {
+		const mock = makeHealthMock();
+		const fixture = setup(mock);
+		await boot(fixture); // auth resolved, first day's velocity still pending
+		expect(q(fixture, ".app-loading"), "boot spinner present").toBeTruthy();
+		expect(q(fixture, ".view-tabs"), "tabs hidden until first day loads").toBeFalsy();
+	});
+
+	it("after the first day loads, the tabs render and nothing is stale", async () => {
+		const mock = makeHealthMock();
+		const fixture = setup(mock);
+		await boot(fixture);
+		mock.pending.get(todayLocal())?.resolve(vel());
+		await pump(fixture);
+
+		expect(q(fixture, ".app-loading"), "boot spinner gone").toBeFalsy();
+		expect(q(fixture, ".view-tabs"), "tabs visible").toBeTruthy();
+		expect(q(fixture, ".day-body.stale"), "not stale once loaded").toBeFalsy();
+	});
+
+	it("day-navigation dims the body with an overlay — never a full-screen reset", async () => {
+		const mock = makeHealthMock();
+		const fixture = setup(mock);
+		const cmp = fixture.componentInstance;
+		await boot(fixture);
+		mock.pending.get(todayLocal())?.resolve(vel());
+		await pump(fixture);
+
+		cmp.changeDay(-1); // navigate; the new day's velocity is now pending
+		await pump(fixture);
+
+		// The regression guard for the redesign: a reload keeps the tabs and
+		// the (dimmed) previous content with an in-body overlay — it must NOT
+		// fall back to the full-screen boot spinner or blank the page.
+		expect(q(fixture, ".app-loading"), "no full-screen reset on day-nav").toBeFalsy();
+		expect(q(fixture, ".view-tabs"), "tabs stay mounted").toBeTruthy();
+		expect(q(fixture, ".day-body.stale"), "body dimmed during reload").toBeTruthy();
+		expect(q(fixture, ".day-body-overlay"), "overlay spinner shown").toBeTruthy();
+
+		// The landed-on day resolves → un-stale, overlay gone.
+		mock.pending.get(cmp.selectedDate())?.resolve(vel());
+		await pump(fixture);
+		expect(q(fixture, ".day-body.stale"), "un-stale after load").toBeFalsy();
+		expect(q(fixture, ".day-body-overlay"), "overlay gone after load").toBeFalsy();
 	});
 });
