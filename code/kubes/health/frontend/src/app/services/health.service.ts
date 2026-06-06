@@ -222,33 +222,38 @@ export class HealthService {
     return false;
   }
 
-  async getActivity(days = 30): Promise<ActivityDay[]> {
-    const res = await this.fetch(`/api/activity?days=${days}`);
+  // The optional `signal` on each per-day/window fetch lets a caller —
+  // notably an Angular `resource()` — abort an in-flight request when
+  // its inputs change. The signal flows straight into `fetch`, so a
+  // superseded day-navigation cancels on the wire instead of racing to
+  // completion and being discarded.
+  async getActivity(days = 30, signal?: AbortSignal): Promise<ActivityDay[]> {
+    const res = await this.fetch(`/api/activity?days=${days}`, { signal });
     if (!res.ok) throw new Error("Failed to fetch activity");
     return res.json();
   }
 
-  async getSleep(days = 30): Promise<SleepLog[]> {
-    const res = await this.fetch(`/api/sleep?days=${days}`);
+  async getSleep(days = 30, signal?: AbortSignal): Promise<SleepLog[]> {
+    const res = await this.fetch(`/api/sleep?days=${days}`, { signal });
     if (!res.ok) throw new Error("Failed to fetch sleep");
     return res.json();
   }
 
-  async getSleepStages(date = today()): Promise<SleepStage[]> {
-    const res = await this.fetch(`/api/sleep/stages?date=${date}`);
+  async getSleepStages(date = today(), signal?: AbortSignal): Promise<SleepStage[]> {
+    const res = await this.fetch(`/api/sleep/stages?date=${date}`, { signal });
     if (!res.ok) throw new Error("Failed to fetch sleep stages");
     return res.json();
   }
 
-  async getHeartRateIntraday(date = yesterday()): Promise<HeartRatePoint[]> {
-    const res = await this.fetch(`/api/heartrate/intraday?date=${date}`);
+  async getHeartRateIntraday(date = yesterday(), signal?: AbortSignal): Promise<HeartRatePoint[]> {
+    const res = await this.fetch(`/api/heartrate/intraday?date=${date}`, { signal });
     if (!res.ok) throw new Error("Failed to fetch heart rate intraday");
     return res.json();
   }
 
-  async getVelocity(date = yesterday()): Promise<VelocityData> {
+  async getVelocity(date = yesterday(), signal?: AbortSignal): Promise<VelocityData> {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const res = await this.fetch(`/api/velocity?date=${date}&tz=${encodeURIComponent(tz)}`);
+    const res = await this.fetch(`/api/velocity?date=${date}&tz=${encodeURIComponent(tz)}`, { signal });
     if (!res.ok) throw new Error("Failed to fetch velocity data");
     return res.json();
   }
