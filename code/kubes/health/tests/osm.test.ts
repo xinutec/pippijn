@@ -5,6 +5,7 @@ import {
 	extractCity,
 	extractLineNames,
 	filterLandmarks,
+	isEnclosingInstitution,
 	isLabelWorthyVenue,
 	isLodgingLandmark,
 	landmarkToResult,
@@ -317,6 +318,34 @@ describe("pickBestLandmark", () => {
 			{ name: "Small Park", type: "leisure", subtype: "park", distanceM: 10 },
 		];
 		expect(pickBestLandmark(landmarks).name).toBe("Corner Cafe");
+	});
+});
+
+describe("isEnclosingInstitution", () => {
+	it("flags a hospital POINT within the campus radius as enclosing (2026-04-29 HMC Westeinde)", () => {
+		// HMC Westeinde is mapped only as a point; the long stop sat ~59 m
+		// from it. Without this, the nearest point-POI (a hairdresser 36 m
+		// off) wins. The hospital must be treated as enclosing.
+		expect(isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 59, encloses: false })).toBe(true);
+	});
+
+	it("still flags a polygon-enclosed institution even when far (footprint containment)", () => {
+		expect(isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 200, encloses: true })).toBe(true);
+	});
+
+	it("does NOT flag a hospital point beyond the campus radius", () => {
+		expect(isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 120, encloses: false })).toBe(
+			false,
+		);
+	});
+
+	it("does NOT flag a non-institution amenity, however close (a café is not a campus)", () => {
+		expect(isEnclosingInstitution({ type: "amenity", subtype: "cafe", distanceM: 5, encloses: false })).toBe(false);
+	});
+
+	it("does NOT flag a non-amenity type (a shop tagged hospital-ish, a leisure ground)", () => {
+		expect(isEnclosingInstitution({ type: "shop", subtype: "hospital", distanceM: 5, encloses: false })).toBe(false);
+		expect(isEnclosingInstitution({ type: "leisure", subtype: "park", distanceM: 5, encloses: true })).toBe(false);
 	});
 });
 

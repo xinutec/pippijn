@@ -447,6 +447,33 @@ export interface NearbyLandmark {
  *  whose node happens to sit closer to the noisy GPS centroid. */
 export const LARGE_INSTITUTION_SUBTYPES = new Set(["hospital", "university", "college"]);
 
+/** A large institution mapped only as a POINT (no ingested footprint — big
+ *  hospitals are commonly multipolygon relations the landmark mirror doesn't
+ *  assemble, so only the centroid/entrance node survives) still means "you
+ *  are at the institution" when the stay centroid sits within this radius of
+ *  its point. Campus-scale: a stay 60–80 m from a hospital node is on the
+ *  grounds, not at the café across the street. Without this, a stay deep in a
+ *  hospital campus is named after whatever tiny point-POI (a hairdresser, a
+ *  pharmacy) happens to sit nearest the noisy GPS centroid — the 2026-04-29
+ *  HMC Westeinde case. */
+export const LARGE_INSTITUTION_POINT_RADIUS_M = 80;
+
+/** Should this landmark be treated as the enclosing institution — outranking
+ *  nearer point POIs? True for a large-institution amenity whose footprint
+ *  geometrically encloses the stay (polygon), OR — the point-only fallback —
+ *  whose node sits within {@link LARGE_INSTITUTION_POINT_RADIUS_M}. Pure +
+ *  exported so the radius rule is unit-testable without a DB. */
+export function isEnclosingInstitution(opts: {
+	type: NearbyLandmark["type"];
+	subtype: string;
+	distanceM: number;
+	encloses: boolean;
+}): boolean {
+	if (opts.type !== "amenity") return false;
+	if (!LARGE_INSTITUTION_SUBTYPES.has(opts.subtype)) return false;
+	return opts.encloses || opts.distanceM <= LARGE_INSTITUTION_POINT_RADIUS_M;
+}
+
 const LANDMARK_PRIORITY: Record<NearbyLandmark["type"], number> = {
 	amenity: 5,
 	tourism: 5,
@@ -581,9 +608,16 @@ export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): 
 		const tags = f.tags;
 		for (const k of ["amenity", "tourism", "leisure", "shop", "place"] as const) {
 			if (tags[k]) {
-				// A large institution mapped as an area whose footprint
-				// encloses the query point outranks nearer point POIs.
-				const enclosing = k === "amenity" && f.encloses && LARGE_INSTITUTION_SUBTYPES.has(tags[k]);
+				// A large institution outranks nearer point POIs when its
+				// footprint encloses the query point (polygon) or — for an
+				// institution mapped only as a point — when its node sits
+				// within the campus radius. See isEnclosingInstitution.
+				const enclosing = isEnclosingInstitution({
+					type: k,
+					subtype: tags[k],
+					distanceM: f.distance_m,
+					encloses: f.encloses,
+				});
 				landmarks.push({ name, type: k, subtype: tags[k], distanceM: f.distance_m, enclosing });
 			}
 		}
