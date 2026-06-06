@@ -31,10 +31,10 @@
 
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import { describeWithFixture } from "./helpers/describe-with-fixture";
 import { buildRouteGraph, type RawOsmLine, type RawOsmPoint, type RouteGraph } from "../src/geo/route-graph.js";
 import type { Observation } from "../src/hmm/observation.js";
 import { routeAwareDecode } from "../src/hmm/route-aware-decoder.js";
+import { describeWithFixture } from "./helpers/describe-with-fixture.js";
 
 const DAY_FIXTURE_URL = new URL("./fixtures/days/2026-05-22-pippijn.json", import.meta.url);
 const ROUTE_GRAPH_FIXTURE_URL = new URL("./fixtures/route-graphs/london-met-jubilee-corridor.json", import.meta.url);
@@ -156,7 +156,6 @@ function buildMinuteTensor(points: readonly DayFixturePoint[], start: number, en
 
 const routeAwareFixtures = dayFx !== null && graph !== null ? { fx: dayFx, g: graph } : null;
 describeWithFixture("route-aware decoder — 2026-05-22 Met/Jubilee board change", routeAwareFixtures, ({ fx, g }) => {
-
 	// Predates the constraint-first decoder
 	// (`docs/proposals/2026-05-constraint-first-decoder.md`). With
 	// the train-candidate generator now hard-rejecting any train

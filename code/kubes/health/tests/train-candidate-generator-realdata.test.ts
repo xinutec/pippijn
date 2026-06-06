@@ -30,10 +30,10 @@
 
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import { describeWithFixture } from "./helpers/describe-with-fixture";
 import { buildRouteGraph, type RawOsmLine, type RawOsmPoint, type RouteGraph } from "../src/geo/route-graph.js";
 import type { Observation } from "../src/hmm/observation.js";
 import { enumerateTrainCandidates } from "../src/hmm/train-candidate-generator.js";
+import { describeWithFixture } from "./helpers/describe-with-fixture.js";
 
 const DAY_FIXTURE_URL = new URL("./fixtures/days/2026-05-22-pippijn.json", import.meta.url);
 const ROUTE_GRAPH_FIXTURE_URL = new URL("./fixtures/route-graphs/london-met-jubilee-corridor.json", import.meta.url);
@@ -136,90 +136,93 @@ function buildMinuteTensor(points: readonly DayFixturePoint[], start: number, en
 }
 
 const trainCandidateFixtures = day !== null && graph !== null ? { d: day, g: graph } : null;
-describeWithFixture("train-candidate generator — 2026-05-22 Met / Jubilee morning", trainCandidateFixtures, ({ d, g }) => {
+describeWithFixture(
+	"train-candidate generator — 2026-05-22 Met / Jubilee morning",
+	trainCandidateFixtures,
+	({ d, g }) => {
+		it("emits the right (board, line, alight) triples for the Met → Jubilee morning interchange", () => {
+			const observations = buildMinuteTensor(d.points, localTs("13:00"), localTs("13:50"));
+			const candidates = enumerateTrainCandidates({
+				observations,
+				routeGraph: g,
+				knownLines: [
+					"Metropolitan Line",
+					"Jubilee Line",
+					"Victoria Line",
+					"Piccadilly Line",
+					"Bakerloo Line",
+					"Northern Line",
+					"Circle Line",
+					"Hammersmith & City Line",
+					"District Line",
+					"Central Line",
+					"Elizabeth Line",
+				],
+			});
 
-	it("emits the right (board, line, alight) triples for the Met → Jubilee morning interchange", () => {
-		const observations = buildMinuteTensor(d.points, localTs("13:00"), localTs("13:50"));
-		const candidates = enumerateTrainCandidates({
-			observations,
-			routeGraph: g,
-			knownLines: [
-				"Metropolitan Line",
-				"Jubilee Line",
-				"Victoria Line",
-				"Piccadilly Line",
-				"Bakerloo Line",
-				"Northern Line",
-				"Circle Line",
-				"Hammersmith & City Line",
-				"District Line",
-				"Central Line",
-				"Elizabeth Line",
-			],
-		});
-
-		if (process.env.GEN_DUMP === "1") {
-			let stationCount = 0;
-			const stationNames: string[] = [];
-			let metStations = 0;
-			let jubStations = 0;
-			for (const n of g.nodes.values()) {
-				if (n.stationName !== undefined) {
-					stationCount++;
-					if (stationNames.length < 30) stationNames.push(n.stationName);
+			if (process.env.GEN_DUMP === "1") {
+				let stationCount = 0;
+				const stationNames: string[] = [];
+				let metStations = 0;
+				let jubStations = 0;
+				for (const n of g.nodes.values()) {
+					if (n.stationName !== undefined) {
+						stationCount++;
+						if (stationNames.length < 30) stationNames.push(n.stationName);
+					}
+					const lines = new Set<string>();
+					for (const eid of n.edgeIds) {
+						const e = g.edges.get(eid);
+						if (e !== undefined) for (const l of e.attrs.lineMemberships) lines.add(l);
+					}
+					if (n.stationName !== undefined && lines.has("Metropolitan Line")) metStations++;
+					if (n.stationName !== undefined && lines.has("Jubilee Line")) jubStations++;
 				}
-				const lines = new Set<string>();
-				for (const eid of n.edgeIds) {
-					const e = g.edges.get(eid);
-					if (e !== undefined) for (const l of e.attrs.lineMemberships) lines.add(l);
+				console.error(`graph: ${stationCount} station nodes, Met-incident ${metStations}, Jub-incident ${jubStations}`);
+				console.error(`stations: ${stationNames.join(", ")}`);
+				console.error(`observations: ${observations.length}, candidates: ${candidates.length}`);
+				for (const c of candidates.slice(0, 10)) {
+					console.error(
+						`  [${c.startMin}-${c.endMin}] ${c.line}  ${c.boardStationName ?? "?"} → ${c.alightStationName ?? "?"}`,
+					);
 				}
-				if (n.stationName !== undefined && lines.has("Metropolitan Line")) metStations++;
-				if (n.stationName !== undefined && lines.has("Jubilee Line")) jubStations++;
 			}
-			console.error(`graph: ${stationCount} station nodes, Met-incident ${metStations}, Jub-incident ${jubStations}`);
-			console.error(`stations: ${stationNames.join(", ")}`);
-			console.error(`observations: ${observations.length}, candidates: ${candidates.length}`);
-			for (const c of candidates.slice(0, 10)) {
-				console.error(
-					`  [${c.startMin}-${c.endMin}] ${c.line}  ${c.boardStationName ?? "?"} → ${c.alightStationName ?? "?"}`,
-				);
-			}
-		}
 
-		// The generator must detect at least two distinct windows
-		// (Wembley → Baker, Baker → ~Green Park) because the user
-		// dwells at Baker St for ~3 minutes.
-		const windows = new Set(candidates.map((c) => `${c.startMin}-${c.endMin}`));
-		expect(
-			windows.size,
-			"generator should detect at least two train windows split by the Baker St dwell",
-		).toBeGreaterThanOrEqual(2);
+			// The generator must detect at least two distinct windows
+			// (Wembley → Baker, Baker → ~Green Park) because the user
+			// dwells at Baker St for ~3 minutes.
+			const windows = new Set(candidates.map((c) => `${c.startMin}-${c.endMin}`));
+			expect(
+				windows.size,
+				"generator should detect at least two train windows split by the Baker St dwell",
+			).toBeGreaterThanOrEqual(2);
 
-		// The Baker St → Green Park window must produce a valid Jubilee
-		// candidate, and must NOT produce a Metropolitan Line candidate
-		// (no Met station at Green Park).
-		const secondWindowCandidates = candidates.filter((c) => {
-			const startTs = observations[c.startMin].ts;
-			return startTs >= localTs("13:26");
+			// The Baker St → Green Park window must produce a valid Jubilee
+			// candidate, and must NOT produce a Metropolitan Line candidate
+			// (no Met station at Green Park).
+			const secondWindowCandidates = candidates.filter((c) => {
+				const startTs = observations[c.startMin].ts;
+				return startTs >= localTs("13:26");
+			});
+			expect(secondWindowCandidates.length, "must have candidates for the second window").toBeGreaterThan(0);
+
+			const secondLines = new Set(secondWindowCandidates.map((c) => c.line));
+			expect(secondLines, "second window must include Jubilee").toContain("Jubilee Line");
+			expect(
+				secondLines,
+				"second window must NOT include Metropolitan Line (no Met station at Green Park)",
+			).not.toContain("Metropolitan Line");
+
+			// The first window's candidate set must include Metropolitan
+			// Line (Wembley → Baker is a valid Met ride).
+			const firstWindowCandidates = candidates.filter((c) => {
+				const endTs = observations[c.endMin].ts;
+				return endTs <= localTs("13:32");
+			});
+			expect(firstWindowCandidates.length, "must have candidates for the first window").toBeGreaterThan(0);
+
+			const firstLines = new Set(firstWindowCandidates.map((c) => c.line));
+			expect(firstLines, "first window must include Metropolitan Line").toContain("Metropolitan Line");
 		});
-		expect(secondWindowCandidates.length, "must have candidates for the second window").toBeGreaterThan(0);
-
-		const secondLines = new Set(secondWindowCandidates.map((c) => c.line));
-		expect(secondLines, "second window must include Jubilee").toContain("Jubilee Line");
-		expect(
-			secondLines,
-			"second window must NOT include Metropolitan Line (no Met station at Green Park)",
-		).not.toContain("Metropolitan Line");
-
-		// The first window's candidate set must include Metropolitan
-		// Line (Wembley → Baker is a valid Met ride).
-		const firstWindowCandidates = candidates.filter((c) => {
-			const endTs = observations[c.endMin].ts;
-			return endTs <= localTs("13:32");
-		});
-		expect(firstWindowCandidates.length, "must have candidates for the first window").toBeGreaterThan(0);
-
-		const firstLines = new Set(firstWindowCandidates.map((c) => c.line));
-		expect(firstLines, "first window must include Metropolitan Line").toContain("Metropolitan Line");
-	});
-});
+	},
+);

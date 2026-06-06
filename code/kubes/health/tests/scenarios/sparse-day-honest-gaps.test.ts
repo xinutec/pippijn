@@ -19,9 +19,9 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { describeWithFixture } from "../helpers/describe-with-fixture";
 import type { FilteredPoint } from "../../src/geo/kalman.js";
 import { classifySegments, type TrackSegment } from "../../src/geo/segments.js";
+import { describeWithFixture } from "../helpers/describe-with-fixture.js";
 
 function fix(ts: number, lat: number, lon: number): FilteredPoint {
 	return { ts, lat, lon, speed_kmh: 0, bearing: 0 };
@@ -152,7 +152,6 @@ function overlaps(seg: TrackSegment, start: number, end: number): boolean {
 }
 
 describeWithFixture("honest gaps — 2026-04-30 fixture", fixture, (fx) => {
-
 	const filtered: FilteredPoint[] = fx.points.map((p) => ({
 		ts: p.ts,
 		lat: p.lat,

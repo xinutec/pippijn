@@ -34,9 +34,9 @@
 
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import { describeWithFixture } from "../helpers/describe-with-fixture";
 import type { FilteredPoint } from "../../src/geo/kalman.js";
 import { classifySegments, type TrackSegment } from "../../src/geo/segments.js";
+import { describeWithFixture } from "../helpers/describe-with-fixture.js";
 
 const FIXTURE_URL = new URL("../fixtures/days/2026-04-29-pippijn.json", import.meta.url);
 
@@ -112,7 +112,6 @@ function segmentCentroid(seg: TrackSegment, points: readonly FilteredPoint[]): {
 }
 
 describeWithFixture("2026-04-29 Vertoef sleep-place — fixture replay", fixture, (fx) => {
-
 	const filtered: FilteredPoint[] = fx.points.map((p) => ({
 		ts: p.ts,
 		lat: p.lat,

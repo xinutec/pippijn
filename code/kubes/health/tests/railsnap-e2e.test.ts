@@ -27,8 +27,8 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { describeWithFixture } from "./helpers/describe-with-fixture";
 import { type RailGeometry, type SnapResult, snapTrainSegment } from "../src/geo/rail-snap.js";
+import { describeWithFixture } from "./helpers/describe-with-fixture.js";
 
 const FIXTURE_URL = new URL("./fixtures/railsnap/2026-05-17-pippijn.json", import.meta.url);
 
