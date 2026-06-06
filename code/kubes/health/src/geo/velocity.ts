@@ -26,6 +26,7 @@ import { bridgeStaysWithBiometrics } from "./bridge-stays-biometrics.js";
 import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
+import { inferEmptyDayStates } from "./infer-empty-day.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
 import { loadClassificationInputs } from "./load-classification-inputs.js";
@@ -1044,6 +1045,17 @@ export async function computeVelocity(
 	const rawSleep = await loadDaySleepWindows(userId, date);
 	const sleepWindows = enrichSleepWindows(rawSleep, sleepPlaceCandidates);
 	const states = timeSync("dayStates", () => segmentsToDayStates(withBiometrics, sleepWindows));
+
+	// No observed data at all for the day. Rather than show a blank
+	// timeline, infer a single stay when the day is fully constrained by
+	// its neighbours (same place before and after) — the multi-day
+	// hospital-stay case. Confidence comes from constraint, not data
+	// volume. See infer-empty-day.ts. Days that aren't bracketed stay
+	// blank (genuinely unknown).
+	if (states.length === 0 && points.length === 0) {
+		const inferred = await timeSync("inferEmptyDay", () => inferEmptyDayStates(userId, date, tz, inputs.osm));
+		if (inferred.length > 0) return { points, segments: withBiometrics, states: inferred, battery };
+	}
 
 	return { points, segments: withBiometrics, states, battery };
 }

@@ -111,6 +111,10 @@ export interface DayState {
    *  (Fitbit minutes_asleep). Differs from the wall-clock span by
    *  the time spent awake in bed. */
   minutesAsleep?: number;
+  /** True when this state was inferred from the surrounding days rather
+   *  than observed — no data for the day, but it's fully constrained
+   *  (same place before and after). The timeline marks it "no data". */
+  inferred?: boolean;
 }
 
 export interface VelocityData {

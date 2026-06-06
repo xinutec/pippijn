@@ -72,6 +72,13 @@ export interface DayState {
 	 *  endTs-startTs by the time spent awake in bed. The UI renders
 	 *  "8h 45m in bed (7h 18m asleep)" when set. */
 	minutesAsleep?: number;
+	/** True when this state is inferred rather than observed — there was
+	 *  no GPS/biometric data for the interval, but the day is fully
+	 *  constrained by the surrounding days (same place before and after),
+	 *  so the stay is asserted with an honest "no data" caveat. Confidence
+	 *  here comes from constraint, not from data volume. The UI renders it
+	 *  muted with an "inferred — no data" qualifier. */
+	inferred?: boolean;
 }
 
 /** Public entry: convert segments + sleep windows into the day's

@@ -127,6 +127,13 @@ export class TimelineComponent {
       secondary = parts.join(" · ");
     }
 
+    // Honest marker: this state had no data of its own — it's asserted
+    // from the surrounding days (same place before and after). Confident,
+    // but not observed.
+    if (state.inferred) {
+      secondary = secondary ? `${secondary} · no data (inferred)` : "no data (inferred)";
+    }
+
     return { startLabel, startDayOffset, endLabel, durationLabel, mode: state.mode, icon, primary, secondary };
   }
 
