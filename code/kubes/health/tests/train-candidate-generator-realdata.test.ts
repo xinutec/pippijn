@@ -29,7 +29,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
+import { describeWithFixture } from "./helpers/describe-with-fixture";
 import { buildRouteGraph, type RawOsmLine, type RawOsmPoint, type RouteGraph } from "../src/geo/route-graph.js";
 import type { Observation } from "../src/hmm/observation.js";
 import { enumerateTrainCandidates } from "../src/hmm/train-candidate-generator.js";
@@ -134,10 +135,8 @@ function buildMinuteTensor(points: readonly DayFixturePoint[], start: number, en
 	return out;
 }
 
-describe.skipIf(day === null || graph === null)("train-candidate generator — 2026-05-22 Met / Jubilee morning", () => {
-	if (day === null || graph === null) throw new Error("unreachable");
-	const d = day;
-	const g = graph;
+const trainCandidateFixtures = day !== null && graph !== null ? { d: day, g: graph } : null;
+describeWithFixture("train-candidate generator — 2026-05-22 Met / Jubilee morning", trainCandidateFixtures, ({ d, g }) => {
 
 	it("emits the right (board, line, alight) triples for the Met → Jubilee morning interchange", () => {
 		const observations = buildMinuteTensor(d.points, localTs("13:00"), localTs("13:50"));

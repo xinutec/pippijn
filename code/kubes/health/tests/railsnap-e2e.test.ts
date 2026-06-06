@@ -27,6 +27,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { describeWithFixture } from "./helpers/describe-with-fixture";
 import { type RailGeometry, type SnapResult, snapTrainSegment } from "../src/geo/rail-snap.js";
 
 const FIXTURE_URL = new URL("./fixtures/railsnap/2026-05-17-pippijn.json", import.meta.url);
@@ -63,11 +64,7 @@ function pathLengthM(pts: Array<{ lat: number; lon: number }>): number {
 
 const fixture = loadFixture();
 
-describe.skipIf(fixture === null)("rail-snap E2E — real captured day", () => {
-	// Non-null inside the skipIf block; assert for the type checker.
-	if (fixture === null) throw new Error("unreachable");
-	const fx = fixture;
-
+describeWithFixture("rail-snap E2E — real captured day", fixture, (fx) => {
 	const geo: RailGeometry = { lines: fx.osmLines, wayRoutes: fx.osmWayRoutes, stations: fx.osmStations };
 	const trainSegs = fx.segments.filter((s) => (s.refinedMode ?? s.mode) === "train" && s.wayName);
 

@@ -30,7 +30,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
+import { describeWithFixture } from "./helpers/describe-with-fixture";
 import { buildRouteGraph, type RawOsmLine, type RawOsmPoint, type RouteGraph } from "../src/geo/route-graph.js";
 import type { Observation } from "../src/hmm/observation.js";
 import { routeAwareDecode } from "../src/hmm/route-aware-decoder.js";
@@ -153,10 +154,8 @@ function buildMinuteTensor(points: readonly DayFixturePoint[], start: number, en
 	return out;
 }
 
-describe.skipIf(dayFx === null || graph === null)("route-aware decoder — 2026-05-22 Met/Jubilee board change", () => {
-	if (dayFx === null || graph === null) throw new Error("unreachable");
-	const fx = dayFx;
-	const g = graph;
+const routeAwareFixtures = dayFx !== null && graph !== null ? { fx: dayFx, g: graph } : null;
+describeWithFixture("route-aware decoder — 2026-05-22 Met/Jubilee board change", routeAwareFixtures, ({ fx, g }) => {
 
 	// Predates the constraint-first decoder
 	// (`docs/proposals/2026-05-constraint-first-decoder.md`). With

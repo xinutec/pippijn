@@ -33,7 +33,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
+import { describeWithFixture } from "../helpers/describe-with-fixture";
 import type { FilteredPoint } from "../../src/geo/kalman.js";
 import { classifySegments, type TrackSegment } from "../../src/geo/segments.js";
 
@@ -110,9 +111,7 @@ function segmentCentroid(seg: TrackSegment, points: readonly FilteredPoint[]): {
 	return { lat: latSum / inSeg.length, lon: lonSum / inSeg.length };
 }
 
-describe.skipIf(fixture === null)("2026-04-29 Vertoef sleep-place — fixture replay", () => {
-	if (fixture === null) throw new Error("unreachable");
-	const fx = fixture;
+describeWithFixture("2026-04-29 Vertoef sleep-place — fixture replay", fixture, (fx) => {
 
 	const filtered: FilteredPoint[] = fx.points.map((p) => ({
 		ts: p.ts,

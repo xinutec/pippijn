@@ -19,6 +19,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { describeWithFixture } from "../helpers/describe-with-fixture";
 import type { FilteredPoint } from "../../src/geo/kalman.js";
 import { classifySegments, type TrackSegment } from "../../src/geo/segments.js";
 
@@ -150,9 +151,7 @@ function overlaps(seg: TrackSegment, start: number, end: number): boolean {
 	return seg.endTs > start && seg.startTs < end;
 }
 
-describe.skipIf(fixture === null)("honest gaps — 2026-04-30 fixture", () => {
-	if (fixture === null) throw new Error("unreachable");
-	const fx = fixture;
+describeWithFixture("honest gaps — 2026-04-30 fixture", fixture, (fx) => {
 
 	const filtered: FilteredPoint[] = fx.points.map((p) => ({
 		ts: p.ts,
