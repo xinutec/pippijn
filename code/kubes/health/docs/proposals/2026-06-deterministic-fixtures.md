@@ -336,6 +336,20 @@ unbounded-source adapter phases (6c onward) is deliberate: the row-set
 work landed without architectural friction; the OSM/Nominatim phases
 need the adapter shape (see "Bounded vs unbounded sources" in Design).
 
+**Naming (landed 2026-06-07).** The phases below say `capture-day-v2` /
+`golden-check-v2`, framing the new harness as scaffolding to be renamed
+in Phase 6i. In practice it landed under its permanent names from the
+start — `golden-check.ts` (the deterministic replayer), `capture-golden.ts`
+(the prod capture), `fixture-day.ts` (the format) — with no version
+suffix. A version suffix in a filename is only justified when two
+implementations must run *at the same commit* (a strangler migration's
+brief overlap, concurrently-served API versions); git handles everything
+temporal. Here the overlap was a single session: capture all ten golden
+days, confirm they replay, then replace the live-DB `golden-check.ts` in
+place and delete the local `manifest.json` + `expected/` (the `days/`
+fixtures are the corpus now). Phases 6f–6i collapse into that one
+cutover.
+
 ### Phase 1: `ClassificationInputs` type + production loader  ✅
 
 - Type defined in `src/geo/classification-inputs.ts`.

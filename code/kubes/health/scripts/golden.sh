@@ -1,23 +1,29 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p openssh nodejs_22
-# Run the golden-day regression check against prod data — one command.
+#!nix-shell -i bash -p nodejs_22
+# Run the deterministic golden-day regression check — one command, NO DB.
 #
-# Builds the project locally, then runs golden-check.js against the
-# prod health-db via scripts/prod-db.sh (which opens the tunnel and
-# exports the DB env). Because it runs the locally-built code, the
-# check sees whatever pipeline changes you have made — that is the
-# point: catch regressions before they ship.
+# Builds the project locally, then replays the captured fixtures under
+# tests/golden/days/ through the pure classification core and diffs each
+# day's timeline against its frozen baseline. No tunnel, no port-forward:
+# every fixture carries its own input closure (row-sets + recorded OSM
+# trace), so the check is a pure-function replay that sees whatever
+# pipeline changes you have made. Re-running it from any commit on the
+# same fixture gives the same result.
+#
+# Capture fixtures with scripts/capture-golden.sh (that is the only path
+# that touches prod).
 #
 # Usage:
-#   scripts/golden.sh                  # check every day in the manifest
-#   scripts/golden.sh --bless          # re-bless every day
-#   scripts/golden.sh --bless 2026-05-15   # re-bless one day
+#   scripts/golden.sh                  # check every captured day
+#   scripts/golden.sh --bless          # re-derive every expected
+#   scripts/golden.sh --bless 2026-05-15   # one day
 #
 # Via npm (note the `--` so npm forwards the flags):
 #   npm run golden
 #   npm run golden -- --bless 2026-05-15
 #
-# Exit 0 = every day matches its baseline. Exit 1 = a day regressed.
+# Exit 0 = every fixture matches its baseline. Exit 1 = a fixture
+# regressed. Exit 2 = no corpus (capture one first).
 
 set -euo pipefail
 
@@ -27,5 +33,5 @@ cd "$SCRIPT_DIR/.."
 echo "==> building"
 npm run build >/dev/null
 
-echo "==> running golden-check against prod"
-exec "$SCRIPT_DIR/prod-db.sh" node dist/cli/golden-check.js "$@"
+echo "==> replaying golden fixtures (no DB)"
+exec node dist/cli/golden-check.js "$@"

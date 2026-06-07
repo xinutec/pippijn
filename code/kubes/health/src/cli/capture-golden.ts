@@ -7,20 +7,20 @@
  * wrapping the production `dbOsmAdapter`, runs the pure classification
  * core once, and writes a self-contained `CapturedDay` fixture: the input
  * closure (bounded row-sets + the recorded OSM trace) plus the expected
- * normalised day-state timeline. `golden-check-v2` then replays it with a
+ * normalised day-state timeline. `golden-check` then replays it with a
  * `FixtureOsmAdapter` — no DB, no network, no drift.
  *
  * Connection: like the v1 harness, this needs the prod DB. Port-forward
  * it (see the golden-check.ts header) and run with the usual
  * DB_* / NC_* env:
  *
- *   node dist/cli/capture-day-v2.js <date> <user> <timezone> [--description "..."]
+ *   node dist/cli/capture-golden.js <date> <user> <timezone> [--description "..."]
  *
  * Writes tests/golden/days/<date>-<user>.json (gitignored — the fixture
  * carries real GPS / place names / biometrics).
  *
  * Capture is deliberate: this is the only path that pulls fresh inputs
- * from prod. `golden-check-v2 --bless` only re-derives the expected
+ * from prod. `golden-check --bless` only re-derives the expected
  * output from the already-captured inputs; it never re-pulls.
  */
 
@@ -71,8 +71,8 @@ const DAYS_DIR = path.join(process.cwd(), "tests", "golden", "days");
 
 function usage(): never {
 	console.error(
-		'Usage: node dist/cli/capture-day-v2.js <date> <user> <timezone> [--description "..."]\n' +
-			"Example: node dist/cli/capture-day-v2.js 2026-05-15 pippijn Europe/London\n",
+		'Usage: node dist/cli/capture-golden.js <date> <user> <timezone> [--description "..."]\n' +
+			"Example: node dist/cli/capture-golden.js 2026-05-15 pippijn Europe/London\n",
 	);
 	process.exit(2);
 }
@@ -143,6 +143,6 @@ await writeFile(outPath, `${JSON.stringify(captured, null, "\t")}\n`, "utf8");
 console.log(
 	`Wrote ${outPath}\n` +
 		`  ${captured.expected.velocity.length} states · ${traceCount} unique OSM lookups captured.\n` +
-		`  Replay it with: node dist/cli/golden-check-v2.js`,
+		`  Replay it with: node dist/cli/golden-check.js`,
 );
 process.exit(0);

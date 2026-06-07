@@ -1,84 +1,55 @@
 /**
- * CLI: golden-day regression check.
+ * CLI: golden-day regression check (deterministic).
  *
- * Runs the classification pipeline against a curated set of real prod
- * days and diffs the resulting day-state timeline — the "Your Day"
- * view the website renders — against a stored baseline. Run it before
- * a large change to catch unintended regressions, and after one to
- * review the intentional changes as a readable diff.
+ * Replays each captured fixture under tests/golden/days/ — the input
+ * closure of one real prod day (bounded row-sets + a recorded OSM trace)
+ * — through the pure classification core and diffs the resulting
+ * day-state timeline (the "Your Day" view) against the fixture's
+ * `expected.velocity` baseline.
  *
- * The corpus is local-only and gitignored. Real prod days carry real
- * coordinates, place names and biometrics, which must never enter the
- * repo (see the no-private-info-in-tests feedback memory). The corpus:
+ * No DB. No network. No port-forward. Re-running this on the same fixture
+ * from any commit produces the same result: the OSM-mirror / decoded_days
+ * drift that used to make the corpus rot between runs cannot reach it
+ * (that nondeterminism is what motivated `docs/proposals/2026-06-
+ * deterministic-fixtures.md`). A pipeline change that moves an OSM call
+ * site surfaces as an "uncaptured query" error pointing at the cause,
+ * not as a downstream diff.
  *
- *   tests/golden/manifest.json            — the days under test
- *   tests/golden/expected/<date>-<user>.json — each day's baseline
+ * The corpus is local-only and gitignored — real prod days carry real
+ * coordinates, place names and biometrics that must never enter the repo
+ * (see the no-private-info-in-tests feedback memory):
  *
- * Connection: the pipeline reads GPS, biometrics and the cached OSM
- * mirror from the prod DB. Run locally against a port-forwarded DB —
- * one command sets up both hops:
+ *   tests/golden/days/<date>-<user>.json     — captured fixtures
+ *   tests/golden/ground-truth/<date>.md      — user-confirmed truth
  *
- *   ssh -L 13306:127.0.0.1:13306 root@isis.xinutec.org \
- *       "kubectl -n health port-forward svc/health-db 13306:3306"
+ * Capture a day with `npm run capture-golden` (that is the only path that
+ * touches prod). Then:
  *
- * then, in another shell, with DB_HOST=127.0.0.1 DB_PORT=13306 and the
- * usual DB_USER / DB_PASSWORD / DB_NAME / NC_* env:
+ *   npm run golden                    # check every captured day
+ *   npm run golden -- --bless         # re-derive every expected
+ *   npm run golden -- --bless 2026-05-15
  *
- *   node dist/cli/golden-check.js                    # check every day
- *   node dist/cli/golden-check.js --bless            # re-bless every day
- *   node dist/cli/golden-check.js --bless 2026-05-15 # re-bless one day
+ * `--bless` re-derives `expected.velocity` from the pipeline run against
+ * the ALREADY-CAPTURED inputs; it never re-pulls from prod.
  *
- * Exit 0 = every day matches its baseline (or was blessed).
- * Exit 1 = at least one day regressed.
- * Exit 2 = bad usage / no corpus.
+ * Exit 0 = every fixture matches (or was blessed).
+ * Exit 1 = at least one regressed (or threw an uncaptured-query error).
+ * Exit 2 = no corpus.
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { z } from "zod";
-import { initPool, withConnection } from "../db/pool.js";
-import { migrate } from "../db/schema.js";
 import { parseGroundTruth } from "../eval/ground-truth.js";
 import { classifyDay, parsePipelineState } from "../eval/truth-check.js";
-import { computeVelocity } from "../geo/velocity.js";
-import { diffStates, type NormalizedState, normalizeStates } from "./state-diff.js";
-
-const config = z
-	.object({
-		db: z.object({
-			host: z.string().default("health-db"),
-			port: z.coerce.number().default(3306),
-			user: z.string(),
-			password: z.string(),
-			database: z.string().default("health"),
-		}),
-		nextcloud: z.object({
-			baseUrl: z.string().url().default("https://dash.xinutec.org"),
-			clientId: z.string().min(1),
-			clientSecret: z.string().min(1),
-		}),
-	})
-	.parse({
-		db: {
-			host: process.env.DB_HOST,
-			port: process.env.DB_PORT,
-			user: process.env.DB_USER,
-			password: process.env.DB_PASSWORD,
-			database: process.env.DB_NAME,
-		},
-		nextcloud: {
-			baseUrl: process.env.NC_BASE_URL,
-			clientId: process.env.NC_CLIENT_ID,
-			clientSecret: process.env.NC_CLIENT_SECRET,
-		},
-	});
+import { computeVelocityFromInputs } from "../geo/velocity.js";
+import { type CapturedDay, inputsFromFixture, parseCapturedDay } from "./fixture-day.js";
+import { diffStates, normalizeStates } from "./state-diff.js";
 
 const GOLDEN_DIR = path.join(process.cwd(), "tests", "golden");
-const MANIFEST_PATH = path.join(GOLDEN_DIR, "manifest.json");
-const EXPECTED_DIR = path.join(GOLDEN_DIR, "expected");
+const DAYS_DIR = path.join(GOLDEN_DIR, "days");
 const GROUND_TRUTH_DIR = path.join(GOLDEN_DIR, "ground-truth");
 
-/** Minimal day-state shape the truth report needs from computeVelocity's
+/** Minimal day-state shape the truth report needs from the replay's
  *  `states`. */
 interface StateWindow {
 	startTs: number;
@@ -91,11 +62,12 @@ interface StateWindow {
 /**
  * Provenance-aware truth check, layered ON TOP of the snapshot diff. Loads
  * the day's `ground-truth/<date>.md` (if any), classifies each row against
- * the live states via {@link classifyDay}, and renders a one-line summary
- * plus any `regressed` (a confirmed truth broke) and `cleared` (a known error
- * got fixed) rows. Returns null when no ground-truth file or no enforceable
- * truth exists — keeps untagged days quiet. Informational for now: the
- * snapshot diff is still the gate until more days carry provenance tags.
+ * the replayed states via {@link classifyDay}, and renders a one-line
+ * summary plus any `regressed` (a confirmed truth broke) and `cleared` (a
+ * known error got fixed) rows. Returns null when no ground-truth file or no
+ * enforceable truth exists. Informational: the snapshot diff is the gate;
+ * the truth layer is how a frozen-but-wrong day (e.g. the LSHTM / hospital
+ * mislabels the deterministic capture preserves) stays honestly visible.
  */
 async function truthReport(date: string, tz: string, states: readonly StateWindow[]): Promise<string | null> {
 	let md: string;
@@ -126,67 +98,6 @@ async function truthReport(date: string, tz: string, states: readonly StateWindo
 	return lines.join("\n");
 }
 
-const manifestSchema = z.array(
-	z.object({
-		date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-		user: z.string().min(1),
-		tz: z.string().min(1),
-		/** Why this day is in the corpus — which scenario or past bug
-		 *  it exercises. Never a personal journey narrative. */
-		description: z.string().default(""),
-	}),
-);
-type ManifestEntry = z.infer<typeof manifestSchema>[number];
-
-interface ExpectedFile {
-	date: string;
-	user: string;
-	tz: string;
-	blessed_at: string;
-	states: NormalizedState[];
-}
-
-function expectedPath(entry: ManifestEntry): string {
-	return path.join(EXPECTED_DIR, `${entry.date}-${entry.user}.json`);
-}
-
-async function loadManifest(): Promise<ManifestEntry[]> {
-	let raw: string;
-	try {
-		raw = await readFile(MANIFEST_PATH, "utf8");
-	} catch {
-		console.error(
-			`No golden corpus found at ${MANIFEST_PATH}.\n` +
-				`The corpus is local-only (gitignored). Create the manifest, then\n` +
-				`run with --bless to record each day's baseline. See the header of\n` +
-				`this file for the manifest format and the port-forward command.`,
-		);
-		process.exit(2);
-	}
-	return manifestSchema.parse(JSON.parse(raw));
-}
-
-async function loadExpected(entry: ManifestEntry): Promise<ExpectedFile | null> {
-	try {
-		const raw = await readFile(expectedPath(entry), "utf8");
-		return JSON.parse(raw) as ExpectedFile;
-	} catch {
-		return null;
-	}
-}
-
-async function writeExpected(entry: ManifestEntry, states: NormalizedState[]): Promise<void> {
-	const file: ExpectedFile = {
-		date: entry.date,
-		user: entry.user,
-		tz: entry.tz,
-		blessed_at: new Date().toISOString(),
-		states,
-	};
-	await mkdir(EXPECTED_DIR, { recursive: true });
-	await writeFile(expectedPath(entry), `${JSON.stringify(file, null, "\t")}\n`, "utf8");
-}
-
 const args = process.argv.slice(2);
 let bless = false;
 let blessDate: string | null = null;
@@ -204,39 +115,61 @@ for (let i = 0; i < args.length; i++) {
 	}
 }
 
-const manifest = await loadManifest();
-
-initPool(config.db);
-await withConnection(migrate);
+let files: string[];
+try {
+	files = (await readdir(DAYS_DIR)).filter((f) => f.endsWith(".json")).sort();
+} catch {
+	files = [];
+}
+if (files.length === 0) {
+	console.error(
+		`No golden fixtures found at ${DAYS_DIR}.\n` +
+			`Capture one against the prod DB:\n` +
+			`  npm run capture-golden -- <date> <user> <timezone>`,
+	);
+	process.exit(2);
+}
 
 let regressions = 0;
 let blessed = 0;
 let checked = 0;
 
-for (const entry of manifest) {
-	if (blessDate && entry.date !== blessDate) continue;
+for (const file of files) {
+	const full = path.join(DAYS_DIR, file);
+	const captured = parseCapturedDay(await readFile(full, "utf8"));
+	if (blessDate && captured.meta.date !== blessDate) continue;
 
-	const label = `${entry.date} ${entry.user}${entry.description ? ` — ${entry.description}` : ""}`;
-	const { states } = await computeVelocity(config, entry.user, entry.date, entry.tz);
-	const actual = normalizeStates(states, entry.tz);
+	const label = `${captured.meta.date} ${captured.meta.user}${captured.meta.description ? ` — ${captured.meta.description}` : ""}`;
+
+	let states: Awaited<ReturnType<typeof computeVelocityFromInputs>>["states"];
+	let actual: ReturnType<typeof normalizeStates>;
+	try {
+		const result = await computeVelocityFromInputs(inputsFromFixture(captured));
+		states = result.states;
+		actual = normalizeStates(states, captured.meta.tz);
+	} catch (e) {
+		// An uncaptured-query throw means the pipeline reached an OSM call
+		// site the fixture didn't record — a moved/added call site. That is
+		// a real change to review, surfaced at its cause.
+		regressions++;
+		console.log(`\nFAIL     ${label}`);
+		console.log(`    ${e instanceof Error ? e.message : String(e)}`);
+		console.log(
+			`    re-capture: npm run capture-golden -- ${captured.meta.date} ${captured.meta.user} ${captured.meta.tz}\n`,
+		);
+		continue;
+	}
 
 	if (bless) {
-		await writeExpected(entry, actual);
+		const updated: CapturedDay = { ...captured, expected: { velocity: actual } };
+		await writeFile(full, `${JSON.stringify(updated, null, "\t")}\n`, "utf8");
 		blessed++;
 		console.log(`blessed  ${label}  (${actual.length} states)`);
 		continue;
 	}
 
 	checked++;
-	const expected = await loadExpected(entry);
-	if (!expected) {
-		regressions++;
-		console.log(`\nMISSING  ${label}`);
-		console.log(`    no baseline — run: golden-check.js --bless ${entry.date}`);
-		continue;
-	}
-
-	const d = diffStates(expected.states, actual);
+	const d = diffStates(captured.expected.velocity, actual);
 	if (d.identical) {
 		console.log(`PASS     ${label}`);
 	} else {
@@ -244,13 +177,13 @@ for (const entry of manifest) {
 		console.log(`\nFAIL     ${label}`);
 		for (const ln of d.lines) console.log(ln);
 		console.log(
-			`    baseline blessed ${expected.blessed_at}. If this change is\n` +
-				`    intentional, re-bless: golden-check.js --bless ${entry.date}\n`,
+			`    captured ${captured.meta.capturedAt} @ ${captured.meta.capturedAtCodeSha.slice(0, 8)}.\n` +
+				`    If intentional, re-bless: npm run golden -- --bless ${captured.meta.date}\n`,
 		);
 	}
 
 	// Provenance-aware truth report (informational, on top of the diff).
-	const truth = await truthReport(entry.date, entry.tz, states as StateWindow[]);
+	const truth = await truthReport(captured.meta.date, captured.meta.tz, states as StateWindow[]);
 	if (truth) console.log(truth);
 }
 
@@ -260,7 +193,7 @@ if (bless) {
 }
 
 console.log(
-	`\n${checked - regressions}/${checked} day(s) match baseline` +
+	`\n${checked - regressions}/${checked} fixture(s) match baseline` +
 		(regressions > 0 ? `, ${regressions} regressed.` : "."),
 );
 process.exit(regressions > 0 ? 1 : 0);
