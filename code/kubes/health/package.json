@@ -20,6 +20,8 @@
     "analyze": "node dist/cli/analyze-day.js",
     "audit:fitbit": "node dist/cli/audit-fitbit-sync.js",
     "golden": "scripts/golden.sh",
+    "golden-v2": "scripts/golden-v2.sh",
+    "capture-day-v2": "scripts/capture-day-v2.sh",
     "backtest": "scripts/backtest.sh"
   },
   "dependencies": {
