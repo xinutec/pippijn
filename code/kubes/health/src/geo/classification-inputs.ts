@@ -29,6 +29,7 @@
  */
 
 import type { HmmSegment } from "../hmm/persist.js";
+import type { RawSleepWindow } from "../sleep/load.js";
 import type { HrPoint, SleepStageRecord, StepPoint } from "./biometrics.js";
 import type { ModeStats } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
@@ -90,6 +91,19 @@ export interface BiometricsSnapshot {
 	steps: StepPoint[];
 }
 
+/** Pre-resolved cross-day bracket for the empty-day inference. A day
+ *  with no GPS/biometric data is attributed to a focus place iff the
+ *  prior day ended there AND the next day's dominant place is the same
+ *  (`bracketedStayPlaceId`). The loader does the bounded DB work —
+ *  the two `presence_log` reads and the `focus_places` centroid lookup
+ *  — and hands the pure core only the resolved centroid; the core then
+ *  names it through the OSM adapter. `null` when the day isn't
+ *  bracketed (genuinely unknown) or the place can't be resolved. */
+export interface EmptyDayBracket {
+	centroidLat: number;
+	centroidLon: number;
+}
+
 /**
  * The classification pipeline's input closure. Evolves additively as
  * later phases lift their external reads into named fields.
@@ -136,6 +150,22 @@ export interface ClassificationInputs {
 	 *  (replays captured rows + Nominatim responses, lands Phase 6e).
 	 *  Phase 6c of the deterministic-fixtures proposal. */
 	osm: OsmAdapter;
+	/** The user's `home_tz` sync-state value (already defaulted to
+	 *  `Europe/Amsterdam` when unset). Used as the displayTz fallback
+	 *  for segments no GPS fix covers. Lifted from the late
+	 *  `getSyncState(userId, "home_tz")` read in `computeVelocity` so
+	 *  the pipeline core stays DB-free. */
+	homeTz: string;
+	/** Main-sleep windows bracketing this day (today's morning sleep +
+	 *  the night that starts this evening), from the `sleep` table.
+	 *  Distinct from `biometrics.sleep` (per-stage records). Lifted from
+	 *  the late `loadDaySleepWindows(userId, date)` read. */
+	sleepWindows: RawSleepWindow[];
+	/** Pre-resolved empty-day cross-day bracket, or null. Lifted from
+	 *  the late `inferEmptyDayStates` DB reads (presence_log ×2 +
+	 *  focus_places centroid). Only consumed when the day has no states
+	 *  and no points. */
+	emptyDayBracket: EmptyDayBracket | null;
 }
 
 /** A single `rail_route_cache` row, projected to the columns

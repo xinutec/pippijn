@@ -12,7 +12,7 @@ import { applyHsmmPlaceOverride } from "../hmm/place-override.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { type DayState, segmentsToDayStates } from "../sleep/day-state.js";
 import { detectKnownPlaceStays, type StayCandidate } from "../sleep/known-place-stays.js";
-import { enrichSleepWindows, loadDaySleepWindows } from "../sleep/load.js";
+import { enrichSleepWindows } from "../sleep/load.js";
 import { biometricCoherence } from "./biometric-coherence.js";
 import {
 	applyStationaryWalkThrough,
@@ -27,7 +27,7 @@ import { bridgeStaysWithBiometrics } from "./bridge-stays-biometrics.js";
 import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
-import { inferEmptyDayStates } from "./infer-empty-day.js";
+import { inferEmptyDayStatesFromBracket } from "./infer-empty-day.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
 import { loadClassificationInputs } from "./load-classification-inputs.js";
@@ -930,7 +930,7 @@ export async function computeVelocity(
 	// CEST, evening home in BST, even across a travel day. Fallback to
 	// home_tz / Europe/Amsterdam when no points cover the segment (inferred
 	// gap segments).
-	const homeTz = (await getSyncState(userId, "home_tz")) ?? "Europe/Amsterdam";
+	const homeTz = inputs.homeTz;
 	const withDisplayTz = timeSync("displayTz", () =>
 		withSnapped.map((s): EnrichedSegment => {
 			const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
@@ -1053,7 +1053,7 @@ export async function computeVelocity(
 		...withBiometrics,
 		...resolvedSleepStays.map(synthesizeStayCandidateSegment),
 	];
-	const rawSleep = await loadDaySleepWindows(userId, date);
+	const rawSleep = inputs.sleepWindows;
 	const sleepWindows = enrichSleepWindows(rawSleep, sleepPlaceCandidates);
 	const states = timeSync("dayStates", () => segmentsToDayStates(withBiometrics, sleepWindows));
 
@@ -1064,7 +1064,9 @@ export async function computeVelocity(
 	// volume. See infer-empty-day.ts. Days that aren't bracketed stay
 	// blank (genuinely unknown).
 	if (states.length === 0 && points.length === 0) {
-		const inferred = await timeSync("inferEmptyDay", () => inferEmptyDayStates(userId, date, tz, inputs.osm));
+		const inferred = await timeSync("inferEmptyDay", () =>
+			inferEmptyDayStatesFromBracket(inputs.emptyDayBracket, date, tz, inputs.osm),
+		);
 		if (inferred.length > 0) return { points, segments: withBiometrics, states: inferred, battery };
 	}
 

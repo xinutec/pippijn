@@ -22,9 +22,11 @@
  */
 
 import { db } from "../db/pool.js";
+import { getSyncState } from "../db/sync-state.js";
 import { loadDecode } from "../hmm/persist.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
+import { loadDaySleepWindows } from "../sleep/load.js";
 import type {
 	ClassificationInputs,
 	DayIdentity,
@@ -32,6 +34,7 @@ import type {
 	RawPhonetrackFix,
 } from "./classification-inputs.js";
 import { parseHourProfile } from "./focus-places.js";
+import { loadEmptyDayBracket } from "./infer-empty-day.js";
 import type { ModeStats } from "./mode-biometrics.js";
 import { dbOsmAdapter } from "./osm-adapter.js";
 import { dateBoundsUtc } from "./timezone.js";
@@ -72,7 +75,16 @@ export async function loadClassificationInputs(
 	// composite. Failure on biometrics is non-fatal: prod has missing-
 	// Fitbit days and the pipeline tolerates empty arrays. Mirrors the
 	// `.catch` previously inlined inside `computeVelocity`.
-	const [knownPlaces, modeBiometrics, biometrics, hsmmDecode, railRouteCache] = await Promise.all([
+	const [
+		knownPlaces,
+		modeBiometrics,
+		biometrics,
+		hsmmDecode,
+		railRouteCache,
+		homeTzRaw,
+		sleepWindows,
+		emptyDayBracket,
+	] = await Promise.all([
 		loadKnownPlacesQuery(userId),
 		loadModeBiometricsQuery(userId),
 		loadBiometrics(userId, bounds.startUtc, bounds.endUtc, displayTz).catch((e: unknown) => {
@@ -81,6 +93,9 @@ export async function loadClassificationInputs(
 		}),
 		loadDecode(db(), userId, date),
 		loadRailRouteCacheQuery(),
+		getSyncState(userId, "home_tz"),
+		loadDaySleepWindows(userId, date),
+		loadEmptyDayBracket(userId, date),
 	]);
 
 	return {
@@ -101,6 +116,13 @@ export async function loadClassificationInputs(
 		// functions directly until Phase 6d migrates them to read
 		// through `inputs.osm.*`.
 		osm: dbOsmAdapter,
+		// Late impure reads lifted off the `computeVelocity` body so the
+		// pipeline core stays DB-free (deterministic-fixtures Phase A).
+		// `home_tz` defaults to Europe/Amsterdam, matching the inline
+		// fallback the body used.
+		homeTz: homeTzRaw ?? "Europe/Amsterdam",
+		sleepWindows,
+		emptyDayBracket,
 	};
 }
 

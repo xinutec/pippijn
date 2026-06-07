@@ -18,11 +18,13 @@ import type {
 import type { OsmAdapter } from "../src/geo/osm-adapter.js";
 
 describe("ClassificationInputs shape", () => {
-	it("requires all eight closure fields", () => {
+	it("requires all eleven closure fields", () => {
 		// This test exists to make the type a load-bearing contract: any
 		// future change that drops a field breaks the build here. The
-		// shape evolved across Phases 1, 4, 5, 6b–6c — every required
-		// field must be constructible from an empty/null baseline.
+		// shape evolved across Phases 1, 4, 5, 6b–6c and Phase A (the
+		// homeTz / sleepWindows / emptyDayBracket tail lifts) — every
+		// required field must be constructible from an empty/null
+		// baseline.
 		const inputs: ClassificationInputs = {
 			identity: minimalIdentity(),
 			phonetrack: emptyPhonetrack(),
@@ -32,6 +34,9 @@ describe("ClassificationInputs shape", () => {
 			hsmmDecode: null,
 			railRouteCache: [],
 			osm: stubOsmAdapter(),
+			homeTz: "Europe/Amsterdam",
+			sleepWindows: [],
+			emptyDayBracket: null,
 		};
 		expect(inputs.identity.userId).toBe("pippijn");
 	});
