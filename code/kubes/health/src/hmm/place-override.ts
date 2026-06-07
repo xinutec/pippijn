@@ -107,10 +107,52 @@ function maybeOverridePlace(
  *  cleanly. */
 const MOVEMENT_TO_TRAIN_MIN_AVG_KMH = 8;
 
+/**
+ * Weighted decision: should the HSMM's `train @ line` suggestion override
+ * the pipeline's movement classification for this segment?
+ *
+ * This is deliberately NOT a hard veto. The HSMM picks a line from
+ * route-graph connectivity + station proximity, which in dense central
+ * London can credit a line a road vehicle merely drove past (2026-05-25:
+ * a taxi home → Cleveland Clinic mislabelled "Circle Line" because the
+ * loop passes within ~600 m of half of zone 1). Against that we weigh the
+ * GPS evidence — how much of the trace runs nearer a drivable road than
+ * any rail. Neither side is absolute:
+ *
+ *   - `lineOverlapFraction` — the HSMM's temporal support for the line
+ *     (1.0 = it calls the whole segment this train; low = a sliver).
+ *   - `roadCorridorFraction` — the share of GPS samples road-nearest
+ *     (1.0 = follows roads throughout, no rail anywhere; null = no
+ *     samples, e.g. an underground gap the HSMM reconstructed — then
+ *     the GPS can't contradict and the HSMM stands).
+ *
+ * The override fires when the HSMM's line support outweighs the trace's
+ * road-following: `lineOverlapFraction > roadCorridorFraction`. A
+ * confident line over a rail-consistent trace still wins (real trains);
+ * a thin line over a road-hugging trace loses (the taxi). Because OSM
+ * rail coverage is fallible, a strong enough HSMM signal can always
+ * overcome it — that is the point of weighing rather than vetoing.
+ */
+export function decideHsmmTrainOverride(opts: {
+	avgSpeedKmh: number;
+	lineOverlapFraction: number;
+	roadCorridorFraction: number | null;
+}): boolean {
+	if (opts.avgSpeedKmh < MOVEMENT_TO_TRAIN_MIN_AVG_KMH) return false;
+	if (opts.lineOverlapFraction <= 0) return false;
+	const roadContradiction = opts.roadCorridorFraction ?? 0;
+	return opts.lineOverlapFraction > roadContradiction;
+}
+
 function maybeOverrideMovementToTrain(seg: EnrichedSegment, hmmSegments: readonly HmmSegment[]): EnrichedSegment {
-	if (seg.avgSpeed < MOVEMENT_TO_TRAIN_MIN_AVG_KMH) return seg;
-	const dominantLine = findDominantTrainLineName(seg, hmmSegments);
-	if (dominantLine === null) return seg;
+	const dominant = findDominantTrainLineName(seg, hmmSegments);
+	if (dominant === null) return seg;
+	const apply = decideHsmmTrainOverride({
+		avgSpeedKmh: seg.avgSpeed,
+		lineOverlapFraction: dominant.overlapFraction,
+		roadCorridorFraction: seg.roadCorridorFraction ?? null,
+	});
+	if (!apply) return seg;
 	// Set both `mode` and `refinedMode` so the override sticks
 	// through to the user-facing display (which uses
 	// `refinedMode ?? mode`). Clear the `refinedReason` since the
@@ -120,16 +162,22 @@ function maybeOverrideMovementToTrain(seg: EnrichedSegment, hmmSegments: readonl
 		...seg,
 		mode: "train",
 		refinedMode: "train",
-		refinedReason: `hsmm route evidence — ${dominantLine}`,
-		wayName: dominantLine,
+		refinedReason: `hsmm route evidence — ${dominant.line}`,
+		wayName: dominant.line,
 	};
 }
 
-/** For the time window of `seg`, find the rail line name that the
- *  HSMM attributes the most train-overlap-seconds to. Returns null
- *  when no train-with-knownLine HSMM segment dominates the overlap
- *  (no train, only unknown_rail, etc.). */
-function findDominantTrainLineName(seg: EnrichedSegment, hmmSegments: readonly HmmSegment[]): string | null {
+/** For the time window of `seg`, find the rail line name the HSMM
+ *  attributes the most train-overlap-seconds to, together with that
+ *  overlap as a FRACTION of the segment's duration (the HSMM's temporal
+ *  support for the line — 1.0 = the HSMM calls the whole segment this
+ *  train line, low = it only labels a sliver). Returns null when no
+ *  train-with-knownLine HSMM segment overlaps (no train, only
+ *  unknown_rail, etc.). */
+function findDominantTrainLineName(
+	seg: EnrichedSegment,
+	hmmSegments: readonly HmmSegment[],
+): { line: string; overlapFraction: number } | null {
 	const counts = new Map<string, number>();
 	for (const h of hmmSegments) {
 		if (h.endTs <= seg.startTs) continue;
@@ -150,7 +198,9 @@ function findDominantTrainLineName(seg: EnrichedSegment, hmmSegments: readonly H
 			bestOverlap = n;
 		}
 	}
-	return bestLine;
+	if (bestLine === null) return null;
+	const segDuration = Math.max(1, seg.endTs - seg.startTs);
+	return { line: bestLine, overlapFraction: bestOverlap / segDuration };
 }
 
 /** For the time window of `seg`, find the focus_place id that the

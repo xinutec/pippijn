@@ -355,6 +355,48 @@ function computeRailRoadProximity(wayResults: NearbyWay[][]): {
 	return { meanRailDistM: mean(railDists), meanDrivableRoadDistM: mean(roadDists) };
 }
 
+/** Minimum number of samples that must carry usable road/rail proximity
+ *  before `computeRoadNearestFraction` will return a verdict. Below this
+ *  the evidence is too thin to weigh against the HSMM's line support, so
+ *  the override is left undisturbed (null). */
+const ROAD_FRACTION_MIN_SAMPLES = 3;
+
+/**
+ * Across a moving segment's sampled points, the fraction whose nearest
+ * drivable road is closer than any rail-only way. A sample with a road
+ * in range but no rail counts as road-nearest — there is no track there
+ * to ride. Returns null when fewer than `ROAD_FRACTION_MIN_SAMPLES`
+ * samples carry usable proximity (a short or fix-sparse segment can't
+ * support a road-vs-rail verdict).
+ *
+ * This is the GPS "does the track follow roads or rail" evidence the
+ * HSMM train override weighs against — graded, not a veto. Pure helper
+ * over the `nearbyWays` results the enrichment already fetched, so it
+ * adds no OSM query (and no fixture re-capture).
+ */
+export function computeRoadNearestFraction(wayResults: NearbyWay[][]): number | null {
+	let roadNearer = 0;
+	let total = 0;
+	for (const sample of wayResults) {
+		let minRail = Number.POSITIVE_INFINITY;
+		let minRoad = Number.POSITIVE_INFINITY;
+		for (const w of sample) {
+			const d = w.distanceM;
+			if (d === null || d === undefined || !Number.isFinite(d)) continue;
+			if (w.type === "railway" && RAIL_ONLY_SUBTYPES.has(w.subtype)) {
+				if (d < minRail) minRail = d;
+			} else if (w.type === "highway" && DRIVABLE_HIGHWAY_SUBTYPES.has(w.subtype)) {
+				if (d < minRoad) minRoad = d;
+			}
+		}
+		if (!Number.isFinite(minRail) && !Number.isFinite(minRoad)) continue;
+		total++;
+		if (minRoad < minRail) roadNearer++;
+	}
+	if (total < ROAD_FRACTION_MIN_SAMPLES) return null;
+	return roadNearer / total;
+}
+
 /** Wrap a post-midnight stay candidate (raw fixes + known-place
  *  match) as a synthetic stationary `EnrichedSegment`. This shape is
  *  what `derivePlaceForSleep` expects — the synthetic segment never
@@ -398,6 +440,16 @@ export interface EnrichedSegment extends TrackSegment {
 	displayTz?: string; // IANA tz to render the segment's timestamps in (frontend uses this instead of browser tz)
 	biometrics?: BiometricEnrichment;
 	snappedPath?: SnappedPoint[]; // derived: this train segment drawn on the OSM rail track — see annotateSnappedPaths
+	/** Fraction of the moving segment's sampled points whose nearest
+	 *  drivable road is closer than any rail-only way (a sample with a
+	 *  road but no rail in range counts as road-nearest — there is no
+	 *  track there). Computed at enrichment from the same `nearbyWays`
+	 *  samples the OSM lookup already takes, so it costs no extra query.
+	 *  `undefined` when too few samples carry usable proximity. The HSMM
+	 *  movement→train override weighs this against the HSMM's line
+	 *  support — a road-following trace makes a train improbable, not
+	 *  impossible. See `decideHsmmTrainOverride`. */
+	roadCorridorFraction?: number;
 }
 
 /** One phone-battery reading: a charge level (integer percent, 0–100)
@@ -782,6 +834,11 @@ export async function computeVelocityFromInputs(
 				// The factor scorer uses the ratio to discriminate train
 				// from driving when speed-emission can't.
 				const railRoad = computeRailRoadProximity(wayResults);
+				// Per-sample road-vs-rail "which is nearer" fraction, from the
+				// same samples — the GPS evidence the HSMM movement→train
+				// override weighs against (see decideHsmmTrainOverride). No
+				// extra OSM query.
+				const roadCorridorFraction = computeRoadNearestFraction(wayResults);
 				// Under USE_BIOMETRIC_FACTOR, pass per-segment hr/cadence + the
 				// loaded mode signatures into refineMode so the factor scorer's
 				// candidate generator can filter biologically-implausible
@@ -826,6 +883,7 @@ export async function computeVelocityFromInputs(
 					refinedReason: plausible.reason ?? refined.reason,
 					wayName: plausible.wayName,
 					...(movingCity ? { city: movingCity } : {}),
+					...(roadCorridorFraction !== null ? { roadCorridorFraction } : {}),
 				};
 			} catch (e) {
 				console.warn(`OSM enrichment failed for segment ${seg.startTs}: ${e}`);
