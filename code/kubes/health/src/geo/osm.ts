@@ -439,13 +439,22 @@ export interface NearbyLandmark {
 	enclosing?: boolean;
 }
 
-/** `amenity` values for institutions large enough that a stay whose
- *  GPS centroid lands inside their mapped footprint is a stay *in* the
- *  institution. When OSM maps one of these as an area and the centroid
- *  falls within it, it outranks any nearer point-amenity — a long
- *  dwell inside a hospital is the hospital, not the cafe next door
- *  whose node happens to sit closer to the noisy GPS centroid. */
-export const LARGE_INSTITUTION_SUBTYPES = new Set(["hospital", "university", "college"]);
+/** `amenity` values that get the enclosing-institution override — where a
+ *  stay inside the footprint (or, for a hospital point, within campus radius)
+ *  outranks a nearer point-POI. A long dwell inside a hospital is the
+ *  hospital, not the cafe next door whose node sits closer to the noisy GPS
+ *  centroid.
+ *
+ *  **Hospitals only.** `university` / `college` were dropped 2026-06-07: OSM
+ *  campus polygons have loose bounding boxes (the `encloses` test is
+ *  `MBRContains`, not true containment) that swallow neighbouring venues, and
+ *  a university hosts cafes / restaurants you visit *as destinations* — a
+ *  Greek restaurant next to LSHTM is the restaurant (a mined focus place),
+ *  not the university (2026-05-14). A hospital is the one institution where
+ *  "long sedentary stay nearby = you are at it" reliably holds. No golden
+ *  relies on a university/college enclosing (the enclosing days — NHNN
+ *  2026-05-18, HMC 2026-04-29 — are both hospitals). */
+export const LARGE_INSTITUTION_SUBTYPES = new Set(["hospital"]);
 
 /** A large institution mapped only as a POINT (no ingested footprint — big
  *  hospitals are commonly multipolygon relations the landmark mirror doesn't
@@ -459,19 +468,33 @@ export const LARGE_INSTITUTION_SUBTYPES = new Set(["hospital", "university", "co
 export const LARGE_INSTITUTION_POINT_RADIUS_M = 80;
 
 /** Should this landmark be treated as the enclosing institution — outranking
- *  nearer point POIs? True for a large-institution amenity whose footprint
- *  geometrically encloses the stay (polygon), OR — the point-only fallback —
- *  whose node sits within {@link LARGE_INSTITUTION_POINT_RADIUS_M}. Pure +
- *  exported so the radius rule is unit-testable without a DB. */
+ *  nearer point POIs?
+ *
+ *  - A large-institution amenity whose footprint geometrically contains the
+ *    stay (`encloses`, any of the three subtypes): yes. Definitive.
+ *  - The point-only fallback (`distanceM <= LARGE_INSTITUTION_POINT_RADIUS_M`)
+ *    is restricted to a **hospital** mapped as a **point**. Rationale: a long
+ *    sedentary stay by a hospital node is the hospital (HMC Westeinde,
+ *    2026-04-29), but a university / college has campus eateries you visit as
+ *    *destinations* — a Greek restaurant next to LSHTM is the restaurant, not
+ *    the university (2026-05-14) — and a polygon feature already carries the
+ *    precise `encloses` signal, so the loose radius must not widen it.
+ *
+ *  Pure + exported so the rule is unit-testable without a DB. */
 export function isEnclosingInstitution(opts: {
 	type: NearbyLandmark["type"];
 	subtype: string;
 	distanceM: number;
 	encloses: boolean;
+	/** Did this landmark come from the point table (a node) vs the line/area
+	 *  table (a way)? The point-radius fallback only applies to nodes. */
+	isPoint: boolean;
 }): boolean {
 	if (opts.type !== "amenity") return false;
-	if (!LARGE_INSTITUTION_SUBTYPES.has(opts.subtype)) return false;
-	return opts.encloses || opts.distanceM <= LARGE_INSTITUTION_POINT_RADIUS_M;
+	if (!LARGE_INSTITUTION_SUBTYPES.has(opts.subtype)) return false; // hospital only
+	if (opts.encloses) return true;
+	// Point-only campus-radius fallback (a hospital mapped as a bare node).
+	return opts.isPoint && opts.distanceM <= LARGE_INSTITUTION_POINT_RADIUS_M;
 }
 
 const LANDMARK_PRIORITY: Record<NearbyLandmark["type"], number> = {
@@ -596,7 +619,8 @@ export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): 
 		queryLines(lat, lon, radiusM, "landmark"),
 	]);
 	const landmarks: NearbyLandmark[] = [];
-	for (const f of [...points, ...lines]) {
+	const tagged = [...points.map((f) => ({ f, isPoint: true })), ...lines.map((f) => ({ f, isPoint: false }))];
+	for (const { f, isPoint } of tagged) {
 		const name = f.name;
 		if (!name) continue;
 		// Tag-priority order matches the original Overpass-cache version:
@@ -617,6 +641,7 @@ export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): 
 					subtype: tags[k],
 					distanceM: f.distance_m,
 					encloses: f.encloses,
+					isPoint,
 				});
 				landmarks.push({ name, type: k, subtype: tags[k], distanceM: f.distance_m, enclosing });
 			}

@@ -326,26 +326,60 @@ describe("isEnclosingInstitution", () => {
 		// HMC Westeinde is mapped only as a point; the long stop sat ~59 m
 		// from it. Without this, the nearest point-POI (a hairdresser 36 m
 		// off) wins. The hospital must be treated as enclosing.
-		expect(isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 59, encloses: false })).toBe(true);
+		expect(
+			isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 59, encloses: false, isPoint: true }),
+		).toBe(true);
 	});
 
-	it("still flags a polygon-enclosed institution even when far (footprint containment)", () => {
-		expect(isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 200, encloses: true })).toBe(true);
+	it("still flags a polygon-enclosed HOSPITAL even when far (footprint containment)", () => {
+		expect(
+			isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 200, encloses: true, isPoint: false }),
+		).toBe(true);
 	});
 
 	it("does NOT flag a hospital point beyond the campus radius", () => {
-		expect(isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 120, encloses: false })).toBe(
-			false,
-		);
+		expect(
+			isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 120, encloses: false, isPoint: true }),
+		).toBe(false);
+	});
+
+	it("does NOT enclose a university/college — even a polygon that 'contains' it (2026-05-14 LSHTM vs the Greek restaurant)", () => {
+		// LSHTM's loose bounding box swallows the restaurant next door
+		// (Miné Mané, a mined focus place). University/college are excluded
+		// from the enclosing override entirely — only hospitals get it.
+		expect(
+			isEnclosingInstitution({ type: "amenity", subtype: "university", distanceM: 60, encloses: true, isPoint: false }),
+		).toBe(false);
+		expect(
+			isEnclosingInstitution({ type: "amenity", subtype: "college", distanceM: 10, encloses: true, isPoint: true }),
+		).toBe(false);
+	});
+
+	it("does NOT apply the radius fallback to a hospital mapped as a LINE/area (use its encloses signal, not distance)", () => {
+		expect(
+			isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 60, encloses: false, isPoint: false }),
+		).toBe(false);
+	});
+
+	it("does NOT apply the radius fallback to a hospital mapped as a LINE/area (use its encloses signal, not distance)", () => {
+		expect(
+			isEnclosingInstitution({ type: "amenity", subtype: "hospital", distanceM: 60, encloses: false, isPoint: false }),
+		).toBe(false);
 	});
 
 	it("does NOT flag a non-institution amenity, however close (a café is not a campus)", () => {
-		expect(isEnclosingInstitution({ type: "amenity", subtype: "cafe", distanceM: 5, encloses: false })).toBe(false);
+		expect(
+			isEnclosingInstitution({ type: "amenity", subtype: "cafe", distanceM: 5, encloses: false, isPoint: true }),
+		).toBe(false);
 	});
 
 	it("does NOT flag a non-amenity type (a shop tagged hospital-ish, a leisure ground)", () => {
-		expect(isEnclosingInstitution({ type: "shop", subtype: "hospital", distanceM: 5, encloses: false })).toBe(false);
-		expect(isEnclosingInstitution({ type: "leisure", subtype: "park", distanceM: 5, encloses: true })).toBe(false);
+		expect(
+			isEnclosingInstitution({ type: "shop", subtype: "hospital", distanceM: 5, encloses: false, isPoint: true }),
+		).toBe(false);
+		expect(
+			isEnclosingInstitution({ type: "leisure", subtype: "park", distanceM: 5, encloses: true, isPoint: false }),
+		).toBe(false);
 	});
 });
 
