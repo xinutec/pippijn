@@ -24,6 +24,7 @@ import {
 	type StepPoint,
 } from "./biometrics.js";
 import { bridgeStaysWithBiometrics } from "./bridge-stays-biometrics.js";
+import type { ClassificationInputs } from "./classification-inputs.js";
 import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
@@ -449,6 +450,35 @@ export async function computeVelocity(
 	tz?: string,
 	options: { enrich?: boolean } = {},
 ): Promise<VelocityResult> {
+	// Production wrapper: load the input closure from the DB / PhoneTrack,
+	// then run the pure classification core. The two-step split (Phase B of
+	// docs/proposals/2026-06-deterministic-fixtures.md) is what lets the
+	// golden harness inject a FixtureOsmAdapter + captured row-sets and run
+	// the same core with no DB. All existing callers keep this signature.
+	const inputs = await loadClassificationInputs(config, { userId, date, displayTz: tz ?? "UTC" });
+	return computeVelocityFromInputs(inputs, options);
+}
+
+/**
+ * The classification pipeline core: pure in its `ClassificationInputs`. No
+ * DB, no HTTP — every external read was resolved by the loader, and the
+ * OSM / Nominatim lookups flow through the injected `inputs.osm` adapter.
+ * Given the same inputs it produces the same output, which is what makes
+ * the golden corpus reproducible. Phase B of the deterministic-fixtures
+ * proposal.
+ *
+ * The display timezone is `inputs.identity.displayTz`, already defaulted to
+ * `"UTC"` by the loader when the caller passed no tz. `dateBoundsUtc` is
+ * UTC-offset-identical for `undefined` and `"UTC"`, so the day bounds are
+ * unchanged; the only knock-on is that a fully-empty, no-tz day's single
+ * inferred stay now carries `tz: "UTC"` rather than omitting the field —
+ * the same UTC default the rest of the pipeline already assumes.
+ */
+export async function computeVelocityFromInputs(
+	inputs: ClassificationInputs,
+	options: { enrich?: boolean } = {},
+): Promise<VelocityResult> {
+	const { userId, date, displayTz: tz } = inputs.identity;
 	const t0 = Date.now();
 	const phaseTimes: Record<string, number> = {};
 	const time = <T>(phase: string, p: Promise<T>): Promise<T> => {
@@ -467,12 +497,6 @@ export async function computeVelocity(
 	};
 
 	const bounds = dateBoundsUtc(date, tz);
-	// Phase 2a of docs/proposals/2026-06-deterministic-fixtures.md:
-	// the eager DB / HTTP reads at the top of the pipeline are
-	// consolidated into a single named `loadClassificationInputs`
-	// call so future phases can swap it for a fixture loader. Same
-	// queries, same wire calls, same projections — just named.
-	const inputs = await time("loadInputs", loadClassificationInputs(config, { userId, date, displayTz: tz ?? "UTC" }));
 	const { today: raw, morning: morningRaw, priorEvening: prevEveningRaw } = inputs.phonetrack;
 	const inDay = raw.filter((p) => p.ts >= bounds.startUtc && p.ts < bounds.endUtc);
 

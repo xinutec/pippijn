@@ -36,6 +36,7 @@ import type {
 import { parseHourProfile } from "./focus-places.js";
 import { loadEmptyDayBracket } from "./infer-empty-day.js";
 import type { ModeStats } from "./mode-biometrics.js";
+import type { OsmAdapter } from "./osm-adapter.js";
 import { dbOsmAdapter } from "./osm-adapter.js";
 import { dateBoundsUtc } from "./timezone.js";
 import { loadBiometrics } from "./velocity.js";
@@ -43,10 +44,18 @@ import { loadBiometrics } from "./velocity.js";
 /** Load the full `ClassificationInputs` closure for one day from the
  *  production data sources. The Promise resolves to a serialisable
  *  value the pipeline can consume; nothing in the value holds a DB
- *  handle. */
+ *  handle.
+ *
+ *  `osm` defaults to the production `dbOsmAdapter`. `capture-day-v2`
+ *  passes a `RecordingOsmAdapter` wrapping it, so the OSM/Nominatim
+ *  lookups the pipeline makes get recorded into the fixture; the
+ *  replay harness then injects a `FixtureOsmAdapter`. The bounded
+ *  row-set reads above are unaffected by the adapter choice. Phase B
+ *  of `docs/proposals/2026-06-deterministic-fixtures.md`. */
 export async function loadClassificationInputs(
 	config: NextcloudConfig,
 	identity: DayIdentity,
+	osm: OsmAdapter = dbOsmAdapter,
 ): Promise<ClassificationInputs> {
 	const { userId, date, displayTz } = identity;
 	const bounds = dateBoundsUtc(date, displayTz);
@@ -110,12 +119,12 @@ export async function loadClassificationInputs(
 		modeBiometrics,
 		hsmmDecode,
 		railRouteCache,
-		// Production OSM adapter — delegates to the top-level functions
-		// in `osm.ts`. Phase 6c of the deterministic-fixtures proposal.
-		// velocity.ts call sites continue to call those top-level
-		// functions directly until Phase 6d migrates them to read
-		// through `inputs.osm.*`.
-		osm: dbOsmAdapter,
+		// OSM / Nominatim adapter — `dbOsmAdapter` in production (delegates
+		// to the top-level functions in `osm.ts`), or a wrapping recorder
+		// during fixture capture. The classification core reaches all OSM
+		// access through this. Phase 6c / B of the deterministic-fixtures
+		// proposal.
+		osm,
 		// Late impure reads lifted off the `computeVelocity` body so the
 		// pipeline core stays DB-free (deterministic-fixtures Phase A).
 		// `home_tz` defaults to Europe/Amsterdam, matching the inline
