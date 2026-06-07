@@ -200,11 +200,19 @@ export function parseGroundTruth(markdown: string, date: string, tz: string): Gr
 		});
 	}
 
-	// Day-anchor: first row anchors to yesterday when start time is
-	// after noon (previous evening's sleep into today's morning);
-	// otherwise to today. Subsequent rows advance the cursor when
-	// start time decreases below the previous row's start time.
-	let anchorDay = rawRows.length > 0 && rawRows[0].startHh >= 12 ? prevDay(date) : date;
+	// Day-anchor: the first row belongs to the *previous* evening only when
+	// it is an overnight stay that wraps past midnight — start after noon
+	// AND end-of-day hour:minute at or before the start ("23:16 – 09:08
+	// sleeping"). A same-day after-noon activity ("19:27 – 20:40 dinner")
+	// does not wrap and anchors to `date`. Without the wrap test, a table
+	// whose first/only row is an evening activity was mis-anchored a full
+	// day early, so the truth report could never find the matching state.
+	// Subsequent rows advance the cursor when start time decreases below
+	// the previous row's start time.
+	const first = rawRows[0];
+	const firstWrapsMidnight =
+		first !== undefined && first.endHh * 60 + first.endMm <= first.startHh * 60 + first.startMm;
+	let anchorDay = first !== undefined && first.startHh >= 12 && firstWrapsMidnight ? prevDay(date) : date;
 	let prevStartMinutes = -1;
 
 	const rows: GroundTruthRow[] = [];
