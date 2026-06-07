@@ -24,7 +24,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { DecisionSignals } from "../src/routes/owntracks.js";
-import { demoteAfterStop } from "../src/routes/owntracks.js";
+import { decideTransition, demoteAfterStop } from "../src/routes/owntracks.js";
 import { isLongStayLocation } from "../src/routes/owntracks-long-stay.js";
 
 function fp(overrides: Partial<{ centroidLat: number; centroidLon: number; avgDwellSec: number; sleepHours: number }>) {
@@ -121,5 +121,23 @@ describe("demoteAfterStop with long-stay gating", () => {
 		// Moving around the house — keep tracking.
 		const walking: DecisionSignals = { ...stationarySignals, effectiveSpeedKmh: 3 };
 		expect(demoteAfterStop(walking, { atLongStayLocation: true })).toBeNull();
+	});
+
+	// Manual-override hold: the user pushed "high frequency now". Honour it —
+	// don't demote while the hold is active, even with stale stationary
+	// history at home, so a walk that starts moments later is caught.
+	it("does not demote while a manual-override hold is active", () => {
+		expect(demoteAfterStop(stationarySignals, { atLongStayLocation: true }, true)).toBeNull();
+	});
+
+	it("resumes demoting once the manual-override hold has expired", () => {
+		// Same stale evidence; hold gone → demote exactly as before.
+		expect(demoteAfterStop(stationarySignals, { atLongStayLocation: true }, false)).toBe("stationary");
+	});
+
+	it("decideTransition keeps Move mode under a manual hold instead of demoting", () => {
+		// Phone in Move (m=2), sitting at home with >10 min stationary history.
+		expect(decideTransition(stationarySignals, "walking", { atLongStayLocation: true }, true)).toBe("keep");
+		expect(decideTransition(stationarySignals, "walking", { atLongStayLocation: true }, false)).toBe("stationary");
 	});
 });

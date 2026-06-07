@@ -108,6 +108,13 @@ const MIN_HISTORY_SPAN_FOR_REFINE_SEC = 120;
  *  the threshold is comfortably reachable. */
 const MIN_STATIONARY_DEMOTE_SEC = 540;
 
+/** How long a manual userAction ("push location" / "I want high-frequency
+ *  now") pins the phone in Move mode by suppressing auto-demotion. The
+ *  user is signalling they're about to do something; hold high frequency
+ *  long enough to observe it (and catch a walk that starts moments later)
+ *  before any demotion can resume on fresh evidence. 10 min. */
+const MANUAL_OVERRIDE_HOLD_SEC = 600;
+
 /** Gap threshold for the "phone's motion sensor fired" inference: in
  *  Significant mode, Owntracks Android schedules a fix roughly every
  *  15 minutes, and emits extras when motion is detected. Two fixes
@@ -417,7 +424,14 @@ const DEFAULT_LOCATION_CONTEXT: LocationContext = { atLongStayLocation: false };
 export function demoteAfterStop(
 	signals: DecisionSignals,
 	location: LocationContext = DEFAULT_LOCATION_CONTEXT,
+	manualHoldActive = false,
 ): MotionProfile {
+	// Manual-override hold: the user explicitly asked for high-frequency
+	// tracking (a userAction push). Honour it by never demoting while the
+	// hold is active — stay in Move and let fresh observation decide once
+	// it expires, instead of reverting to the stale "been here for hours"
+	// history. See MANUAL_OVERRIDE_HOLD_SEC.
+	if (manualHoldActive) return null;
 	if (!location.atLongStayLocation) return null;
 	if (signals.historySpanSec < MIN_STATIONARY_DEMOTE_SEC) return null;
 	if (signals.effectiveSpeedKmh >= WALKING_MIN_KMH) return null;
@@ -450,6 +464,7 @@ export function decideTransition(
 	signals: DecisionSignals,
 	prevProfile: MotionProfile,
 	location: LocationContext = DEFAULT_LOCATION_CONTEXT,
+	manualHoldActive = false,
 ): Transition {
 	const fast = escalateOnHighSpeed(signals);
 	if (fast !== null) return fast;
@@ -458,7 +473,7 @@ export function decideTransition(
 		return escalateFromSignificant(signals) ?? "keep";
 	}
 
-	return refineInMove(signals) ?? demoteAfterStop(signals, location) ?? "keep";
+	return refineInMove(signals) ?? demoteAfterStop(signals, location, manualHoldActive) ?? "keep";
 }
 
 // ============================================================================
@@ -482,6 +497,11 @@ export interface RemoteConfigOptions {
 	 *  historically stays at for hours. Gates Move→Significant
 	 *  demotion. Default false (no demote) when omitted. */
 	atLongStayLocation?: boolean;
+	/** Whether a manual-override hold is active (the user recently asked
+	 *  for high-frequency tracking via a userAction push). Suppresses
+	 *  Move→Significant demotion so the override isn't clobbered. Default
+	 *  false. */
+	manualHoldActive?: boolean;
 }
 
 /** Profile used when we have never decided anything for this device.
@@ -522,7 +542,7 @@ export function decideRemoteConfig(
 				};
 
 	const location: LocationContext = { atLongStayLocation: options.atLongStayLocation ?? false };
-	const next = decideTransition(signals, lastProfile, location);
+	const next = decideTransition(signals, lastProfile, location, options.manualHoldActive ?? false);
 	const resolved: Exclude<MotionProfile, null> =
 		next === "keep" || next === null ? (lastProfile ?? DEFAULT_PROFILE) : next;
 
@@ -556,6 +576,7 @@ function touchStateKey(key: string): void {
 		if (oldest === undefined) break;
 		historyByKey.delete(oldest);
 		lastProfileByKey.delete(oldest);
+		manualHoldUntilByKey.delete(oldest);
 		// If this device comes back later, treat it as a cold start
 		// and seed again — the long absence likely means the cache
 		// is no longer representative.
@@ -574,6 +595,12 @@ const historyByKey = new Map<string, FixRecord[]>();
  *  is a one-shot per pod lifetime per device — repeat attempts would
  *  hammer Nextcloud on every POST if NC is unreachable. */
 const seedAttempted = new Set<string>();
+/** Per (token,device) unix-second deadline until which a manual-override
+ *  hold is active. Set when the phone sends a userAction (`t=u`) push;
+ *  while `now < deadline`, auto-demotion to Significant is suppressed so
+ *  the user's "high frequency now" request isn't clobbered. In-memory,
+ *  best-effort — a pod restart simply forgets an active hold. */
+const manualHoldUntilByKey = new Map<string, number>();
 
 /**
  * On the first fix after pod start for a given (token,device),
@@ -761,8 +788,20 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 				atLongStayLocation = isLongStayLocation(latestFix.lat, latestFix.lon, focusPlaces);
 			}
 
+			// Manual-override hold: a userAction push (t=u) is the user
+			// explicitly asking for high-frequency tracking. Stamp a hold so
+			// auto-demotion is suppressed for MANUAL_OVERRIDE_HOLD_SEC — the
+			// proxy stays in Move and lets fresh observation decide, instead
+			// of reverting to the stale "been home for hours" history.
+			// (2026-06-07: home 3h → Significant → 14-min gap walking out.)
+			if (signals.trigger === "u") {
+				manualHoldUntilByKey.set(stateKey, nowTs + MANUAL_OVERRIDE_HOLD_SEC);
+			}
+			const manualHoldActive = (manualHoldUntilByKey.get(stateKey) ?? 0) > nowTs;
+
 			const { profile, patch } = decideRemoteConfig(maxVel, prevProfile, history, {
 				atLongStayLocation,
+				manualHoldActive,
 			});
 
 			// One-line decision log per Owntracks POST — makes proxy behaviour
@@ -773,7 +812,7 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 			// trigger type, m = monitoring mode reported by phone, prev->next =
 			// profile transition, patch = the config command (always sent).
 			console.log(
-				`owntracks ${token.slice(0, 6)}/${device} vel=${signals.reportedVelKmh.toFixed(1)} cvel=${signals.computedVelKmh.toFixed(1)} hist=${history.length} eff=${signals.effectiveSpeedKmh.toFixed(1)}km/h str=${signals.straightness.toFixed(2)} gap=${signals.gapSinceLastFixSec}s t=${signals.trigger ?? "-"} m=${signals.monitoringMode ?? "-"} longStay=${atLongStayLocation ? "y" : "n"} ${prevProfile ?? "init"}->${profile} ${JSON.stringify(patch)}`,
+				`owntracks ${token.slice(0, 6)}/${device} vel=${signals.reportedVelKmh.toFixed(1)} cvel=${signals.computedVelKmh.toFixed(1)} hist=${history.length} eff=${signals.effectiveSpeedKmh.toFixed(1)}km/h str=${signals.straightness.toFixed(2)} gap=${signals.gapSinceLastFixSec}s t=${signals.trigger ?? "-"} m=${signals.monitoringMode ?? "-"} longStay=${atLongStayLocation ? "y" : "n"} hold=${manualHoldActive ? "y" : "n"} ${prevProfile ?? "init"}->${profile} ${JSON.stringify(patch)}`,
 			);
 
 			lastProfileByKey.set(stateKey, profile);
