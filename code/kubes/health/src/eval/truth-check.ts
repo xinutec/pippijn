@@ -38,6 +38,64 @@ import { type GroundTruthRow, isEnforceableTruth, type ParsedBlessed } from "./g
 
 export type TruthVerdict = "verified" | "regressed" | "known-error" | "cleared" | "unverified";
 
+/**
+ * Render a live pipeline state into the {@link ParsedBlessed} comparison form,
+ * so the same field-level comparator works on both sides. Mirrors the shapes
+ * the blessed cells use:
+ *   - stationary/sleeping → `@ Place (qualifier)`: split the trailing
+ *     `(qualifier)` off the place name.
+ *   - walking/driving/cycling → `on Way`: the way name as-is.
+ *   - train → `From → To · Line` OR a bare line name. A state's train
+ *     `wayName` renders as either a `A → B` route (optionally `· Line`) or
+ *     just the line; parse whichever is present so train rows compare on
+ *     board/alight when available and fall back to line-only otherwise.
+ * Returns null for an absent state (no pipeline coverage for the window).
+ */
+export function parsePipelineState(
+	state: { mode: string; place?: string | null; wayName?: string | null } | null,
+): ParsedBlessed | null {
+	if (state == null) return null;
+	const mode = state.mode as ParsedBlessed["mode"];
+
+	if (mode === "train") {
+		const w = state.wayName?.trim() ?? "";
+		const route = /^(.+?)\s+→\s+([^·]+?)(?:\s*·\s*(.+))?$/.exec(w);
+		if (route) {
+			return {
+				mode,
+				place: null,
+				wayName: null,
+				placeQualifier: null,
+				trainFromTo: { from: route[1].trim(), to: route[2].trim() },
+				lineName: route[3]?.trim() ?? null,
+			};
+		}
+		// Bare line name (e.g. "Circle Line") — no board/alight available.
+		return { mode, place: null, wayName: null, placeQualifier: null, trainFromTo: null, lineName: w || null };
+	}
+
+	if (state.place != null) {
+		const pm = /^(.+?)(?:\s+\(([^)]+)\))?$/.exec(state.place.trim());
+		return {
+			mode,
+			place: pm ? pm[1].trim() : state.place.trim(),
+			wayName: null,
+			placeQualifier: pm?.[2]?.trim() ?? null,
+			trainFromTo: null,
+			lineName: null,
+		};
+	}
+
+	return {
+		mode,
+		place: null,
+		wayName: state.wayName?.trim() ?? null,
+		placeQualifier: null,
+		trainFromTo: null,
+		lineName: null,
+	};
+}
+
 /** Sleeping and stationary are the same canonical class — the pipeline emits
  *  `sleeping` for in-bed minutes where a decoder might say `stationary`. */
 function canonicalMode(m: string): string {

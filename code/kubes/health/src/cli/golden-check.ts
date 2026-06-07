@@ -38,6 +38,8 @@ import path from "node:path";
 import { z } from "zod";
 import { initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
+import { parseGroundTruth } from "../eval/ground-truth.js";
+import { classifyDay, parsePipelineState } from "../eval/truth-check.js";
 import { computeVelocity } from "../geo/velocity.js";
 import { diffStates, type NormalizedState, normalizeStates } from "./state-diff.js";
 
@@ -74,6 +76,55 @@ const config = z
 const GOLDEN_DIR = path.join(process.cwd(), "tests", "golden");
 const MANIFEST_PATH = path.join(GOLDEN_DIR, "manifest.json");
 const EXPECTED_DIR = path.join(GOLDEN_DIR, "expected");
+const GROUND_TRUTH_DIR = path.join(GOLDEN_DIR, "ground-truth");
+
+/** Minimal day-state shape the truth report needs from computeVelocity's
+ *  `states`. */
+interface StateWindow {
+	startTs: number;
+	endTs: number;
+	mode: string;
+	place?: string | null;
+	wayName?: string | null;
+}
+
+/**
+ * Provenance-aware truth check, layered ON TOP of the snapshot diff. Loads
+ * the day's `ground-truth/<date>.md` (if any), classifies each row against
+ * the live states via {@link classifyDay}, and renders a one-line summary
+ * plus any `regressed` (a confirmed truth broke) and `cleared` (a known error
+ * got fixed) rows. Returns null when no ground-truth file or no enforceable
+ * truth exists — keeps untagged days quiet. Informational for now: the
+ * snapshot diff is still the gate until more days carry provenance tags.
+ */
+async function truthReport(date: string, tz: string, states: readonly StateWindow[]): Promise<string | null> {
+	let md: string;
+	try {
+		md = await readFile(path.join(GROUND_TRUTH_DIR, `${date}.md`), "utf8");
+	} catch {
+		return null; // no ground-truth file for this day
+	}
+	const gt = parseGroundTruth(md, date, tz);
+	const stateAt = (startTs: number, endTs: number): StateWindow | null => {
+		const mid = (startTs + endTs) / 2;
+		return states.find((s) => s.startTs <= mid && mid < s.endTs) ?? null;
+	};
+	const res = classifyDay(gt.rows, (row) => parsePipelineState(stateAt(row.startTs, row.endTs)));
+	const enforceable = res.verified + res.regressed + res.knownError + res.cleared;
+	if (enforceable === 0) return null; // nothing the ground truth can enforce yet
+
+	const lines: string[] = [
+		`    truth: ${res.verified} verified · ${res.knownError} known-error · ${res.cleared} cleared · ` +
+			`${res.regressed} regressed  (${res.unverified} unverified)`,
+	];
+	for (const { row, verdict } of res.verdicts) {
+		if (verdict === "regressed")
+			lines.push(`      ✗ REGRESSED ${row.windowText}: confirmed "${row.blessedText}" no longer holds`);
+		if (verdict === "cleared")
+			lines.push(`      ✓ cleared    ${row.windowText}: known error "${row.blessedText}" is fixed`);
+	}
+	return lines.join("\n");
+}
 
 const manifestSchema = z.array(
 	z.object({
@@ -197,6 +248,10 @@ for (const entry of manifest) {
 				`    intentional, re-bless: golden-check.js --bless ${entry.date}\n`,
 		);
 	}
+
+	// Provenance-aware truth report (informational, on top of the diff).
+	const truth = await truthReport(entry.date, entry.tz, states as StateWindow[]);
+	if (truth) console.log(truth);
 }
 
 if (bless) {

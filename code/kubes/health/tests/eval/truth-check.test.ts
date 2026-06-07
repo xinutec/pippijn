@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GroundTruthRow, ParsedBlessed } from "../../src/eval/ground-truth.js";
 import { parseGroundTruth } from "../../src/eval/ground-truth.js";
-import { blessedEquivalent, classifyDay, rowVerdict } from "../../src/eval/truth-check.js";
+import { blessedEquivalent, classifyDay, parsePipelineState, rowVerdict } from "../../src/eval/truth-check.js";
 
 const stay = (place: string, qualifier: string | null = null): ParsedBlessed => ({
 	mode: "stationary",
@@ -52,6 +52,34 @@ describe("blessedEquivalent", () => {
 	it("never matches when either side is null", () => {
 		expect(blessedEquivalent(null, stay("Home"))).toBe(false);
 		expect(blessedEquivalent(stay("Home"), null)).toBe(false);
+	});
+});
+
+describe("parsePipelineState — render a live state for comparison", () => {
+	it("splits a place name from its qualifier and round-trips equivalent to a blessed stay", () => {
+		const r = parsePipelineState({ mode: "stationary", place: "HMC Westeinde (hospital)" });
+		expect(r?.place).toBe("HMC Westeinde");
+		expect(r?.placeQualifier).toBe("hospital");
+		expect(blessedEquivalent(r, stay("HMC Westeinde", "hospital"))).toBe(true);
+	});
+	it("renders a walk as a way", () => {
+		expect(
+			blessedEquivalent(parsePipelineState({ mode: "walking", wayName: "Hudson Walk" }), walk("Hudson Walk")),
+		).toBe(true);
+	});
+	it("parses a train route wayName into board/alight + line", () => {
+		const r = parsePipelineState({ mode: "train", wayName: "Wembley Park → Baker Street · Metropolitan Line" });
+		expect(r?.trainFromTo).toEqual({ from: "Wembley Park", to: "Baker Street" });
+		expect(r?.lineName).toBe("Metropolitan Line");
+		expect(blessedEquivalent(r, train("Wembley Park", "Baker Street", "Metropolitan Line"))).toBe(true);
+	});
+	it("handles a bare line-name train wayName as line-only", () => {
+		const r = parsePipelineState({ mode: "train", wayName: "Circle Line" });
+		expect(r?.trainFromTo).toBeNull();
+		expect(r?.lineName).toBe("Circle Line");
+	});
+	it("returns null for an absent state", () => {
+		expect(parsePipelineState(null)).toBeNull();
 	});
 });
 
