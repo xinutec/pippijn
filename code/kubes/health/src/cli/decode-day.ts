@@ -23,20 +23,9 @@ import type { RouteGraph } from "../geo/route-graph.js";
 import { bboxFromFixes, loadRouteGraphForBbox } from "../geo/route-graph-loader.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, loadBiometrics } from "../geo/velocity.js";
-import { DEFAULT_MIN_DURATION_BY_MODE, type GammaFit, logDurationProb } from "../hmm/duration-dist.js";
-import { buildEmissionFn } from "../hmm/emissions.js";
-import { buildEntryPrior } from "../hmm/entry-prior.js";
+import { decodeHsmm, type HsmmPlace, KNOWN_LINES } from "../hmm/decode.js";
 import type { ContinuityContext } from "../hmm/factors/presence-continuity.js";
-import { buildGeometricFeasibility } from "../hmm/geometric-feasibility.js";
-import { dropGpsOutliers } from "../hmm/gps-outliers.js";
-import { hsmmViterbi } from "../hmm/hsmm-viterbi.js";
-import { buildInitialStatePrior } from "../hmm/initial-state.js";
-import { buildLineProximityFactor } from "../hmm/line-proximity-factor.js";
-import { buildObservationTensor } from "../hmm/observation.js";
-import { groupStatesIntoSegments, saveDecode } from "../hmm/persist.js";
-import { buildRouteRailEvidence } from "../hmm/route-rail-evidence.js";
-import { buildStateSpace, type FocusPlaceRef, type State } from "../hmm/state-space.js";
-import { buildTransitionMatrix } from "../hmm/transitions.js";
+import { saveDecode } from "../hmm/persist.js";
 
 const config = z
 	.object({
@@ -68,42 +57,7 @@ const config = z
 		},
 	});
 
-const KNOWN_LINES = [
-	"Metropolitan Line",
-	"Jubilee Line",
-	"Victoria Line",
-	"Piccadilly Line",
-	"Bakerloo Line",
-	"Northern Line",
-	"Circle Line",
-	"Hammersmith & City Line",
-	"District Line",
-	"Central Line",
-	"Elizabeth Line",
-];
-
-/** Baseline per-mode Gamma fits — moments-matched on 45 days of
- *  training data. Shared with `compare-vs-ground-truth.ts`; both
- *  CLIs need the same fits to produce identical decodes. Eventually
- *  these become persisted rows in `learned_hmm_models`. */
-const BASELINE_DURATION_FITS: Record<State["mode"], GammaFit> = {
-	stationary: { alpha: 0.85, beta: 0.0043, sampleCount: 132 },
-	walking: { alpha: 1.07, beta: 0.034, sampleCount: 60 },
-	cycling: { alpha: 1.0, beta: 0.05, sampleCount: 0 },
-	driving: { alpha: 0.42, beta: 0.008, sampleCount: 24 },
-	train: { alpha: 1.74, beta: 0.053, sampleCount: 24 },
-	plane: { alpha: 1.0, beta: 0.011, sampleCount: 0 },
-	unknown: { alpha: 0.45, beta: 0.0034, sampleCount: 15 },
-};
-
-interface PlaceWithCoords extends FocusPlaceRef {
-	lat: number;
-	lon: number;
-	hourProfile: readonly number[] | null;
-	totalDwellSec: number;
-}
-
-async function loadFocusPlacesForUser(userId: string): Promise<PlaceWithCoords[]> {
+async function loadFocusPlacesForUser(userId: string): Promise<HsmmPlace[]> {
 	const rows = await kyselyDb()
 		.selectFrom("focus_places")
 		.where("user_id", "=", userId)
@@ -129,7 +83,7 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
 	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-async function buildPlaceNearLine(places: readonly PlaceWithCoords[], lines: readonly string[]): Promise<Set<string>> {
+async function buildPlaceNearLine(places: readonly HsmmPlace[], lines: readonly string[]): Promise<Set<string>> {
 	const WALK_DIST_M = 400;
 	const placeNearLine = new Set<string>();
 	for (const line of lines) {
@@ -151,7 +105,7 @@ async function decodeAndPersist(
 	userId: string,
 	date: string,
 	tz: string,
-	places: readonly PlaceWithCoords[],
+	places: readonly HsmmPlace[],
 	placeNearLine: Set<string>,
 	routeGraph: RouteGraph,
 ): Promise<{ segmentCount: number; minuteCount: number; durationMs: number }> {
@@ -159,59 +113,33 @@ async function decodeAndPersist(
 	const velResult = await computeVelocity(config, userId, date, tz);
 	const bounds = dateBoundsUtc(date, tz);
 	const biom = await loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz);
-	const cleanedPoints = dropGpsOutliers(velResult.points);
-	const tensor = buildObservationTensor({
-		date,
-		tz,
-		points: cleanedPoints,
-		hr: biom.hr,
-		steps: biom.steps,
-		sleep: biom.sleep,
-	});
-	const states = buildStateSpace({ focusPlaces: places, knownLines: KNOWN_LINES });
-	const placeCoords = new Map<number, { lat: number; lon: number }>();
-	const placeHourProfiles = new Map<number, readonly number[]>();
-	const placeVisitWeights = new Map<number, number>();
-	const totalDwell = places.reduce((s, p) => s + p.totalDwellSec, 0);
-	for (const p of places) {
-		placeCoords.set(p.id, { lat: p.lat, lon: p.lon });
-		if (p.hourProfile !== null) placeHourProfiles.set(p.id, p.hourProfile);
-		placeVisitWeights.set(p.id, totalDwell > 0 ? p.totalDwellSec / totalDwell : 1 / places.length);
-	}
-	const transition = buildTransitionMatrix({
-		states,
-		placeNearLine: (placeId, lineName) => placeNearLine.has(`${placeId}|${lineName}`),
-	});
 	// Presence-continuity seed (Phase 3 of
 	// docs/proposals/2026-06-presence-continuity.md): when the flag is
 	// on, read the prior day's presence_log row to set the
 	// continuation context. Silent fallback if the row doesn't exist
-	// (chain start) or the flag is off.
+	// (chain start) or the flag is off. The flag gate lives here in the
+	// loader; `decodeHsmm` purely consumes whatever context it is given.
 	const continuityContext = useContinuityContinuation() ? await loadContinuityContext(userId, date) : null;
-	const baseEmission = buildEmissionFn({ placeCoords, continuityContext });
-	const geometricFn = buildGeometricFeasibility({ placeCoords });
-	const routeRailFn = buildRouteRailEvidence({ routeGraph });
-	const lineProximityFn = buildLineProximityFactor({ routeGraph });
-	const emission = (state: State, obs: (typeof tensor)[number]): number =>
-		baseEmission(state, obs) + geometricFn(state, obs) + routeRailFn(state, obs) + lineProximityFn(state, obs);
-	const initialLogProb = buildInitialStatePrior();
-	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
-	const hmmStates = hsmmViterbi({
-		observations: tensor,
-		states,
-		transitionLogProb: transition,
-		emissionLogProb: emission,
-		initialLogProb,
-		entryLogProb,
-		durationLogProb: (state, d) =>
-			logDurationProb(d, state.mode, BASELINE_DURATION_FITS[state.mode], DEFAULT_MIN_DURATION_BY_MODE[state.mode]),
+	const segments = decodeHsmm({
+		date,
+		tz,
+		points: velResult.points,
+		hr: biom.hr,
+		steps: biom.steps,
+		sleep: biom.sleep,
+		places,
+		placeNearLine,
+		routeGraph,
+		continuityContext,
 	});
-	const timestamps = tensor.map((o) => o.ts);
-	const segments = groupStatesIntoSegments(hmmStates, timestamps);
 	await saveDecode(kyselyDb(), userId, date, segments);
+	// Per-minute count is purely diagnostic. Segments tile the day's
+	// observed minutes contiguously (each `endTs` = last minute + 60),
+	// so total minutes = Σ (endTs − startTs) / 60.
+	const minuteCount = segments.reduce((n, s) => n + (s.endTs - s.startTs) / 60, 0);
 	return {
 		segmentCount: segments.length,
-		minuteCount: hmmStates.length,
+		minuteCount,
 		durationMs: Date.now() - t0,
 	};
 }
