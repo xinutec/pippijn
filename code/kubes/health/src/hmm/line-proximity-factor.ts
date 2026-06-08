@@ -60,6 +60,49 @@ const NEAR_BOOST = 1.5;
  *  continuation rather than just discouraging entry. */
 const FAR_PENALTY = -2.5;
 
+/** Penalty when L's track IS within `NEAR_M` of the fix BUT the fix sits
+ *  nearer a drivable road than any rail — the fix is road-following, so
+ *  it's evidence the user is driving past L's corridor, not riding it.
+ *  This is the per-minute analogue of the velocity layer's road-vs-rail
+ *  weighing (`computeRoadNearestFraction`, #234) that keeps a central-
+ *  London taxi off the Circle Line. Weighted, not a veto: a real train
+ *  whose fixes hug the track (rail nearer than road) is unaffected.
+ *
+ *  Same magnitude as `FAR_PENALTY` — being demonstrably on a road is at
+ *  least as much evidence against riding L as being far from L. */
+const ROAD_NEARER_PENALTY = -2.5;
+
+/**
+ * Per-minute line-proximity score for a `train @ L` state. Pure decision
+ * over the proximity facts; the builder supplies them from the route
+ * graph + (optionally) the observation's road/rail distances.
+ *
+ *   - L not modeled anywhere in the graph → 0 (don't punish an unseen line).
+ *   - L's track near the fix, and NOT road-nearer → `NEAR_BOOST`.
+ *   - L's track near the fix, but the fix is road-nearer → `ROAD_NEARER_PENALTY`.
+ *   - L modeled but its track is not near the fix → `FAR_PENALTY`.
+ *
+ * `roadDistM` / `railDistM` are the fix's distance to the nearest drivable
+ * road / nearest rail (any line), or null when no proximity data was
+ * captured for this minute — in which case the road-vs-rail test is
+ * skipped and the original near/far behaviour stands (backward
+ * compatible with fixtures decoded before road proximity existed).
+ */
+export function scoreLineProximity(opts: {
+	lineModeled: boolean;
+	lineNear: boolean;
+	roadDistM: number | null | undefined;
+	railDistM: number | null | undefined;
+}): number {
+	if (!opts.lineModeled) return 0;
+	if (!opts.lineNear) return FAR_PENALTY;
+	const { roadDistM, railDistM } = opts;
+	if (roadDistM != null && railDistM != null && roadDistM < railDistM) {
+		return ROAD_NEARER_PENALTY;
+	}
+	return NEAR_BOOST;
+}
+
 function fixCacheKey(lat: number, lon: number): string {
 	return `${lat.toFixed(4)},${lon.toFixed(4)}`;
 }
@@ -105,9 +148,13 @@ export function buildLineProximityFactor(opts: BuildLineProximityFactorOpts): Li
 		if (state.lineName === null || state.lineName === "unknown_rail") return 0;
 		if (obs.gps === null) return 0;
 		const line = state.lineName;
-		if (!modeledLines.has(line)) return 0;
 
 		const near = nearAt(obs.gps.lat, obs.gps.lon);
-		return near.has(line) ? NEAR_BOOST : FAR_PENALTY;
+		return scoreLineProximity({
+			lineModeled: modeledLines.has(line),
+			lineNear: near.has(line),
+			roadDistM: obs.roadDistM,
+			railDistM: obs.railDistM,
+		});
 	};
 }

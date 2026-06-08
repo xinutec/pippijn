@@ -67,6 +67,15 @@ export interface Observation {
 	 *  `prevGpsFix` for the forward direction — a stat @ A pick at
 	 *  minute t must also be consistent with the next observed fix. */
 	nextGpsFix: { ts: number; lat: number; lon: number } | null;
+	/** Distance (m) from this minute's fix to the nearest drivable road,
+	 *  and to the nearest rail-only way. Computed at input-load time from
+	 *  the OSM mirror (the same `nearbyWays` source the velocity layer
+	 *  uses), so the line-proximity factor can tell "riding the track"
+	 *  from "driving past it". Null when no fix landed in the minute, or
+	 *  the kind wasn't in range; absent entirely on fixtures captured
+	 *  before road proximity existed (then the factor skips the test). */
+	roadDistM?: number | null;
+	railDistM?: number | null;
 }
 
 export interface ObservationTensorInput {
