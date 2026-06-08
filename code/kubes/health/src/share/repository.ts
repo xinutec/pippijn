@@ -45,6 +45,16 @@ export async function rotateShareForUser(userId: string, daysBack: number): Prom
 	return row;
 }
 
+/** Change the day-window of the user's EXISTING share without rotating
+ *  the token — the link stays valid, the recipient simply sees a
+ *  different number of days. Returns the updated row, or null when the
+ *  user has no active share to update (so the caller can 404 rather than
+ *  silently create nothing). */
+export async function updateShareDaysForUser(userId: string, daysBack: number): Promise<ShareTokenRow | null> {
+	await db().updateTable("share_tokens").set({ days_back: daysBack }).where("user_id", "=", userId).execute();
+	return getShareForUser(userId);
+}
+
 /** Revoke the user's share token (DELETE if present). */
 export async function revokeShareForUser(userId: string): Promise<void> {
 	await db().deleteFrom("share_tokens").where("user_id", "=", userId).execute();

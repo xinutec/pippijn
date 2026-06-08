@@ -316,6 +316,20 @@ export class HealthService {
     return status;
   }
 
+  /** Change how many days the existing share exposes, WITHOUT rotating
+   *  the token — the recipient's link keeps working. */
+  async updateShareDays(daysBack: number): Promise<ShareStatus> {
+    const res = await this.fetch("/api/share", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ daysBack }),
+    });
+    if (!res.ok) throw new Error(`share update failed: ${res.status}`);
+    const status = (await res.json()) as ShareStatus;
+    this.shareStatus.set(status);
+    return status;
+  }
+
   async revokeShare(): Promise<void> {
     const res = await this.fetch("/api/share", { method: "DELETE" });
     if (!res.ok && res.status !== 204) throw new Error(`share revoke failed: ${res.status}`);

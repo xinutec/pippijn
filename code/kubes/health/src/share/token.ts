@@ -44,3 +44,17 @@ export function shareableDateRange(today: string, daysBack: number): { from: str
 		`${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
 	return { from: fmt(fromUtc), to: today };
 }
+
+/** Lower bound on a share window. */
+export const SHARE_DAYS_MIN = 1;
+/** Upper bound on a share window (matches the settings UI's input max). */
+export const SHARE_DAYS_MAX = 365;
+
+/** Validate + clamp a requested share day-window to `[SHARE_DAYS_MIN,
+ *  SHARE_DAYS_MAX]`. Returns null when the input is not a finite number,
+ *  so the caller can decide whether to default (create) or reject
+ *  (update). Floors fractional values. */
+export function clampShareDaysBack(value: unknown): number | null {
+	if (typeof value !== "number" || !Number.isFinite(value)) return null;
+	return Math.max(SHARE_DAYS_MIN, Math.min(SHARE_DAYS_MAX, Math.floor(value)));
+}

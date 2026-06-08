@@ -17,8 +17,13 @@ import {
 } from "../nextcloud/login-flow.js";
 import { fetchTrackPoints, NextcloudNotLinkedError, NextcloudReauthRequiredError } from "../nextcloud/phonetrack.js";
 import { buildPhoneTrackFilterValues, computePhoneTrackDatemin } from "../nextcloud/phonetrack-prefs.js";
-import { getShareForUser, revokeShareForUser, rotateShareForUser } from "../share/repository.js";
-import { buildShareUrl } from "../share/token.js";
+import {
+	getShareForUser,
+	revokeShareForUser,
+	rotateShareForUser,
+	updateShareDaysForUser,
+} from "../share/repository.js";
+import { buildShareUrl, clampShareDaysBack } from "../share/token.js";
 import { getVelocityCached } from "./velocity-cache.js";
 
 /** Subset of the full Config that the API routes actually need. Narrowing
@@ -385,13 +390,36 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 		let daysBack = 7;
 		try {
 			const body = (await c.req.json()) as { daysBack?: unknown };
-			if (typeof body.daysBack === "number" && Number.isFinite(body.daysBack)) {
-				daysBack = Math.max(1, Math.min(365, Math.floor(body.daysBack)));
-			}
+			daysBack = clampShareDaysBack(body.daysBack) ?? 7;
 		} catch {
 			// no body → use default
 		}
 		const row = await rotateShareForUser(uid, daysBack);
+		return c.json({
+			active: true,
+			token: row.token,
+			url: buildShareUrl(config.publicBaseUrl, row.token),
+			daysBack: row.days_back,
+			createdAt: row.created_at.toISOString(),
+			lastAccessedAt: row.last_accessed_at?.toISOString() ?? null,
+		});
+	});
+
+	// PATCH /api/share → change the day-window of the EXISTING share
+	// without rotating the token (the link stays valid). 404 when there
+	// is no active share to update; 400 on a missing/invalid daysBack.
+	app.patch("/share", async (c) => {
+		const uid = c.get("session").userId;
+		let daysBack: number | null = null;
+		try {
+			const body = (await c.req.json()) as { daysBack?: unknown };
+			daysBack = clampShareDaysBack(body.daysBack);
+		} catch {
+			// invalid / no body → daysBack stays null
+		}
+		if (daysBack === null) return c.json({ error: "daysBack must be a number in [1, 365]" }, 400);
+		const row = await updateShareDaysForUser(uid, daysBack);
+		if (!row) return c.json({ error: "no_active_share" }, 404);
 		return c.json({
 			active: true,
 			token: row.token,

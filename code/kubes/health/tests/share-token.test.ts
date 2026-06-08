@@ -13,7 +13,28 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildShareUrl, generateShareToken, shareableDateRange } from "../src/share/token.js";
+import { buildShareUrl, clampShareDaysBack, generateShareToken, shareableDateRange } from "../src/share/token.js";
+
+describe("clampShareDaysBack", () => {
+	it("clamps below the minimum up to 1", () => {
+		expect(clampShareDaysBack(0)).toBe(1);
+		expect(clampShareDaysBack(-5)).toBe(1);
+	});
+	it("clamps above the maximum down to 365", () => {
+		expect(clampShareDaysBack(1000)).toBe(365);
+	});
+	it("floors fractional values", () => {
+		expect(clampShareDaysBack(7.9)).toBe(7);
+	});
+	it("passes a valid in-range value through", () => {
+		expect(clampShareDaysBack(30)).toBe(30);
+	});
+	it("returns null for non-finite / non-number input so the caller can default or reject", () => {
+		expect(clampShareDaysBack(undefined)).toBeNull();
+		expect(clampShareDaysBack("7")).toBeNull();
+		expect(clampShareDaysBack(Number.NaN)).toBeNull();
+	});
+});
 
 describe("generateShareToken", () => {
 	it("returns a URL-safe string of at least 32 characters", () => {

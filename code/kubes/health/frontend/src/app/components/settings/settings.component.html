@@ -31,13 +31,18 @@
 						</button>
 					</mat-form-field>
 					<p>
-						Showing the last {{ s.daysBack }} day{{ s.daysBack === 1 ? "" : "s" }}.
+						Currently showing the last {{ s.daysBack }} day{{ s.daysBack === 1 ? "" : "s" }}.
 						@if (s.lastAccessedAt) {
 							Last accessed {{ formatDate(s.lastAccessedAt) }}.
 						} @else {
 							Not yet accessed.
 						}
 					</p>
+					<mat-form-field appearance="outline">
+						<mat-label>Days to share</mat-label>
+						<input matInput type="number" min="1" max="365" [(ngModel)]="editDays" />
+						<mat-hint>Change this and press "Update days" — the link stays the same.</mat-hint>
+					</mat-form-field>
 				} @else {
 					<p>No share link active. Choose how many days to share, then create one.</p>
 					<mat-form-field appearance="outline">
@@ -55,6 +60,9 @@
 				@if (s.active) {
 					<button mat-button color="warn" (click)="revoke()">Revoke</button>
 					<button mat-stroked-button (click)="rotate(s.daysBack ?? 7)">Generate new link</button>
+					<button mat-raised-button color="primary" (click)="updateDays()" [disabled]="editDays === s.daysBack">
+						Update days
+					</button>
 				} @else {
 					<button mat-raised-button color="primary" (click)="create()">Create share link</button>
 				}

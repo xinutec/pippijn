@@ -47,6 +47,9 @@ export class SettingsComponent implements OnInit {
 	readonly loading = signal(true);
 	readonly error = signal<string | null>(null);
 	daysInput = 7;
+	/** Editable day-window for an ALREADY-active share — seeded from the
+	 *  loaded status so "Update days" can change it without rotating. */
+	editDays = 7;
 
 	async ngOnInit(): Promise<void> {
 		await this.refresh();
@@ -57,6 +60,8 @@ export class SettingsComponent implements OnInit {
 		this.loading.set(true);
 		try {
 			await this.health.refreshShareStatus();
+			const s = this.health.shareStatus();
+			if (s?.active && typeof s.daysBack === "number") this.editDays = s.daysBack;
 		} catch (e) {
 			this.error.set((e as Error).message);
 		} finally {
@@ -77,6 +82,17 @@ export class SettingsComponent implements OnInit {
 		this.error.set(null);
 		try {
 			await this.health.createOrRotateShare(currentDays);
+		} catch (e) {
+			this.error.set((e as Error).message);
+		}
+	}
+
+	/** Change how many days the existing share exposes — same link. */
+	async updateDays(): Promise<void> {
+		this.error.set(null);
+		try {
+			await this.health.updateShareDays(this.editDays);
+			this.snackBar.open("Share window updated", "Dismiss", { duration: 2000 });
 		} catch (e) {
 			this.error.set((e as Error).message);
 		}
