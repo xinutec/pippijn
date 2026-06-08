@@ -19,12 +19,15 @@ import { migrate } from "../db/schema.js";
 import { useContinuityContinuation } from "../geo/factors/feature-flag.js";
 import { parseHourProfile } from "../geo/focus-places.js";
 import { stationsOnLine } from "../geo/line-stations.js";
+import { dbOsmAdapter, type OsmAdapter } from "../geo/osm-adapter.js";
+import { computePointProximity } from "../geo/rail-road-proximity.js";
 import type { RouteGraph } from "../geo/route-graph.js";
 import { bboxFromFixes, loadRouteGraphForBbox } from "../geo/route-graph-loader.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, loadBiometrics } from "../geo/velocity.js";
+import { loadContinuityContext } from "../hmm/continuity-context.js";
 import { decodeHsmm, type HsmmPlace, KNOWN_LINES } from "../hmm/decode.js";
-import type { ContinuityContext } from "../hmm/factors/presence-continuity.js";
+import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { saveDecode } from "../hmm/persist.js";
 
 const config = z
@@ -108,11 +111,18 @@ async function decodeAndPersist(
 	places: readonly HsmmPlace[],
 	placeNearLine: Set<string>,
 	routeGraph: RouteGraph,
+	osm: OsmAdapter,
 ): Promise<{ segmentCount: number; minuteCount: number; durationMs: number }> {
 	const t0 = Date.now();
 	const velResult = await computeVelocity(config, userId, date, tz);
 	const bounds = dateBoundsUtc(date, tz);
 	const biom = await loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz);
+	// Per-fix rail/road proximity (#238): one nearbyWays lookup per fix
+	// (cached by coarse coord), classified rail-vs-road, so the
+	// line-proximity factor can keep a road-following taxi off a parallel
+	// tube line. Outlier-dropped to match the fixes the decode actually
+	// observes.
+	const pointProximity = await computePointProximity(osm, dropGpsOutliers(velResult.points));
 	// Presence-continuity seed (Phase 3 of
 	// docs/proposals/2026-06-presence-continuity.md): when the flag is
 	// on, read the prior day's presence_log row to set the
@@ -131,6 +141,7 @@ async function decodeAndPersist(
 		placeNearLine,
 		routeGraph,
 		continuityContext,
+		pointProximity,
 	});
 	await saveDecode(kyselyDb(), userId, date, segments);
 	// Per-minute count is purely diagnostic. Segments tile the day's
@@ -203,7 +214,7 @@ async function main(): Promise<void> {
 
 	for (const date of dates) {
 		try {
-			const result = await decodeAndPersist(userId, date, tz, places, placeNearLine, routeGraph);
+			const result = await decodeAndPersist(userId, date, tz, places, placeNearLine, routeGraph, dbOsmAdapter);
 			console.log(
 				`  ${date}: ${result.segmentCount} segments / ${result.minuteCount} minutes in ${result.durationMs}ms`,
 			);
@@ -219,34 +230,4 @@ async function main(): Promise<void> {
  *  prior-day record exists (chain start, or yesterday was a travel
  *  day with no end-of-day stay). Phase 3 of
  *  `docs/proposals/2026-06-presence-continuity.md`. */
-async function loadContinuityContext(userId: string, date: string): Promise<ContinuityContext | null> {
-	const priorDate = new Date(`${date}T00:00:00Z`);
-	priorDate.setUTCDate(priorDate.getUTCDate() - 1);
-	const priorDateStr = priorDate.toISOString().slice(0, 10);
-	const row = await kyselyDb()
-		.selectFrom("presence_log")
-		.where("user_id", "=", userId)
-		.where("date", "=", priorDateStr)
-		.select(["end_of_day_place_id", "end_of_day_ts", "end_of_day_posterior"])
-		.executeTakeFirst();
-	if (row === undefined || row.end_of_day_place_id === null || row.end_of_day_ts === null) {
-		return null;
-	}
-	const todayStart = new Date(`${date}T00:00:00Z`).getTime();
-	const lastFixMs = row.end_of_day_ts.getTime();
-	const hoursSinceLastConfirmedFix = Math.max(0, (todayStart - lastFixMs) / 3600_000);
-	const placeRow = await kyselyDb()
-		.selectFrom("focus_places")
-		.where("id", "=", row.end_of_day_place_id)
-		.select(["centroid_lat", "centroid_lon"])
-		.executeTakeFirst();
-	const priorPlaceCoord = placeRow === undefined ? null : { lat: placeRow.centroid_lat, lon: placeRow.centroid_lon };
-	return {
-		priorPlaceId: row.end_of_day_place_id,
-		priorPlaceCoord,
-		hoursSinceLastConfirmedFix,
-		priorPosterior: row.end_of_day_posterior,
-	};
-}
-
 await main();

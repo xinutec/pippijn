@@ -47,6 +47,7 @@ import {
 import { dbOsmAdapter } from "./osm-adapter.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
+import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proximity.js";
 import { interpolateTimes, type SnappedPoint } from "./rail-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
@@ -301,27 +302,9 @@ function applyBiometricSignature(
 	};
 }
 
-/** Rail-only OSM way subtypes used by the rail-corridor signal. Tram
- *  excluded — tram tracks frequently run in mixed traffic, so "fixes
- *  near a tram way" is not strong rail-vs-road evidence. */
-const RAIL_ONLY_SUBTYPES = new Set(["rail", "subway", "light_rail", "narrow_gauge"]);
-
-/** Drivable highway subtypes — match the candidate generator's
- *  DRIVEABLE_HIGHWAY_SUBTYPES list (residential roads up through
- *  motorways, plus tracks / living_streets). Pedestrian / cycle ways
- *  excluded. */
-const DRIVABLE_HIGHWAY_SUBTYPES = new Set([
-	"motorway",
-	"trunk",
-	"primary",
-	"secondary",
-	"tertiary",
-	"residential",
-	"service",
-	"unclassified",
-	"track",
-	"living_street",
-]);
+/** `RAIL_ONLY_SUBTYPES` and `DRIVABLE_HIGHWAY_SUBTYPES` now live in
+ *  `rail-road-proximity.ts` — the single source shared with the HSMM
+ *  per-fix proximity (#238). Imported above. */
 
 /** Per-segment rail-vs-road proximity, aggregated across sample
  *  points. For each sample we take the minimum distance to any

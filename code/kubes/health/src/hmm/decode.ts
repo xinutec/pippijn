@@ -102,6 +102,11 @@ export interface HsmmInputs {
 	/** Prior-day end-of-day continuity context, or null (chain start /
 	 *  flag off / no prior row). */
 	continuityContext: ContinuityContext | null;
+	/** Per-fix rail/road proximity keyed by fix `ts` (#238) — lets the
+	 *  line-proximity factor tell "riding the track" from "driving past
+	 *  it". Optional: absent on inputs built before #238, in which case
+	 *  the road-vs-rail test is skipped and the decode is unchanged. */
+	pointProximity?: ReadonlyMap<number, { railDistM: number | null; roadDistM: number | null }>;
 }
 
 /**
@@ -116,6 +121,7 @@ export function decodeHsmm(inputs: HsmmInputs): HmmSegment[] {
 		hr: inputs.hr,
 		steps: inputs.steps,
 		sleep: inputs.sleep,
+		pointProximity: inputs.pointProximity,
 	});
 	const states = buildStateSpace({ focusPlaces: inputs.places, knownLines: KNOWN_LINES });
 

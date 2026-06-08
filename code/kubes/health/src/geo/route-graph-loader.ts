@@ -75,17 +75,22 @@ export interface LoadRouteGraphOpts {
 	pointRowLimit?: number;
 }
 
-/** Load the route graph for a bbox from the local OSM mirror.
- *  Wraps the SQL fetch and the pure `buildRouteGraph` call. */
-export async function loadRouteGraphForBbox(bbox: Bbox, opts: LoadRouteGraphOpts = {}): Promise<RouteGraph> {
+/** Fetch the raw osm_lines + osm_points rows for a bbox from the local
+ *  OSM mirror — the deterministic inputs to `buildRouteGraph`. Split out
+ *  from `loadRouteGraphForBbox` so a fixture-capture path can serialize
+ *  the same rows and rebuild an identical graph offline. */
+export async function loadRawOsmForBbox(
+	bbox: Bbox,
+	opts: LoadRouteGraphOpts = {},
+): Promise<{ lines: RawOsmLine[]; points: RawOsmPoint[] }> {
 	const poly = bboxPolygonWkt(bbox);
 	const lineLimit = opts.lineRowLimit ?? 50_000;
 	const pointLimit = opts.pointRowLimit ?? 10_000;
 	const featureTypes = opts.featureTypes;
 
-	let lineRows: RawOsmLine[];
+	let lines: RawOsmLine[];
 	if (featureTypes !== undefined && featureTypes.length > 0) {
-		lineRows = (
+		lines = (
 			await sql<RawOsmLine>`
 				SELECT osm_id, osm_type, feature_type, subtype, name, tags_json, ST_AsText(geom) AS geom
 				FROM osm_lines
@@ -95,7 +100,7 @@ export async function loadRouteGraphForBbox(bbox: Bbox, opts: LoadRouteGraphOpts
 			`.execute(db())
 		).rows;
 	} else {
-		lineRows = (
+		lines = (
 			await sql<RawOsmLine>`
 				SELECT osm_id, osm_type, feature_type, subtype, name, tags_json, ST_AsText(geom) AS geom
 				FROM osm_lines
@@ -125,5 +130,12 @@ export async function loadRouteGraphForBbox(bbox: Bbox, opts: LoadRouteGraphOpts
 		points.push({ ...r, lat, lon });
 	}
 
-	return buildRouteGraph(lineRows, points);
+	return { lines, points };
+}
+
+/** Load the route graph for a bbox from the local OSM mirror.
+ *  Wraps the SQL fetch and the pure `buildRouteGraph` call. */
+export async function loadRouteGraphForBbox(bbox: Bbox, opts: LoadRouteGraphOpts = {}): Promise<RouteGraph> {
+	const { lines, points } = await loadRawOsmForBbox(bbox, opts);
+	return buildRouteGraph(lines, points);
 }
