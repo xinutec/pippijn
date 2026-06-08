@@ -6,15 +6,20 @@ metadata:
 spec:
   # Daily at 06:00 UTC — after focus-refresh (Sunday 04:00) and
   # rail-refresh (daily 05:00) so the HSMM decode sees fresh
-  # focus_places + rail geometry inputs. ~15s per day × 7 days
-  # per user → ~2 min for the single-user fleet.
+  # focus_places + rail geometry inputs.
   schedule: "0 6 * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      activeDeadlineSeconds: 600
+      # Headroom for the per-fix rail/road proximity (#238): each fix
+      # does a nearbyWays lookup, and the first run after a code/area
+      # change pays cold-cache Overpass fetches at the 300 m radius.
+      # In-cluster DB latency keeps the steady state well under this;
+      # the bump absorbs the cold first run. (Proximity efficiency is
+      # tracked as a follow-up — per-minute instead of per-fix.)
+      activeDeadlineSeconds: 1800
       template:
         spec:
           restartPolicy: OnFailure
