@@ -1,7 +1,7 @@
 .toolbar { position: sticky; top: 0; z-index: 10; }
 .title { font-size: 18px; font-weight: 600; }
 .spacer { flex: 1; }
-.user-name { font-size: 14px; opacity: 0.8; margin-right: 8px; }
+.user-name { font-size: 14px; color: var(--mat-sys-on-surface-variant); margin-right: 8px; }
 .share-link, .settings-link { margin-right: 4px; }
 .logout-form { display: inline; }
 .content {

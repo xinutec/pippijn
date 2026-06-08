@@ -57,6 +57,13 @@ body {
 	--color-moving: #818cf8;
 	--color-stationary: #94a3b8;
 	--color-overlay: #c4b5fd;
+
+	// Material 3 has no "warning" colour role, so this app-level amber pair
+	// fills it (the re-auth banner needs attention but isn't a hard error).
+	// Tuned for the dark surface — deep amber container, light amber
+	// foreground — rather than the light-theme amber it used to hard-code.
+	--app-warn-container: #3a2e0a;
+	--app-on-warn-container: #ffd98a;
 }
 
 // Shared "no data yet" placeholder for any chart/card with nothing to show

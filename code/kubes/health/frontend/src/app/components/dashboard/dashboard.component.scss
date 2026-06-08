@@ -37,7 +37,7 @@
 	text-align: center;
 	padding: 80px 20px;
 	h2 { margin-bottom: 16px; font-weight: 500; }
-	p { margin-bottom: 24px; opacity: 0.7; }
+	p { margin-bottom: 24px; color: var(--mat-sys-on-surface-variant); }
 }
 /* Renamed from `.loading` to `.app-loading` because the .day-label
  * also gets a `loading` modifier class ([class.loading]="dayLoading()")
@@ -51,7 +51,7 @@
 	align-items: center;
 	gap: 16px;
 	padding: 80px;
-	p { opacity: 0.7; }
+	p { color: var(--mat-sys-on-surface-variant); }
 }
 .charts-row {
 	display: grid;

@@ -3,9 +3,9 @@
 	align-items: center;
 	gap: 1rem;
 	padding: 0.75rem 1.25rem;
-	background-color: #fff3e0;
-	color: #5d4037;
-	border-bottom: 1px solid #ffb74d;
+	background-color: var(--app-warn-container);
+	color: var(--app-on-warn-container);
+	border-bottom: 1px solid color-mix(in srgb, var(--app-on-warn-container) 30%, transparent);
 }
-.icon { color: #e65100; }
+.icon { color: var(--app-on-warn-container); }
 .message { flex: 1; }
