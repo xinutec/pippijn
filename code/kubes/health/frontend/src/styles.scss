@@ -1,55 +1,69 @@
-@import '@angular/material/prebuilt-themes/purple-green.css';
-/* Leaflet's stylesheet must be global — it targets .leaflet-* classes
- * on elements Leaflet creates at runtime, which component-scoped
- * (encapsulated) styles would never match. */
-@import 'leaflet/dist/leaflet.css';
+@use "@angular/material" as mat;
+
+// Material 3 theme — the single source of truth for colour, typography and
+// density. `mat.theme()` emits the `--mat-sys-*` system tokens that every
+// M3 component reads, so there's no hand-maintained palette and no
+// prebuilt-theme CSS (the deprecated way). `color-scheme: dark` selects the
+// dark side of the generated `light-dark()` values — this is a dark-only
+// dashboard.
+//
+// Leaflet's stylesheet is loaded globally via angular.json `styles` (not a
+// Sass `@import`): it targets `.leaflet-*` elements Leaflet creates at
+// runtime, which component-scoped styles could never match.
+html {
+	@include mat.theme(
+		(
+			color: (
+				primary: mat.$violet-palette,
+				tertiary: mat.$cyan-palette,
+			),
+			typography: Roboto,
+			density: 0,
+		)
+	);
+	color-scheme: dark;
+
+	// Reserve the scrollbar gutter so the page width doesn't jump ~15px
+	// when the day-loading spinner replaces the cards (visible as a
+	// horizontal jitter on centered content).
+	scrollbar-gutter: stable;
+}
 
 * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-:root {
-  /* Project palette for the dark-on-purple Material theme. Components
-   * reference these instead of hard-coding rgba/hex so a future theme
-   * swap (or light-mode support) only needs to touch this block.
-   *
-   * Naming: --text-* for foreground-on-background opacity tiers, where
-   * "secondary" is the most prominent dim text and "faint" is the
-   * least. --border-faint is the thin-divider tier. --color-* are the
-   * accent colours used by the timeline state icons. */
-  --text-secondary: rgba(255, 255, 255, 0.7);
-  --text-tertiary: rgba(255, 255, 255, 0.55);
-  --text-faint: rgba(255, 255, 255, 0.5);
-  --border-faint: rgba(255, 255, 255, 0.15);
-
-  --color-moving: #818cf8;     /* moving-mode timeline icon (indigo) */
-  --color-stationary: #94a3b8; /* stationary-mode timeline icon (slate) */
-  --color-overlay: #c4b5fd;    /* city / journey overlay header (violet) */
-}
-
-html {
-  /* Reserve the vertical scrollbar's gutter even when content fits
-   * the viewport. Without this, the page width changes by ~15px
-   * every time content height crosses the viewport — which on this
-   * dashboard happens whenever the day-loading spinner replaces the
-   * cards. The visible side-effect is a slight horizontal jitter on
-   * everything centered. */
-  scrollbar-gutter: stable;
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
 }
 
 body {
-  background: var(--mat-app-background-color, #303030);
-  color: var(--mat-app-text-color, #ffffff);
-  min-height: 100vh;
+	min-height: 100vh;
+	background: var(--mat-sys-surface);
+	color: var(--mat-sys-on-surface);
+	font: var(--mat-sys-body-medium);
 }
 
-/* Shared "no data yet" placeholder used by every chart/card component
- * that renders nothing for the current day. Kept in styles.scss so the
- * five components that all defined this identically don't drift. */
+:root {
+	// App semantic aliases over Material 3 system tokens. Components keep
+	// referencing these names, but the values now flow from the theme — a
+	// palette or light/dark change propagates automatically instead of
+	// needing hand-edited rgba() tiers.
+	--text-secondary: var(--mat-sys-on-surface);
+	--text-tertiary: var(--mat-sys-on-surface-variant);
+	--text-faint: var(--mat-sys-outline);
+	--border-faint: var(--mat-sys-outline-variant);
+
+	// Data-visualisation accents for the timeline state icons — intentional
+	// domain colours (moving / stationary / overlay), not theme-derived.
+	--color-moving: #818cf8;
+	--color-stationary: #94a3b8;
+	--color-overlay: #c4b5fd;
+}
+
+// Shared "no data yet" placeholder for any chart/card with nothing to show
+// for the current day. Kept global so the components that all rendered this
+// identically don't drift.
 .no-data {
-  opacity: 0.5;
-  padding: 24px 0;
-  text-align: center;
+	color: var(--mat-sys-on-surface-variant);
+	padding: 24px 0;
+	text-align: center;
 }
