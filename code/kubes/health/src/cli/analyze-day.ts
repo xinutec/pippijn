@@ -138,7 +138,7 @@ for (let i = 0; i < points.length; i += sampleInterval) {
 	const time = fmt(p.ts);
 	const seg = segments.find((s) => p.ts >= s.startTs && p.ts <= s.endTs);
 	console.log(
-		`  ${time} lat:${p.lat.toFixed(5)} lon:${p.lon.toFixed(5)} spd:${p.speed_kmh.toString().padStart(5)}km/h brg:${p.bearing.toString().padStart(3)} [${seg?.mode ?? "?"}]`,
+		`  ${time} lat:${p.lat.toFixed(5)} lon:${p.lon.toFixed(5)} spd:${p.speed_kmh.toFixed(1).padStart(5)}km/h brg:${Math.round(p.bearing).toString().padStart(3)} [${seg?.mode ?? "?"}]`,
 	);
 }
 
