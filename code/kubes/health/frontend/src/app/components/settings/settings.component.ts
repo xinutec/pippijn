@@ -8,6 +8,7 @@ import { MatInputModule } from "@angular/material/input";
 import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";
 import { MatSnackBar, MatSnackBarModule } from "@angular/material/snack-bar";
 import { MatTooltipModule } from "@angular/material/tooltip";
+import { RouterLink } from "@angular/router";
 import { HealthService } from "../../services/health.service";
 
 /**
@@ -37,6 +38,7 @@ import { HealthService } from "../../services/health.service";
 		MatProgressSpinnerModule,
 		MatSnackBarModule,
 		MatTooltipModule,
+		RouterLink,
 	],
 	templateUrl: "./settings.component.html",
 	styleUrl: "./settings.component.scss",
