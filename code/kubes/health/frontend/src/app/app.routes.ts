@@ -1,5 +1,6 @@
 import { Routes } from "@angular/router";
 import { DashboardComponent } from "./components/dashboard/dashboard.component";
+import { SettingsComponent } from "./components/settings/settings.component";
 
 /**
  * Routes for the SPA.
@@ -22,9 +23,6 @@ import { DashboardComponent } from "./components/dashboard/dashboard.component";
 export const routes: Routes = [
 	{ path: "", pathMatch: "full", component: DashboardComponent },
 	{ path: "share/:token", component: DashboardComponent },
-	{
-		path: "settings",
-		loadComponent: () => import("./components/settings/settings.component").then((m) => m.SettingsComponent),
-	},
+	{ path: "settings", component: SettingsComponent },
 	{ path: "**", redirectTo: "" },
 ];
