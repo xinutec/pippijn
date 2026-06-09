@@ -27,3 +27,9 @@ mat-card-actions {
 	flex-wrap: wrap;
 	gap: 0.5rem;
 }
+/* Outline fields float their label up onto the top border, so the first
+ * field's label was riding up into the card subtitle (their line boxes
+ * overlapped). Give the content top room to clear it. */
+mat-card-content {
+	margin-top: 0.75rem;
+}
