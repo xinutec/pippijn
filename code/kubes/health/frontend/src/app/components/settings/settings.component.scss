@@ -21,3 +21,9 @@
 .error {
 	color: var(--mat-sys-error);
 }
+/* Let the action buttons wrap with spacing on narrow screens instead of
+ * crammed into one row that collides with the content above. */
+mat-card-actions {
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
