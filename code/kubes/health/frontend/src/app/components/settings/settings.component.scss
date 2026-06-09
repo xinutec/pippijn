@@ -27,9 +27,14 @@ mat-card-actions {
 	flex-wrap: wrap;
 	gap: 0.5rem;
 }
-/* Outline fields float their label up onto the top border, so the first
- * field's label was riding up into the card subtitle (their line boxes
- * overlapped). One step of Material's 8px spacing scale (16px) clears it. */
+/* Uniform vertical rhythm for the card body. Material's outline fields
+ * float their label up onto their top border, so every field needs
+ * clearance from the element above it — not just the first. One rule
+ * (16px, a step of Material's 8px scale) gives every stacked sibling that
+ * clearance, instead of patching each collision one at a time. */
 mat-card-content {
-	margin-top: 1rem;
+	margin-top: 1rem; /* gap below the card header/subtitle */
+}
+mat-card-content > * + * {
+	margin-top: 1rem; /* gap between every stacked body element */
 }
