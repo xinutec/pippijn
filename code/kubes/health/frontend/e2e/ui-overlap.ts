@@ -1,3 +1,5 @@
+import { mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { expect, type Page, type TestInfo } from "@playwright/test";
 
 /**
@@ -77,7 +79,14 @@ export function findTextOverlaps(tol: number): OverlapPair[] {
  * artifact for the eye-check this whole tool exists to make routine.
  */
 export async function expectNoTextOverlaps(page: Page, testInfo: TestInfo, tol = 1.5): Promise<void> {
-	const shot = await page.screenshot({ fullPage: true });
+	// Always leave a screenshot at a stable, predictable path (pass OR
+	// fail) — eyeballing the render is the habit this tool exists to make
+	// cheap. Playwright's own report dir is wiped on a passing test, so we
+	// write our own copy under ui-snapshots/ (git-ignored).
+	const slug = testInfo.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+	const path = join(testInfo.project.testDir, "..", "ui-snapshots", `${slug}.png`);
+	await mkdir(dirname(path), { recursive: true });
+	const shot = await page.screenshot({ fullPage: true, path });
 	await testInfo.attach("rendered", { body: shot, contentType: "image/png" });
 
 	const overlaps = await page.evaluate(findTextOverlaps, tol);
