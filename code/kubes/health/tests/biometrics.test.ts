@@ -7,6 +7,7 @@ import {
 	correctStationaryWalkThrough,
 	enrichSegmentWithBiometrics,
 	type HrPoint,
+	revertIsolatedCadenceDrives,
 	type SleepStageRecord,
 	type StepPoint,
 } from "../src/geo/biometrics.js";
@@ -445,5 +446,96 @@ describe("applyStationaryWalkThrough — sequence-level guards", () => {
 		const out = applyStationaryWalkThrough(segs, burst);
 		expect(out).toHaveLength(2);
 		expect(out.map((s) => s.wayName)).toEqual(["Met line", "Jubilee line"]);
+	});
+});
+
+describe("revertIsolatedCadenceDrives — undo a cadence flip with no vehicular context", () => {
+	type SegLike = TrackSegment & { refinedMode?: string; refinedReason?: string };
+	let ts = 0;
+	const span = (mode: SegLike["mode"], durS: number, avg: number, max: number): SegLike => {
+		const s: SegLike = {
+			startTs: ts,
+			endTs: ts + durS,
+			mode,
+			confidence: 1,
+			confidenceMargin: 100,
+			avgSpeed: avg,
+			maxSpeed: max,
+			linearity: 0.5,
+			pointCount: 5,
+		};
+		ts += durS;
+		return s;
+	};
+	// A segment the cadence pass flipped walking -> driving: base mode stays
+	// "walking", refinedMode is "driving", reason mentions cadence.
+	const flip = (durS: number, avg: number, max: number): SegLike => ({
+		...span("walking", durS, avg, max),
+		refinedMode: "driving",
+		refinedReason: "low cadence (0/min)",
+	});
+	const walking = (durS: number) => span("walking", durS, 4, 7);
+	const stay = (durS: number) => span("stationary", durS, 0.2, 1);
+	const realDrive = (durS: number) => {
+		const s = span("driving", durS, 35, 60);
+		s.refinedMode = "driving";
+		return s;
+	};
+	const eff = (s: SegLike) => s.refinedMode ?? s.mode;
+
+	it("reverts a lone pedestrian-paced flip bracketed by walking", () => {
+		ts = 0;
+		const out = revertIsolatedCadenceDrives([walking(600), flip(5 * 60, 3, 12), walking(600)]);
+		expect(eff(out[1])).toBe("walking");
+		expect(out[1].refinedReason).toMatch(/no adjacent driving/i);
+	});
+
+	it("reverts a flip bracketed by pedestrian stays (skips stationary to find real neighbours)", () => {
+		ts = 0;
+		const out = revertIsolatedCadenceDrives([walking(600), stay(300), flip(5 * 60, 3, 12), stay(300), walking(600)]);
+		expect(eff(out[2])).toBe("walking");
+	});
+
+	it("reverts ALL flips in a pottering-about run (flips don't count as each other's drive context)", () => {
+		ts = 0;
+		// walk · stay · flip · stay · flip · stay · flip · stay · walk
+		const out = revertIsolatedCadenceDrives([
+			walking(600),
+			stay(300),
+			flip(300, 3, 13),
+			stay(300),
+			flip(23 * 60, 2.6, 12.6),
+			stay(900),
+			flip(900, 2.7, 11.6),
+			stay(300),
+			walking(480),
+		]);
+		expect([out[2], out[4], out[6]].map(eff)).toEqual(["walking", "walking", "walking"]);
+	});
+
+	it("KEEPS a flip adjacent to a real GPS drive (the absorb-into-drive case it was built for)", () => {
+		ts = 0;
+		const out = revertIsolatedCadenceDrives([realDrive(600), flip(5 * 60, 5, 14), walking(600)]);
+		expect(eff(out[1])).toBe("driving");
+	});
+
+	it("KEEPS a flip whose real drive neighbour is one stationary away (traffic-light stop)", () => {
+		ts = 0;
+		const out = revertIsolatedCadenceDrives([realDrive(600), stay(120), flip(5 * 60, 5, 14), walking(600)]);
+		expect(eff(out[2])).toBe("driving");
+	});
+
+	it("does NOT revert a vehicular-average flip even when isolated (only pedestrian-paced reverts)", () => {
+		ts = 0;
+		const out = revertIsolatedCadenceDrives([walking(600), flip(5 * 60, 12, 14), walking(600)]);
+		expect(eff(out[1])).toBe("driving");
+	});
+
+	it("leaves a GPS-classified driving segment alone (only touches cadence flips)", () => {
+		ts = 0;
+		const gpsDrive = span("driving", 5 * 60, 3, 12);
+		gpsDrive.refinedMode = "driving";
+		const out = revertIsolatedCadenceDrives([walking(600), gpsDrive, walking(600)]);
+		expect(eff(out[1])).toBe("driving");
 	});
 });

@@ -20,6 +20,7 @@ import {
 	correctModeFromCadence,
 	enrichSegmentWithBiometrics,
 	type HrPoint,
+	revertIsolatedCadenceDrives,
 	type SleepStageRecord,
 	type StepPoint,
 } from "./biometrics.js";
@@ -880,7 +881,12 @@ export async function computeVelocityFromInputs(
 	// is almost certainly a passenger in slow traffic, an escalator, or
 	// similar — relabel before merge so neighbouring drives can absorb it.
 	const { hr, sleep, steps } = await biometricsPromise;
-	const corrected = timeSync("cadenceCorrect", () => enriched.map((s) => correctModeFromCadence(s, steps)));
+	const flipped = timeSync("cadenceCorrect", () => enriched.map((s) => correctModeFromCadence(s, steps)));
+	// Undo cadence flips with no adjacent real driving: the correction exists so
+	// a neighbouring drive can absorb a slow-traffic leg, so an isolated flip
+	// (a slow walk whose phone didn't count steps) is a false positive. Runs
+	// before merge so surviving flips can still coalesce into their drive.
+	const corrected = timeSync("revertIsolatedCadence", () => revertIsolatedCadenceDrives(flipped));
 
 	// Biometric-signature correction: re-evaluate ambiguous segments
 	// against the user's per-mode (HR, cadence, speed) signatures from

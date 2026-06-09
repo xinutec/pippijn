@@ -173,6 +173,14 @@ const CADENCE_CORRECTION_MIN_DURATION_S = 3 * 60;
  *  — cadence correction shouldn'\''t fight that boundary. */
 const WALKING_MAX_SPEED_KMH = 15;
 
+/** A cadence-flipped "driving" leg only gets reverted to walking when its
+ *  average speed is in pedestrian range. A real slow-vehicle leg that GPS
+ *  mistook for walking still tends to average faster than a stroll; a
+ *  pottering-about walk averages 2-5 km/h (observed 2.6-4.6 on the leg that
+ *  motivated this). 7 km/h is a brisk-walk ceiling: below it we are confident
+ *  it is pedestrian, above it we leave the cadence call alone. */
+const CADENCE_REVERT_PEDESTRIAN_AVG_KMH = 7;
+
 /** A "stationary" segment carrying a single minute at or above this step
  *  count was almost certainly a walk the GPS read as a stop — 80 steps in one
  *  minute is an unmistakable walking burst, not the incidental shuffling of
@@ -246,6 +254,65 @@ export function correctModeFromCadence<T extends TrackSegment & { refinedMode?: 
 		refinedMode: "driving",
 		refinedReason: segment.refinedReason ? `${segment.refinedReason}; ${reason}` : reason,
 	};
+}
+
+/** Undo a `correctModeFromCadence` flip that has no vehicular context.
+ *
+ *  The cadence correction's whole purpose is "relabel a slow leg so a
+ *  NEIGHBOURING DRIVE can absorb it" (see the comment on the call site). It
+ *  relies entirely on the step counter, so when steps under-record — phone in
+ *  hand, not wrist-worn, an irregular gait — a real slow walk reads as a
+ *  passenger trip. Speed can't rescue it: a slow vehicle GPS mistook for
+ *  walking is, by GPS alone, indistinguishable from a walk (that motivating
+ *  leg even peaked HIGHER than the case the flip was designed for).
+ *
+ *  The signal that DOES separate them is context. A genuine slow-traffic leg
+ *  sits next to real GPS-detected driving (the drive the merge will absorb it
+ *  into); a pottering-about walk sits between walks and pedestrian stays. So a
+ *  cadence flip is reverted to walking when BOTH:
+ *    - no adjacent real (GPS-classified) driving — scanning past stationary
+ *      stops and other cadence flips, since a flip is not independent
+ *      vehicular evidence for its neighbour; and
+ *    - the leg is pedestrian-paced (avg < CADENCE_REVERT_PEDESTRIAN_AVG_KMH),
+ *      so an isolated genuinely-fast leg is left for the cadence call to own.
+ *
+ *  Sequence pass (needs neighbour context); pure. Runs right after
+ *  `correctModeFromCadence`, before merge, so surviving flips can still be
+ *  absorbed by their drive.
+ */
+export function revertIsolatedCadenceDrives<T extends TrackSegment & { refinedMode?: string; refinedReason?: string }>(
+	segments: T[],
+): T[] {
+	const eff = (s: T): string => s.refinedMode ?? s.mode;
+	const isCadenceFlip = (s: T): boolean =>
+		s.mode === "walking" && s.refinedMode === "driving" && (s.refinedReason ?? "").includes("cadence");
+	// A neighbour counts as "real driving" only if GPS classified it as driving
+	// (base mode), not a sibling cadence flip — otherwise a run of flips would
+	// vouch for each other and none would revert.
+	const isRealDrive = (s: T): boolean => eff(s) === "driving" && !isCadenceFlip(s);
+	// Scan outward in `dir`, skipping stationary stops and other cadence flips,
+	// to the nearest segment that constitutes independent evidence; true iff it
+	// is real driving.
+	const hasDriveNeighbour = (i: number, dir: -1 | 1): boolean => {
+		for (let j = i + dir; j >= 0 && j < segments.length; j += dir) {
+			const s = segments[j];
+			if (eff(s) === "stationary" || isCadenceFlip(s)) continue;
+			return isRealDrive(s);
+		}
+		return false;
+	};
+
+	return segments.map((s, i) => {
+		if (!isCadenceFlip(s)) return s;
+		if (s.avgSpeed >= CADENCE_REVERT_PEDESTRIAN_AVG_KMH) return s;
+		if (hasDriveNeighbour(i, -1) || hasDriveNeighbour(i, 1)) return s;
+		const reason = "reverted cadence-drive: no adjacent driving (isolated pedestrian leg)";
+		return {
+			...s,
+			refinedMode: "walking",
+			refinedReason: s.refinedReason ? `${s.refinedReason}; ${reason}` : reason,
+		};
+	});
 }
 
 /**
