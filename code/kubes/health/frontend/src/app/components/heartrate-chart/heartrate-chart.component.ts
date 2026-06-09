@@ -15,29 +15,52 @@ import { chartColors, gridColor, tickColor, formatDay } from "../../chart-theme"
 export class HeartrateChartComponent {
   readonly activity = input<ActivityDay[]>([]);
 
+  /** Padding (bpm) above/below the data so the line isn't flush against
+   *  the axis. */
+  private static readonly PAD = 3;
+  /** Minimum y-axis span (bpm). Resting HR is stable, so without a floor
+   *  a near-flat week would zoom in until 1-bpm sensor noise looked like a
+   *  dramatic swing. ~15 bpm keeps real trends visible without crying wolf. */
+  private static readonly MIN_SPAN = 15;
+
   chartData: ChartConfiguration<"line">["data"] = { labels: [], datasets: [] };
-  chartOptions: ChartConfiguration<"line">["options"] = {
-    responsive: true,
-    maintainAspectRatio: true,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { ticks: { color: tickColor }, grid: { display: false } },
-      y: {
-        ticks: { color: tickColor },
-        grid: { color: gridColor },
-        suggestedMin: 50,
-        suggestedMax: 90,
+  chartOptions: ChartConfiguration<"line">["options"] = this.buildOptions(50, 90);
+
+  /** Fit the y-axis to [lo, hi] rather than a fixed 50–90 band, so the
+   *  actual resting-HR variation fills the chart. */
+  private buildOptions(min: number, max: number): ChartConfiguration<"line">["options"] {
+    return {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: tickColor }, grid: { display: false } },
+        y: { ticks: { color: tickColor }, grid: { color: gridColor }, min, max },
       },
-    },
-  };
+    };
+  }
 
   constructor() {
     effect(() => {
       const data = this.activity().filter((d) => d.resting_heart_rate != null);
+      const values = data.map((d) => d.resting_heart_rate!);
+
+      if (values.length > 0) {
+        let lo = Math.floor(Math.min(...values) - HeartrateChartComponent.PAD);
+        let hi = Math.ceil(Math.max(...values) + HeartrateChartComponent.PAD);
+        const span = hi - lo;
+        if (span < HeartrateChartComponent.MIN_SPAN) {
+          const grow = (HeartrateChartComponent.MIN_SPAN - span) / 2;
+          lo = Math.floor(lo - grow);
+          hi = Math.ceil(hi + grow);
+        }
+        this.chartOptions = this.buildOptions(lo, hi);
+      }
+
       this.chartData = {
         labels: data.map((d) => formatDay(d.date)),
         datasets: [{
-          data: data.map((d) => d.resting_heart_rate!),
+          data: values,
           borderColor: chartColors.red,
           backgroundColor: "rgba(239, 68, 68, 0.1)",
           fill: true,
