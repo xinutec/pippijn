@@ -7,6 +7,7 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test --watch=false",
+    "ui-check": "playwright test",
     "lint": "eslint src"
   },
   "private": true,
@@ -32,6 +33,7 @@
     "@angular/build": "^21.2.10",
     "@angular/cli": "^21.2.10",
     "@angular/compiler-cli": "^21.2.12",
+    "@playwright/test": "^1.60.0",
     "angular-eslint": "21.4.0",
     "eslint": "10.3.0",
     "jsdom": "^29.1.1",
