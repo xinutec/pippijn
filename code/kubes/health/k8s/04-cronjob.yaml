@@ -4,7 +4,11 @@ metadata:
   name: health-sync
   namespace: health
 spec:
-  schedule: "0 * * * *"
+  # Every 15 min so Fitbit data (esp. sleep, which Fitbit only finalizes
+  # after you wake) appears within ~15 min instead of up to an hour.
+  # Each run re-queries a 2-day overlap (see SYNC_OVERLAP_DAYS); ~15
+  # calls/run × 4 runs/hr stays well under Fitbit's 150 req/hr/user.
+  schedule: "*/15 * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3

@@ -37,6 +37,16 @@ function daysAgo(n: number): string {
 	return formatDate(d);
 }
 
+/** Forward sync always re-queries at least the last this-many days, even
+ *  once the stored cursor has advanced past them. Fitbit only finalizes a
+ *  day's sleep / biometrics after you wake, and can revise a recent day,
+ *  so a window of just [cursor, today] would permanently miss anything
+ *  Fitbit completed after the cursor moved past that date (e.g. last
+ *  night's sleep, if every sync that day ran while you were still
+ *  asleep). Re-fetch is idempotent (upsert / delete-then-insert per log),
+ *  so the overlap is safe; 2 days back ≈ a few extra cheap calls per run. */
+const SYNC_OVERLAP_DAYS = 2;
+
 /** Earliest date the backfill is allowed to consider. Fitbit's first
  *  consumer tracker shipped in 2008; before 2010 the API has no data for
  *  anyone. Without this floor a stuck loop can walk into negative years
@@ -244,7 +254,13 @@ for (const user of users) {
 		});
 
 		// --- Pass 1: Forward sync (new data) ---
-		const lastSyncDate = (await getSyncState(user.user_id, "last_sync_date")) ?? daysAgo(30);
+		// Start from the stored cursor, but never later than the overlap
+		// window — so recently-finalized days (last night's sleep, a revised
+		// yesterday) are always re-fetched, not just whatever is newer than
+		// the cursor. ISO date strings compare lexicographically.
+		const storedCursor = (await getSyncState(user.user_id, "last_sync_date")) ?? daysAgo(30);
+		const overlapStart = daysAgo(SYNC_OVERLAP_DAYS);
+		const lastSyncDate = storedCursor < overlapStart ? storedCursor : overlapStart;
 		const today = formatDate(new Date());
 
 		console.log(`[${user.user_id}] Forward sync: ${lastSyncDate} → ${today}`);
