@@ -4,10 +4,12 @@ import type { TransportMode } from "../src/geo/segments.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
 import {
 	annotateRailRuns,
+	attachStayCentroids,
 	batterySeries,
 	composeWayName,
 	mergeAdjacentMoving,
 	mergeAdjacentStays,
+	planJitterStayRuns,
 } from "../src/geo/velocity.js";
 
 function stay(startTs: number, endTs: number, place: string | undefined, pointCount = 5): EnrichedSegment {
@@ -1143,5 +1145,81 @@ describe("batterySeries", () => {
 			{ ts: 50, level: 85 },
 			{ ts: 60, level: 85 },
 		]);
+	});
+});
+
+describe("attachStayCentroids", () => {
+	it("attaches the mean of in-window fixes to a stationary segment", () => {
+		const segs = [stay(0, 600, "X")];
+		const pts = [
+			{ ts: 60, lat: 51.0, lon: -0.1 },
+			{ ts: 120, lat: 51.2, lon: -0.12 },
+			{ ts: 9999, lat: 99, lon: 99 }, // outside window — ignored
+		];
+		const out = attachStayCentroids(segs, pts);
+		expect(out[0].centroidLat).toBeCloseTo(51.1, 5);
+		expect(out[0].centroidLon).toBeCloseTo(-0.11, 5);
+	});
+
+	it("leaves moving segments and empty-window stays untouched", () => {
+		const out = attachStayCentroids([walking(0, 600), stay(600, 1200, "Y")], []);
+		expect(out[0].centroidLat).toBeUndefined();
+		expect(out[1].centroidLat).toBeUndefined();
+	});
+});
+
+describe("planJitterStayRuns", () => {
+	// A co-located cluster (~Olivomare): all within metres of each other.
+	const at = (
+		start: number,
+		end: number,
+		lat: number,
+		lon: number,
+		o: { place?: string; jitter?: boolean } = {},
+	): EnrichedSegment => ({
+		...stay(start, end, o.place),
+		refinedMode: "stationary",
+		refinedReason: o.jitter ? "no walking steps (peak 0/min) ... — sitting, GPS jitter" : undefined,
+		centroidLat: lat,
+		centroidLon: lon,
+	});
+
+	it("groups co-located stationary fragments when the run contains a jitter leg", () => {
+		const segs = [
+			at(0, 300, 51.4966, -0.1472, { place: "The Plumbers Arms (pub)" }),
+			at(300, 600, 51.4967, -0.1473, { jitter: true }),
+			at(600, 900, 51.4966, -0.1471, { place: "Keencare Pharmacy (pharmacy)" }),
+		];
+		expect(planJitterStayRuns(segs)).toEqual([{ start: 0, end: 2 }]);
+	});
+
+	it("does NOT group a co-located run with no jitter leg (normal multi-stay day)", () => {
+		const segs = [at(0, 300, 51.4966, -0.1472, { place: "A" }), at(300, 600, 51.4967, -0.1473, { place: "B" })];
+		expect(planJitterStayRuns(segs)).toEqual([]);
+	});
+
+	it("breaks the run at a centroid beyond the merge radius", () => {
+		const segs = [
+			at(0, 300, 51.4966, -0.1472, { jitter: true }),
+			at(300, 600, 51.4967, -0.1473, { place: "near" }),
+			at(600, 900, 51.52, -0.16, { place: "far" }), // ~3 km away
+		];
+		// First two merge (jitter present); the far one is excluded.
+		expect(planJitterStayRuns(segs)).toEqual([{ start: 0, end: 1 }]);
+	});
+
+	it("breaks the run at a moving segment between stays", () => {
+		const segs = [
+			at(0, 300, 51.4966, -0.1472, { place: "pub" }),
+			at(300, 600, 51.4967, -0.1473, { jitter: true }),
+			walking(600, 900),
+			at(900, 1200, 51.4966, -0.1471, { place: "after" }),
+		];
+		expect(planJitterStayRuns(segs)).toEqual([{ start: 0, end: 1 }]);
+	});
+
+	it("ignores stationary segments with no centroid", () => {
+		const segs = [stay(0, 300, "no-centroid"), stay(300, 600, "also-none")];
+		expect(planJitterStayRuns(segs)).toEqual([]);
 	});
 });

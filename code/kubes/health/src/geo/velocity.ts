@@ -46,7 +46,7 @@ import {
 	refineMode,
 	rejectImplausibleDriving,
 } from "./osm.js";
-import { dbOsmAdapter } from "./osm-adapter.js";
+import { dbOsmAdapter, type OsmAdapter } from "./osm-adapter.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proximity.js";
@@ -419,6 +419,11 @@ function toPlaceCandidate(p: NamedPlace): PlaceCandidate {
 export interface EnrichedSegment extends TrackSegment {
 	place?: string; // human-readable place name (for stationary segments)
 	city?: string; // city/town/village (for stationary segments) — frontend groups consecutive same-city segments
+	/** Mean lat/lon of this stay's GPS fixes. Attached for stationary
+	 *  segments by `attachStayCentroids` so the co-location merge can compare
+	 *  stays and re-resolve a merged stay's place from its combined centre. */
+	centroidLat?: number;
+	centroidLon?: number;
 	wayName?: string; // road/rail name (for moving segments)
 	refinedMode?: string; // OSM-refined transport mode (may differ from heuristic mode)
 	refinedReason?: string;
@@ -930,8 +935,15 @@ export async function computeVelocityFromInputs(
 
 	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(physicallyCorrected)));
 
+	// Collapse a sit that indoor/urban GPS jitter shattered into several
+	// co-located stays with different wrong labels (see demoteJitterWalkToStationary).
+	// Re-resolves the merged stay's venue from its combined centroid. Confined to
+	// runs containing a jitter-demoted leg, so normal multi-stay days are untouched.
+	const withCentroids = attachStayCentroids(merged, points);
+	const consolidated = await time("consolidateJitterStays", consolidateJitterStays(withCentroids, inputs.osm));
+
 	const withStations = await annotateRailRuns(
-		merged,
+		consolidated,
 		points,
 		(lat, lon) => inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
 		(lat, lon) => inputs.osm.linesAtPoint(lat, lon),
@@ -1228,6 +1240,119 @@ export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment
 		result.push({ ...seg });
 	}
 	return result;
+}
+
+/** Centroid distance under which two stationary stays are "the same spot" for
+ *  the jitter-consolidation merge. Sized for indoor/urban-canyon GPS scatter
+ *  (the 2026-06-09 Olivomare sit jittered in a ~50 m blob). */
+const JITTER_STAY_MERGE_RADIUS_M = 75;
+
+/** Attach each stationary segment's GPS centroid (mean of its in-window fixes).
+ *  Pure. Moving segments and stays with no fixes are returned unchanged. The
+ *  centroid is what `consolidateJitterStays` compares and re-resolves on. */
+export function attachStayCentroids<T extends EnrichedSegment>(
+	segments: T[],
+	points: { ts: number; lat: number; lon: number }[],
+): T[] {
+	return segments.map((seg) => {
+		if ((seg.refinedMode ?? seg.mode) !== "stationary") return seg;
+		let n = 0;
+		let sumLat = 0;
+		let sumLon = 0;
+		for (const p of points) {
+			if (p.ts >= seg.startTs && p.ts <= seg.endTs) {
+				sumLat += p.lat;
+				sumLon += p.lon;
+				n++;
+			}
+		}
+		if (n === 0) return seg;
+		return { ...seg, centroidLat: sumLat / n, centroidLon: sumLon / n };
+	});
+}
+
+/** Index ranges [start, end] (inclusive) of adjacent stationary segments that
+ *  should collapse into one stay: every segment in the run is stationary, has a
+ *  centroid, and sits within `JITTER_STAY_MERGE_RADIUS_M` of the run's first
+ *  segment, AND the run contains at least one jitter-demoted leg. The last
+ *  guard is deliberate — it confines this pass to days where indoor/urban GPS
+ *  jitter fragmented a sit (see `demoteJitterWalkToStationary`), so it can't
+ *  disturb normal multi-stay days. Pure; returns runs of length ≥ 2 only. */
+export function planJitterStayRuns(segments: EnrichedSegment[]): Array<{ start: number; end: number }> {
+	const eff = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
+	const isJitter = (s: EnrichedSegment): boolean => (s.refinedReason ?? "").includes("GPS jitter");
+	const runs: Array<{ start: number; end: number }> = [];
+	let i = 0;
+	while (i < segments.length) {
+		const anchor = segments[i];
+		if (eff(anchor) !== "stationary" || anchor.centroidLat === undefined) {
+			i++;
+			continue;
+		}
+		let j = i;
+		while (j + 1 < segments.length) {
+			const next = segments[j + 1];
+			if (eff(next) !== "stationary" || next.centroidLat === undefined) break;
+			const d = haversineMeters(
+				anchor.centroidLat,
+				anchor.centroidLon as number,
+				next.centroidLat,
+				next.centroidLon as number,
+			);
+			if (d > JITTER_STAY_MERGE_RADIUS_M) break;
+			j++;
+		}
+		if (j > i && segments.slice(i, j + 1).some(isJitter)) runs.push({ start: i, end: j });
+		i = j + 1;
+	}
+	return runs;
+}
+
+/** Collapse runs of co-located stationary fragments (one continuous sit that
+ *  GPS jitter shattered into several stays with different, wrong place labels)
+ *  into a single stay, re-resolving its name from the combined centroid.
+ *
+ *  Motivating case (2026-06-09): a ~75-min dinner sit came out as 7 fragments
+ *  labelled "The Plumbers Arms" / "Keencare Pharmacy" / way-names because each
+ *  jittery fragment's centroid grabbed a different nearest POI. Merged, the
+ *  combined centroid lands 11 m from the actual venue (Olivomare), which
+ *  `bestPlace` then returns. Confined to runs containing a jitter-demoted leg
+ *  (see `planJitterStayRuns`) so normal days are untouched.
+ */
+export async function consolidateJitterStays(segments: EnrichedSegment[], osm: OsmAdapter): Promise<EnrichedSegment[]> {
+	const runs = planJitterStayRuns(segments);
+	if (runs.length === 0) return segments;
+	const merged = new Map<number, EnrichedSegment>(); // start index -> merged stay
+	const drop = new Set<number>();
+	for (const { start, end } of runs) {
+		const run = segments.slice(start, end + 1);
+		const totalPoints = run.reduce((s, x) => s + x.pointCount, 0) || 1;
+		const cLat = run.reduce((s, x) => s + (x.centroidLat as number) * x.pointCount, 0) / totalPoints;
+		const cLon = run.reduce((s, x) => s + (x.centroidLon as number) * x.pointCount, 0) / totalPoints;
+		// Re-resolve the venue from the combined centre.
+		const place = await bestPlace(osm, cLat, cLon, {});
+		const base = run.reduce((a, b) => (b.endTs - b.startTs > a.endTs - a.startTs ? b : a)); // longest leg as base
+		const reason = `consolidated ${run.length} GPS-jitter stay fragments`;
+		merged.set(start, {
+			...base,
+			startTs: run[0].startTs,
+			endTs: run[run.length - 1].endTs,
+			pointCount: totalPoints,
+			centroidLat: cLat,
+			centroidLon: cLon,
+			place: place ? placeLabel(place) : base.place,
+			city: place ? (extractCity(place) ?? base.city) : base.city,
+			wayName: undefined,
+			refinedReason: base.refinedReason ? `${base.refinedReason}; ${reason}` : reason,
+		});
+		for (let k = start + 1; k <= end; k++) drop.add(k);
+	}
+	const out: EnrichedSegment[] = [];
+	for (let i = 0; i < segments.length; i++) {
+		if (merged.has(i)) out.push(merged.get(i) as EnrichedSegment);
+		else if (!drop.has(i)) out.push(segments[i]);
+	}
+	return out;
 }
 
 /**
