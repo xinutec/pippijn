@@ -29,7 +29,7 @@ mat-card-actions {
 }
 /* Outline fields float their label up onto the top border, so the first
  * field's label was riding up into the card subtitle (their line boxes
- * overlapped). Give the content top room to clear it. */
+ * overlapped). One step of Material's 8px spacing scale (16px) clears it. */
 mat-card-content {
-	margin-top: 0.75rem;
+	margin-top: 1rem;
 }
