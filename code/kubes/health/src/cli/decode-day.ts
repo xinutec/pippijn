@@ -20,7 +20,7 @@ import { useContinuityContinuation } from "../geo/factors/feature-flag.js";
 import { parseHourProfile } from "../geo/focus-places.js";
 import { stationsOnLine } from "../geo/line-stations.js";
 import { dbOsmAdapter, type OsmAdapter } from "../geo/osm-adapter.js";
-import { computePointProximity } from "../geo/rail-road-proximity.js";
+import { computeMinuteProximity } from "../geo/rail-road-proximity.js";
 import type { RouteGraph } from "../geo/route-graph.js";
 import { bboxFromFixes, loadRouteGraphForBbox } from "../geo/route-graph-loader.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
@@ -117,12 +117,12 @@ async function decodeAndPersist(
 	const velResult = await computeVelocity(config, userId, date, tz);
 	const bounds = dateBoundsUtc(date, tz);
 	const biom = await loadBiometrics(userId, bounds.startUtc, bounds.endUtc, tz);
-	// Per-fix rail/road proximity (#238): one nearbyWays lookup per fix
-	// (cached by coarse coord), classified rail-vs-road, so the
-	// line-proximity factor can keep a road-following taxi off a parallel
-	// tube line. Outlier-dropped to match the fixes the decode actually
-	// observes.
-	const pointProximity = await computePointProximity(osm, dropGpsOutliers(velResult.points));
+	// Per-minute rail/road proximity (#238): one nearbyWays lookup per
+	// distinct ~11 m minute-median location, classified rail-vs-road, so
+	// the line-proximity factor can keep a road-following taxi off a
+	// parallel tube line. Outlier-dropped to match the fixes the decode
+	// actually observes.
+	const proximityByMinute = await computeMinuteProximity(osm, date, tz, dropGpsOutliers(velResult.points));
 	// Presence-continuity seed (Phase 3 of
 	// docs/proposals/2026-06-presence-continuity.md): when the flag is
 	// on, read the prior day's presence_log row to set the
@@ -141,7 +141,7 @@ async function decodeAndPersist(
 		placeNearLine,
 		routeGraph,
 		continuityContext,
-		pointProximity,
+		proximityByMinute,
 	});
 	await saveDecode(kyselyDb(), userId, date, segments);
 	// Per-minute count is purely diagnostic. Segments tile the day's

@@ -95,19 +95,20 @@ export interface ObservationTensorInput {
 	 *  `Observation.inBed` per minute. When omitted, all minutes have
 	 *  `inBed = false`. */
 	sleep?: readonly { startTs: number; endTs: number; stage: string }[];
-	/** Per-fix rail/road proximity keyed by fix `ts` (from
-	 *  `computePointProximity`). When present, each minute's
-	 *  `Observation.roadDistM` / `railDistM` are the minimum across that
-	 *  minute's fixes. Omitted on inputs/fixtures captured before #238 —
-	 *  then the distances stay null and the line-proximity factor keeps
-	 *  its pre-#238 behaviour. */
-	pointProximity?: ReadonlyMap<number, { railDistM: number | null; roadDistM: number | null }>;
+	/** Rail/road proximity per minute, keyed by the minute's top-of-minute
+	 *  ts (= `Observation.ts`), from `computeMinuteProximity`. Computed at
+	 *  the same per-minute median coordinate this builder uses for
+	 *  `Observation.gps`, so the distance and the line-near check refer to
+	 *  one coherent location. Omitted on inputs/fixtures captured before
+	 *  #238 — then the distances stay null and the line-proximity factor
+	 *  keeps its pre-#238 behaviour. */
+	proximityByMinute?: ReadonlyMap<number, { railDistM: number | null; roadDistM: number | null }>;
 }
 
 const MINUTES_PER_DAY = 1440;
 const SECONDS_PER_MINUTE = 60;
 
-function median(values: number[]): number {
+export function median(values: number[]): number {
 	if (values.length === 0) return 0;
 	const sorted = [...values].sort((a, b) => a - b);
 	const mid = Math.floor(sorted.length / 2);
@@ -145,7 +146,7 @@ function localCtx(ts: number, tz: string): { hour: number; dayOfWeek: number } {
 }
 
 export function buildObservationTensor(input: ObservationTensorInput): Observation[] {
-	const { date, tz, points, hr, steps, sleep, pointProximity } = input;
+	const { date, tz, points, hr, steps, sleep, proximityByMinute } = input;
 	const { startUtc, endUtc } = dateBoundsUtc(date, tz);
 
 	// Pre-bucket the input streams by minute index for O(N) aggregation
@@ -212,21 +213,14 @@ export function buildObservationTensor(input: ObservationTensorInput): Observati
 						speedKmh: mean(gpsRows.map((p) => p.speed_kmh)),
 					};
 
-		// Per-minute rail/road proximity: the minimum distance across the
-		// minute's fixes (a fix that hugs the track / road defines the
-		// minute). Left null when no proximity was supplied or no fix in
-		// the minute carried it — the line-proximity factor then skips the
-		// road-vs-rail test for this minute.
-		let roadDistM: number | null = null;
-		let railDistM: number | null = null;
-		if (pointProximity !== undefined && gpsRows.length > 0) {
-			for (const p of gpsRows) {
-				const prox = pointProximity.get(p.ts);
-				if (prox === undefined) continue;
-				if (prox.roadDistM !== null && (roadDistM === null || prox.roadDistM < roadDistM)) roadDistM = prox.roadDistM;
-				if (prox.railDistM !== null && (railDistM === null || prox.railDistM < railDistM)) railDistM = prox.railDistM;
-			}
-		}
+		// Per-minute rail/road proximity, looked up by this minute's ts.
+		// Computed upstream at the same median coordinate as `gps`, so the
+		// distances and the line-near check refer to one location. Null
+		// when no proximity was supplied (older fixtures) — the
+		// line-proximity factor then skips the road-vs-rail test.
+		const prox = proximityByMinute?.get(ts);
+		const roadDistM = prox?.roadDistM ?? null;
+		const railDistM = prox?.railDistM ?? null;
 
 		const hrRows = hrBuckets[m];
 		const hrAgg = hrRows.length === 0 ? null : mean(hrRows.map((h) => h.bpm));

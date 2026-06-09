@@ -13,13 +13,12 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      # Headroom for the per-fix rail/road proximity (#238): each fix
-      # does a nearbyWays lookup, and the first run after a code/area
-      # change pays cold-cache Overpass fetches at the 300 m radius.
-      # In-cluster DB latency keeps the steady state well under this;
-      # the bump absorbs the cold first run. (Proximity efficiency is
-      # tracked as a follow-up — per-minute instead of per-fix.)
-      activeDeadlineSeconds: 1800
+      # Headroom for the per-minute rail/road proximity (#238): one
+      # nearbyWays lookup per distinct ~11 m minute-median location, and
+      # the first run after a code/area change pays cold-cache Overpass
+      # fetches at the 300 m radius. Steady state is well under this;
+      # the margin absorbs that cold first run.
+      activeDeadlineSeconds: 900
       template:
         spec:
           restartPolicy: OnFailure

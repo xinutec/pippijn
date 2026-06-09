@@ -49,7 +49,7 @@ export interface HsmmCapturedDay {
 		rawOsmLines: SerializedRawOsmLine[];
 		rawOsmPoints: SerializedRawOsmPoint[];
 		continuityContext: ContinuityContext | null;
-		pointProximity: Array<[number, { railDistM: number | null; roadDistM: number | null }]>;
+		proximityByMinute: Array<[number, { railDistM: number | null; roadDistM: number | null }]>;
 	};
 	/** The decode this fixture was blessed to expect. */
 	expected: HmmSegment[];
@@ -71,7 +71,7 @@ export function toSerializedHsmmInputs(
 		rawOsmLines: rawOsm.lines.map((l) => ({ ...l, osm_id: l.osm_id.toString() })),
 		rawOsmPoints: rawOsm.points.map((p) => ({ ...p, osm_id: p.osm_id.toString() })),
 		continuityContext: inputs.continuityContext,
-		pointProximity: [...(inputs.pointProximity ?? new Map())],
+		proximityByMinute: [...(inputs.proximityByMinute ?? new Map())],
 	};
 }
 
@@ -91,6 +91,6 @@ export function hsmmInputsFromFixture(captured: HsmmCapturedDay): HsmmInputs {
 		placeNearLine: new Set(captured.inputs.placeNearLine),
 		routeGraph: buildRouteGraph(lines, points),
 		continuityContext: captured.inputs.continuityContext,
-		pointProximity: new Map(captured.inputs.pointProximity),
+		proximityByMinute: new Map(captured.inputs.proximityByMinute),
 	};
 }

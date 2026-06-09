@@ -14,8 +14,11 @@
  * deterministic-fixtures adapter.
  */
 
+import { median } from "../hmm/observation.js";
+import type { FilteredPoint } from "./kalman.js";
 import type { NearbyWay } from "./osm.js";
 import type { OsmAdapter } from "./osm-adapter.js";
+import { dateBoundsUtc } from "./timezone.js";
 
 /** Rail-only OSM way subtypes — trams excluded (mixed-traffic track is
  *  not strong rail-vs-road evidence). Matches `velocity.ts`. */
@@ -67,18 +70,58 @@ export function railRoadDistFromWays(ways: readonly NearbyWay[]): {
 	};
 }
 
-/** Per-fix rail/road proximity for a set of fixes, keyed by fix `ts`.
- *  One `nearbyWays` lookup per fix (the adapter caches by coarse
- *  coordinate, so clustered fixes collapse). Used by the HSMM loader to
- *  populate `Observation.roadDistM` / `railDistM`. */
-export async function computePointProximity(
+/** Coarse-coordinate cache key (~11 m). Two minute-medians this close
+ *  share a `nearbyWays` lookup — collapses a stationary day (hundreds of
+ *  minutes at one place) to a single query, with no meaningful change to
+ *  the rail-vs-road distances. */
+function coordKey(lat: number, lon: number): string {
+	return `${lat.toFixed(4)},${lon.toFixed(4)}`;
+}
+
+/** Rail/road proximity per minute, keyed by the minute's top-of-minute
+ *  ts. For each local-day minute that has fixes, computes the median
+ *  lat/lon (the same coordinate `buildObservationTensor` uses for
+ *  `Observation.gps`) and one `nearbyWays` lookup there. One query per
+ *  distinct ~11 m location — far fewer than one per fix, and the value is
+ *  a coherent single-location pair (not a min mixed across fixes).
+ *
+ *  Used by the HSMM loader to populate `Observation.roadDistM` /
+ *  `railDistM`. `points` should be the same outlier-dropped fixes the
+ *  decode observes. */
+export async function computeMinuteProximity(
 	osm: OsmAdapter,
-	points: readonly { ts: number; lat: number; lon: number }[],
+	date: string,
+	tz: string,
+	points: readonly FilteredPoint[],
 ): Promise<Map<number, { railDistM: number | null; roadDistM: number | null }>> {
-	const out = new Map<number, { railDistM: number | null; roadDistM: number | null }>();
+	const { startUtc, endUtc } = dateBoundsUtc(date, tz);
+	// Bucket fixes into their local-day minute (matching the observation
+	// tensor): minute index m = floor((ts - startUtc) / 60).
+	const byMinute = new Map<number, { lats: number[]; lons: number[] }>();
 	for (const p of points) {
-		const ways = await osm.nearbyWays(p.lat, p.lon, PROXIMITY_RADIUS_M);
-		out.set(p.ts, railRoadDistFromWays(ways));
+		if (p.ts < startUtc || p.ts >= endUtc) continue;
+		const minuteTs = startUtc + Math.floor((p.ts - startUtc) / 60) * 60;
+		let b = byMinute.get(minuteTs);
+		if (b === undefined) {
+			b = { lats: [], lons: [] };
+			byMinute.set(minuteTs, b);
+		}
+		b.lats.push(p.lat);
+		b.lons.push(p.lon);
+	}
+
+	const out = new Map<number, { railDistM: number | null; roadDistM: number | null }>();
+	const coordCache = new Map<string, { railDistM: number | null; roadDistM: number | null }>();
+	for (const [minuteTs, b] of byMinute) {
+		const lat = median(b.lats);
+		const lon = median(b.lons);
+		const key = coordKey(lat, lon);
+		let prox = coordCache.get(key);
+		if (prox === undefined) {
+			prox = railRoadDistFromWays(await osm.nearbyWays(lat, lon, PROXIMITY_RADIUS_M));
+			coordCache.set(key, prox);
+		}
+		out.set(minuteTs, prox);
 	}
 	return out;
 }

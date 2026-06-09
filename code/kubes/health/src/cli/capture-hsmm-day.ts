@@ -39,13 +39,14 @@ import { useContinuityContinuation } from "../geo/factors/feature-flag.js";
 import { parseHourProfile } from "../geo/focus-places.js";
 import { stationsOnLine } from "../geo/line-stations.js";
 import { dbOsmAdapter } from "../geo/osm-adapter.js";
-import { computePointProximity } from "../geo/rail-road-proximity.js";
+import { computeMinuteProximity } from "../geo/rail-road-proximity.js";
 import { buildRouteGraph } from "../geo/route-graph.js";
 import { bboxFromFixes, loadRawOsmForBbox } from "../geo/route-graph-loader.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, loadBiometrics } from "../geo/velocity.js";
 import { loadContinuityContext } from "../hmm/continuity-context.js";
 import { decodeHsmm, type HsmmInputs, type HsmmPlace, KNOWN_LINES } from "../hmm/decode.js";
+import { dropGpsOutliers } from "../hmm/gps-outliers.js";
 import { HSMM_FIXTURE_FORMAT_VERSION, type HsmmCapturedDay, toSerializedHsmmInputs } from "./hsmm-fixture.js";
 
 const config = z
@@ -180,7 +181,7 @@ if (dayBbox === null) {
 const rawOsm = await loadRawOsmForBbox(dayBbox, { featureTypes: ["railway"] });
 const routeGraph = buildRouteGraph(rawOsm.lines, rawOsm.points);
 
-const pointProximity = await computePointProximity(dbOsmAdapter, velResult.points);
+const proximityByMinute = await computeMinuteProximity(dbOsmAdapter, date, tz, dropGpsOutliers(velResult.points));
 const continuityContext = useContinuityContinuation() ? await loadContinuityContext(user, date) : null;
 
 const inputs: HsmmInputs = {
@@ -194,7 +195,7 @@ const inputs: HsmmInputs = {
 	placeNearLine,
 	routeGraph,
 	continuityContext,
-	pointProximity,
+	proximityByMinute,
 };
 
 const expected = decodeHsmm(inputs);
@@ -220,7 +221,7 @@ await writeFile(outPath, `${JSON.stringify(captured, null, "\t")}\n`, "utf8");
 const trainSegs = expected.filter((s) => s.mode === "train").map((s) => s.lineName ?? "unknown_rail");
 console.error(
 	`# wrote ${outPath}\n` +
-		`#   ${expected.length} segments · ${rawOsm.lines.length} rail lines · ${pointProximity.size} fix proximities\n` +
+		`#   ${expected.length} segments · ${rawOsm.lines.length} rail lines · ${proximityByMinute.size} minute proximities\n` +
 		`#   train lines in decode: ${trainSegs.length === 0 ? "(none)" : trainSegs.join(", ")}`,
 );
 process.exit(0);
