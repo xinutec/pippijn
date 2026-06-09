@@ -315,6 +315,65 @@ export function revertIsolatedCadenceDrives<T extends TrackSegment & { refinedMo
 	});
 }
 
+/** A "walking" segment whose single-minute peak step count never reaches this
+ *  recorded NO real walking minute at all — even a slow, interrupted urban walk
+ *  hits a clear minute well above this. Below it, the GPS "movement" has no
+ *  pedometer backing. */
+const STATIONARY_JITTER_MAX_PEAK_CADENCE = 20;
+
+/** ...and the path doubled back on itself: straight-line / path-length below
+ *  this is GPS jitter wandering around one spot, not a directed walk from A to
+ *  B. Observed 0.11–0.19 on the sit-still-but-jittering legs vs 0.57–0.85 on
+ *  real walks the same evening. */
+const STATIONARY_JITTER_MAX_LINEARITY = 0.35;
+
+/** Demote a "walking" segment to stationary when the watch says you never took
+ *  a walking step AND the GPS path just jittered around one spot. The
+ *  motivating case: sitting indoors (a restaurant, a clinic waiting room) where
+ *  urban-canyon / indoor GPS wanders enough to score as a slow walk, but the
+ *  step counter — flat at ~0 — knows you were still. This is the missing third
+ *  outcome for a low-cadence "walk": `correctModeFromCadence` handles the
+ *  vehicle case (it translates), this handles the sitting case (it doesn't).
+ *
+ *  Two guards keep it from flattening a real walk Fitbit simply under-counted:
+ *    - peak (not mean) cadence < `STATIONARY_JITTER_MAX_PEAK_CADENCE` — one
+ *      clear walking minute anywhere in the window vetoes the demotion;
+ *    - linearity < `STATIONARY_JITTER_MAX_LINEARITY` — a directed walk that
+ *      actually translated is kept even if the steps were missed.
+ *  Plus the same freshness guard as `correctModeFromCadence`: only act once
+ *  Fitbit has synced through the segment, so "no steps" means "stood still",
+ *  not "not pulled yet".
+ *
+ *  Runs after the cadence pass, before merge, so the newly-stationary leg can
+ *  coalesce with the stays around it into one clean visit. Pure; conservative
+ *  on missing data (empty `stepPoints` → no change).
+ */
+export function demoteJitterWalkToStationary<T extends TrackSegment & { refinedMode?: string; refinedReason?: string }>(
+	segment: T,
+	stepPoints: StepPoint[],
+): T {
+	if (stepPoints.length === 0) return segment;
+	const duration = segment.endTs - segment.startTs;
+	if (duration < CADENCE_CORRECTION_MIN_DURATION_S) return segment;
+	if ((segment.refinedMode ?? segment.mode) !== "walking") return segment;
+	if (segment.linearity >= STATIONARY_JITTER_MAX_LINEARITY) return segment;
+
+	const hasFreshData = stepPoints.some(
+		(sp) => sp.ts >= segment.endTs && sp.ts <= segment.endTs + CADENCE_CORRECTION_FRESHNESS_S,
+	);
+	if (!hasFreshData) return segment;
+
+	const peak = peakCadenceForSegment(segment, stepPoints);
+	if (peak >= STATIONARY_JITTER_MAX_PEAK_CADENCE) return segment;
+
+	const reason = `no walking steps (peak ${peak.toFixed(0)}/min) + non-directed path (linearity ${segment.linearity.toFixed(2)}) — sitting, GPS jitter`;
+	return {
+		...segment,
+		refinedMode: "stationary",
+		refinedReason: segment.refinedReason ? `${segment.refinedReason}; ${reason}` : reason,
+	};
+}
+
 /**
  * Symmetric counterpart to `correctModeFromCadence`: relabel a "stationary"
  * segment the GPS read as a stop into walking, when the watch recorded an

@@ -18,6 +18,7 @@ import {
 	applyStationaryWalkThrough,
 	type BiometricEnrichment,
 	correctModeFromCadence,
+	demoteJitterWalkToStationary,
 	enrichSegmentWithBiometrics,
 	type HrPoint,
 	revertIsolatedCadenceDrives,
@@ -886,7 +887,13 @@ export async function computeVelocityFromInputs(
 	// a neighbouring drive can absorb a slow-traffic leg, so an isolated flip
 	// (a slow walk whose phone didn't count steps) is a false positive. Runs
 	// before merge so surviving flips can still coalesce into their drive.
-	const corrected = timeSync("revertIsolatedCadence", () => revertIsolatedCadenceDrives(flipped));
+	const reverted = timeSync("revertIsolatedCadence", () => revertIsolatedCadenceDrives(flipped));
+	// A "walking" leg with zero recorded steps and a path that just jitters
+	// around one spot is sitting still (a restaurant, a waiting room) where
+	// urban/indoor GPS wandered enough to score as a slow walk. Demote to
+	// stationary so the stays around it coalesce into one clean visit instead
+	// of fragmenting and grabbing wrong place names.
+	const corrected = timeSync("jitterWalkToStay", () => reverted.map((s) => demoteJitterWalkToStationary(s, steps)));
 
 	// Biometric-signature correction: re-evaluate ambiguous segments
 	// against the user's per-mode (HR, cadence, speed) signatures from

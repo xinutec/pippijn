@@ -5,6 +5,7 @@ import {
 	cadenceForSegment,
 	correctModeFromCadence,
 	correctStationaryWalkThrough,
+	demoteJitterWalkToStationary,
 	enrichSegmentWithBiometrics,
 	type HrPoint,
 	revertIsolatedCadenceDrives,
@@ -537,5 +538,63 @@ describe("revertIsolatedCadenceDrives — undo a cadence flip with no vehicular 
 		gpsDrive.refinedMode = "driving";
 		const out = revertIsolatedCadenceDrives([walking(600), gpsDrive, walking(600)]);
 		expect(eff(out[1])).toBe("driving");
+	});
+});
+
+describe("demoteJitterWalkToStationary — a 0-step jittery 'walk' is really sitting still", () => {
+	type SegLike = TrackSegment & { refinedMode?: string; refinedReason?: string };
+	const step = (ts: number, steps: number): StepPoint => ({ ts, steps });
+	// freshness: a step row shortly after the segment end proves Fitbit synced.
+	const fresh = (endTs: number): StepPoint[] => [step(endTs + 5 * 60, 50)];
+	const mk = (over: Partial<SegLike>): SegLike => ({
+		startTs: 0,
+		endTs: 23 * 60,
+		mode: "walking",
+		confidence: 1,
+		confidenceMargin: 100,
+		avgSpeed: 2.6,
+		maxSpeed: 12.6,
+		linearity: 0.15,
+		pointCount: 30,
+		...over,
+	});
+	const eff = (s: SegLike) => s.refinedMode ?? s.mode;
+
+	it("demotes the Olivomare-style fragment: peak≈0 steps, low linearity, fresh data", () => {
+		const seg = mk({});
+		const r = demoteJitterWalkToStationary(seg, fresh(seg.endTs));
+		expect(eff(r)).toBe("stationary");
+		expect(r.refinedReason).toMatch(/jitter|sitting/i);
+	});
+
+	it("KEEPS a directed walk where Fitbit merely missed the steps (high linearity)", () => {
+		const seg = mk({ linearity: 0.8 });
+		expect(eff(demoteJitterWalkToStationary(seg, fresh(seg.endTs)))).toBe("walking");
+	});
+
+	it("KEEPS a real walk that has at least one clear walking minute (peak cadence high)", () => {
+		const seg = mk({});
+		const steps = [...fresh(seg.endTs), step(10 * 60, 95)]; // one 95-step minute inside
+		expect(eff(demoteJitterWalkToStationary(seg, steps))).toBe("walking");
+	});
+
+	it("does NOT demote when Fitbit data is stale (no step row after the segment)", () => {
+		const seg = mk({});
+		expect(eff(demoteJitterWalkToStationary(seg, [step(0, 50)]))).toBe("walking");
+	});
+
+	it("does NOT demote a short segment (insufficient sample)", () => {
+		const seg = mk({ endTs: 90 });
+		expect(eff(demoteJitterWalkToStationary(seg, fresh(seg.endTs)))).toBe("walking");
+	});
+
+	it("leaves non-walking segments alone", () => {
+		const driving = mk({ mode: "driving", refinedMode: "driving" });
+		expect(eff(demoteJitterWalkToStationary(driving, fresh(driving.endTs)))).toBe("driving");
+	});
+
+	it("conservative on missing Fitbit data (no step rows at all)", () => {
+		const seg = mk({});
+		expect(eff(demoteJitterWalkToStationary(seg, []))).toBe("walking");
 	});
 });
