@@ -228,6 +228,44 @@ describe("parseOverpassElement", () => {
 		expect(f?.geom_wkt).toBe("POINT(-0.1259 51.5331)");
 	});
 
+	it("buckets a bus_stop node under transit_stop, not highway (#247)", () => {
+		const f = parseOverpassElement({
+			type: "node",
+			id: 111,
+			lat: 51.5,
+			lon: -0.14,
+			tags: { highway: "bus_stop", name: "Synthetic Stop A" },
+		});
+		expect(f?.feature_type).toBe("transit_stop");
+		expect(f?.subtype).toBe("bus_stop");
+		expect(f?.name).toBe("Synthetic Stop A");
+	});
+
+	it("buckets a traffic_signals node under transit_stop", () => {
+		const f = parseOverpassElement({
+			type: "node",
+			id: 112,
+			lat: 51.5,
+			lon: -0.14,
+			tags: { highway: "traffic_signals" },
+		});
+		expect(f?.feature_type).toBe("transit_stop");
+		expect(f?.subtype).toBe("traffic_signals");
+	});
+
+	it("keeps a bus_stop-tagged WAY in the highway bucket (node-only rule)", () => {
+		const f = parseOverpassElement({
+			type: "way",
+			id: 113,
+			tags: { highway: "bus_stop" },
+			geometry: [
+				{ lat: 51.5, lon: -0.14 },
+				{ lat: 51.5001, lon: -0.1401 },
+			],
+		});
+		expect(f?.feature_type).toBe("highway");
+	});
+
 	it("parses a way as LINESTRING using its geometry vertices", () => {
 		const f = parseOverpassElement({
 			type: "way",

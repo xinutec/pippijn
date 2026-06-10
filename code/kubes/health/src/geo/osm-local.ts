@@ -173,17 +173,32 @@ const FEATURE_TYPE_RULES: Array<{ tag: string; featureType: string }> = [
 	{ tag: "building", featureType: "landmark" },
 ];
 
+/** Highway-tagged NODES that are transit/road furniture, not roads —
+ *  bucketed under their own `transit_stop` feature_type (own coverage
+ *  rows, own queries) so road-way lookups never mix with them. Bus
+ *  stops vs traffic signals are the location evidence the bus-vs-car
+ *  inference reads (task #247): a vehicle dwelling repeatedly AT bus
+ *  stops is a bus; dwelling at signals is any road vehicle. */
+const TRANSIT_STOP_HIGHWAY_SUBTYPES = new Set(["bus_stop", "traffic_signals"]);
+
 /** Translate an Overpass element into our feature row, or null if it
  *  doesn't carry a tag we care about / lacks geometry. */
 export function parseOverpassElement(el: OverpassElement): ParsedFeature | null {
 	const tags = el.tags ?? {};
 	let featureType: string | null = null;
 	let subtype: string | null = null;
-	for (const rule of FEATURE_TYPE_RULES) {
-		if (tags[rule.tag]) {
-			featureType = rule.featureType;
-			subtype = tags[rule.tag];
-			break;
+	// Transit/road furniture first: these carry `highway=` but must not
+	// land in the road bucket (see TRANSIT_STOP_HIGHWAY_SUBTYPES).
+	if (el.type === "node" && tags.highway && TRANSIT_STOP_HIGHWAY_SUBTYPES.has(tags.highway)) {
+		featureType = "transit_stop";
+		subtype = tags.highway;
+	} else {
+		for (const rule of FEATURE_TYPE_RULES) {
+			if (tags[rule.tag]) {
+				featureType = rule.featureType;
+				subtype = tags[rule.tag];
+				break;
+			}
 		}
 	}
 	if (featureType === null) return null;
@@ -239,6 +254,7 @@ export function buildOverpassQuery(
 		],
 		aeroway: ['node["aeroway"]', 'way["aeroway"]'],
 		waterway: ['way["waterway"]'],
+		transit_stop: ['node["highway"~"^(bus_stop|traffic_signals)$"]'],
 		landmark: [
 			'node["amenity"]',
 			'node["shop"]',

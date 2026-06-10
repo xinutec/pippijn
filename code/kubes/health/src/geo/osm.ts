@@ -742,6 +742,28 @@ export function pickBestStation(stations: NearbyStation[]): NearbyStation | null
 	return [...stations].sort((a, b) => a.distanceM - b.distanceM)[0];
 }
 
+/** A transit/road-furniture node near a coordinate — bus stops and
+ *  traffic signals, the location evidence for bus-vs-car inference
+ *  (task #247). `name` is the stop's posted name when OSM has one. */
+export interface NearbyTransitStop {
+	name: string | null;
+	/** "bus_stop" | "traffic_signals" */
+	subtype: string;
+	distanceM: number;
+}
+
+/** Bus stops + traffic signals near a point, nearest first. Own
+ *  `transit_stop` coverage bucket (see osm-local.ts) — the road-way
+ *  queries never fetched these nodes, so the bucket back-fills on
+ *  demand like any other feature type. */
+export async function nearbyTransitStops(lat: number, lon: number, radiusM = 50): Promise<NearbyTransitStop[]> {
+	await ensureCovered(lat, lon, radiusM, "transit_stop");
+	const features = await queryPoints(lat, lon, radiusM, "transit_stop");
+	return features
+		.map((f) => ({ name: f.name, subtype: f.subtype ?? "bus_stop", distanceM: f.distance_m }))
+		.sort((a, b) => a.distanceM - b.distanceM);
+}
+
 export async function nearbyStations(lat: number, lon: number, radiusM = 200): Promise<NearbyStation[]> {
 	// Local-mirror path: ensure the railway-feature bucket has coverage
 	// for this point, then run a POINT-only spatial query against

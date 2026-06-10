@@ -16,7 +16,8 @@
  * points the developer at the actual cause.
  */
 
-import type { NearbyLandmark, NearbyStation, NearbyWay, NominatimResult } from "./osm.js";
+import type { NearbyLandmark, NearbyStation,
+	NearbyTransitStop, NearbyWay, NominatimResult } from "./osm.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import type { OsmTrace } from "./osm-adapter-recording.js";
 
@@ -69,5 +70,21 @@ export class FixtureOsmAdapter implements OsmAdapter {
 			throw new Error(`FixtureOsmAdapter: uncaptured reverseGeocode(${lat}, ${lon}, ${zoom}) — re-capture required`);
 		}
 		return this.trace.reverseGeocode[k];
+	}
+
+	async nearbyTransitStops(lat: number, lon: number, radiusM?: number): Promise<NearbyTransitStop[]> {
+		// Fixtures captured before task #247 have no transit-stop section
+		// at all — replay them as "no transit-stop data" rather than
+		// failing every old golden. A PRESENT section with a missing key
+		// is the normal uncaptured-query error.
+		const section = this.trace.nearbyTransitStops;
+		if (section === undefined) return [];
+		const result = section[key3(lat, lon, radiusM)];
+		if (result === undefined) {
+			throw new Error(
+				`FixtureOsmAdapter: uncaptured nearbyTransitStops(${lat}, ${lon}, ${radiusM}) — re-capture required`,
+			);
+		}
+		return result;
 	}
 }

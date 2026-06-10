@@ -28,7 +28,7 @@
  *     kernel at replay time.
  */
 
-import type { NearbyLandmark, NearbyStation, NearbyWay, NominatimResult } from "./osm.js";
+import type { NearbyLandmark, NearbyStation, NearbyTransitStop, NearbyWay, NominatimResult } from "./osm.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 
 /** Captured (args → result) pairs for one classification-pipeline run.
@@ -46,6 +46,11 @@ export interface OsmTrace {
 	/** `Set<string>` serialised as `string[]`. */
 	linesAtPoint: Record<string, string[]>;
 	reverseGeocode: Record<string, NominatimResult | null>;
+	/** Optional: absent in fixtures captured before task #247 — the
+	 *  replay adapter treats a missing SECTION as "no transit-stop data"
+	 *  (empty results), while a missing KEY in a present section is the
+	 *  usual uncaptured-query error. */
+	nearbyTransitStops?: Record<string, NearbyTransitStop[]>;
 }
 
 /** Build an empty trace. */
@@ -56,6 +61,7 @@ export function emptyOsmTrace(): OsmTrace {
 		nearbyLandmarks: {},
 		linesAtPoint: {},
 		reverseGeocode: {},
+		nearbyTransitStops: {},
 	};
 }
 
@@ -97,6 +103,12 @@ export class RecordingOsmAdapter implements OsmAdapter {
 	async reverseGeocode(lat: number, lon: number, zoom?: number): Promise<NominatimResult | null> {
 		const result = await this.inner.reverseGeocode(lat, lon, zoom);
 		this.trace.reverseGeocode[key3(lat, lon, zoom)] = result;
+		return result;
+	}
+
+	async nearbyTransitStops(lat: number, lon: number, radiusM?: number): Promise<NearbyTransitStop[]> {
+		const result = await this.inner.nearbyTransitStops(lat, lon, radiusM);
+		(this.trace.nearbyTransitStops ??= {})[key3(lat, lon, radiusM)] = result;
 		return result;
 	}
 }

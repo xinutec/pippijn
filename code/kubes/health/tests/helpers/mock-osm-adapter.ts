@@ -16,7 +16,13 @@
  * interface, different storage.
  */
 
-import type { NearbyLandmark, NearbyStation, NearbyWay, NominatimResult } from "../../src/geo/osm.js";
+import type {
+	NearbyLandmark,
+	NearbyStation,
+	NearbyTransitStop,
+	NearbyWay,
+	NominatimResult,
+} from "../../src/geo/osm.js";
 import type { OsmAdapter } from "../../src/geo/osm-adapter.js";
 
 /** A recorded invocation of an adapter primitive. */
@@ -35,6 +41,7 @@ export interface MockOsmAdapterOptions {
 	nearbyLandmarks?: Stub<[number, number, number | undefined], NearbyLandmark[]>;
 	linesAtPoint?: Stub<[number, number, number | undefined], Set<string>>;
 	reverseGeocode?: Stub<[number, number, number | undefined], NominatimResult | null>;
+	nearbyTransitStops?: Stub<[number, number, number | undefined], NearbyTransitStop[]>;
 }
 
 export interface MockOsmAdapter extends OsmAdapter {
@@ -44,6 +51,7 @@ export interface MockOsmAdapter extends OsmAdapter {
 		nearbyLandmarks: Array<RecordedCall<[number, number, number | undefined]>>;
 		linesAtPoint: Array<RecordedCall<[number, number, number | undefined]>>;
 		reverseGeocode: Array<RecordedCall<[number, number, number | undefined]>>;
+		nearbyTransitStops: Array<RecordedCall<[number, number, number | undefined]>>;
 	};
 }
 
@@ -58,6 +66,7 @@ export function mockOsmAdapter(options: MockOsmAdapterOptions = {}): MockOsmAdap
 		nearbyLandmarks: [],
 		linesAtPoint: [],
 		reverseGeocode: [],
+		nearbyTransitStops: [],
 	};
 	return {
 		calls,
@@ -80,6 +89,10 @@ export function mockOsmAdapter(options: MockOsmAdapterOptions = {}): MockOsmAdap
 		async reverseGeocode(lat, lon, zoom) {
 			calls.reverseGeocode.push({ args: [lat, lon, zoom] });
 			return options.reverseGeocode?.(lat, lon, zoom) ?? null;
+		},
+		async nearbyTransitStops(lat, lon, radiusM) {
+			calls.nearbyTransitStops.push({ args: [lat, lon, radiusM] });
+			return options.nearbyTransitStops?.(lat, lon, radiusM) ?? [];
 		},
 	};
 }

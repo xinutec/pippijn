@@ -32,10 +32,12 @@ import {
 	linesAtPoint,
 	type NearbyLandmark,
 	type NearbyStation,
+	type NearbyTransitStop,
 	type NearbyWay,
 	type NominatimResult,
 	nearbyLandmarks,
 	nearbyStations,
+	nearbyTransitStops,
 	nearbyWays,
 	reverseGeocode,
 } from "./osm.js";
@@ -52,6 +54,8 @@ export interface OsmAdapter {
 	nearbyLandmarks(lat: number, lon: number, radiusM?: number): Promise<NearbyLandmark[]>;
 	linesAtPoint(lat: number, lon: number, radiusM?: number): Promise<Set<string>>;
 	reverseGeocode(lat: number, lon: number, zoom?: number): Promise<NominatimResult | null>;
+	/** Bus stops + traffic signals near a point (task #247). */
+	nearbyTransitStops(lat: number, lon: number, radiusM?: number): Promise<NearbyTransitStop[]>;
 }
 
 /** Production adapter: delegate to the existing top-level functions
@@ -64,4 +68,5 @@ export const dbOsmAdapter: OsmAdapter = {
 	nearbyLandmarks,
 	linesAtPoint,
 	reverseGeocode,
+	nearbyTransitStops,
 };
