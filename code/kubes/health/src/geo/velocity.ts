@@ -53,7 +53,7 @@ import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proxi
 import { interpolateTimes, type SnappedPoint } from "./rail-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
-import { splitStaysOnEvidence } from "./stay-split.js";
+import { splitStaysOnEvidence, splitWalksOnEvidence } from "./stay-split.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
 import { stationAtTrainAlight } from "./transit-place.js";
 import {
@@ -624,13 +624,20 @@ export async function computeVelocityFromInputs(
 	const splitSegments = timeSync("staySplit", () =>
 		splitStaysOnEvidence(segments, points, { hr: biomForStaySplit.hr, steps: biomForStaySplit.steps }),
 	);
+	// Symmetric pass for the opposite failure: a long indoor sit whose
+	// jittery GPS classified as a single "walking" segment together with
+	// the real walk at its edge (the Cleveland Clinic shape, #245). Runs
+	// before enrichment so the carved-out sit gets normal place naming.
+	const walkSplitSegments = timeSync("walkSplit", () =>
+		splitWalksOnEvidence(splitSegments, points, { hr: biomForStaySplit.hr, steps: biomForStaySplit.steps }),
+	);
 	// Multi-signal stay-continuity merge: heal stays the trajectory
 	// layer fragmented by a brief no-fix gap, when HR-resting + zero
 	// steps in the gap window confirm the user never actually moved.
 	// Symmetric to splitStaysOnEvidence above — same biometric series,
 	// opposite direction. Targets the Pizza Union / toilet-break class
 	// of failure (ground-truth #185).
-	const segCentroids: (readonly [number, number] | null)[] = splitSegments.map((s) => {
+	const segCentroids: (readonly [number, number] | null)[] = walkSplitSegments.map((s) => {
 		if (s.mode !== "stationary") return null;
 		const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
 		if (segPoints.length === 0) return null;
@@ -640,7 +647,7 @@ export async function computeVelocityFromInputs(
 	});
 	const refinedSegments = timeSync("bridgeStays", () =>
 		bridgeStaysWithBiometrics({
-			segments: splitSegments,
+			segments: walkSplitSegments,
 			centroids: segCentroids,
 			hr: biomForStaySplit.hr,
 			steps: biomForStaySplit.steps,

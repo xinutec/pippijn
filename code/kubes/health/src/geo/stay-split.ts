@@ -228,6 +228,186 @@ export function splitStaysOnEvidence(
 	return out;
 }
 
+// --- walk-split: carve hidden sits out of phantom walks (task #245) -------
+
+/** Only walks at least this long are evaluated. Short walks can't contain
+ *  a sit run long enough to carve (see WALK_SPLIT_MIN_SIT_S). */
+const WALK_SPLIT_MIN_SEGMENT_S = 20 * 60;
+
+/** Mean cadence at or below which an edge run is a sit. Real indoor sits
+ *  are NOT contiguous zeros — the 2026-06-09 clinic hour has isolated
+ *  fidget spikes (25–49 steps: a consult-room walk, reception) yet
+ *  averages ~4 steps/min. 5/min sits between stay-split's "at-place
+ *  fidgeting" band (1–3) and its "ambiguous" band (3–8); sustained
+ *  walking is an order of magnitude above. */
+const WALK_SPLIT_SIT_MEAN_MAX = 5;
+
+/** Forward-looking window (minutes) whose mean must reach
+ *  WALK_SPLIT_CORE_MIN_CADENCE for a minute to count as the start of
+ *  sustained walking. A lone fidget spike fails the window; a real walk
+ *  start passes immediately. */
+const WALK_SPLIT_ONSET_WINDOW_MIN = 6;
+
+/** The boundary minute itself must carry at least this many steps — the
+ *  forward/backward window alone would otherwise anchor the boundary a
+ *  few zero-step minutes early (the window "sees" the walk before it
+ *  starts). A walking minute under 10 steps does not exist. */
+const WALK_SPLIT_ONSET_MIN_CADENCE = 10;
+
+/** An edge sit must be at least this long to be carved out. A human can
+ *  pause 10 minutes mid-walk (coffee queue, platform wait); 15+ minutes
+ *  at sitting-level cadence inside a "walk" is a sit. Mirrors
+ *  MIN_GAP_TO_EVALUATE_S in spirit: conservative, edge-only. */
+const WALK_SPLIT_MIN_SIT_S = 15 * 60;
+
+/** After carving, the remaining walking core must actually look like a
+ *  walk — sustained cadence and non-trivial duration. Otherwise the
+ *  segment is left intact for the whole-segment demotion pass
+ *  (`demoteJitterWalkToStationary`) to judge; this pass only handles the
+ *  MIXED case where a real walk hides inside the same segment. */
+const WALK_SPLIT_CORE_MIN_CADENCE = 40;
+const WALK_SPLIT_CORE_MIN_S = 3 * 60;
+
+/** A step row must exist in/after the segment within this window to
+ *  prove the step stream was alive. Without it, zero steps is absence
+ *  of data, not evidence of sitting — a dead Fitbit must never convert
+ *  real walks into sits. Mirrors the cadence-correction freshness gate. */
+const WALK_SPLIT_FRESHNESS_S = 30 * 60;
+
+/**
+ * Carve long low-cadence edge runs out of "walking" segments as
+ * stationary sits (task #245 — the Cleveland Clinic shape: a ~60-min
+ * indoor sit whose jittery indoor GPS classified as one walk together
+ * with the real ~10-min walk that followed).
+ *
+ * Mechanism: bucket the user's per-minute step counts across the
+ * segment; find the maximal prefix and suffix runs of minutes below
+ * WALK_SPLIT_LOW_CADENCE_PER_MIN. An edge run ≥ WALK_SPLIT_MIN_SIT_S is
+ * a sit — emitted as a stationary segment with the GPS motion stats
+ * zeroed (they are jitter artifacts; the zero IS the claim) — and the
+ * remaining core keeps walking. The split fires only when the core
+ * passes the real-walk checks, so an all-jitter segment falls through
+ * untouched to the whole-segment demotion pass.
+ *
+ * Runs at the staySplit stage (before OSM enrichment) so the carved-out
+ * sit gets a normal place resolution — at the clinic this is what lets
+ * the sit re-attach to the hospital instead of rendering as movement.
+ */
+export function splitWalksOnEvidence(
+	segments: readonly TrackSegment[],
+	points: readonly FilteredPoint[],
+	ctx: SplitContext,
+): TrackSegment[] {
+	const debug = process.env.WALK_SPLIT_DEBUG === "1";
+	const out: TrackSegment[] = [];
+	for (const seg of segments) {
+		if (debug) {
+			const t = (ts: number): string => new Date(ts * 1000).toISOString().slice(11, 16);
+			console.error(`[walk-split] seg ${t(seg.startTs)}-${t(seg.endTs)} mode=${seg.mode} pts=${seg.pointCount}`);
+		}
+		if (seg.mode !== "walking" || seg.endTs - seg.startTs < WALK_SPLIT_MIN_SEGMENT_S) {
+			out.push(seg);
+			continue;
+		}
+		// Freshness: the step stream must be demonstrably alive around the
+		// segment, else zero steps means "no data".
+		const fresh = ctx.steps.some((s) => s.ts >= seg.startTs && s.ts <= seg.endTs + WALK_SPLIT_FRESHNESS_S);
+		if (!fresh) {
+			out.push(seg);
+			continue;
+		}
+
+		// Per-minute cadence, bucketed from the segment start.
+		const totalMin = Math.ceil((seg.endTs - seg.startTs) / 60);
+		const cadence = new Array<number>(totalMin).fill(0);
+		for (const s of ctx.steps) {
+			const k = Math.floor((s.ts - seg.startTs) / 60);
+			if (k >= 0 && k < totalMin) cadence[k] += s.steps;
+		}
+
+		// Boundary search, robust to fidget spikes inside the sit: the sit
+		// → walk boundary is the FIRST minute b where (a) the forward
+		// window mean reaches sustained-walking cadence and (b) everything
+		// before b averages at sitting level. A lone spike fails (a); a
+		// diluted mean from a long zero-run cannot eat into the walk
+		// because (a) anchors the boundary at the walk onset.
+		const meanOf = (from: number, to: number): number => {
+			if (to <= from) return 0;
+			let sum = 0;
+			for (let k = from; k < to; k++) sum += cadence[k];
+			return sum / (to - from);
+		};
+		const minSitMin = Math.ceil(WALK_SPLIT_MIN_SIT_S / 60);
+		let prefixMin = 0;
+		for (let b = minSitMin; b <= totalMin - 1; b++) {
+			if (
+				cadence[b] >= WALK_SPLIT_ONSET_MIN_CADENCE &&
+				meanOf(b, Math.min(totalMin, b + WALK_SPLIT_ONSET_WINDOW_MIN)) >= WALK_SPLIT_CORE_MIN_CADENCE &&
+				meanOf(0, b) <= WALK_SPLIT_SIT_MEAN_MAX
+			) {
+				prefixMin = b;
+				break;
+			}
+		}
+		// Suffix: mirrored — the walk → sit boundary is the LAST minute e
+		// where the backward window still walks and everything after sits.
+		let suffixMin = 0;
+		for (let e = totalMin - minSitMin; e >= 1; e--) {
+			if (e <= prefixMin) break;
+			if (
+				cadence[e - 1] >= WALK_SPLIT_ONSET_MIN_CADENCE &&
+				meanOf(Math.max(0, e - WALK_SPLIT_ONSET_WINDOW_MIN), e) >= WALK_SPLIT_CORE_MIN_CADENCE &&
+				meanOf(e, totalMin) <= WALK_SPLIT_SIT_MEAN_MAX
+			) {
+				suffixMin = totalMin - e;
+				break;
+			}
+		}
+		if (debug)
+			console.error(
+				`[walk-split]   eval: totalMin=${totalMin} prefixMin=${prefixMin} suffixMin=${suffixMin} cadence=${cadence.join(",")}`,
+			);
+		if (prefixMin === 0 && suffixMin === 0) {
+			out.push(seg);
+			continue;
+		}
+
+		// The carved core must be a real walk.
+		const coreFromMin = prefixMin;
+		const coreToMin = totalMin - suffixMin;
+		const coreS = Math.min(seg.endTs, seg.startTs + coreToMin * 60) - (seg.startTs + coreFromMin * 60);
+		if (coreS < WALK_SPLIT_CORE_MIN_S) {
+			out.push(seg);
+			continue;
+		}
+		const coreCad = cadence.slice(coreFromMin, coreToMin);
+		const coreMean = coreCad.reduce((a, b) => a + b, 0) / coreCad.length;
+		if (coreMean < WALK_SPLIT_CORE_MIN_CADENCE) {
+			out.push(seg);
+			continue;
+		}
+
+		const b1 = seg.startTs + prefixMin * 60;
+		const b2 = Math.min(seg.endTs, seg.startTs + coreToMin * 60);
+		const countIn = (from: number, to: number): number => points.filter((p) => p.ts >= from && p.ts < to).length;
+		const sitPart = (from: number, to: number, minutes: number): TrackSegment => ({
+			...seg,
+			mode: "stationary",
+			startTs: from,
+			endTs: to,
+			avgSpeed: 0,
+			maxSpeed: 0,
+			linearity: 0,
+			pointCount: countIn(from, to),
+			refinedReason: `steps-aware walk split: ≤ ${WALK_SPLIT_SIT_MEAN_MAX} steps/min mean for ${minutes} min inside a walking segment — a sit, not a walk`,
+		});
+		if (prefixMin > 0) out.push(sitPart(seg.startTs, b1, prefixMin));
+		out.push({ ...seg, startTs: b1, endTs: b2, pointCount: countIn(b1, b2) });
+		if (suffixMin > 0) out.push(sitPart(b2, seg.endTs, suffixMin));
+	}
+	return out;
+}
+
 /** Walk fixes in time order, accumulating into sub-runs; close a run
  *  when the gap to the next fix scores above SPLIT_THRESHOLD_NATS. */
 function splitByEvidence(fixes: FilteredPoint[], ctx: SplitContext): FilteredPoint[][] {
