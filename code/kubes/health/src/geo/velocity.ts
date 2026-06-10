@@ -657,247 +657,243 @@ export async function computeVelocityFromInputs(
 	// the pool size; segments are independent, so only wall-clock shape
 	// changes, never results.
 	const enrichStart = Date.now();
-	const enriched: EnrichedSegment[] = await mapLimit(
-		refinedSegments,
-		ENRICH_CONCURRENCY,
-		async (seg, i) => {
-			// Synthetic gap segments (inferred-walking or `unknown`) carry
-			// pointCount=0 — no real GPS data. Enriching with road names /
-			// OSM places would invent context we don't have. Pass them
-			// through with their refinedReason intact.
-			if (seg.pointCount === 0) return seg;
-			const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
-			if (segPoints.length === 0) return seg;
+	const enriched: EnrichedSegment[] = await mapLimit(refinedSegments, ENRICH_CONCURRENCY, async (seg, i) => {
+		// Synthetic gap segments (inferred-walking or `unknown`) carry
+		// pointCount=0 — no real GPS data. Enriching with road names /
+		// OSM places would invent context we don't have. Pass them
+		// through with their refinedReason intact.
+		if (seg.pointCount === 0) return seg;
+		const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+		if (segPoints.length === 0) return seg;
 
-			try {
-				if (seg.mode === "stationary") {
-					const cLat = segPoints.reduce((s, p) => s + p.lat, 0) / segPoints.length;
-					const cLon = segPoints.reduce((s, p) => s + p.lon, 0) / segPoints.length;
+		try {
+			if (seg.mode === "stationary") {
+				const cLat = segPoints.reduce((s, p) => s + p.lat, 0) / segPoints.length;
+				const cLon = segPoints.reduce((s, p) => s + p.lon, 0) / segPoints.length;
 
-					// Transit continuity: a stay immediately after a train,
-					// within station range, is at the station the user just
-					// alighted at — not at a co-located café (2026-05-22
-					// Finchley Road ambulance wait, mislabelled "Loft Coffee
-					// Company"). Takes precedence over the focus_place /
-					// OSM-amenity picker below.
-					const alightStation = await stationAtTrainAlight(refinedSegments[i - 1], cLat, cLon, inputs.osm);
-					if (alightStation !== null) {
-						const namedPlace = await bestPlace(inputs.osm, cLat, cLon, { preferResidential: false });
-						const city = extractCity(namedPlace);
-						return { ...seg, place: alightStation, ...(city ? { city } : {}) };
-					}
+				// Transit continuity: a stay immediately after a train,
+				// within station range, is at the station the user just
+				// alighted at — not at a co-located café (2026-05-22
+				// Finchley Road ambulance wait, mislabelled "Loft Coffee
+				// Company"). Takes precedence over the focus_place /
+				// OSM-amenity picker below.
+				const alightStation = await stationAtTrainAlight(refinedSegments[i - 1], cLat, cLon, inputs.osm);
+				if (alightStation !== null) {
+					const namedPlace = await bestPlace(inputs.osm, cLat, cLon, { preferResidential: false });
+					const city = extractCity(namedPlace);
+					return { ...seg, place: alightStation, ...(city ? { city } : {}) };
+				}
 
-					// Probabilistic place assignment: rank candidates from
-					// focus_places by combined log-likelihood (Gaussian on
-					// distance, σ = empirical radius) + log-prior (visit
-					// frequency, time-of-day match against sleep_hours /
-					// awake_hours). Replaces the old snap-radius +
-					// residential-hours-threshold + amenity-gate chain.
-					// See `src/geo/place-prior.ts`.
-					const isSleepWindow = hasOvernightPresence(seg.startTs, seg.endTs, cLon);
-					const stayHourProfile = hourProfileForRange(seg.startTs, seg.endTs, cLon);
-					// Magnetic anchoring: pass biometric coherence so the
-					// scorer can boost established focus_places when the
-					// segment's HR + steps confirm the user was actually
-					// sitting (vs walking past). See
-					// `docs/proposals/2026-06-magnetic-focus-places.md`.
-					const segBs = biometricCoherence({
-						startTs: seg.startTs,
-						endTs: seg.endTs,
-						hr: biomForStaySplit.hr,
-						steps: biomForStaySplit.steps,
-					});
-					const winner =
-						knownPlaces.length > 0
-							? pickBestPlace(knownPlaces.map(toPlaceCandidate), cLat, cLon, {
-									stayHourProfile,
-									biometricCoherence: segBs,
-								})
-							: null;
+				// Probabilistic place assignment: rank candidates from
+				// focus_places by combined log-likelihood (Gaussian on
+				// distance, σ = empirical radius) + log-prior (visit
+				// frequency, time-of-day match against sleep_hours /
+				// awake_hours). Replaces the old snap-radius +
+				// residential-hours-threshold + amenity-gate chain.
+				// See `src/geo/place-prior.ts`.
+				const isSleepWindow = hasOvernightPresence(seg.startTs, seg.endTs, cLon);
+				const stayHourProfile = hourProfileForRange(seg.startTs, seg.endTs, cLon);
+				// Magnetic anchoring: pass biometric coherence so the
+				// scorer can boost established focus_places when the
+				// segment's HR + steps confirm the user was actually
+				// sitting (vs walking past). See
+				// `docs/proposals/2026-06-magnetic-focus-places.md`.
+				const segBs = biometricCoherence({
+					startTs: seg.startTs,
+					endTs: seg.endTs,
+					hr: biomForStaySplit.hr,
+					steps: biomForStaySplit.steps,
+				});
+				const winner =
+					knownPlaces.length > 0
+						? pickBestPlace(knownPlaces.map(toPlaceCandidate), cLat, cLon, {
+								stayHourProfile,
+								biometricCoherence: segBs,
+							})
+						: null;
 
-					if (winner !== null) {
-						const wp = knownPlaces.find((p) => p.id === winner.winner.id) ?? null;
-						if (wp !== null) {
-							// Snap the centroid to the place's stored centroid
-							// so downstream OSM-amenity / city lookup runs at the
-							// place's "true" coordinates instead of the day's
-							// noisy aggregate.
-							const placeLat = wp.centroidLat;
-							const placeLon = wp.centroidLon;
+				if (winner !== null) {
+					const wp = knownPlaces.find((p) => p.id === winner.winner.id) ?? null;
+					if (wp !== null) {
+						// Snap the centroid to the place's stored centroid
+						// so downstream OSM-amenity / city lookup runs at the
+						// place's "true" coordinates instead of the day's
+						// noisy aggregate.
+						const placeLat = wp.centroidLat;
+						const placeLon = wp.centroidLon;
 
-							// Personal label wins outright — but only for the
-							// "intent" labels Home / Work. The "Stay" category
-							// label is just a clustering bucket, not a useful
-							// timeline name; fall through to address lookup.
-							if (wp.displayName === "Home" || wp.displayName === "Work") {
-								const namedPlace = await bestPlace(inputs.osm, placeLat, placeLon, { preferResidential: true });
-								const namedCity = extractCity(namedPlace);
-								return {
-									...seg,
-									place: wp.displayName,
-									...(namedCity ? { city: namedCity } : {}),
-								};
-							}
-							// Mined cluster-level amenity_label (majority-vote
-							// across the user's prior visits to this cluster)
-							// when the cluster isn't residential. Residential
-							// clusters fall through to the address lookup —
-							// A residential address beats a co-located cafe
-							// label because the cluster's sleep_hours dwarfs
-							// its awake_hours.
-							const isResidential = wp.sleepHours >= RESIDENCE_SLEEP_THRESHOLD_H;
-							if (!isResidential && wp.amenityLabel) {
-								const namedPlace = await bestPlace(inputs.osm, placeLat, placeLon, { preferResidential: false });
-								const namedCity = extractCity(namedPlace);
-								return {
-									...seg,
-									place: wp.amenityLabel,
-									...(namedCity ? { city: namedCity } : {}),
-								};
-							}
-							// Residential without a personal label, or no mined
-							// amenity_label — fall through to bestPlace at the
-							// snapped centroid. Prefer the address when the
-							// cluster is residential OR the mining gate found
-							// no confident venue here (null amenity_label): a
-							// venue-less place — e.g. an evening-only residence
-							// the sleep gate misses — must show a neutral
-							// area/address, not a low-confidence nearby park.
-							const venueless = wp.amenityLabel === null;
-							const place = await bestPlace(inputs.osm, placeLat, placeLon, {
-								preferResidential: isResidential || venueless,
-								stay: { startUnix: seg.startTs, endUnix: seg.endTs, tz: tzLookup(placeLat, placeLon) },
-								priors: inputs.venuePriors ?? null,
-							});
-							if (!place) return seg;
-							const city = extractCity(place);
+						// Personal label wins outright — but only for the
+						// "intent" labels Home / Work. The "Stay" category
+						// label is just a clustering bucket, not a useful
+						// timeline name; fall through to address lookup.
+						if (wp.displayName === "Home" || wp.displayName === "Work") {
+							const namedPlace = await bestPlace(inputs.osm, placeLat, placeLon, { preferResidential: true });
+							const namedCity = extractCity(namedPlace);
 							return {
 								...seg,
-								place: placeLabel(place),
-								...(city ? { city } : {}),
+								place: wp.displayName,
+								...(namedCity ? { city: namedCity } : {}),
 							};
 						}
-					}
-
-					// No focus_place crossed the posterior floor — this is a
-					// stay somewhere new. Use the day's centroid and the
-					// per-stay overnight check to decide residential preference.
-					const preferResidential = isSleepWindow;
-					const place = await bestPlace(inputs.osm, cLat, cLon, {
-						preferResidential,
-						stay: { startUnix: seg.startTs, endUnix: seg.endTs, tz: tzLookup(cLat, cLon) },
-						priors: inputs.venuePriors ?? null,
-					});
-					if (!place) return seg;
-					const city = extractCity(place);
-					return {
-						...seg,
-						place: placeLabel(place),
-						...(city ? { city } : {}),
-					};
-				}
-				// Moving segment: sample several points along the path so the
-				// OSM evidence reflects the whole route, not whatever the
-				// centroid happens to land on.
-				const sampleCount = Math.min(N_SAMPLES, segPoints.length);
-				const sampleIdxs = Array.from({ length: sampleCount }, (_, i) =>
-					Math.floor((i * (segPoints.length - 1)) / Math.max(1, sampleCount - 1)),
-				);
-				const movingStart = segPoints[0];
-				const movingEnd = segPoints[segPoints.length - 1];
-				const [wayResults, startPlace, endPlace] = await Promise.all([
-					Promise.all(sampleIdxs.map((i) => inputs.osm.nearbyWays(segPoints[i].lat, segPoints[i].lon))),
-					// Endpoint reverseGeocode: tag the segment with a city iff
-					// both endpoints agree. A walk inside one city gets a city
-					// header; a drive between two cities stays untagged.
-					inputs.osm.reverseGeocode(movingStart.lat, movingStart.lon),
-					inputs.osm.reverseGeocode(movingEnd.lat, movingEnd.lon),
-				]);
-				// Dedup by (type, subtype, name) but keep the *minimum* distance
-				// across sample points. A road we brushed past at one sample
-				// shouldn't outweigh a road we hugged at four others — and the
-				// distance is what refineMode uses to tie-break parallel
-				// rail/road.
-				const byKey = new Map<string, (typeof wayResults)[number][number]>();
-				for (const ways of wayResults) {
-					for (const w of ways) {
-						const key = `${w.type}/${w.subtype}/${w.name ?? ""}`;
-						const existing = byKey.get(key);
-						if (!existing) {
-							byKey.set(key, w);
-						} else {
-							const existingD = existing.distanceM ?? Number.POSITIVE_INFINITY;
-							const newD = w.distanceM ?? Number.POSITIVE_INFINITY;
-							if (newD < existingD) byKey.set(key, w);
+						// Mined cluster-level amenity_label (majority-vote
+						// across the user's prior visits to this cluster)
+						// when the cluster isn't residential. Residential
+						// clusters fall through to the address lookup —
+						// A residential address beats a co-located cafe
+						// label because the cluster's sleep_hours dwarfs
+						// its awake_hours.
+						const isResidential = wp.sleepHours >= RESIDENCE_SLEEP_THRESHOLD_H;
+						if (!isResidential && wp.amenityLabel) {
+							const namedPlace = await bestPlace(inputs.osm, placeLat, placeLon, { preferResidential: false });
+							const namedCity = extractCity(namedPlace);
+							return {
+								...seg,
+								place: wp.amenityLabel,
+								...(namedCity ? { city: namedCity } : {}),
+							};
 						}
+						// Residential without a personal label, or no mined
+						// amenity_label — fall through to bestPlace at the
+						// snapped centroid. Prefer the address when the
+						// cluster is residential OR the mining gate found
+						// no confident venue here (null amenity_label): a
+						// venue-less place — e.g. an evening-only residence
+						// the sleep gate misses — must show a neutral
+						// area/address, not a low-confidence nearby park.
+						const venueless = wp.amenityLabel === null;
+						const place = await bestPlace(inputs.osm, placeLat, placeLon, {
+							preferResidential: isResidential || venueless,
+							stay: { startUnix: seg.startTs, endUnix: seg.endTs, tz: tzLookup(placeLat, placeLon) },
+							priors: inputs.venuePriors ?? null,
+						});
+						if (!place) return seg;
+						const city = extractCity(place);
+						return {
+							...seg,
+							place: placeLabel(place),
+							...(city ? { city } : {}),
+						};
 					}
 				}
-				const aggregated = [...byKey.values()];
-				// Rail-vs-road proximity per sample point — feeds the
-				// rail-corridor factor. For each sample's nearbyWays list,
-				// the minimum distance to any rail-only way and the minimum
-				// to any drivable highway. Mean across samples where each
-				// kind had something in range; null when no sample had it.
-				// The factor scorer uses the ratio to discriminate train
-				// from driving when speed-emission can't.
-				const railRoad = computeRailRoadProximity(wayResults);
-				// Per-sample road-vs-rail "which is nearer" fraction, from the
-				// same samples — the GPS evidence the HSMM movement→train
-				// override weighs against (see decideHsmmTrainOverride). No
-				// extra OSM query.
-				const roadCorridorFraction = computeRoadNearestFraction(wayResults);
-				// Under USE_BIOMETRIC_FACTOR, pass per-segment hr/cadence + the
-				// loaded mode signatures into refineMode so the factor scorer's
-				// candidate generator can filter biologically-implausible
-				// candidates. Without the flag, refineMode runs with no
-				// biometric context and the legacy `applyBiometricSignature`
-				// pass below does the corresponding work as a post-step.
-				const biometricCtx =
-					biometricFactorOn && preEnrichBiometrics && preEnrichModeStats
-						? {
-								obs: {
-									hr: meanInWindow(preEnrichBiometrics.hr, (p) => p.bpm, seg.startTs, seg.endTs),
-									cadence: meanInWindow(preEnrichBiometrics.steps, (p) => p.steps, seg.startTs, seg.endTs),
-									speed: seg.avgSpeed,
-								},
-								stats: preEnrichModeStats,
-							}
-						: undefined;
-				const refined = refineMode(
-					seg.mode,
-					seg.avgSpeed,
-					aggregated,
-					biometricCtx,
-					seg.confidenceMargin,
-					process.env.FACTOR_DEBUG === "1"
-						? `[${new Date(seg.startTs * 1000).toISOString().slice(11, 16)}-${new Date(seg.endTs * 1000).toISOString().slice(11, 16)}Z]`
-						: undefined,
-					railRoad,
-				);
-				// Physical-plausibility override: a tube ride under a road
-				// can look like driving to refineMode (the road is the
-				// closest OSM way). Demote when the max speed exceeds
-				// urban-non-motorway limits and a subway is parallel.
-				const plausible = rejectImplausibleDriving(
-					{ mode: refined.mode, wayName: refined.wayName },
-					seg.maxSpeed,
-					aggregated,
-				);
-				const movingCity = commonCity(startPlace, endPlace);
+
+				// No focus_place crossed the posterior floor — this is a
+				// stay somewhere new. Use the day's centroid and the
+				// per-stay overnight check to decide residential preference.
+				const preferResidential = isSleepWindow;
+				const place = await bestPlace(inputs.osm, cLat, cLon, {
+					preferResidential,
+					stay: { startUnix: seg.startTs, endUnix: seg.endTs, tz: tzLookup(cLat, cLon) },
+					priors: inputs.venuePriors ?? null,
+				});
+				if (!place) return seg;
+				const city = extractCity(place);
 				return {
 					...seg,
-					refinedMode: plausible.mode,
-					refinedReason: plausible.reason ?? refined.reason,
-					wayName: plausible.wayName,
-					...(movingCity ? { city: movingCity } : {}),
-					...(roadCorridorFraction !== null ? { roadCorridorFraction } : {}),
+					place: placeLabel(place),
+					...(city ? { city } : {}),
 				};
-			} catch (e) {
-				console.warn(`OSM enrichment failed for segment ${seg.startTs}: ${e}`);
-				return seg;
 			}
-		},
-	);
+			// Moving segment: sample several points along the path so the
+			// OSM evidence reflects the whole route, not whatever the
+			// centroid happens to land on.
+			const sampleCount = Math.min(N_SAMPLES, segPoints.length);
+			const sampleIdxs = Array.from({ length: sampleCount }, (_, i) =>
+				Math.floor((i * (segPoints.length - 1)) / Math.max(1, sampleCount - 1)),
+			);
+			const movingStart = segPoints[0];
+			const movingEnd = segPoints[segPoints.length - 1];
+			const [wayResults, startPlace, endPlace] = await Promise.all([
+				Promise.all(sampleIdxs.map((i) => inputs.osm.nearbyWays(segPoints[i].lat, segPoints[i].lon))),
+				// Endpoint reverseGeocode: tag the segment with a city iff
+				// both endpoints agree. A walk inside one city gets a city
+				// header; a drive between two cities stays untagged.
+				inputs.osm.reverseGeocode(movingStart.lat, movingStart.lon),
+				inputs.osm.reverseGeocode(movingEnd.lat, movingEnd.lon),
+			]);
+			// Dedup by (type, subtype, name) but keep the *minimum* distance
+			// across sample points. A road we brushed past at one sample
+			// shouldn't outweigh a road we hugged at four others — and the
+			// distance is what refineMode uses to tie-break parallel
+			// rail/road.
+			const byKey = new Map<string, (typeof wayResults)[number][number]>();
+			for (const ways of wayResults) {
+				for (const w of ways) {
+					const key = `${w.type}/${w.subtype}/${w.name ?? ""}`;
+					const existing = byKey.get(key);
+					if (!existing) {
+						byKey.set(key, w);
+					} else {
+						const existingD = existing.distanceM ?? Number.POSITIVE_INFINITY;
+						const newD = w.distanceM ?? Number.POSITIVE_INFINITY;
+						if (newD < existingD) byKey.set(key, w);
+					}
+				}
+			}
+			const aggregated = [...byKey.values()];
+			// Rail-vs-road proximity per sample point — feeds the
+			// rail-corridor factor. For each sample's nearbyWays list,
+			// the minimum distance to any rail-only way and the minimum
+			// to any drivable highway. Mean across samples where each
+			// kind had something in range; null when no sample had it.
+			// The factor scorer uses the ratio to discriminate train
+			// from driving when speed-emission can't.
+			const railRoad = computeRailRoadProximity(wayResults);
+			// Per-sample road-vs-rail "which is nearer" fraction, from the
+			// same samples — the GPS evidence the HSMM movement→train
+			// override weighs against (see decideHsmmTrainOverride). No
+			// extra OSM query.
+			const roadCorridorFraction = computeRoadNearestFraction(wayResults);
+			// Under USE_BIOMETRIC_FACTOR, pass per-segment hr/cadence + the
+			// loaded mode signatures into refineMode so the factor scorer's
+			// candidate generator can filter biologically-implausible
+			// candidates. Without the flag, refineMode runs with no
+			// biometric context and the legacy `applyBiometricSignature`
+			// pass below does the corresponding work as a post-step.
+			const biometricCtx =
+				biometricFactorOn && preEnrichBiometrics && preEnrichModeStats
+					? {
+							obs: {
+								hr: meanInWindow(preEnrichBiometrics.hr, (p) => p.bpm, seg.startTs, seg.endTs),
+								cadence: meanInWindow(preEnrichBiometrics.steps, (p) => p.steps, seg.startTs, seg.endTs),
+								speed: seg.avgSpeed,
+							},
+							stats: preEnrichModeStats,
+						}
+					: undefined;
+			const refined = refineMode(
+				seg.mode,
+				seg.avgSpeed,
+				aggregated,
+				biometricCtx,
+				seg.confidenceMargin,
+				process.env.FACTOR_DEBUG === "1"
+					? `[${new Date(seg.startTs * 1000).toISOString().slice(11, 16)}-${new Date(seg.endTs * 1000).toISOString().slice(11, 16)}Z]`
+					: undefined,
+				railRoad,
+			);
+			// Physical-plausibility override: a tube ride under a road
+			// can look like driving to refineMode (the road is the
+			// closest OSM way). Demote when the max speed exceeds
+			// urban-non-motorway limits and a subway is parallel.
+			const plausible = rejectImplausibleDriving(
+				{ mode: refined.mode, wayName: refined.wayName },
+				seg.maxSpeed,
+				aggregated,
+			);
+			const movingCity = commonCity(startPlace, endPlace);
+			return {
+				...seg,
+				refinedMode: plausible.mode,
+				refinedReason: plausible.reason ?? refined.reason,
+				wayName: plausible.wayName,
+				...(movingCity ? { city: movingCity } : {}),
+				...(roadCorridorFraction !== null ? { roadCorridorFraction } : {}),
+			};
+		} catch (e) {
+			console.warn(`OSM enrichment failed for segment ${seg.startTs}: ${e}`);
+			return seg;
+		}
+	});
 	phaseTimes.osm = Date.now() - enrichStart;
 
 	// Cadence-based correction: a "walking" segment with no recorded steps
