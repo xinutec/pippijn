@@ -22,6 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	annotateBusEvidence,
 	BUS_EVIDENCE_THRESHOLD_NATS,
 	detectBoardingWait,
 	detectVehicleDwells,
@@ -157,5 +158,52 @@ describe("scoreBusEvidence", () => {
 			dwells: Array.from({ length: 3 }, () => ({ durationS: 30, nearestBusStopM: 10, nearestSignalM: null })),
 		});
 		expect(many.total).toBe(three.total);
+	});
+});
+
+describe("annotateBusEvidence (orchestrator)", () => {
+	const seg = {
+		startTs: T0,
+		endTs: T0 + 10 * 60,
+		mode: "driving",
+		refinedMode: undefined as string | undefined,
+	};
+	/** Boarding wait + one mid-leg dwell, both standstills detectable. */
+	const busShapedFixes = [
+		...run(T0 - 120, T0 - 15, 0, 0.5), // boarding wait
+		...run(T0, T0 + 240, 10, 30), // moving
+		...run(T0 + 255, T0 + 285, 2010, 0.5), // 30s stop dwell
+		...run(T0 + 300, T0 + 600, 2020, 30), // moving
+	];
+
+	it("flips a driving leg to bus when stops resolve at the wait + dwell", async () => {
+		const osm = {
+			async nearbyTransitStops() {
+				return [{ subtype: "bus_stop", distanceM: 12 }];
+			},
+		};
+		const out = await annotateBusEvidence([seg], busShapedFixes, osm);
+		expect(out[0].vehicleKind).toBe("bus");
+	});
+
+	it("leaves the leg as driving when no stops are anywhere near", async () => {
+		const osm = {
+			async nearbyTransitStops() {
+				return [];
+			},
+		};
+		const out = await annotateBusEvidence([seg], busShapedFixes, osm);
+		expect(out[0].vehicleKind).toBeUndefined();
+	});
+
+	it("never judges non-driving segments", async () => {
+		const osm = {
+			async nearbyTransitStops() {
+				throw new Error("must not be called");
+			},
+		};
+		const train = { ...seg, mode: "train" };
+		const out = await annotateBusEvidence([train], busShapedFixes, osm);
+		expect(out[0].vehicleKind).toBeUndefined();
 	});
 });

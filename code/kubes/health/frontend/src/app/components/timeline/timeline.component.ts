@@ -26,6 +26,7 @@ const MODE_ICONS: Record<string, string> = {
   walking: "directions_walk",
   cycling: "directions_bike",
   driving: "directions_car",
+  bus: "directions_bus",
   train: "train",
   plane: "flight",
   boat: "directions_boat",

@@ -32,6 +32,7 @@ export type DayStateMode =
 	| "walking"
 	| "cycling"
 	| "driving"
+	| "bus"
 	| "train"
 	| "plane"
 	| "unknown";
@@ -170,7 +171,9 @@ function stateForInterval(
 
 	// From here on, seg is defined (TypeScript narrowing).
 	const segment = seg as EnrichedSegment;
-	const segMode = (segment.refinedMode ?? segment.mode) as DayStateMode;
+	// vehicleKind refines a driving leg into a bus for display (task
+	// #247) — the transport-mode machinery upstream still says driving.
+	const segMode = segment.vehicleKind === "bus" ? "bus" : ((segment.refinedMode ?? segment.mode) as DayStateMode);
 
 	if (!sleep) {
 		return makeStateFromSegment(segment, start, end, segMode, false);

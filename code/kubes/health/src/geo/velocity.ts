@@ -26,6 +26,7 @@ import {
 	type StepPoint,
 } from "./biometrics.js";
 import { bridgeStaysWithBiometrics } from "./bridge-stays-biometrics.js";
+import { annotateBusEvidence } from "./bus-evidence.js";
 import type { ClassificationInputs } from "./classification-inputs.js";
 import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour } from "./focus-places.js";
@@ -426,6 +427,11 @@ export interface EnrichedSegment extends TrackSegment {
 	centroidLat?: number;
 	centroidLon?: number;
 	wayName?: string; // road/rail name (for moving segments)
+	/** Stop-pattern refinement of a driving segment (task #247): "bus"
+	 *  when the leg's boarding wait + mid-leg dwells coincide with
+	 *  bus_stop nodes. The mode stays "driving" internally; the
+	 *  day-state layer renders the kind. */
+	vehicleKind?: "bus";
 	refinedMode?: string; // OSM-refined transport mode (may differ from heuristic mode)
 	refinedReason?: string;
 	displayTz?: string; // IANA tz to render the segment's timestamps in (frontend uses this instead of browser tz)
@@ -1036,6 +1042,12 @@ export async function computeVelocityFromInputs(
 	// raw track is untouched. See annotateSnappedPaths.
 	const withSnapped = timeSync("railSnap", () => annotateSnappedPaths(withWalkThrough, inputs.railRouteCache));
 
+	// Bus-vs-car stop-pattern evidence (task #247): a refined-driving leg
+	// whose boarding wait and mid-leg dwells coincide with bus_stop nodes
+	// is a bus. Runs after all mode refinement so it judges the final
+	// driving legs; purely additive annotation.
+	const withVehicleKind = await time("busEvidence", annotateBusEvidence(withSnapped, points, inputs.osm));
+
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
 	// location (centroid for stationary, midpoint for moving). Lets the UI
@@ -1045,7 +1057,7 @@ export async function computeVelocityFromInputs(
 	// gap segments).
 	const homeTz = inputs.homeTz;
 	const withDisplayTz = timeSync("displayTz", () =>
-		withSnapped.map((s): EnrichedSegment => {
+		withVehicleKind.map((s): EnrichedSegment => {
 			const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
 			if (segPoints.length === 0) {
 				return { ...s, displayTz: homeTz };

@@ -5,10 +5,22 @@ locals {
     amun = "94.23.247.133"
     isis = "188.165.200.180"
     odin = "5.196.65.240"
+    vpn  = "10.100.0.1"   # WireGuard LB IP — for VPN-only services (vault)
   }
 }
 
 # --- Host A records ---
+
+# vault.xinutec.org — Vaultwarden password manager, VPN-only.
+# Points at the WireGuard LB IP, so it resolves publicly but only routes over the VPN.
+resource "cloudflare_dns_record" "org_vault" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "vault"
+  content = local.hosts.vpn
+  ttl     = 3600
+  proxied = false
+}
 
 resource "cloudflare_dns_record" "org_apex" {
   zone_id = local.xinutec_org_id

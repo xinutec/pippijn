@@ -7,6 +7,7 @@ const MODE_COLORS: Record<string, string> = {
 	walking: "rgba(34, 197, 94, 0.25)",
 	cycling: "rgba(59, 130, 246, 0.25)",
 	driving: "rgba(249, 115, 22, 0.25)",
+	bus: "rgba(234, 88, 12, 0.25)",
 	train: "rgba(168, 85, 247, 0.25)",
 	plane: "rgba(236, 72, 153, 0.25)",
 };
@@ -16,6 +17,7 @@ const MODE_LABELS: Record<string, string> = {
 	walking: "Walking",
 	cycling: "Cycling",
 	driving: "Driving",
+	bus: "Bus",
 	train: "Train",
 	plane: "Plane",
 };

@@ -21,6 +21,7 @@ const MODE_COLORS: Record<string, string> = {
 	walking: "#22c55e",
 	cycling: "#f59e0b",
 	driving: "#ef4444",
+	bus: "#ea580c",
 	train: "#3b82f6",
 	plane: "#8b5cf6",
 	stationary: "#94a3b8",

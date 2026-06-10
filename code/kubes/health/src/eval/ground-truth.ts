@@ -68,7 +68,7 @@ export function isEnforceableTruth(row: Pick<GroundTruthRow, "status" | "provena
 	return TRUSTED_PROVENANCE.has(row.provenance);
 }
 
-export type GroundTruthMode = "sleeping" | "stationary" | "walking" | "cycling" | "driving" | "train" | "plane";
+export type GroundTruthMode = "sleeping" | "stationary" | "walking" | "cycling" | "driving" | "bus" | "train" | "plane";
 
 export interface ParsedBlessed {
 	mode: GroundTruthMode;
@@ -306,7 +306,7 @@ export function parseBlessedCell(text: string): ParsedBlessed | null {
 	const t = text.trim();
 	if (t.length === 0) return null;
 
-	const verb = /^(sleeping|stationary|walking|cycling|driving|train|plane)\b\s*(.*)$/.exec(t);
+	const verb = /^(sleeping|stationary|walking|cycling|driving|bus|train|plane)\b\s*(.*)$/.exec(t);
 	if (!verb) return null;
 	const mode = verb[1] as GroundTruthMode;
 	const rest = verb[2].trim();

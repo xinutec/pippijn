@@ -164,6 +164,73 @@ export function detectVehicleDwells(fixes: readonly Fix[], startTs: number, endT
 
 // --- scoring ------------------------------------------------------------------
 
+// --- orchestrator ---------------------------------------------------------
+
+/** The one adapter primitive the orchestrator needs (structural subset of
+ *  OsmAdapter, so this module stays import-cycle-free). */
+interface TransitStopSource {
+	nearbyTransitStops(lat: number, lon: number, radiusM?: number): Promise<NearbyTransitStopLike[]>;
+}
+interface NearbyTransitStopLike {
+	subtype: string;
+	distanceM: number;
+}
+
+/** Query radius for per-dwell stop resolution: a bit beyond
+ *  TRANSIT_STOP_NEAR_M so "nothing within 50 m" is a confident null. */
+const TRANSIT_QUERY_RADIUS_M = 50;
+
+/** Road-vehicle legs shorter than this aren't judged — too little room
+ *  for any stop pattern to show. */
+const MIN_LEG_S = 3 * 60;
+
+/**
+ * Annotate refined-driving segments with `vehicleKind: "bus"` when the
+ * stop-pattern evidence clears the threshold. Resolves stop/signal
+ * proximity per dwell via the OSM adapter (recorded in golden fixtures
+ * like every other OSM call), then defers to the pure scorer.
+ */
+export async function annotateBusEvidence<
+	T extends { startTs: number; endTs: number; mode: string; refinedMode?: string },
+>(segments: readonly T[], points: readonly Fix[], osm: TransitStopSource): Promise<(T & { vehicleKind?: "bus" })[]> {
+	const out: (T & { vehicleKind?: "bus" })[] = [];
+	for (const seg of segments) {
+		const effective = seg.refinedMode ?? seg.mode;
+		if (effective !== "driving" || seg.endTs - seg.startTs < MIN_LEG_S) {
+			out.push(seg);
+			continue;
+		}
+		const nearest = async (lat: number, lon: number, subtype: string): Promise<number | null> => {
+			const stops = await osm.nearbyTransitStops(lat, lon, TRANSIT_QUERY_RADIUS_M);
+			const match = stops.filter((s) => s.subtype === subtype);
+			return match.length > 0 ? Math.min(...match.map((s) => s.distanceM)) : null;
+		};
+		const wait = detectBoardingWait(points, seg.startTs);
+		const dwells = detectVehicleDwells(points, seg.startTs, seg.endTs);
+		const evidence: BusEvidence = {
+			boardingWaitS: wait?.durationS ?? null,
+			boardingNearestBusStopM: wait ? await nearest(wait.lat, wait.lon, "bus_stop") : null,
+			dwells: [],
+		};
+		for (const d of dwells) {
+			evidence.dwells.push({
+				durationS: d.durationS,
+				nearestBusStopM: await nearest(d.lat, d.lon, "bus_stop"),
+				nearestSignalM: await nearest(d.lat, d.lon, "traffic_signals"),
+			});
+		}
+		const score = scoreBusEvidence(evidence);
+		if (process.env.BUS_DEBUG === "1") {
+			const t = (ts: number): string => new Date(ts * 1000).toISOString().slice(11, 16);
+			console.error(
+				`[bus] ${t(seg.startTs)}-${t(seg.endTs)} wait=${evidence.boardingWaitS ?? "-"}s@${evidence.boardingNearestBusStopM ?? "-"}m dwells=${JSON.stringify(evidence.dwells)} total=${score.total.toFixed(2)}`,
+			);
+		}
+		out.push(score.total >= BUS_EVIDENCE_THRESHOLD_NATS ? { ...seg, vehicleKind: "bus" } : seg);
+	}
+	return out;
+}
+
 export interface BusEvidenceScore {
 	total: number;
 	parts: {
