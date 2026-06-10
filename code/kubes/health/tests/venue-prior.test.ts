@@ -26,11 +26,13 @@
 import { describe, expect, it } from "vitest";
 import type { NearbyLandmark } from "../src/geo/osm.js";
 import {
-	NEVER_DESTINATION_SUBTYPES,
-	type VenuePriors,
+	attributeStayVenue,
 	categoryOfSubtype,
 	dwellBucket,
+	minePriors,
+	NEVER_DESTINATION_SUBTYPES,
 	rankVenues,
+	type VenuePriors,
 } from "../src/geo/venue-prior.js";
 
 // --- helpers -------------------------------------------------------------
@@ -186,7 +188,11 @@ describe("rankVenues with stay shape + mined priors", () => {
 	});
 
 	it("without priors the same pair falls back to distance (pharmacy wins)", () => {
-		const r = rankVenues([venue("Corner Pharmacy", "pharmacy", 18), venue("Trattoria", "restaurant", 32)], DINNER, null);
+		const r = rankVenues(
+			[venue("Corner Pharmacy", "pharmacy", 18), venue("Trattoria", "restaurant", 32)],
+			DINNER,
+			null,
+		);
 		expect(r[0].landmark.name).toBe("Corner Pharmacy");
 	});
 
@@ -214,6 +220,66 @@ describe("rankVenues with stay shape + mined priors", () => {
 		const empty: VenuePriors = { bySubtype: {}, byCategory: {}, totalVisits: 0 };
 		const r = rankVenues([venue("Trattoria", "restaurant", 32)], DINNER, empty);
 		expect(Number.isFinite(r[0].total)).toBe(true);
+	});
+});
+
+// --- mining: unambiguous attribution + aggregation -------------------------
+
+describe("attributeStayVenue", () => {
+	it("attributes a stay to the single close venue", () => {
+		const r = attributeStayVenue([venue("Trattoria", "restaurant", 12), area("Park", 40)]);
+		expect(r?.name).toBe("Trattoria");
+	});
+
+	it("returns null when two venues are both close (ambiguous)", () => {
+		// The ambiguous cases are exactly what the scorer must PREDICT —
+		// training on them would launder the old picker's mistakes into
+		// the prior (the feedback-loop trap).
+		const r = attributeStayVenue([venue("Trattoria", "restaurant", 12), venue("Corner Pharmacy", "pharmacy", 25)]);
+		expect(r).toBeNull();
+	});
+
+	it("returns null when the nearest venue is too far to be certain", () => {
+		expect(attributeStayVenue([venue("Trattoria", "restaurant", 45)])).toBeNull();
+	});
+
+	it("ignores street furniture and areas when judging ambiguity", () => {
+		const postBox: NearbyLandmark = { name: "SW1 1", type: "amenity", subtype: "post_box", distanceM: 5 };
+		const r = attributeStayVenue([postBox, area("Park", 14), venue("Trattoria", "restaurant", 12)]);
+		expect(r?.name).toBe("Trattoria");
+	});
+});
+
+describe("minePriors", () => {
+	it("aggregates attributed stays into subtype + category histograms", () => {
+		const priors = minePriors([
+			{ subtype: "restaurant", durationSec: 74 * 60, localHour: 19 },
+			{ subtype: "restaurant", durationSec: 50 * 60, localHour: 13 },
+			{ subtype: "cafe", durationSec: 25 * 60, localHour: 10 },
+			{ subtype: "pharmacy", durationSec: 6 * 60, localHour: 11 },
+		]);
+		expect(priors.totalVisits).toBe(4);
+		expect(priors.bySubtype.restaurant.visits).toBe(2);
+		expect(priors.bySubtype.restaurant.dwell[2]).toBe(2); // both meal-length
+		expect(priors.bySubtype.restaurant.hours[19]).toBe(1);
+		expect(priors.byCategory.food?.visits).toBe(3); // restaurant + cafe
+		expect(priors.byCategory.errand?.visits).toBe(1);
+	});
+
+	it("produces a blob the scorer accepts end-to-end", () => {
+		const priors = minePriors(
+			Array.from({ length: 30 }, (_, i) => ({
+				subtype: "restaurant",
+				durationSec: 80 * 60,
+				localHour: i % 2 === 0 ? 13 : 19,
+			})),
+		);
+		const r = rankVenues(
+			[venue("Corner Pharmacy", "pharmacy", 18), venue("Trattoria", "restaurant", 32)],
+			DINNER,
+			priors,
+		);
+		expect(r[0].landmark.name).toBe("Trattoria");
 	});
 });
 

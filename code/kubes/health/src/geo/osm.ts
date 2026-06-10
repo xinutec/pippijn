@@ -26,8 +26,8 @@ import type { TransportMode } from "./segments.js";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
 import { ensureCovered, queryLines, queryPoints } from "./osm-local.js";
-import { rankVenues, type StayShape, VENUE_RANK_FLOOR_NATS, type VenuePriors } from "./venue-prior.js";
 import { USER_AGENT } from "./osm-overpass.js";
+import { rankVenues, type StayShape, VENUE_RANK_FLOOR_NATS, type VenuePriors } from "./venue-prior.js";
 
 /**
  * Overpass endpoints, tried in order. The main server overpass-api.de is
@@ -346,9 +346,7 @@ function nominatimVenueCandidate(r: NominatimResult): NearbyLandmark | null {
 	const name = nominatimVenueName(r);
 	if (!name) return null;
 	const type =
-		r.category === "tourism" || r.category === "shop" || r.category === "leisure"
-			? r.category
-			: ("amenity" as const);
+		r.category === "tourism" || r.category === "shop" || r.category === "leisure" ? r.category : ("amenity" as const);
 	return { name, type, subtype: r.type, distanceM: 0 };
 }
 

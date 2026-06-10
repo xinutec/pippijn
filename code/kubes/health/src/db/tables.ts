@@ -368,6 +368,19 @@ export interface PresenceLogTable {
 	computed_at: Generated<Date>;
 }
 
+/** `venue_type_priors` — per-user mined visit-shape priors for the
+ *  venue-plausibility scorer (#246). `priors_json` holds the whole
+ *  `VenuePriors` blob (bySubtype / byCategory / totalVisits); rebuilt in
+ *  full by the weekly focus-places refresh from attribution-unambiguous
+ *  stays. Pure derived data — safe to truncate and re-mine. */
+export interface VenueTypePriorsTable {
+	user_id: string;
+	priors_json: string;
+	/** How many attributed stays the blob was mined from (observability). */
+	mined_stays: number;
+	updated_at: Generated<Date>;
+}
+
 export interface DecodedDaysTable {
 	user_id: string;
 	/** DATE in the user's displayTz, stored as 'YYYY-MM-DD'. */
@@ -430,5 +443,6 @@ export interface Database {
 	decoded_days: DecodedDaysTable;
 	presence_log: PresenceLogTable;
 	learned_hmm_models: LearnedHmmModelsTable;
+	venue_type_priors: VenueTypePriorsTable;
 	schema_migrations: SchemaMigrationsTable;
 }

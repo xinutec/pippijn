@@ -91,7 +91,7 @@ export function parseOpeningHours(value: string): WeekSpec | null {
 	if (trimmed === "24/7") {
 		return DAY_NAMES.map(() => [{ startMin: 0, endMin: 24 * 60 }]);
 	}
-	const week: TimeRange[][] | null[] = DAY_NAMES.map(() => null);
+	const week: Array<TimeRange[] | null> = DAY_NAMES.map(() => null);
 	let anyRule = false;
 	for (const rule of trimmed.split(";")) {
 		const r = rule.trim();

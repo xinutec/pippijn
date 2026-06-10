@@ -61,6 +61,7 @@ import {
 	UNDERGROUND_LINES_RADIUS_M,
 	UNDERGROUND_STATION_RADIUS_M,
 } from "./underground-rail.js";
+import type { VenuePriors } from "./venue-prior.js";
 
 /** Format a unix-second instant as a `YYYY-MM-DD HH:MM:SS` UTC DATETIME
  *  string for filtering against `ts_utc` columns. */
@@ -755,6 +756,8 @@ export async function computeVelocityFromInputs(
 							const venueless = wp.amenityLabel === null;
 							const place = await bestPlace(inputs.osm, placeLat, placeLon, {
 								preferResidential: isResidential || venueless,
+								stay: { startUnix: seg.startTs, endUnix: seg.endTs, tz: tzLookup(placeLat, placeLon) },
+								priors: inputs.venuePriors ?? null,
 							});
 							if (!place) return seg;
 							const city = extractCity(place);
@@ -770,7 +773,11 @@ export async function computeVelocityFromInputs(
 					// stay somewhere new. Use the day's centroid and the
 					// per-stay overnight check to decide residential preference.
 					const preferResidential = isSleepWindow;
-					const place = await bestPlace(inputs.osm, cLat, cLon, { preferResidential });
+					const place = await bestPlace(inputs.osm, cLat, cLon, {
+						preferResidential,
+						stay: { startUnix: seg.startTs, endUnix: seg.endTs, tz: tzLookup(cLat, cLon) },
+						priors: inputs.venuePriors ?? null,
+					});
 					if (!place) return seg;
 					const city = extractCity(place);
 					return {
@@ -940,7 +947,10 @@ export async function computeVelocityFromInputs(
 	// Re-resolves the merged stay's venue from its combined centroid. Confined to
 	// runs containing a jitter-demoted leg, so normal multi-stay days are untouched.
 	const withCentroids = attachStayCentroids(merged, points);
-	const consolidated = await time("consolidateJitterStays", consolidateJitterStays(withCentroids, inputs.osm));
+	const consolidated = await time(
+		"consolidateJitterStays",
+		consolidateJitterStays(withCentroids, inputs.osm, inputs.venuePriors ?? null),
+	);
 
 	const withStations = await annotateRailRuns(
 		consolidated,
@@ -1319,7 +1329,11 @@ export function planJitterStayRuns(segments: EnrichedSegment[]): Array<{ start: 
  *  `bestPlace` then returns. Confined to runs containing a jitter-demoted leg
  *  (see `planJitterStayRuns`) so normal days are untouched.
  */
-export async function consolidateJitterStays(segments: EnrichedSegment[], osm: OsmAdapter): Promise<EnrichedSegment[]> {
+export async function consolidateJitterStays(
+	segments: EnrichedSegment[],
+	osm: OsmAdapter,
+	priors: VenuePriors | null = null,
+): Promise<EnrichedSegment[]> {
 	const runs = planJitterStayRuns(segments);
 	if (runs.length === 0) return segments;
 	const merged = new Map<number, EnrichedSegment>(); // start index -> merged stay
@@ -1329,8 +1343,13 @@ export async function consolidateJitterStays(segments: EnrichedSegment[], osm: O
 		const totalPoints = run.reduce((s, x) => s + x.pointCount, 0) || 1;
 		const cLat = run.reduce((s, x) => s + (x.centroidLat as number) * x.pointCount, 0) / totalPoints;
 		const cLon = run.reduce((s, x) => s + (x.centroidLon as number) * x.pointCount, 0) / totalPoints;
-		// Re-resolve the venue from the combined centre.
-		const place = await bestPlace(osm, cLat, cLon, {});
+		// Re-resolve the venue from the combined centre, with the merged
+		// stay's full window as plausibility evidence — this run IS the
+		// poor-GPS indoor-sit case the venue scorer exists for (#246).
+		const place = await bestPlace(osm, cLat, cLon, {
+			stay: { startUnix: run[0].startTs, endUnix: run[run.length - 1].endTs, tz: tzLookup(cLat, cLon) },
+			priors,
+		});
 		const base = run.reduce((a, b) => (b.endTs - b.startTs > a.endTs - a.startTs ? b : a)); // longest leg as base
 		const reason = `consolidated ${run.length} GPS-jitter stay fragments`;
 		merged.set(start, {

@@ -32,6 +32,7 @@ import {
 import { type ExistingPlace, matchClusters } from "../geo/focus-places-identity.js";
 import { bestPlace, isLabelWorthyVenue, nearbyLandmarks, pickBestLandmark } from "../geo/osm.js";
 import { dbOsmAdapter } from "../geo/osm-adapter.js";
+import { type AttributedStay, attributeStayVenue, localHourOf, minePriors } from "../geo/venue-prior.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -146,6 +147,13 @@ async function refreshOne(userId: string): Promise<void> {
 	const RESIDENCE_SLEEP_THRESHOLD_H = 5;
 	const tMine = Date.now();
 	const amenityLabels = new Map<number, string | null>();
+	// Venue-type prior mining (#246): each stay whose venue attribution is
+	// geometrically UNAMBIGUOUS (attributeStayVenue's distance+margin
+	// gates) contributes one (subtype, dwell, hour) training record. The
+	// ambiguous stays are exactly what the scorer must predict, so they
+	// never train it — training on the picker's own guesses would launder
+	// its mistakes into the prior.
+	const attributedStays: AttributedStay[] = [];
 	for (const c of result.clusters) {
 		const clusterSleepH = hasFitbitSleep ? sleepHoursFromFitbit(c.stays, fitbitSleepWindows) : sleepHoursOf(c);
 		if (clusterSleepH >= RESIDENCE_SLEEP_THRESHOLD_H) {
@@ -156,6 +164,15 @@ async function refreshOne(userId: string): Promise<void> {
 		for (const s of c.stays) {
 			const landmarks = await nearbyLandmarks(s.centroidLat, s.centroidLon);
 			if (landmarks.length === 0) continue;
+			const attributed = attributeStayVenue(landmarks);
+			if (attributed !== null) {
+				const midTs = Math.floor((s.startTs + s.endTs) / 2);
+				attributedStays.push({
+					subtype: attributed.subtype,
+					durationSec: s.durationSec,
+					localHour: localHourOf(midTs, tzLookup(s.centroidLat, s.centroidLon)),
+				});
+			}
 			const best = pickBestLandmark(landmarks);
 			// Confidence gate: only a real venue type (amenity / tourism /
 			// shop) that is close enough to be the place the stay is *at*
@@ -186,6 +203,27 @@ async function refreshOne(userId: string): Promise<void> {
 		`[${userId}] amenity mining: ${[...amenityLabels.values()].filter((v) => v !== null).length}/${
 			result.clusters.length
 		} clusters labelled (${Date.now() - tMine}ms)`,
+	);
+
+	// Persist the venue-type priors blob — full recompute every run, never
+	// incremental, so a re-mine after a code/gate change is reproducible.
+	const priors = minePriors(attributedStays);
+	await db()
+		.insertInto("venue_type_priors")
+		.values({
+			user_id: userId,
+			priors_json: JSON.stringify(priors),
+			mined_stays: attributedStays.length,
+		})
+		.onDuplicateKeyUpdate({
+			priors_json: JSON.stringify(priors),
+			mined_stays: attributedStays.length,
+		})
+		.execute();
+	console.log(
+		`[${userId}] venue priors: ${attributedStays.length} attributed stays across ${
+			Object.keys(priors.bySubtype).length
+		} venue types`,
 	);
 
 	await withConnection(async (conn) => {

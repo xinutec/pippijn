@@ -587,6 +587,19 @@ const MIGRATIONS: readonly string[] = [
     computed_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, date)
   )`,
+
+	// venue_type_priors: per-user mined visit-shape priors for the
+	// venue-plausibility scorer (#246). One row per user holding the
+	// whole VenuePriors blob — rebuilt in full by the weekly
+	// focus-places refresh from attribution-unambiguous stays (full
+	// recompute, never incremental). Read once per day-pipeline run.
+	`CREATE TABLE IF NOT EXISTS venue_type_priors (
+    user_id     VARCHAR(64) NOT NULL,
+    priors_json MEDIUMTEXT NOT NULL,
+    mined_stays INT NOT NULL,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id)
+  )`,
 ];
 
 export async function migrate(conn: mariadb.Connection): Promise<void> {

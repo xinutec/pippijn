@@ -34,8 +34,8 @@
  * weighted, not filtered.
  */
 
-import type { NearbyLandmark } from "./osm.js";
 import { openFractionDuring, parseOpeningHours } from "./opening-hours.js";
+import type { NearbyLandmark } from "./osm.js";
 
 // --- venue categories (structural backoff pools, not tuned numbers) -------
 
@@ -283,6 +283,73 @@ export interface VenueCandidateScore {
 	parts: VenueScoreParts;
 }
 
+// --- mining ------------------------------------------------------------------
+
+/** Attribution gates for the prior miner: a stay trains the prior only when
+ *  ONE venue is geometrically unambiguous — close enough to be "at"
+ *  (≤30 m, the urban building-footprint scale) and clear of the runner-up
+ *  by a margin GPS noise can't flip (20 m). Everything else is exactly the
+ *  ambiguity the scorer must PREDICT; training on the old picker's guesses
+ *  there would launder its mistakes into the prior (the same feedback-loop
+ *  trap as the biometric "phantom cycling" mining). */
+const ATTRIBUTION_MAX_DIST_M = 30;
+const ATTRIBUTION_MARGIN_M = 20;
+
+/** The venue (amenity/tourism/shop, not street furniture) this stay is
+ *  unambiguously at, or null when no venue passes the gates. */
+export function attributeStayVenue(landmarks: readonly NearbyLandmark[]): NearbyLandmark | null {
+	const venues = landmarks
+		.filter((l) => VENUE_TYPES.has(l.type) && !NEVER_DESTINATION_SUBTYPES.has(l.subtype))
+		.sort((a, b) => a.distanceM - b.distanceM);
+	const top = venues[0];
+	if (!top || top.distanceM > ATTRIBUTION_MAX_DIST_M) return null;
+	const next = venues.find((l) => l.name !== top.name);
+	if (next && next.distanceM < top.distanceM + ATTRIBUTION_MARGIN_M) return null;
+	return top;
+}
+
+/** One attributed training stay: which venue type, how long, when. */
+export interface AttributedStay {
+	subtype: string;
+	durationSec: number;
+	/** Local hour (0–23, venue tz) of the stay midpoint. */
+	localHour: number;
+}
+
+/** Aggregate attributed stays into the priors blob. Pure counting — every
+ *  number in the result is mined, none authored. */
+export function minePriors(stays: readonly AttributedStay[]): VenuePriors {
+	const bySubtype: Record<string, VenueTypeStats> = {};
+	const byCategory: Partial<Record<VenueCategory, VenueTypeStats>> = {};
+	const emptyStats = (): VenueTypeStats => ({
+		visits: 0,
+		dwell: new Array(DWELL_BUCKETS).fill(0),
+		hours: new Array(24).fill(0),
+	});
+	for (const stay of stays) {
+		const bucket = dwellBucket(stay.durationSec);
+		const hour = ((stay.localHour % 24) + 24) % 24;
+		let st = bySubtype[stay.subtype];
+		if (!st) {
+			st = emptyStats();
+			bySubtype[stay.subtype] = st;
+		}
+		st.visits++;
+		st.dwell[bucket]++;
+		st.hours[hour]++;
+		const category = categoryOfSubtype(stay.subtype);
+		let cat = byCategory[category];
+		if (!cat) {
+			cat = emptyStats();
+			byCategory[category] = cat;
+		}
+		cat.visits++;
+		cat.dwell[bucket]++;
+		cat.hours[hour]++;
+	}
+	return { bySubtype, byCategory, totalVisits: stays.length };
+}
+
 /** Honest-label floor for the stay-context path in `bestPlace`: when even
  *  the best candidate scores below this, no venue (or area) nearby is a
  *  plausible destination and the resolver falls through to the
@@ -317,9 +384,10 @@ function shapeScore(subtype: string, stay: StayShape, priors: VenuePriors): numb
 }
 
 // Small local-hour helper (mirrors opening-hours.ts's formatter cache but
-// only needs the hour).
+// only needs the hour). Exported for the prior miner, which must bucket
+// training stays by the same hour definition the scorer reads back.
 const hourFormatterCache = new Map<string, Intl.DateTimeFormat>();
-function localHourOf(tsUnix: number, tz: string): number {
+export function localHourOf(tsUnix: number, tz: string): number {
 	let f = hourFormatterCache.get(tz);
 	if (!f) {
 		f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "2-digit", hour12: false });
@@ -357,7 +425,11 @@ export function rankVenues(
 		const venue = VENUE_TYPES.has(landmark.type) ? VENUE_OVER_AREA_NATS : 0;
 		const shape = stay && priors && PRIOR_TYPES.has(landmark.type) ? shapeScore(landmark.subtype, stay, priors) : null;
 		const hours = stay ? hoursScore(landmark, stay) : null;
-		return { landmark, total: distance + venue + (shape ?? 0) + (hours ?? 0), parts: { distance, venue, shape, hours } };
+		return {
+			landmark,
+			total: distance + venue + (shape ?? 0) + (hours ?? 0),
+			parts: { distance, venue, shape, hours },
+		};
 	});
 	return scored.sort((a, b) => {
 		const ea = a.landmark.enclosing === true;

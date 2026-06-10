@@ -34,6 +34,7 @@ import type { HrPoint, SleepStageRecord, StepPoint } from "./biometrics.js";
 import type { ModeStats } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import type { KnownPlace } from "./place-snap.js";
+import type { VenuePriors } from "./venue-prior.js";
 
 /** A PhoneTrack fix as returned by `fetchTrackPointsRange`. Mirrors
  *  the prod loader's projection — we never strip fields between the
@@ -166,6 +167,11 @@ export interface ClassificationInputs {
 	 *  focus_places centroid). Only consumed when the day has no states
 	 *  and no points. */
 	emptyDayBracket: EmptyDayBracket | null;
+	/** Mined venue-type visit-shape priors (`venue_type_priors` row for
+	 *  this user), or null when never mined. Drives the venue-plausibility
+	 *  ranking in `bestPlace` for stationary stays (#246). Optional so
+	 *  fixtures captured before the field existed replay as "no priors". */
+	venuePriors?: VenuePriors | null;
 }
 
 /** A single `rail_route_cache` row, projected to the columns

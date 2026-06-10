@@ -40,6 +40,7 @@ import type { OsmAdapter } from "./osm-adapter.js";
 import { dbOsmAdapter } from "./osm-adapter.js";
 import { dateBoundsUtc } from "./timezone.js";
 import { loadBiometrics } from "./velocity.js";
+import type { VenuePriors } from "./venue-prior.js";
 
 /** Load the full `ClassificationInputs` closure for one day from the
  *  production data sources. The Promise resolves to a serialisable
@@ -93,6 +94,7 @@ export async function loadClassificationInputs(
 		homeTzRaw,
 		sleepWindows,
 		emptyDayBracket,
+		venuePriors,
 	] = await Promise.all([
 		loadKnownPlacesQuery(userId),
 		loadModeBiometricsQuery(userId),
@@ -105,6 +107,7 @@ export async function loadClassificationInputs(
 		getSyncState(userId, "home_tz"),
 		loadDaySleepWindows(userId, date),
 		loadEmptyDayBracket(userId, date),
+		loadVenuePriorsQuery(userId),
 	]);
 
 	return {
@@ -132,7 +135,25 @@ export async function loadClassificationInputs(
 		homeTz: homeTzRaw ?? "Europe/Amsterdam",
 		sleepWindows,
 		emptyDayBracket,
+		venuePriors,
 	};
+}
+
+/** Load the user's mined venue-type priors, or null when never mined or
+ *  the stored blob fails to parse (treated as no evidence, never fatal). */
+async function loadVenuePriorsQuery(userId: string): Promise<VenuePriors | null> {
+	const row = await db()
+		.selectFrom("venue_type_priors")
+		.select(["priors_json"])
+		.where("user_id", "=", userId)
+		.executeTakeFirst();
+	if (!row) return null;
+	try {
+		return JSON.parse(row.priors_json) as VenuePriors;
+	} catch (e: unknown) {
+		console.warn(`venue_type_priors blob for user=${userId} failed to parse: ${e}`);
+		return null;
+	}
 }
 
 /** Pre-load the entire `rail_route_cache`. The table is global (not
