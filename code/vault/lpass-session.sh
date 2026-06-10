@@ -18,10 +18,12 @@ set -euo pipefail
 
 EMAIL="${1:-pip88nl@gmail.com}"
 
-# Keep the vault unlocked long enough to get real work done, then forget.
-# Override e.g. LPASS_AGENT_TIMEOUT=3600 for a tighter window, or 0 for
-# "until logout/reboot". `lpass logout` kills it immediately.
-export LPASS_AGENT_TIMEOUT="${LPASS_AGENT_TIMEOUT:-28800}"   # 8h
+# Stay unlocked until you explicitly log out or the machine reboots — pippijn
+# wants persistent delegated access (Claude manages the account). The key only
+# ever lives in the in-memory agent, never on disk; `lpass logout` (or a
+# reboot) forgets it immediately. Override e.g. LPASS_AGENT_TIMEOUT=3600 for a
+# tighter, self-expiring window.
+export LPASS_AGENT_TIMEOUT="${LPASS_AGENT_TIMEOUT:-0}"   # 0 = until logout/reboot
 # Read the master password from THIS terminal, not a GUI pinentry popup
 # (this runs over a `!` shell, where a desktop prompt may never appear).
 export LPASS_DISABLE_PINENTRY=1
@@ -34,5 +36,9 @@ else
 fi
 
 echo "vault entries: $(lpass ls 2>/dev/null | wc -l | tr -d ' ')"
-echo "session is live (timeout ${LPASS_AGENT_TIMEOUT}s). Tell Claude to proceed."
-echo "revoke with:  lpass logout"
+if [ "$LPASS_AGENT_TIMEOUT" = "0" ]; then
+  echo "session is live and STAYS logged in until 'lpass logout' or reboot."
+else
+  echo "session is live (timeout ${LPASS_AGENT_TIMEOUT}s)."
+fi
+echo "Tell Claude to proceed. Revoke any time with:  lpass logout"
