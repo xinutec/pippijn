@@ -58,6 +58,10 @@ export const TRANSIT_STOP_NEAR_M = 35;
  *  lookback) is a prior stay, not a wait for this vehicle. */
 const BOARDING_WAIT_MIN_S = 45;
 const BOARDING_WAIT_LOOKBACK_S = 5 * 60;
+/** Trailing fast pairs within this window of the leg start are the
+ *  pull-away itself, not a rolling approach — skipped before the
+ *  walk-back. */
+const BOARDING_PULLAWAY_TRIM_S = 45;
 
 /** Mid-leg dwell gates: 20s+ under walking pace. Signal stops are
  *  often this long too — which is why a dwell only counts as bus
@@ -119,11 +123,21 @@ export function detectBoardingWait(
 	fixes: readonly Fix[],
 	segStartTs: number,
 ): { durationS: number; lat: number; lon: number } | null {
-	const pre = fixes.filter((p) => p.ts <= segStartTs && p.ts >= segStartTs - BOARDING_WAIT_LOOKBACK_S);
+	// Strictly BEFORE the leg: the segment's startTs is typically its
+	// first MOVING fix (the pull-away), which must not seed the walk-back.
+	const pre = fixes.filter((p) => p.ts < segStartTs && p.ts >= segStartTs - BOARDING_WAIT_LOOKBACK_S);
 	if (pre.length < 2) return null;
-	let from = pre.length - 1;
+	// Trim trailing pull-away pairs: classifiers place the boundary one
+	// or two fixes after the vehicle actually moved off (measured on the
+	// motivating leg). Only pairs within the trim window may be skipped —
+	// beyond it, fast motion before the leg means a rolling approach.
+	let last = pre.length - 1;
+	const trimFloor = segStartTs - BOARDING_PULLAWAY_TRIM_S;
+	while (last > 0 && pre[last].ts >= trimFloor && pairSpeedKmh(pre[last - 1], pre[last]) >= DWELL_MAX_SPEED_KMH) last--;
+	let from = last;
 	while (from > 0 && pairSpeedKmh(pre[from - 1], pre[from]) < DWELL_MAX_SPEED_KMH) from--;
-	const still = pre.slice(from);
+	const still = pre.slice(from, last + 1);
+	if (still.length < 2) return null;
 	const durationS = still[still.length - 1].ts - still[0].ts;
 	if (durationS < BOARDING_WAIT_MIN_S) return null;
 	const lat = still.reduce((s, p) => s + p.lat, 0) / still.length;

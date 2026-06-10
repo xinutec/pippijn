@@ -207,3 +207,15 @@ describe("annotateBusEvidence (orchestrator)", () => {
 		expect(out[0].vehicleKind).toBeUndefined();
 	});
 });
+
+describe("detectBoardingWait boundary placement", () => {
+	it("finds the wait when the boundary sits one moving fix into the leg", () => {
+		// The classifier's segment start IS the pull-away fix; the
+		// standstill ends one pair earlier. Measured shape of the
+		// motivating leg.
+		const fixes = [...run(T0 - 135, T0 - 30, 0, 0.5), fix(T0 - 15, 60), fix(T0, 185)];
+		const wait = detectBoardingWait(fixes, T0);
+		expect(wait).not.toBeNull();
+		expect(wait?.durationS).toBeGreaterThanOrEqual(90);
+	});
+});
