@@ -60,6 +60,43 @@
 						<div class="section">
 							<app-timeline [data]="velocity()" [referenceDate]="selectedDate()" />
 						</div>
+						<details class="perf-panel">
+							<summary>Performance</summary>
+							<div class="perf-content">
+								@if (timings().window; as w) {
+									<section>
+										<h4>Window load (activity · sleep · HRV)</h4>
+										<table>
+											<tr><td>activity</td><td>{{ w.activity | number:'1.0-0' }} ms</td></tr>
+											<tr><td>sleep</td><td>{{ w.sleep | number:'1.0-0' }} ms</td></tr>
+											<tr><td>hrv</td><td>{{ w.hrv | number:'1.0-0' }} ms</td></tr>
+											<tr class="total"><td>total (parallel)</td><td>{{ w.total | number:'1.0-0' }} ms</td></tr>
+										</table>
+									</section>
+								}
+								@if (timings().day; as d) {
+									<section>
+										<h4>Day load (stages · HR · velocity)</h4>
+										<table>
+											<tr><td>stages</td><td>{{ d.stages | number:'1.0-0' }} ms</td></tr>
+											<tr><td>hr intraday</td><td>{{ d.hr | number:'1.0-0' }} ms</td></tr>
+											<tr><td>velocity</td><td>{{ d.velocity | number:'1.0-0' }} ms</td></tr>
+											<tr class="total"><td>total (parallel)</td><td>{{ d.total | number:'1.0-0' }} ms</td></tr>
+										</table>
+									</section>
+								}
+								@if (velocity()?.timing; as phases) {
+									<section>
+										<h4>Server pipeline phases</h4>
+										<table>
+											@for (entry of phases | keyvalue; track entry.key) {
+												<tr><td>{{ entry.key }}</td><td>{{ entry.value | number:'1.0-0' }} ms</td></tr>
+											}
+										</table>
+									</section>
+								}
+							</div>
+						</details>
 					</div>
 					@if (dayLoading()) {
 						<div class="day-body-overlay" aria-hidden="true">

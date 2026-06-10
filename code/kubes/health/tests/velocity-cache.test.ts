@@ -22,7 +22,13 @@ import { _resetVelocityCache, getVelocityCached } from "../src/routes/velocity-c
 function makeResult(tag: string): VelocityResult {
 	// Carry a tag so tests can tell different results apart. The shape
 	// is otherwise minimal — the cache treats VelocityResult as opaque.
-	return { points: [], segments: [], states: [{ startTs: 0, endTs: 1, mode: "stationary", place: tag }], battery: [] };
+	return {
+		points: [],
+		segments: [],
+		states: [{ startTs: 0, endTs: 1, mode: "stationary", place: tag }],
+		battery: [],
+		timing: {},
+	};
 }
 
 beforeEach(() => {

@@ -491,6 +491,8 @@ export interface VelocityResult {
 	 *  Derived from the same PhoneTrack fixes as `points`; the Day
 	 *  view renders it as a standalone chart. */
 	battery: BatterySample[];
+	/** Per-phase wall-clock ms from the classification pipeline. */
+	timing: Record<string, number>;
 }
 
 export async function computeVelocity(
@@ -598,7 +600,7 @@ export async function computeVelocityFromInputs(
 		// reflects the raw segment sequence (sleep windows = empty,
 		// no rewrite).
 		const states = segmentsToDayStates(segments as EnrichedSegment[], []);
-		return { points, segments, states, battery };
+		return { points, segments, states, battery, timing: phaseTimes };
 	}
 
 	const N_SAMPLES = 5;
@@ -1202,10 +1204,10 @@ export async function computeVelocityFromInputs(
 		const inferred = await timeSync("inferEmptyDay", () =>
 			inferEmptyDayStatesFromBracket(inputs.emptyDayBracket, date, tz, inputs.osm),
 		);
-		if (inferred.length > 0) return { points, segments: withBiometrics, states: inferred, battery };
+		if (inferred.length > 0) return { points, segments: withBiometrics, states: inferred, battery, timing: phaseTimes };
 	}
 
-	return { points, segments: withBiometrics, states, battery };
+	return { points, segments: withBiometrics, states, battery, timing: phaseTimes };
 }
 
 /**

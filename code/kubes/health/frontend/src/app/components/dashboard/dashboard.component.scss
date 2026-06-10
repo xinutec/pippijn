@@ -63,3 +63,37 @@
 	.charts-row { grid-template-columns: 1fr; }
 	.tab-content { padding: 16px; }
 }
+.perf-panel {
+	margin-top: 24px;
+	color: var(--mat-sys-on-surface-variant);
+	font-size: 12px;
+	summary {
+		cursor: pointer;
+		user-select: none;
+		padding: 4px 0;
+		opacity: 0.6;
+		&:hover { opacity: 1; }
+	}
+}
+.perf-content {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 16px;
+	padding-top: 8px;
+	section {
+		h4 {
+			margin: 0 0 4px;
+			font-size: 11px;
+			text-transform: uppercase;
+			letter-spacing: 0.05em;
+			opacity: 0.7;
+		}
+		table { border-collapse: collapse; }
+		td {
+			padding: 1px 12px 1px 0;
+			font-variant-numeric: tabular-nums;
+			&:last-child { text-align: right; padding-right: 0; }
+		}
+		tr.total td { border-top: 1px solid currentColor; opacity: 0.5; }
+	}
+}

@@ -128,6 +128,8 @@ export interface VelocityData {
    *  Optional so an older backend that omits it doesn't break the
    *  client — the battery chart just shows "no data". */
   battery?: BatterySample[];
+  /** Per-phase wall-clock ms from the server-side classification pipeline. */
+  timing?: Record<string, number>;
 }
 
 /** The most recent location fix — for the live "where are they now"

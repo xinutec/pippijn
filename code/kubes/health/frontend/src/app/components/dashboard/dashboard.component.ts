@@ -1,4 +1,5 @@
 import { Component, type OnDestroy, type OnInit, computed, effect, inject, resource, signal } from "@angular/core";
+import { DecimalPipe, KeyValuePipe } from "@angular/common";
 import { ActivatedRoute, Router } from "@angular/router";
 import { Subscription } from "rxjs";
 import { MatButtonModule } from "@angular/material/button";
@@ -54,6 +55,12 @@ interface WindowData {
 	hrv: HrvDay[];
 }
 
+/** Client-side fetch durations (ms) for the performance panel. */
+export interface LoadTimings {
+	window?: { activity: number; sleep: number; hrv: number; total: number };
+	day?: { stages: number; hr: number; velocity: number; total: number };
+}
+
 /**
  * Day + Trends + Map tabs. Used by both `/` (owner) and `/share/:token`
  * (recipient) — the only difference is the route param.
@@ -88,6 +95,8 @@ interface WindowData {
 	selector: "app-dashboard",
 	standalone: true,
 	imports: [
+		DecimalPipe,
+		KeyValuePipe,
 		MatButtonModule,
 		MatProgressSpinnerModule,
 		MatTabsModule,
@@ -129,6 +138,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	 *  Set in ngOnInit from the route's `:token` param. */
 	private isShareView = false;
 
+	/** Recorded fetch durations for the performance panel. */
+	readonly timings = signal<LoadTimings>({});
+
 	/** Last 30 days of activity + sleep. Day-independent: the `params`
 	 *  key is constant once ready, so this loads exactly once per session
 	 *  rather than on every day-navigation. */
@@ -138,11 +150,20 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		params: () => (this.dataReady() ? "ready" : undefined),
 		defaultValue: { activity: [], sleep: [], hrv: [] },
 		loader: async ({ abortSignal }) => {
-			const [activity, sleep, hrv] = await Promise.all([
-				this.health.getActivity(30, abortSignal).catch(() => [] as ActivityDay[]),
-				this.health.getSleep(30, abortSignal).catch(() => [] as SleepLog[]),
-				this.health.getHrv(30, abortSignal).catch(() => [] as HrvDay[]),
+			const t0 = performance.now();
+			const timed = <T>(p: Promise<T>): Promise<[T, number]> => {
+				const start = performance.now();
+				return p.then((v) => [v, performance.now() - start] as [T, number]);
+			};
+			const [[activity, tActivity], [sleep, tSleep], [hrv, tHrv]] = await Promise.all([
+				timed(this.health.getActivity(30, abortSignal).catch(() => [] as ActivityDay[])),
+				timed(this.health.getSleep(30, abortSignal).catch(() => [] as SleepLog[])),
+				timed(this.health.getHrv(30, abortSignal).catch(() => [] as HrvDay[])),
 			]);
+			this.timings.update((t) => ({
+				...t,
+				window: { activity: tActivity, sleep: tSleep, hrv: tHrv, total: performance.now() - t0 },
+			}));
 			return { activity, sleep, hrv };
 		},
 	});
@@ -154,11 +175,20 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		params: () => (this.dataReady() ? this.selectedDate() : undefined),
 		defaultValue: { stages: [], hr: [], velocity: null },
 		loader: async ({ params: date, abortSignal }) => {
-			const [stages, hr, velocity] = await Promise.all([
-				this.health.getSleepStages(date, abortSignal).catch(() => [] as SleepStage[]),
-				this.health.getHeartRateIntraday(date, abortSignal).catch(() => [] as HeartRatePoint[]),
-				this.health.getVelocity(date, abortSignal).catch(() => null),
+			const t0 = performance.now();
+			const timed = <T>(p: Promise<T>): Promise<[T, number]> => {
+				const start = performance.now();
+				return p.then((v) => [v, performance.now() - start] as [T, number]);
+			};
+			const [[stages, tStages], [hr, tHr], [velocity, tVelocity]] = await Promise.all([
+				timed(this.health.getSleepStages(date, abortSignal).catch(() => [] as SleepStage[])),
+				timed(this.health.getHeartRateIntraday(date, abortSignal).catch(() => [] as HeartRatePoint[])),
+				timed(this.health.getVelocity(date, abortSignal).catch(() => null)),
 			]);
+			this.timings.update((t) => ({
+				...t,
+				day: { stages: tStages, hr: tHr, velocity: tVelocity, total: performance.now() - t0 },
+			}));
 			return { stages, hr, velocity };
 		},
 	});
