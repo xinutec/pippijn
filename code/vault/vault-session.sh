@@ -10,8 +10,12 @@ umask 077
 export BITWARDENCLI_APPDATA_DIR="$HOME/.config/bw-cli"
 mkdir -p "$BITWARDENCLI_APPDATA_DIR"
 
-bw config server https://vault.xinutec.org >/dev/null
-bw login --check >/dev/null 2>&1 || bw login pip88nl@gmail.com
+# bw refuses to change the server URL while logged in ("Logout required
+# before server config update"), so only set it when actually logged out.
+if ! bw login --check >/dev/null 2>&1; then
+  bw config server https://vault.xinutec.org >/dev/null 2>&1 || true
+  bw login pip88nl@gmail.com
+fi
 bw unlock --raw > "$HOME/.config/bw-session"
 chmod 600 "$HOME/.config/bw-session"
 echo "session token written to ~/.config/bw-session (600). Tell Claude to proceed."
