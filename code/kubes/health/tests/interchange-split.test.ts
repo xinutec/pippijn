@@ -132,3 +132,29 @@ describe("pickInterchange", () => {
 		expect(picked?.station).toBe("Far");
 	});
 });
+
+describe("pickInterchange direction constraint", () => {
+	it("rejects a backtracking candidate even with perfect timing", () => {
+		// "Behind" sits 3 km the WRONG way from the board point; its
+		// distance-derived timing matches the burst exactly, but nobody
+		// rides away from the destination to change.
+		const lineA = [station("Board", 0), station("Behind", -3), station("Fwd", 3)];
+		const lineB = [station("Behind", -3), station("Fwd", 3), station("Alight", 12)];
+		const picked = pickInterchange({
+			boardLat: 50.0,
+			boardLon: 5.0,
+			alightLat: station("Alight", 12).lat,
+			alightLon: station("Alight", 12).lon,
+			legStartTs: T0,
+			// 3 km → wait 3min + ~5.5min ride = +8.5min: fits BOTH candidates' distance.
+			burstStartTs: T0 + 8.5 * 60,
+			linesA: ["Line A"],
+			linesB: ["Line B"],
+			stationsByLine: new Map([
+				["Line A", lineA],
+				["Line B", lineB],
+			]),
+		});
+		expect(picked?.station).toBe("Fwd");
+	});
+});

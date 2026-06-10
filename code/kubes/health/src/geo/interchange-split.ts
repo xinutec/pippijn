@@ -113,6 +113,145 @@ const MAX_TIMING_SLOP_S = 6 * 60;
  *  end itself, not a change between them. */
 const ENDPOINT_EXCLUSION_M = 400;
 
+// --- orchestrator ---------------------------------------------------------
+
+/** Structural subset of OsmAdapter, import-cycle-free. */
+interface LineSource {
+	linesAtPoint(lat: number, lon: number, radiusM?: number): Promise<Set<string>>;
+	stationsOnLine(lineName: string): Promise<Station[]>;
+}
+
+/** Radius for end-point line lookup — matches the underground
+ *  reconstruction's UNDERGROUND_LINES_RADIUS_M. */
+const ENDPOINT_LINES_RADIUS_M = 300;
+
+/** Legs shorter than this can't hide a change worth carving. */
+const MIN_LEG_FOR_SPLIT_S = 10 * 60;
+
+interface SpliceableSegment {
+	startTs: number;
+	endTs: number;
+	mode: string;
+	refinedMode?: string;
+	wayName?: string;
+	pointCount: number;
+	confidence: number;
+	confidenceMargin: number;
+	avgSpeed: number;
+	maxSpeed: number;
+	linearity: number;
+	refinedReason?: string;
+}
+
+/**
+ * Split physically impossible single-train legs at the watch-timed
+ * interchange. A leg qualifies when its two endpoint line sets are
+ * DISJOINT (no one line serves both ends — #181's invalid triple), a
+ * single mid-leg step burst exists, and a both-lines station fits the
+ * burst's timing. Everything else passes through untouched.
+ */
+export async function spliceInterchanges<T extends SpliceableSegment>(
+	segments: readonly T[],
+	points: ReadonlyArray<{ ts: number; lat: number; lon: number }>,
+	steps: readonly StepPoint[],
+	osm: LineSource,
+): Promise<T[]> {
+	const out: T[] = [];
+	for (const seg of segments) {
+		const effective = seg.refinedMode ?? seg.mode;
+		if (effective !== "train" || seg.endTs - seg.startTs < MIN_LEG_FOR_SPLIT_S || !seg.wayName) {
+			out.push(seg);
+			continue;
+		}
+		const names = seg.wayName.split(" → ");
+		if (names.length !== 2) {
+			out.push(seg);
+			continue;
+		}
+		const [boardName, alightName] = names;
+		const inLeg = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+		if (inLeg.length < 2) {
+			out.push(seg);
+			continue;
+		}
+		// Burst first: it is free (pure step data) and most train legs
+		// have none — those make NO adapter queries at all, so fixtures
+		// captured before this pass replay untouched.
+		const burst = findInterchangeBurst(steps, seg.startTs, seg.endTs);
+		if (!burst) {
+			out.push(seg);
+			continue;
+		}
+		const boardFix = inLeg[0];
+		const alightFix = inLeg[inLeg.length - 1];
+		const linesA = await osm.linesAtPoint(boardFix.lat, boardFix.lon, ENDPOINT_LINES_RADIUS_M);
+		const linesB = await osm.linesAtPoint(alightFix.lat, alightFix.lon, ENDPOINT_LINES_RADIUS_M);
+		const shared = [...linesA].some((l) => linesB.has(l));
+		if (shared || linesA.size === 0 || linesB.size === 0) {
+			out.push(seg); // valid triple (or no line data) — not ours
+			continue;
+		}
+		const stationsByLine = new Map<string, Station[]>();
+		for (const line of new Set([...linesA, ...linesB])) {
+			stationsByLine.set(line, await osm.stationsOnLine(line));
+		}
+		const trailFix = inLeg.find((p) => p.ts > burst.endTs + 60);
+		const pick = pickInterchange({
+			boardLat: boardFix.lat,
+			boardLon: boardFix.lon,
+			alightLat: alightFix.lat,
+			alightLon: alightFix.lon,
+			legStartTs: seg.startTs,
+			burstStartTs: burst.startTs,
+			burstEndTs: burst.endTs,
+			trailFix,
+			linesA: [...linesA],
+			linesB: [...linesB],
+			stationsByLine,
+		});
+		if (!pick) {
+			out.push(seg);
+			continue;
+		}
+		if (process.env.INTERCHANGE_DEBUG === "1") {
+			const t = (ts: number): string => new Date(ts * 1000).toISOString().slice(11, 16);
+			console.error(
+				`[interchange] ${t(seg.startTs)}-${t(seg.endTs)} ${boardName}→${alightName}: change at ${pick.station} (${pick.lineA} → ${pick.lineB}), burst ${t(burst.startTs)}-${t(burst.endTs)}, slop ${Math.round(pick.timingSlopS)}s`,
+			);
+		}
+		const reason = `invalid one-line triple split at the watch-timed interchange (step burst; timing slop ${Math.round(pick.timingSlopS)}s)`;
+		const countIn = (from: number, to: number): number => points.filter((p) => p.ts >= from && p.ts < to).length;
+		out.push({
+			...seg,
+			endTs: burst.startTs,
+			wayName: `${boardName} → ${pick.station} · ${pick.lineA}`,
+			pointCount: countIn(seg.startTs, burst.startTs),
+			refinedReason: seg.refinedReason ? `${seg.refinedReason}; ${reason}` : reason,
+		});
+		out.push({
+			...seg,
+			startTs: burst.startTs,
+			endTs: burst.endTs,
+			mode: "walking",
+			refinedMode: undefined,
+			wayName: undefined,
+			avgSpeed: 0,
+			maxSpeed: 0,
+			linearity: 0,
+			pointCount: 0,
+			refinedReason: `interchange at ${pick.station} (watch-timed step burst)`,
+		} as T);
+		out.push({
+			...seg,
+			startTs: burst.endTs,
+			wayName: `${pick.station} → ${alightName} · ${pick.lineB}`,
+			pointCount: countIn(burst.endTs, seg.endTs + 1),
+			refinedReason: seg.refinedReason ? `${seg.refinedReason}; ${reason}` : reason,
+		});
+	}
+	return out;
+}
+
 export interface InterchangePick {
 	station: string;
 	lat: number;
@@ -147,6 +286,14 @@ export function pickInterchange(opts: {
 	alightLon: number;
 	legStartTs: number;
 	burstStartTs: number;
+	/** End of the interchange walk — the second leg boards after this. */
+	burstEndTs?: number;
+	/** First well-located fix after the burst (the resurfacing point):
+	 *  a position+time anchor on the SECOND leg. Decisive where burst
+	 *  timing alone is within noise of several candidates — measured:
+	 *  geometric station-list pollution put adjacent-line stations a
+	 *  minute apart on burst timing; only the trail separated them. */
+	trailFix?: { ts: number; lat: number; lon: number };
 	linesA: readonly string[];
 	linesB: readonly string[];
 	stationsByLine: ReadonlyMap<string, readonly Station[]>;
@@ -163,10 +310,27 @@ export function pickInterchange(opts: {
 				// The change is BETWEEN the ends, not at them.
 				if (haversineMeters(sa.lat, sa.lon, opts.boardLat, opts.boardLon) < ENDPOINT_EXCLUSION_M) continue;
 				if (haversineMeters(sa.lat, sa.lon, opts.alightLat, opts.alightLon) < ENDPOINT_EXCLUSION_M) continue;
+				// No backtracking: nobody rides AWAY from the destination to
+				// change. The candidate must lie in the forward half-plane
+				// toward the alight point — measured failure: a station 6 km
+				// the wrong way down a shared-track line beat the true
+				// change on timing alone (its detour consumed exactly the
+				// right minutes; timing is direction-blind).
+				const dot =
+					(sa.lat - opts.boardLat) * (opts.alightLat - opts.boardLat) +
+					(sa.lon - opts.boardLon) * (opts.alightLon - opts.boardLon) * Math.cos((opts.boardLat * Math.PI) / 180) ** 2;
+				if (dot <= 0) continue;
 				const rideM = haversineMeters(opts.boardLat, opts.boardLon, sa.lat, sa.lon);
 				const expectedTs = opts.legStartTs + BOARD_WAIT_S + (rideM / AVG_INTERSTATION_M) * PER_STOP_S;
-				const slop = Math.abs(expectedTs - opts.burstStartTs);
+				let slop = Math.abs(expectedTs - opts.burstStartTs);
 				if (slop > MAX_TIMING_SLOP_S) continue;
+				// Second-leg anchor: predicted time at the resurfacing fix,
+				// riding from the candidate after the change.
+				if (opts.trailFix && opts.burstEndTs !== undefined) {
+					const ride2M = haversineMeters(sa.lat, sa.lon, opts.trailFix.lat, opts.trailFix.lon);
+					const expected2 = opts.burstEndTs + BOARD_WAIT_S + (ride2M / AVG_INTERSTATION_M) * PER_STOP_S;
+					slop += Math.abs(expected2 - opts.trailFix.ts);
+				}
 				if (!best || slop < best.timingSlopS) {
 					best = { station: sb.name, lat: sa.lat, lon: sa.lon, lineA, lineB, timingSlopS: slop };
 				}

@@ -32,6 +32,7 @@ import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
 import { inferEmptyDayStatesFromBracket } from "./infer-empty-day.js";
+import { spliceInterchanges } from "./interchange-split.js";
 import type { FilteredPoint } from "./kalman.js";
 import { filterGpsTrack } from "./kalman.js";
 import { loadClassificationInputs } from "./load-classification-inputs.js";
@@ -1034,7 +1035,15 @@ export async function computeVelocityFromInputs(
 	// phantom stops (the 2026-05-25 Union Park park-stroll case). The pass
 	// carries its own cross-segment guards (intra-place pacing, walking-only
 	// coalesce) — see applyStationaryWalkThrough.
-	const withWalkThrough = timeSync("walkThrough", () => applyStationaryWalkThrough(withReconciledRail, steps));
+	// Interchange decomposition (task #222): a train leg whose endpoint
+	// line sets are disjoint is impossible as one ride — split it at the
+	// watch-timed interchange step burst, with the change station picked
+	// from the line graph by timing fit.
+	const withSplitInterchanges = await time(
+		"interchangeSplit",
+		spliceInterchanges(withReconciledRail, points, steps, inputs.osm),
+	);
+	const withWalkThrough = timeSync("walkThrough", () => applyStationaryWalkThrough(withSplitInterchanges, steps));
 
 	// Rail-snap: attach the precomputed rail-track geometry to each
 	// train run whose route is in rail_route_cache (filled offline by

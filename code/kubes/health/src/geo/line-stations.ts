@@ -227,13 +227,18 @@ export async function stationsOnLine(lineName: string): Promise<Station[]> {
 		return cached.stations;
 	}
 
-	// Step 1: get all ways of this line. The osm_lines.name index
-	// (added migration v...) makes this fast (~250 ms for a typical
-	// London tube line with 100-200 ways).
+	// Step 1: get all ways of this line. Matched by the line's base
+	// token (LIKE), not exact name: London track sections shared by
+	// several lines carry COMPOUND way names ("Circle, Hammersmith &
+	// City and Metropolitan lines"), so exact matching silently drops
+	// every shared section — measured 2026-06-10: King's Cross was
+	// missing from the Metropolitan Line's station list because the
+	// Met's tracks there are compound-named (task #222).
+	const base = lineName.replace(/\s+lines?\b.*$/i, "").trim();
 	const wayRows = (await db()
 		.selectFrom("osm_lines")
 		.where("feature_type", "=", "railway")
-		.where("name", "=", lineName)
+		.where("name", "like", `%${base}%`)
 		.select([sql<string>`ST_AsText(geom)`.as("wkt")])
 		.execute()) as Array<{ wkt: string }>;
 
