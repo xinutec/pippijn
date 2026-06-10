@@ -283,6 +283,15 @@ export interface VenueCandidateScore {
 	parts: VenueScoreParts;
 }
 
+/** Honest-label floor for the stay-context path in `bestPlace`: when even
+ *  the best candidate scores below this, no venue (or area) nearby is a
+ *  plausible destination and the resolver falls through to the
+ *  residential-address / zoom-16 area chain. Calibration: a lone venue at
+ *  the 100 m radius edge (−3.1 distance + 1.5 venue) or a venue at ~50 m
+ *  that is closed during the stay sits below; an open venue within ~75 m
+ *  stays above. */
+export const VENUE_RANK_FLOOR_NATS = -1.5;
+
 const VENUE_TYPES: ReadonlySet<NearbyLandmark["type"]> = new Set(["amenity", "tourism", "shop"]);
 /** Types whose subtype participates in the mined prior. `place`/`highway`
  *  subtypes (square, pedestrian) name areas, not visitable venues. */

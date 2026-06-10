@@ -39,7 +39,7 @@ function venueResult(amenity: string, type: string): NominatimResult {
 		displayName: `${amenity}, Wembley, London`,
 		type,
 		category: "amenity",
-		address: { amenity, road: "Barn Rise", city: "Greater London" },
+		address: { amenity, road: "Acacia Avenue", city: "Greater London" },
 	};
 }
 
@@ -101,11 +101,11 @@ describe("bestPlace via OsmAdapter", () => {
 	it("with preferResidential, falls back to the residential address when no lodging POI is near", async () => {
 		const osm = mockOsmAdapter({
 			nearbyLandmarks: () => [],
-			reverseGeocode: (_lat, _lon, zoom) => (zoom === 18 ? residentialResult("Barn Rise", "59") : null),
+			reverseGeocode: (_lat, _lon, zoom) => (zoom === 18 ? residentialResult("Acacia Avenue", "42") : null),
 		});
 		const result = await bestPlace(osm, 51.5, -0.1, { preferResidential: true });
-		expect(result?.address.house_number).toBe("59");
-		expect(result?.address.road).toBe("Barn Rise");
+		expect(result?.address.house_number).toBe("42");
+		expect(result?.address.road).toBe("Acacia Avenue");
 	});
 
 	it("falls back to zoom-16 area lookup when nothing wins at zoom-18", async () => {
@@ -127,5 +127,114 @@ describe("bestPlace via OsmAdapter", () => {
 		const osm = mockOsmAdapter();
 		const result = await bestPlace(osm, 51.5, -0.1);
 		expect(result).toBeNull();
+	});
+});
+
+/** Visit mass spread uniformly over [from, to) local hours. */
+function hourMass(visits: number, from: number, to: number): number[] {
+	const hours = new Array(24).fill(0);
+	for (let h = from; h < to; h++) hours[h] = visits / (to - from);
+	return hours;
+}
+
+describe("bestPlace with stay context (venue-plausibility path, #246)", () => {
+	// Tuesday 2026-06-09, Europe/London (BST): a 19:03–20:17 dinner sit.
+	const DINNER = {
+		startUnix: Date.UTC(2026, 5, 9, 18, 3) / 1000,
+		endUnix: Date.UTC(2026, 5, 9, 19, 17) / 1000,
+		tz: "Europe/London",
+	};
+
+	it("folds a Nominatim point-venue into the ranking instead of letting it bypass", async () => {
+		// Without stay context the Nominatim venue short-circuits. With it,
+		// an open landmark restaurant must be able to beat a closed
+		// Nominatim venue on evidence.
+		const osm = mockOsmAdapter({
+			nearbyLandmarks: () => [
+				{
+					name: "Open Trattoria",
+					type: "amenity" as const,
+					subtype: "restaurant",
+					distanceM: 20,
+					openingHours: "Mo-Su 12:00-23:00",
+				},
+			],
+			reverseGeocode: (_lat, _lon, zoom) => (zoom === 18 ? venueResult("Closed Bistro", "restaurant") : null),
+		});
+		const withStay = await bestPlace(osm, 51.5, -0.1, { stay: DINNER });
+		expect(withStay?.displayName).toBe("Open Trattoria");
+	});
+
+	it("still returns the Nominatim venue when it wins the ranking", async () => {
+		// The centroid is ON the venue's building (distance 0) and nothing
+		// nearby out-scores it — the Nominatim result (with its address
+		// fields) is returned, not a synthesized landmark result.
+		const osm = mockOsmAdapter({
+			nearbyLandmarks: () => [{ name: "Far Cafe", type: "amenity" as const, subtype: "cafe", distanceM: 80 }],
+			reverseGeocode: (_lat, _lon, zoom) => (zoom === 18 ? venueResult("Brasserie Z", "restaurant") : null),
+		});
+		const result = await bestPlace(osm, 51.5, -0.1, { stay: DINNER });
+		expect(result?.address.amenity).toBe("Brasserie Z");
+		expect(result?.address.road).toBe("Acacia Avenue");
+	});
+
+	it("threads mined priors: dinner-shaped sit resolves to the restaurant, not the closer errand venue", async () => {
+		const osm = mockOsmAdapter({
+			nearbyLandmarks: () => [
+				{ name: "Corner Pharmacy", type: "amenity" as const, subtype: "pharmacy", distanceM: 18 },
+				{ name: "Trattoria", type: "amenity" as const, subtype: "restaurant", distanceM: 32 },
+			],
+		});
+		const priors = {
+			bySubtype: {
+				restaurant: { visits: 40, dwell: [0, 0, 40, 0], hours: hourMass(40, 12, 22) },
+				pharmacy: { visits: 3, dwell: [3, 0, 0, 0], hours: hourMass(3, 10, 17) },
+			},
+			byCategory: {
+				food: { visits: 40, dwell: [0, 0, 40, 0], hours: hourMass(40, 12, 22) },
+				errand: { visits: 3, dwell: [3, 0, 0, 0], hours: hourMass(3, 10, 17) },
+			},
+			totalVisits: 43,
+		};
+		const result = await bestPlace(osm, 51.5, -0.1, { stay: DINNER, priors });
+		expect(result?.displayName).toBe("Trattoria");
+	});
+
+	it("falls through to the area lookup when every venue is implausible (honest floor)", async () => {
+		// A single distant closed venue must not name the stay — the
+		// zoom-16 area label is the honest answer.
+		const osm = mockOsmAdapter({
+			nearbyLandmarks: () => [
+				{
+					name: "Closed Bistro",
+					type: "amenity" as const,
+					subtype: "restaurant",
+					distanceM: 85,
+					openingHours: "Mo-Fr 09:00-17:00",
+				},
+			],
+			reverseGeocode: (_lat, _lon, zoom) =>
+				zoom === 16
+					? {
+							displayName: "Station Square, London",
+							type: "square",
+							category: "place",
+							address: { pedestrian: "Station Square" },
+						}
+					: null,
+		});
+		const result = await bestPlace(osm, 51.5, -0.1, { stay: DINNER });
+		expect(result?.displayName).toBe("Station Square, London");
+	});
+
+	it("keeps the enclosing-institution override absolute under stay context", async () => {
+		const osm = mockOsmAdapter({
+			nearbyLandmarks: () => [
+				{ name: "Lobby Cafe", type: "amenity" as const, subtype: "cafe", distanceM: 1, openingHours: "24/7" },
+				{ name: "City Hospital", type: "amenity" as const, subtype: "hospital", distanceM: 55, enclosing: true },
+			],
+		});
+		const result = await bestPlace(osm, 51.5, -0.1, { stay: DINNER });
+		expect(result?.displayName).toBe("City Hospital");
 	});
 });

@@ -26,7 +26,7 @@ import type { TransportMode } from "./segments.js";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
 import { ensureCovered, queryLines, queryPoints } from "./osm-local.js";
-import { rankVenues } from "./venue-prior.js";
+import { rankVenues, type StayShape, VENUE_RANK_FLOOR_NATS, type VenuePriors } from "./venue-prior.js";
 import { USER_AGENT } from "./osm-overpass.js";
 
 /**
@@ -314,6 +314,16 @@ export interface BestPlaceOptions {
 	 *  contains overnight hours (the user is sleeping in a building, not at
 	 *  the cafe next door). */
 	preferResidential?: boolean;
+	/** Stay window in the venue-local timezone. When present, the landmark
+	 *  step switches to the full venue-plausibility ranking (#246): opening
+	 *  hours + mined visit-shape priors weigh in, a Nominatim point-venue is
+	 *  folded into the candidate set instead of bypassing the ranking, and
+	 *  an implausible best venue falls through to the honest area label.
+	 *  Absent → the context-free behavior, unchanged. */
+	stay?: StayShape;
+	/** Mined visit-shape priors (`venue_type_priors`); only consulted when
+	 *  `stay` is present. Null/absent contributes no shape evidence. */
+	priors?: VenuePriors | null;
 }
 
 /** Carry a Nominatim result's address (city, road) onto a landmark
@@ -321,6 +331,25 @@ export interface BestPlaceOptions {
 function withAddressFrom(result: NominatimResult, detailed: NominatimResult | null): NominatimResult {
 	if (detailed) result.address = { ...detailed.address, ...result.address };
 	return result;
+}
+
+/** The venue name a specific-venue Nominatim result carries (the address
+ *  fields hold the name, not the tag value). */
+function nominatimVenueName(r: NominatimResult): string | null {
+	return r.address.amenity ?? r.address.tourism ?? r.address.shop ?? r.address.leisure ?? null;
+}
+
+/** Map a specific-venue Nominatim result onto a landmark candidate so the
+ *  venue-plausibility ranking can weigh it against the Overpass landmarks.
+ *  Distance 0: Nominatim zoom-18 names the building the centroid is on. */
+function nominatimVenueCandidate(r: NominatimResult): NearbyLandmark | null {
+	const name = nominatimVenueName(r);
+	if (!name) return null;
+	const type =
+		r.category === "tourism" || r.category === "shop" || r.category === "leisure"
+			? r.category
+			: ("amenity" as const);
+	return { name, type, subtype: r.type, distanceM: 0 };
 }
 
 export async function bestPlace(
@@ -335,14 +364,37 @@ export async function bestPlace(
 	// same coordinate — Nominatim happily names a stay after a cafe that
 	// shares the institution's site.
 	const landmarks = await osm.nearbyLandmarks(lat, lon, 100);
-	const bestLandmark = landmarks.length > 0 ? pickBestLandmark(landmarks) : null;
 	const detailed = await osm.reverseGeocode(lat, lon, 18);
+
+	let bestLandmark: NearbyLandmark | null = null;
+	let nominatimWon = false;
+	if (opts.stay) {
+		// Venue-plausibility path (#246): rank ALL candidates — Overpass
+		// landmarks plus a specific-venue Nominatim result — by summed
+		// evidence (distance, opening hours, mined visit-shape priors).
+		const candidates = [...landmarks];
+		const nomVenue = detailed && hasSpecificVenue(detailed) ? nominatimVenueCandidate(detailed) : null;
+		// Skip the Nominatim candidate when a landmark already names the
+		// same venue — the landmark carries the opening_hours tag.
+		if (nomVenue && !landmarks.some((l) => l.name === nomVenue.name)) candidates.push(nomVenue);
+		if (candidates.length > 0) {
+			const top = rankVenues(candidates, opts.stay, opts.priors ?? null)[0];
+			if (top.landmark.enclosing || top.total >= VENUE_RANK_FLOOR_NATS) {
+				if (nomVenue && top.landmark.name === nomVenue.name) nominatimWon = true;
+				else bestLandmark = top.landmark;
+			}
+			// Below the floor: no candidate is a plausible destination —
+			// fall through to the residential / area chain (honest label).
+		}
+	} else {
+		bestLandmark = landmarks.length > 0 ? pickBestLandmark(landmarks) : null;
+	}
 
 	if (bestLandmark?.enclosing) {
 		return withAddressFrom(landmarkToResult(bestLandmark), detailed);
 	}
 
-	if (detailed && hasSpecificVenue(detailed)) return detailed;
+	if (detailed && hasSpecificVenue(detailed) && (opts.stay ? nominatimWon : true)) return detailed;
 
 	// Sleep-window override: a lodging POI (hotel, guest_house, hostel,
 	// motel, apartment) within ~50 m of the centroid wins over the
