@@ -155,6 +155,12 @@ export interface UserInfo {
   shareWindow?: { from: string; to: string } | null;
 }
 
+export interface HrvDay {
+  date: string;
+  daily_rmssd: number;
+  deep_rmssd: number;
+}
+
 export interface ShareStatus {
   active: boolean;
   token?: string;
@@ -231,6 +237,12 @@ export class HealthService {
   // its inputs change. The signal flows straight into `fetch`, so a
   // superseded day-navigation cancels on the wire instead of racing to
   // completion and being discarded.
+  async getHrv(days = 30, signal?: AbortSignal): Promise<HrvDay[]> {
+    const res = await this.fetch(`/api/hrv?days=${days}`, { signal });
+    if (!res.ok) throw new Error("Failed to fetch HRV");
+    return res.json();
+  }
+
   async getActivity(days = 30, signal?: AbortSignal): Promise<ActivityDay[]> {
     const res = await this.fetch(`/api/activity?days=${days}`, { signal });
     if (!res.ok) throw new Error("Failed to fetch activity");

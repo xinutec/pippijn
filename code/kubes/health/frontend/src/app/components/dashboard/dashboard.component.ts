@@ -8,6 +8,7 @@ import {
 	type ActivityDay,
 	HealthService,
 	type HeartRatePoint,
+	type HrvDay,
 	type LatestFix,
 	type SleepLog,
 	type SleepStage,
@@ -26,6 +27,7 @@ import { logBootContext } from "../../client-diagnostics";
 import { BatteryChartComponent } from "../battery-chart/battery-chart.component";
 import { DayNavComponent } from "../day-nav/day-nav.component";
 import { HeartrateChartComponent } from "../heartrate-chart/heartrate-chart.component";
+import { HrvChartComponent } from "../hrv-chart/hrv-chart.component";
 import { HypnogramComponent } from "../hypnogram/hypnogram.component";
 import { IntradayHrComponent } from "../intraday-hr/intraday-hr.component";
 import { MapComponent } from "../map/map.component";
@@ -43,12 +45,13 @@ interface DayData {
 	velocity: VelocityData | null;
 }
 
-/** Rolling-window payload — the last 30 days of activity + sleep. This
- *  does NOT depend on the selected day, so it is fetched once and the
+/** Rolling-window payload — the last 30 days of activity + sleep + HRV.
+ *  Does NOT depend on the selected day, so it is fetched once and the
  *  selected day is derived from it. */
 interface WindowData {
 	activity: ActivityDay[];
 	sleep: SleepLog[];
+	hrv: HrvDay[];
 }
 
 /**
@@ -98,6 +101,7 @@ interface WindowData {
 		MapComponent,
 		StepsChartComponent,
 		HeartrateChartComponent,
+		HrvChartComponent,
 		SleepChartComponent,
 	],
 	templateUrl: "./dashboard.component.html",
@@ -132,13 +136,14 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		// `undefined` keeps the resource idle until the user is ready; a
 		// constant key thereafter means it loads exactly once.
 		params: () => (this.dataReady() ? "ready" : undefined),
-		defaultValue: { activity: [], sleep: [] },
+		defaultValue: { activity: [], sleep: [], hrv: [] },
 		loader: async ({ abortSignal }) => {
-			const [activity, sleep] = await Promise.all([
+			const [activity, sleep, hrv] = await Promise.all([
 				this.health.getActivity(30, abortSignal).catch(() => [] as ActivityDay[]),
 				this.health.getSleep(30, abortSignal).catch(() => [] as SleepLog[]),
+				this.health.getHrv(30, abortSignal).catch(() => [] as HrvDay[]),
 			]);
-			return { activity, sleep };
+			return { activity, sleep, hrv };
 		},
 	});
 
@@ -179,6 +184,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	// ─── Derived view state (never set imperatively) ────────────────
 	readonly activity = computed(() => this.windowData.value().activity);
 	readonly sleep = computed(() => this.windowData.value().sleep);
+	readonly hrv = computed(() => this.windowData.value().hrv);
 	readonly sleepStages = computed(() => this.displayedDay().stages);
 	readonly intradayHr = computed(() => this.displayedDay().hr);
 	readonly velocity = computed(() => this.displayedDay().velocity);
