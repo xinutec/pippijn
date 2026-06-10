@@ -26,6 +26,7 @@ import type { TransportMode } from "./segments.js";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
 import { ensureCovered, queryLines, queryPoints } from "./osm-local.js";
+import { rankVenues } from "./venue-prior.js";
 import { USER_AGENT } from "./osm-overpass.js";
 
 /**
@@ -432,6 +433,11 @@ export interface NearbyLandmark {
 	type: "amenity" | "tourism" | "leisure" | "shop" | "place" | "highway";
 	subtype: string; // "restaurant", "park", "square", "pedestrian", etc.
 	distanceM: number;
+	/** Raw OSM `opening_hours` tag when present — the venue-plausibility
+	 *  scorer turns it into open/closed evidence for a stay window. Optional:
+	 *  ~70% of venue POIs lack the tag, and golden fixtures recorded before
+	 *  this field existed simply omit it (= no evidence). */
+	openingHours?: string;
 	/** True when this landmark is a large institution whose mapped
 	 *  footprint encloses the query point — see {@link LARGE_INSTITUTION_SUBTYPES}.
 	 *  A stay whose centroid falls inside such a footprint is a stay
@@ -497,40 +503,12 @@ export function isEnclosingInstitution(opts: {
 	return opts.isPoint && opts.distanceM <= LARGE_INSTITUTION_POINT_RADIUS_M;
 }
 
-const LANDMARK_PRIORITY: Record<NearbyLandmark["type"], number> = {
-	amenity: 5,
-	tourism: 5,
-	shop: 4,
-	leisure: 4,
-	place: 3,
-	highway: 1,
-};
-
-/** Metres of extra distance one full `LANDMARK_PRIORITY` level "buys".
- *  A higher-priority landmark out-ranks a lower-priority one only while
- *  it is within roughly this much farther; beyond that gap the nearer
- *  feature wins. Without this, type priority is absolute and a café
- *  (`amenity`) out-ranks a park (`leisure`) the stay is sitting in,
- *  purely because "cafe" is a higher-priority tag. Tunable. */
-const PRIORITY_DISTANCE_SCALE_M = 40;
-
+/** Context-free entry to the venue-plausibility ranking (task #246): no
+ *  stay window, no mined priors — distance + venue-over-area only, with the
+ *  enclosing-institution override unchanged. Callers that know the stay
+ *  window should call `rankVenues` directly for the full evidence stack. */
 export function pickBestLandmark(landmarks: NearbyLandmark[]): NearbyLandmark {
-	// Rank = type priority traded off against distance — each priority
-	// level is worth PRIORITY_DISTANCE_SCALE_M metres, so a higher tag
-	// wins only while it is not dramatically farther than a lower one.
-	const rank = (l: NearbyLandmark): number => LANDMARK_PRIORITY[l.type] - l.distanceM / PRIORITY_DISTANCE_SCALE_M;
-	return [...landmarks].sort((a, b) => {
-		// An institution whose footprint encloses the stay outranks
-		// everything else, regardless of which node is nearer the GPS
-		// centroid (see NearbyLandmark.enclosing).
-		const ea = a.enclosing === true;
-		const eb = b.enclosing === true;
-		if (ea !== eb) return ea ? -1 : 1;
-		const ra = rank(a);
-		const rb = rank(b);
-		if (ra !== rb) return rb - ra;
-		return a.distanceM - b.distanceM;
-	})[0];
+	return rankVenues(landmarks, null, null)[0].landmark;
 }
 
 /** Maximum distance at which a landmark counts as "the place the user
@@ -643,7 +621,14 @@ export async function nearbyLandmarks(lat: number, lon: number, radiusM = 100): 
 					encloses: f.encloses,
 					isPoint,
 				});
-				landmarks.push({ name, type: k, subtype: tags[k], distanceM: f.distance_m, enclosing });
+				landmarks.push({
+					name,
+					type: k,
+					subtype: tags[k],
+					distanceM: f.distance_m,
+					enclosing,
+					...(tags.opening_hours ? { openingHours: tags.opening_hours } : {}),
+				});
 			}
 		}
 		if (tags.highway === "pedestrian") {
