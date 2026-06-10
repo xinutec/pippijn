@@ -155,7 +155,7 @@ describe("annotateUndergroundRuns", () => {
 			{ ts: 2450, ...at(2980, 1490), accuracy: 13 },
 			{ ts: 3000, ...at(2960, 1470), accuracy: 15 },
 		];
-		const result = await annotateUndergroundRuns([host], rawFixes, stationsLookup, linesLookup);
+		const result = await annotateUndergroundRuns([host], rawFixes, stationsLookup, linesLookup, async () => []);
 
 		expect(result.map((s) => s.mode)).toEqual(["walking", "train", "walking"]);
 		const train = result[1];
@@ -180,7 +180,7 @@ describe("annotateUndergroundRuns", () => {
 			{ ts: 1800, ...at(600, 300), accuracy: 14 },
 			{ ts: 2500, ...at(1200, 600), accuracy: 13 },
 		];
-		const result = await annotateUndergroundRuns([host], rawFixes, stationsLookup, linesLookup);
+		const result = await annotateUndergroundRuns([host], rawFixes, stationsLookup, linesLookup, async () => []);
 		expect(result).toEqual([host]);
 	});
 });

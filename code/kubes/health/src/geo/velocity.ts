@@ -990,6 +990,7 @@ export async function computeVelocityFromInputs(
 			inDay,
 			(lat, lon) => inputs.osm.nearbyStations(lat, lon, UNDERGROUND_STATION_RADIUS_M),
 			(lat, lon) => inputs.osm.linesAtPoint(lat, lon, UNDERGROUND_LINES_RADIUS_M),
+			(lat, lon) => inputs.osm.nearbyWays(lat, lon),
 		),
 	);
 

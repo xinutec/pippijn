@@ -24,7 +24,7 @@
  * near this point" lookup.
  */
 
-import type { NearbyStation } from "./osm.js";
+import type { NearbyStation, NearbyWay } from "./osm.js";
 import { pickBestStation } from "./osm.js";
 import { dbOsmAdapter } from "./osm-adapter.js";
 import type { EnrichedSegment } from "./velocity.js";
@@ -82,6 +82,7 @@ const MIN_COARSE_FIXES = 2;
 const MIN_JOURNEY_M = 800;
 
 type LinesLookup = (lat: number, lon: number) => Promise<Set<string>>;
+type WaysLookup = (lat: number, lon: number) => Promise<NearbyWay[]>;
 type StationsLookup = (lat: number, lon: number) => Promise<NearbyStation[]>;
 
 /** A coarse cell-network fix whose coordinate is reliable enough to
@@ -194,6 +195,7 @@ export async function annotateUndergroundRuns(
 	rawFixes: CoarseFix[],
 	stationsLookup: StationsLookup = (lat, lon) => dbOsmAdapter.nearbyStations(lat, lon, UNDERGROUND_STATION_RADIUS_M),
 	linesLookup: LinesLookup = (lat, lon) => dbOsmAdapter.linesAtPoint(lat, lon, UNDERGROUND_LINES_RADIUS_M),
+	waysLookup: WaysLookup = (lat, lon) => dbOsmAdapter.nearbyWays(lat, lon),
 ): Promise<EnrichedSegment[]> {
 	const good = rawFixes.filter((f) => f.accuracy == null || f.accuracy < COARSE_ACCURACY_M);
 	const result: EnrichedSegment[] = [];
@@ -255,7 +257,13 @@ export async function annotateUndergroundRuns(
 		const distM = equirectMeters(boarding.lat, boarding.lon, alighting.lat, alighting.lon);
 		const speedKmh = Math.round((distM / Math.max(1, trainEnd - trainStart)) * 3.6 * 10) / 10;
 
-		if (keepPre) result.push({ ...host, endTs: trainStart });
+		if (keepPre) {
+			result.push({
+				...host,
+				endTs: trainStart,
+				wayName: await sideWayName(good, host.startTs, trainStart, waysLookup),
+			});
+		}
 		result.push({
 			...host,
 			startTs: trainStart,
@@ -273,8 +281,43 @@ export async function annotateUndergroundRuns(
 			wayName: `${recon.boardingStation} → ${recon.alightingStation} · ${recon.line}`,
 			refinedReason: `underground reconstruction (${runFixes.length} coarse fixes on ${recon.line})`,
 		});
-		if (keepPost) result.push({ ...host, startTs: trainEnd });
+		if (keepPost) {
+			result.push({
+				...host,
+				startTs: trainEnd,
+				wayName: await sideWayName(good, trainEnd, host.endTs, waysLookup),
+			});
+		}
 	}
 
 	return result;
+}
+
+/** Way label for a side piece of a split host, from the PIECE's own
+ *  fixes. The host's wayName was composed across ALL its fixes — both
+ *  walks plus the tunnel — so inheriting it stamps the pre-tube walk's
+ *  street onto the post-tube walk at the other end of town (measured:
+ *  a King's Cross walk labelled with a Belgravia street, task #248).
+ *  Undefined when the piece has no fixes or no named way nearby —
+ *  honest blank beats a leaked label. */
+async function sideWayName(
+	good: CoarseFix[],
+	startTs: number,
+	endTs: number,
+	waysLookup: WaysLookup,
+): Promise<string | undefined> {
+	const inPiece = good.filter((f) => f.ts >= startTs && f.ts <= endTs);
+	if (inPiece.length === 0) return undefined;
+	const sampleCount = Math.min(3, inPiece.length);
+	const votes = new Map<string, number>();
+	for (let i = 0; i < sampleCount; i++) {
+		const f = inPiece[Math.floor((i * (inPiece.length - 1)) / Math.max(1, sampleCount - 1))];
+		const ways = await waysLookup(f.lat, f.lon);
+		const named = ways
+			.filter((w) => w.type === "highway" && w.name)
+			.sort((a, b) => (a.distanceM ?? 0) - (b.distanceM ?? 0))[0];
+		if (named?.name) votes.set(named.name, (votes.get(named.name) ?? 0) + 1);
+	}
+	if (votes.size === 0) return undefined;
+	return [...votes.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
