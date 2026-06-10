@@ -16,8 +16,7 @@
  * points the developer at the actual cause.
  */
 
-import type { NearbyLandmark, NearbyStation,
-	NearbyTransitStop, NearbyWay, NominatimResult } from "./osm.js";
+import type { NearbyLandmark, NearbyStation, NearbyTransitStop, NearbyWay, NominatimResult } from "./osm.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import type { OsmTrace } from "./osm-adapter-recording.js";
 

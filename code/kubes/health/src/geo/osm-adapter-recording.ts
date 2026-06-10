@@ -108,7 +108,8 @@ export class RecordingOsmAdapter implements OsmAdapter {
 
 	async nearbyTransitStops(lat: number, lon: number, radiusM?: number): Promise<NearbyTransitStop[]> {
 		const result = await this.inner.nearbyTransitStops(lat, lon, radiusM);
-		(this.trace.nearbyTransitStops ??= {})[key3(lat, lon, radiusM)] = result;
+		if (!this.trace.nearbyTransitStops) this.trace.nearbyTransitStops = {};
+		this.trace.nearbyTransitStops[key3(lat, lon, radiusM)] = result;
 		return result;
 	}
 }
