@@ -28,6 +28,7 @@
  *     kernel at replay time.
  */
 
+import type { Station } from "./line-stations.js";
 import type { NearbyLandmark, NearbyStation, NearbyTransitStop, NearbyWay, NominatimResult } from "./osm.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 
@@ -51,6 +52,9 @@ export interface OsmTrace {
 	 *  (empty results), while a missing KEY in a present section is the
 	 *  usual uncaptured-query error. */
 	nearbyTransitStops?: Record<string, NearbyTransitStop[]>;
+	/** Keyed by line name. Optional: absent in fixtures captured before
+	 *  task #222; missing SECTION = no data, missing KEY = uncaptured. */
+	stationsOnLine?: Record<string, Station[]>;
 }
 
 /** Build an empty trace. */
@@ -62,6 +66,7 @@ export function emptyOsmTrace(): OsmTrace {
 		linesAtPoint: {},
 		reverseGeocode: {},
 		nearbyTransitStops: {},
+		stationsOnLine: {},
 	};
 }
 
@@ -110,6 +115,13 @@ export class RecordingOsmAdapter implements OsmAdapter {
 		const result = await this.inner.nearbyTransitStops(lat, lon, radiusM);
 		if (!this.trace.nearbyTransitStops) this.trace.nearbyTransitStops = {};
 		this.trace.nearbyTransitStops[key3(lat, lon, radiusM)] = result;
+		return result;
+	}
+
+	async stationsOnLine(lineName: string): Promise<Station[]> {
+		const result = await this.inner.stationsOnLine(lineName);
+		if (!this.trace.stationsOnLine) this.trace.stationsOnLine = {};
+		this.trace.stationsOnLine[lineName] = result;
 		return result;
 	}
 }

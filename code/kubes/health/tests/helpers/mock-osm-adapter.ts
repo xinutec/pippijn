@@ -16,6 +16,7 @@
  * interface, different storage.
  */
 
+import type { Station } from "../../src/geo/line-stations.js";
 import type {
 	NearbyLandmark,
 	NearbyStation,
@@ -42,6 +43,7 @@ export interface MockOsmAdapterOptions {
 	linesAtPoint?: Stub<[number, number, number | undefined], Set<string>>;
 	reverseGeocode?: Stub<[number, number, number | undefined], NominatimResult | null>;
 	nearbyTransitStops?: Stub<[number, number, number | undefined], NearbyTransitStop[]>;
+	stationsOnLine?: Stub<[string], Station[]>;
 }
 
 export interface MockOsmAdapter extends OsmAdapter {
@@ -52,6 +54,7 @@ export interface MockOsmAdapter extends OsmAdapter {
 		linesAtPoint: Array<RecordedCall<[number, number, number | undefined]>>;
 		reverseGeocode: Array<RecordedCall<[number, number, number | undefined]>>;
 		nearbyTransitStops: Array<RecordedCall<[number, number, number | undefined]>>;
+		stationsOnLine: Array<RecordedCall<[string]>>;
 	};
 }
 
@@ -67,6 +70,7 @@ export function mockOsmAdapter(options: MockOsmAdapterOptions = {}): MockOsmAdap
 		linesAtPoint: [],
 		reverseGeocode: [],
 		nearbyTransitStops: [],
+		stationsOnLine: [],
 	};
 	return {
 		calls,
@@ -93,6 +97,10 @@ export function mockOsmAdapter(options: MockOsmAdapterOptions = {}): MockOsmAdap
 		async nearbyTransitStops(lat, lon, radiusM) {
 			calls.nearbyTransitStops.push({ args: [lat, lon, radiusM] });
 			return options.nearbyTransitStops?.(lat, lon, radiusM) ?? [];
+		},
+		async stationsOnLine(lineName) {
+			calls.stationsOnLine.push({ args: [lineName] });
+			return options.stationsOnLine?.(lineName) ?? [];
 		},
 	};
 }

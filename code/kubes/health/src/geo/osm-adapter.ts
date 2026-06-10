@@ -28,6 +28,7 @@
  * call sites are migrated to consume `inputs.osm.X(...)` in Phase 6d.
  */
 
+import { type Station, stationsOnLine } from "./line-stations.js";
 import {
 	linesAtPoint,
 	type NearbyLandmark,
@@ -56,6 +57,8 @@ export interface OsmAdapter {
 	reverseGeocode(lat: number, lon: number, zoom?: number): Promise<NominatimResult | null>;
 	/** Bus stops + traffic signals near a point (task #247). */
 	nearbyTransitStops(lat: number, lon: number, radiusM?: number): Promise<NearbyTransitStop[]>;
+	/** All stations along a named rail line (task #222). */
+	stationsOnLine(lineName: string): Promise<Station[]>;
 }
 
 /** Production adapter: delegate to the existing top-level functions
@@ -69,4 +72,5 @@ export const dbOsmAdapter: OsmAdapter = {
 	linesAtPoint,
 	reverseGeocode,
 	nearbyTransitStops,
+	stationsOnLine,
 };

@@ -30,6 +30,7 @@ function throwingOsmAdapter(): OsmAdapter {
 		linesAtPoint: boom,
 		reverseGeocode: boom,
 		nearbyTransitStops: boom,
+		stationsOnLine: boom,
 	};
 }
 

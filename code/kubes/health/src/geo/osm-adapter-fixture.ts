@@ -16,6 +16,7 @@
  * points the developer at the actual cause.
  */
 
+import type { Station } from "./line-stations.js";
 import type { NearbyLandmark, NearbyStation, NearbyTransitStop, NearbyWay, NominatimResult } from "./osm.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import type { OsmTrace } from "./osm-adapter-recording.js";
@@ -83,6 +84,16 @@ export class FixtureOsmAdapter implements OsmAdapter {
 			throw new Error(
 				`FixtureOsmAdapter: uncaptured nearbyTransitStops(${lat}, ${lon}, ${radiusM}) — re-capture required`,
 			);
+		}
+		return result;
+	}
+
+	async stationsOnLine(lineName: string): Promise<Station[]> {
+		const section = this.trace.stationsOnLine;
+		if (section === undefined) return [];
+		const result = section[lineName];
+		if (result === undefined) {
+			throw new Error(`FixtureOsmAdapter: uncaptured stationsOnLine(${lineName}) — re-capture required`);
 		}
 		return result;
 	}
