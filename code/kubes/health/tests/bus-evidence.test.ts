@@ -33,7 +33,7 @@ const LAT_PER_M = 1 / 111_000;
 
 /** A fix `metresAlong` a straight east-west street. */
 function fix(ts: number, metresAlong: number) {
-	return { ts, lat: 50.0, lon: 5.0 + metresAlong * LAT_PER_M / Math.cos((50 * Math.PI) / 180) };
+	return { ts, lat: 50.0, lon: 5.0 + (metresAlong * LAT_PER_M) / Math.cos((50 * Math.PI) / 180) };
 }
 
 /** Fixes simulating travel at `kmh` between two points in time, every 15s. */
