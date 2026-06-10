@@ -40,6 +40,12 @@ def norm_host(u: str) -> str:
     u = (u or "").strip()
     if not u:
         return ""
+    # Android app credentials: Chrome exports android://CERTHASH@package/,
+    # Bitwarden stores androidapp://package — normalize both to the package
+    # name or every app login looks "new" on each merge.
+    if u.startswith(("android://", "androidapp://")):
+        body = u.split("://", 1)[1]
+        return "app:" + body.split("@", 1)[-1].rstrip("/").lower()
     if "://" not in u:
         u = "https://" + u
     return urlparse(u).netloc.lower().removeprefix("www.")
