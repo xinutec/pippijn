@@ -30,9 +30,16 @@ import {
 	uniqueDayCount,
 } from "../geo/focus-places.js";
 import { type ExistingPlace, matchClusters } from "../geo/focus-places-identity.js";
-import { bestPlace, isLabelWorthyVenue, nearbyLandmarks, pickBestLandmark } from "../geo/osm.js";
+import { bestPlace, isLabelWorthyVenue, nearbyLandmarks } from "../geo/osm.js";
 import { dbOsmAdapter } from "../geo/osm-adapter.js";
-import { type AttributedStay, attributeStayVenue, localHourOf, minePriors } from "../geo/venue-prior.js";
+import {
+	type AttributedStay,
+	attributeStayVenue,
+	localHourOf,
+	minePriors,
+	rankVenues,
+	VENUE_RANK_FLOOR_NATS,
+} from "../geo/venue-prior.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 
 const config = z
@@ -173,13 +180,29 @@ async function refreshOne(userId: string): Promise<void> {
 					localHour: localHourOf(midTs, tzLookup(s.centroidLat, s.centroidLon)),
 				});
 			}
-			const best = pickBestLandmark(landmarks);
+			// Shape-aware vote (#246): rank candidates with the stay's own
+			// window so opening-hours evidence weighs in — a pharmacy 17 m
+			// from a smeared dinner centroid must not out-vote the open
+			// restaurant at 31 m (the 2026-06-09 Olivomare case: the old
+			// context-free pick laundered exactly that error into
+			// amenity_label, which the runtime then trusts). Priors stay
+			// null here: this same pass rebuilds the priors blob, and
+			// voting with the previous run's blob would let one bad label
+			// echo into the next.
+			const ranked = rankVenues(
+				landmarks,
+				{ startUnix: s.startTs, endUnix: s.endTs, tz: tzLookup(s.centroidLat, s.centroidLon) },
+				null,
+			)[0];
+			const best = ranked.landmark;
 			// Confidence gate: only a real venue type (amenity / tourism /
 			// shop) that is close enough to be the place the stay is *at*
 			// may cast a vote. A park the stay sits near, a pedestrian way,
 			// or a café 80 m off are all rejected — they name an area, not
-			// the venue, and would otherwise mislabel the cluster.
-			if (!isLabelWorthyVenue(best)) continue;
+			// the venue, and would otherwise mislabel the cluster. The
+			// plausibility floor additionally drops votes where even the
+			// best candidate is implausible (closed + far).
+			if (!isLabelWorthyVenue(best) || ranked.total < VENUE_RANK_FLOOR_NATS) continue;
 			votes.set(best.name, (votes.get(best.name) ?? 0) + s.durationSec);
 		}
 		let winner = pickWinningAmenity(votes, {

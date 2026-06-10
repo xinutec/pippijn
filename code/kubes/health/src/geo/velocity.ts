@@ -647,10 +647,20 @@ export async function computeVelocityFromInputs(
 		}),
 	);
 
-	// Enrich each (post-stay-split) segment with OSM data
+	// Enrich each (post-stay-split) segment with OSM data. Bounded
+	// concurrency: each segment fans out several DB-backed OSM queries,
+	// so an unbounded Promise.all over a long day starves the fixed
+	// 20-connection pool whenever per-query latency is high — capture
+	// runs over the SSH tunnel failed deterministically at 16 segments
+	// (2026-06-10, "pool timeout after 10000ms", two segments dropped
+	// unenriched). The cap keeps total in-flight queries safely under
+	// the pool size; segments are independent, so only wall-clock shape
+	// changes, never results.
 	const enrichStart = Date.now();
-	const enriched: EnrichedSegment[] = await Promise.all(
-		refinedSegments.map(async (seg, i) => {
+	const enriched: EnrichedSegment[] = await mapLimit(
+		refinedSegments,
+		ENRICH_CONCURRENCY,
+		async (seg, i) => {
 			// Synthetic gap segments (inferred-walking or `unknown`) carry
 			// pointCount=0 — no real GPS data. Enriching with road names /
 			// OSM places would invent context we don't have. Pass them
@@ -886,7 +896,7 @@ export async function computeVelocityFromInputs(
 				console.warn(`OSM enrichment failed for segment ${seg.startTs}: ${e}`);
 				return seg;
 			}
-		}),
+		},
 	);
 	phaseTimes.osm = Date.now() - enrichStart;
 
@@ -1390,6 +1400,31 @@ export async function consolidateJitterStays(
  * the user wants to see.
  */
 const MOVING_MERGE_MAX_GAP_S = 3 * 60;
+
+/** Max segments enriched concurrently. Each segment issues a handful of
+ *  DB-backed OSM queries; 6 segments × ~3 in-flight queries stays safely
+ *  under the 20-connection pool even when per-query latency is tunnel-high.
+ *  See the enrichment call site for the failure this bounds. */
+const ENRICH_CONCURRENCY = 6;
+
+/** `Promise.all(items.map(fn))` with at most `limit` callbacks in flight.
+ *  Results keep input order; rejections propagate like Promise.all. */
+async function mapLimit<T, R>(
+	items: readonly T[],
+	limit: number,
+	fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+	const results: R[] = new Array(items.length);
+	let next = 0;
+	const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+		while (next < items.length) {
+			const i = next++;
+			results[i] = await fn(items[i], i);
+		}
+	});
+	await Promise.all(workers);
+	return results;
+}
 
 /**
  * Pick a wayName label for a merged moving segment. Each source segment
