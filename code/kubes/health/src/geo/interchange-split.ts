@@ -191,10 +191,13 @@ export async function spliceInterchanges<T extends SpliceableSegment>(
 			out.push(seg); // valid triple (or no line data) — not ours
 			continue;
 		}
-		const stationsByLine = new Map<string, Station[]>();
-		for (const line of new Set([...linesA, ...linesB])) {
-			stationsByLine.set(line, await osm.stationsOnLine(line));
-		}
+		// Fetch every candidate line's station list concurrently. These
+		// are independent indexed lookups; awaiting them in series was a
+		// large chunk of the interchange-split wall-clock (each line is a
+		// separate DB round-trip). Promise.all collapses N waits into one.
+		const uniqueLines = [...new Set([...linesA, ...linesB])];
+		const stationLists = await Promise.all(uniqueLines.map((line) => osm.stationsOnLine(line)));
+		const stationsByLine = new Map<string, Station[]>(uniqueLines.map((line, i) => [line, stationLists[i]]));
 		const trailFix = inLeg.find((p) => p.ts > burst.endTs + 60);
 		const pick = pickInterchange({
 			boardLat: boardFix.lat,

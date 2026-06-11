@@ -70,6 +70,62 @@ const cache = new Map<string, { stations: Station[]; cachedAt: number }>();
 export function _resetStationsOnLineCache(): void {
 	cache.clear();
 	allStationsCache = null;
+	railwayLineNamesCache = null;
+}
+
+/** All distinct railway line names in the mirror, cached for the life
+ *  of the process. ~1k strings — tiny. Loaded lazily on the first
+ *  `stationsOnLine` call.
+ *
+ *  This exists so the per-line geometry fetch can use an indexed
+ *  `name IN (...)` lookup. The membership match a line needs is
+ *  "every osm_lines name that CONTAINS this line's base token" (to
+ *  catch compound-tagged shared track — see `stationsOnLine`). A
+ *  substring match is a leading-wildcard `LIKE '%base%'`, which can't
+ *  use `idx_osm_lines_name` and forces a ~28 s scan of all 42k railway
+ *  rows on every call. Resolving the substring against this cached name
+ *  list instead turns each per-line fetch into an exact-name `IN` query
+ *  the index serves in milliseconds — the 24-minute interchange-split
+ *  pathology (a leg fanned ~50 such scans, serially). */
+let railwayLineNamesCache: Promise<string[]> | null = null;
+
+async function loadRailwayLineNames(): Promise<string[]> {
+	if (railwayLineNamesCache !== null) return railwayLineNamesCache;
+	railwayLineNamesCache = (async () => {
+		const rows = (await db()
+			.selectFrom("osm_lines")
+			.where("feature_type", "=", "railway")
+			.where("name", "is not", null)
+			.select("name")
+			.distinct()
+			.execute()) as Array<{ name: string | null }>;
+		return rows.map((r) => r.name).filter((n): n is string => n !== null);
+	})();
+	return railwayLineNamesCache;
+}
+
+/** A line's base token: its name with any trailing " line"/" lines …"
+ *  qualifier stripped. "Victoria Line" → "Victoria"; "Circle and
+ *  District Lines" → "Circle and District". */
+function lineBaseToken(lineName: string): string {
+	return lineName.replace(/\s+lines?\b.*$/i, "").trim();
+}
+
+/**
+ * The distinct osm_lines names that contain `lineName`'s base token,
+ * case-insensitively — exactly the set a `name LIKE '%base%'` query
+ * matched, resolved against a cached name list so the caller can fetch
+ * geometry with an indexed `name IN (...)` lookup.
+ *
+ * Pure; exported for unit tests. A name that strips to an empty base
+ * matches nothing (a `'%%'` LIKE would have matched everything — the
+ * indexed path stays conservative instead).
+ */
+export function lineNamesMatching(lineName: string, allNames: readonly string[]): string[] {
+	const base = lineBaseToken(lineName);
+	if (base.length === 0) return [];
+	const needle = base.toLowerCase();
+	return allNames.filter((n) => n.toLowerCase().includes(needle));
 }
 
 /** All railway-station points, cached for the life of the process.
@@ -227,18 +283,30 @@ export async function stationsOnLine(lineName: string): Promise<Station[]> {
 		return cached.stations;
 	}
 
-	// Step 1: get all ways of this line. Matched by the line's base
-	// token (LIKE), not exact name: London track sections shared by
-	// several lines carry COMPOUND way names ("Circle, Hammersmith &
-	// City and Metropolitan lines"), so exact matching silently drops
-	// every shared section — measured 2026-06-10: King's Cross was
-	// missing from the Metropolitan Line's station list because the
-	// Met's tracks there are compound-named (task #222).
-	const base = lineName.replace(/\s+lines?\b.*$/i, "").trim();
+	// Step 1: get all ways of this line. The membership match is "every
+	// railway name CONTAINING the line's base token", not exact name:
+	// London track sections shared by several lines carry COMPOUND way
+	// names ("Circle, Hammersmith & City and Metropolitan lines"), so
+	// exact matching silently drops every shared section — measured
+	// 2026-06-10: King's Cross was missing from the Metropolitan Line's
+	// station list because the Met's tracks there are compound-named
+	// (task #222).
+	//
+	// We resolve that substring match against the cached distinct-name
+	// list, then fetch geometry with an indexed `name IN (...)` lookup —
+	// NOT a leading-wildcard `LIKE '%base%'`, which can't use
+	// idx_osm_lines_name and scans all 42k railway rows (~28 s) on every
+	// call. (The 24-minute interchange-split bug: one leg fanned ~50 of
+	// those scans, serially.)
+	const matchNames = lineNamesMatching(lineName, await loadRailwayLineNames());
+	if (matchNames.length === 0) {
+		cache.set(lineName, { stations: [], cachedAt: Date.now() });
+		return [];
+	}
 	const wayRows = (await db()
 		.selectFrom("osm_lines")
 		.where("feature_type", "=", "railway")
-		.where("name", "like", `%${base}%`)
+		.where("name", "in", matchNames)
 		.select([sql<string>`ST_AsText(geom)`.as("wkt")])
 		.execute()) as Array<{ wkt: string }>;
 
