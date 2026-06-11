@@ -83,8 +83,10 @@ export async function fetchTrackPointsRange(
 						});
 					}
 				}
-			} catch {
-				// skip devices that fail
+			} catch (e: unknown) {
+				console.warn(
+					`phonetrack: session ${session.id}/device ${device.id} points fetch failed: ${e instanceof Error ? e.message : String(e)}`,
+				);
 			}
 		}
 	}
