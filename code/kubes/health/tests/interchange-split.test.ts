@@ -48,8 +48,8 @@ describe("findInterchangeBurst", () => {
 		];
 		const burst = findInterchangeBurst(s, T0, T0 + 35 * 60);
 		expect(burst).not.toBeNull();
-		expect(burst!.startTs).toBeGreaterThanOrEqual(T0 + 12 * 60);
-		expect(burst!.endTs).toBeLessThanOrEqual(T0 + 17 * 60);
+		expect(burst?.startTs).toBeGreaterThanOrEqual(T0 + 12 * 60);
+		expect(burst?.endTs).toBeLessThanOrEqual(T0 + 17 * 60);
 	});
 
 	it("ignores walking at the leg edges (boarding/alighting walks)", () => {
