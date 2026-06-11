@@ -51,15 +51,22 @@
 						<div class="section">
 							<app-intraday-hr [points]="intradayHr()" />
 						</div>
-						<div class="section">
-							<app-speed-chart [data]="velocity()" />
-						</div>
-						<div class="section">
-							<app-battery-chart [data]="velocity()" />
-						</div>
-						<div class="section">
-							<app-timeline [data]="velocity()" [referenceDate]="selectedDate()" />
-						</div>
+						@if (velocityError()) {
+							<div class="section velocity-error">
+								<p>Couldn't load your location, transport and timeline for this day.</p>
+								<button mat-stroked-button (click)="retryDay()">Retry</button>
+							</div>
+						} @else {
+							<div class="section">
+								<app-speed-chart [data]="velocity()" />
+							</div>
+							<div class="section">
+								<app-battery-chart [data]="velocity()" />
+							</div>
+							<div class="section">
+								<app-timeline [data]="velocity()" [referenceDate]="selectedDate()" />
+							</div>
+						}
 						<details class="perf-panel">
 							<summary>Performance</summary>
 							<div class="perf-content">

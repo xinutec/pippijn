@@ -176,6 +176,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		defaultValue: { stages: [], hr: [], velocity: null },
 		loader: async ({ params: date, abortSignal }) => {
 			const t0 = performance.now();
+			// A fresh load for this day: clear any prior velocity failure so a
+			// retry (or a navigation to a healthy day) drops the error banner.
+			this.velocityFailed.set(false);
 			const timed = <T>(p: Promise<T>): Promise<[T, number]> => {
 				const start = performance.now();
 				return p.then((v) => [v, performance.now() - start] as [T, number]);
@@ -183,7 +186,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
 			const [[stages, tStages], [hr, tHr], [velocity, tVelocity]] = await Promise.all([
 				timed(this.health.getSleepStages(date, abortSignal).catch(() => [] as SleepStage[])),
 				timed(this.health.getHeartRateIntraday(date, abortSignal).catch(() => [] as HeartRatePoint[])),
-				timed(this.health.getVelocity(date, abortSignal).catch(() => null)),
+				timed(
+					this.health.getVelocity(date, abortSignal).catch((e: unknown) => {
+						// Distinguish a genuine load failure from an empty day so the
+						// view can offer a retry instead of silently rendering "no
+						// data". An aborted request (superseded day-navigation) is not
+						// a failure — it is expected and self-corrects.
+						if (!(e instanceof DOMException && e.name === "AbortError")) this.velocityFailed.set(true);
+						return null;
+					}),
+				),
 			]);
 			this.timings.update((t) => ({
 				...t,
@@ -218,6 +230,16 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	readonly sleepStages = computed(() => this.displayedDay().stages);
 	readonly intradayHr = computed(() => this.displayedDay().hr);
 	readonly velocity = computed(() => this.displayedDay().velocity);
+
+	/** Set when a velocity load rejected (network/server error), cleared at
+	 *  the start of each load. Lets the view tell "this day's location data
+	 *  failed to load" (offer a retry) from "this day genuinely has no
+	 *  location data" (the empty-state message). */
+	private readonly velocityFailed = signal(false);
+	/** Show the velocity error+retry affordance only when a load has failed
+	 *  AND we are not mid-load — during a (re)load the spinner overlay owns
+	 *  the screen, and a stale previous day still shows underneath. */
+	readonly velocityError = computed(() => this.velocityFailed() && !this.dayLoading());
 	readonly latestActivity = computed(() => selectDayActivity(this.activity(), this.selectedDate()));
 	readonly latestSleep = computed(() => selectDayMainSleep(this.sleep(), this.selectedDate()));
 
@@ -411,6 +433,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
 			queryParams,
 			queryParamsHandling: "merge",
 		});
+	}
+
+	/** Re-run the current day's load. Bound to the velocity error-state
+	 *  retry button — a transient backend hiccup (or a slow first compute)
+	 *  no longer leaves the day stuck looking empty. */
+	retryDay(): void {
+		this.dayData.reload();
 	}
 
 	/** Switch tabs and mirror the choice into `?tab=` so reload and

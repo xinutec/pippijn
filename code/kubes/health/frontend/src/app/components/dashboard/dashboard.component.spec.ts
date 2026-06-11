@@ -45,13 +45,16 @@ function mainSleep(date: string, minutes = 489): SleepLog {
 interface Deferred<T> {
 	promise: Promise<T>;
 	resolve: (value: T) => void;
+	reject: (reason?: unknown) => void;
 }
 function deferred<T>(): Deferred<T> {
 	let resolve: (value: T) => void = () => {};
-	const promise = new Promise<T>((r) => {
-		resolve = r;
+	let reject: (reason?: unknown) => void = () => {};
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
 	});
-	return { promise, resolve };
+	return { promise, resolve, reject };
 }
 
 interface HealthMock {
@@ -257,5 +260,49 @@ describe("DashboardComponent — loading UX (rendered DOM)", () => {
 		await pump(fixture);
 		expect(q(fixture, ".day-body.stale"), "un-stale after load").toBeFalsy();
 		expect(q(fixture, ".day-body-overlay"), "overlay gone after load").toBeFalsy();
+	});
+});
+
+describe("DashboardComponent — velocity load failure", () => {
+	beforeEach(() => TestBed.resetTestingModule());
+
+	const q = (fixture: ComponentFixture<unknown>, sel: string): Element | null =>
+		(fixture.nativeElement as HTMLElement).querySelector(sel);
+
+	it("shows a retry affordance, not the empty state, when velocity fails to load", async () => {
+		const mock = makeHealthMock();
+		const fixture = setup(mock);
+		const cmp = fixture.componentInstance;
+		await boot(fixture);
+
+		// The velocity request rejects (server/network error — not an abort).
+		mock.pending.get(todayLocal())?.reject(new Error("backend error"));
+		await pump(fixture);
+
+		expect(cmp.velocityError(), "error state set on failure").toBe(true);
+		expect(q(fixture, ".velocity-error"), "retry banner rendered").toBeTruthy();
+		// The empty-state charts must not render in the error branch.
+		expect(q(fixture, "app-timeline"), "timeline chart hidden under error").toBeFalsy();
+	});
+
+	it("clears the error and re-renders the day after a successful retry", async () => {
+		const mock = makeHealthMock();
+		const fixture = setup(mock);
+		const cmp = fixture.componentInstance;
+		await boot(fixture);
+		mock.pending.get(todayLocal())?.reject(new Error("backend error"));
+		await pump(fixture);
+		expect(cmp.velocityError()).toBe(true);
+
+		// Retry kicks off a fresh load; resolving it clears the error and
+		// brings the charts back.
+		cmp.retryDay();
+		await pump(fixture);
+		mock.pending.get(todayLocal())?.resolve(vel());
+		await pump(fixture);
+
+		expect(cmp.velocityError(), "error cleared after successful retry").toBe(false);
+		expect(q(fixture, ".velocity-error"), "retry banner gone").toBeFalsy();
+		expect(q(fixture, "app-timeline"), "timeline chart restored").toBeTruthy();
 	});
 });

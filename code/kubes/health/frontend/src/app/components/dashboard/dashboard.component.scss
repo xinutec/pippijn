@@ -4,6 +4,18 @@
 .section {
 	margin-bottom: 16px;
 }
+/* Velocity load-failure banner: a centred message + retry button shown
+ * in place of the location/transport/timeline charts when their data
+ * failed to load (as opposed to genuinely being empty). */
+.velocity-error {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12px;
+	padding: 32px 16px;
+	text-align: center;
+	color: var(--mat-sys-on-surface-variant, #5f6368);
+}
 /* Wraps the cards/charts/timeline for the currently-selected day,
  * plus the loading overlay. Position relative so the overlay can
  * absolute-position against it. */
