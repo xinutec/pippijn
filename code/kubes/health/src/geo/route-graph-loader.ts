@@ -110,11 +110,27 @@ export async function loadRawOsmForBbox(
 		).rows;
 	}
 
+	// Only rail-transit station POIs feed the route graph: `buildRouteGraph`
+	// annotates rail nodes from osm_points carrying these tags. An unfiltered
+	// fetch is geographically biased — `LIMIT` with no ORDER BY samples by
+	// physical row order, so in a dense bbox the cap is exhausted by bakeries
+	// and shop POIs near the densest area before reaching stations elsewhere,
+	// silently dropping the very stations a cross-town journey used (see
+	// project_health_osm_points_truncation). Pushing the tag filter into SQL
+	// spends the row budget on stations. `highway=bus_stop` is intentionally
+	// excluded: bus stops are dense enough to re-exhaust the budget and form
+	// no rail node — the bus phase will load them on a separate path.
 	const pointRows = (
 		await sql<RawOsmPoint & { wkt: string }>`
 			SELECT osm_id, osm_type, name, tags_json, ST_AsText(geom) AS wkt
 			FROM osm_points
 			WHERE MBRIntersects(geom, ST_GeomFromText(${poly}, 4326))
+			  AND (
+			    JSON_VALUE(tags_json, '$.railway') IN ('station', 'stop', 'halt')
+			    OR JSON_VALUE(tags_json, '$.public_transport') IN ('station', 'stop_position')
+			    OR JSON_VALUE(tags_json, '$.subway') = 'yes'
+			    OR JSON_VALUE(tags_json, '$.amenity') = 'tram_stop'
+			  )
 			LIMIT ${sql.raw(String(pointLimit))}
 		`.execute(db())
 	).rows;

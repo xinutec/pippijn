@@ -38,6 +38,12 @@ import type { State } from "./state-space.js";
 
 export interface BuildLineProximityFactorOpts {
 	routeGraph: RouteGraph;
+	/** When set, this factor yields (returns 0) for `train` states on
+	 *  minutes the train generator covers — the per-segment generator entry
+	 *  prior owns line attribution there, so scoring it per-minute too would
+	 *  double-count. Off-window the factor is unchanged. See
+	 *  `train-generator-prior.ts`. */
+	isCovered?: (ts: number) => boolean;
 }
 
 export type LineProximityFactorFn = (state: State, obs: Observation) => number;
@@ -130,6 +136,7 @@ function linesInGraph(routeGraph: RouteGraph): Set<string> {
 
 export function buildLineProximityFactor(opts: BuildLineProximityFactorOpts): LineProximityFactorFn {
 	const routeGraph = opts.routeGraph;
+	const isCovered = opts.isCovered;
 	const cache = new Map<string, ReadonlySet<string>>();
 	const modeledLines = linesInGraph(routeGraph);
 
@@ -145,6 +152,7 @@ export function buildLineProximityFactor(opts: BuildLineProximityFactorOpts): Li
 
 	return (state: State, obs: Observation): number => {
 		if (state.mode !== "train") return 0;
+		if (isCovered?.(obs.ts)) return 0; // generator entry prior owns line here
 		if (state.lineName === null || state.lineName === "unknown_rail") return 0;
 		if (obs.gps === null) return 0;
 		const line = state.lineName;

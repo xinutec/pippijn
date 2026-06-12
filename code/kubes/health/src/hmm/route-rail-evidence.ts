@@ -33,6 +33,10 @@ import type { State } from "./state-space.js";
 
 export interface BuildRouteRailEvidenceOpts {
 	routeGraph: RouteGraph;
+	/** When set, this factor yields (returns 0) for `train` states on
+	 *  minutes the train generator covers — the per-segment generator entry
+	 *  prior owns line attribution there. See `train-generator-prior.ts`. */
+	isCovered?: (ts: number) => boolean;
 }
 
 export type RouteRailEvidenceFn = (state: State, obs: Observation) => number;
@@ -177,6 +181,7 @@ function pathExistsOnLine(
 
 export function buildRouteRailEvidence(opts: BuildRouteRailEvidenceOpts): RouteRailEvidenceFn {
 	const routeGraph = opts.routeGraph;
+	const isCovered = opts.isCovered;
 	const evidenceCache = new Map<string, FixLineEvidence>();
 	const connectivityCache = new Map<string, boolean>();
 
@@ -204,6 +209,7 @@ export function buildRouteRailEvidence(opts: BuildRouteRailEvidenceOpts): RouteR
 
 	return (state: State, obs: Observation): number => {
 		if (state.mode !== "train") return 0;
+		if (isCovered?.(obs.ts)) return 0; // generator entry prior owns line here
 		if (state.lineName === null || state.lineName === "unknown_rail") return 0;
 		if (obs.gps !== null) return 0;
 		const prev = obs.prevGpsFix;
