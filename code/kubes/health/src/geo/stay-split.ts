@@ -464,3 +464,164 @@ function splitByEvidence(fixes: FilteredPoint[], ctx: SplitContext): FilteredPoi
 
 	return runs;
 }
+
+// --- vehicle-leg split inside a walk ----------------------------------
+// Sibling of splitWalksOnEvidence (which carves a SIT out of a walk using
+// step cadence). This carves a VEHICLE leg out of a walk using GPS net
+// progress: a "walking" segment that actually contains a short ride —
+// classically "walked out of the station, then took a taxi/bus the rest
+// of the way" — comes out as one walking segment because its mean speed
+// averages the on-foot part with the ride. We must use NET DISPLACEMENT,
+// not the per-fix speed: standing in an urban canyon produces jittery
+// 20 km/h speed READINGS with near-zero actual progress, so a speed-only
+// rule would mis-split a stationary platform wait. A vehicle leg is a run
+// of fixes that genuinely *travels* at vehicle pace.
+
+/** Only walks longer than this are worth examining for a hidden ride. */
+const VEHICLE_LEG_MIN_SEGMENT_S = 5 * 60;
+/** Net-progress speed (km/h) that marks a fix as travelling, not walking.
+ *  Comfortably above the 12 km/h walking ceiling (constraint C2) so GPS
+ *  noise on a real walk can't reach it. */
+const VEHICLE_LEG_MOVE_KMH = 15;
+/** The carved leg must actually go somewhere — net displacement floor. */
+const VEHICLE_LEG_MIN_DIST_M = 400;
+/** …over at least this long, so a single glitchy pair can't trigger it. */
+const VEHICLE_LEG_MIN_DURATION_S = 120;
+/** …and contain at least one unambiguously-motorised instant — a speed
+ *  no walker or runner sustains. This second signal, combined with real
+ *  net progress, is what separates a ride from urban-canyon jitter. */
+const VEHICLE_LEG_PEAK_KMH = 20;
+/** A residual walk shorter than this on either side of the leg isn't
+ *  worth emitting as its own row — fold it into the ride instead. */
+const VEHICLE_LEG_MIN_REMAINDER_S = 60;
+
+/**
+ * Split each `walking` segment that hides a vehicle leg into
+ * `[walk?, driving, walk?]`. The carved leg is left as `driving`; the
+ * later bus-vs-car pass (#247) and OSM road naming refine it. Walks with
+ * no qualifying ride pass through untouched. Pure.
+ */
+export function splitWalksOnVehicleLeg<T extends TrackSegment>(
+	segments: readonly T[],
+	points: readonly FilteredPoint[],
+): T[] {
+	const debug = process.env.VEHICLE_SPLIT_DEBUG === "1";
+	const tt = (ts: number): string => new Date(ts * 1000).toISOString().slice(11, 16);
+	const out: T[] = [];
+	const isTrain = (s: T | undefined): boolean =>
+		s !== undefined && ((s as { refinedMode?: string }).refinedMode ?? s.mode) === "train";
+	for (let i = 0; i < segments.length; i++) {
+		const seg = segments[i];
+		if (seg.mode !== "walking" || seg.endTs - seg.startTs < VEHICLE_LEG_MIN_SEGMENT_S) {
+			out.push(seg);
+			continue;
+		}
+		const fixes = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs).sort((a, b) => a.ts - b.ts);
+		if (debug) {
+			console.error(
+				`[vehicle-split] walk ${tt(seg.startTs)}-${tt(seg.endTs)} fixes=${fixes.length} speeds=${fixes.map((f) => Math.round(f.speed_kmh ?? 0)).join(",")}`,
+			);
+		}
+		if (fixes.length < 3) {
+			out.push(seg);
+			continue;
+		}
+
+		// Find the contiguous fix interval [a,b] that best looks like a
+		// ride: real net displacement covered at vehicle MEAN pace. The
+		// mean-speed gate is the discriminator — a genuine walk can't
+		// average 15 km/h, and station jitter (high speed readings, no net
+		// progress) can't clear the distance floor. O(n²), n tiny.
+		const peakBetween = (a: number, b: number): number => {
+			let p = 0;
+			for (let k = a; k <= b; k++) p = Math.max(p, fixes[k].speed_kmh ?? 0);
+			return p;
+		};
+		let best: { a: number; b: number; netDist: number; dur: number; peak: number } | null = null;
+		for (let a = 0; a < fixes.length - 1; a++) {
+			for (let b = a + 1; b < fixes.length; b++) {
+				const dur = fixes[b].ts - fixes[a].ts;
+				if (dur < VEHICLE_LEG_MIN_DURATION_S) continue;
+				const netDist = haversineMeters(fixes[a].lat, fixes[a].lon, fixes[b].lat, fixes[b].lon);
+				if (netDist < VEHICLE_LEG_MIN_DIST_M) continue;
+				if ((netDist / dur) * 3.6 < VEHICLE_LEG_MOVE_KMH) continue;
+				const peak = peakBetween(a, b);
+				if (peak < VEHICLE_LEG_PEAK_KMH) continue;
+				// Prefer the interval covering the most ground; at a tie prefer
+				// the tighter (shorter) one, so flat departure/arrival fixes
+				// don't pad the leg into the adjacent on-foot stretch.
+				if (!best || netDist > best.netDist || (netDist === best.netDist && dur < best.dur)) {
+					best = { a, b, netDist, dur, peak };
+				}
+			}
+		}
+		if (debug) {
+			console.error(
+				`[vehicle-split]   best=${best ? `${tt(fixes[best.a].ts)}-${tt(fixes[best.b].ts)} dist=${Math.round(best.netDist)} mean=${Math.round((best.netDist / best.dur) * 3.6)} peak=${Math.round(best.peak)}` : "none"}`,
+			);
+		}
+		if (!best) {
+			out.push(seg);
+			continue;
+		}
+		// Trim on-foot shoulders the max-distance interval may have
+		// absorbed (slow walking that progresses in the same direction):
+		// shrink inward while the boundary step isn't itself vehicle-paced.
+		const stepKmh = (i: number, j: number): number => {
+			const dt = fixes[j].ts - fixes[i].ts;
+			return dt > 0 ? (haversineMeters(fixes[i].lat, fixes[i].lon, fixes[j].lat, fixes[j].lon) / dt) * 3.6 : 0;
+		};
+		let a = best.a;
+		let b = best.b;
+		while (a < b && stepKmh(a, a + 1) < VEHICLE_LEG_MOVE_KMH) a++;
+		while (b > a && stepKmh(b - 1, b) < VEHICLE_LEG_MOVE_KMH) b--;
+		const netDist = haversineMeters(fixes[a].lat, fixes[a].lon, fixes[b].lat, fixes[b].lon);
+		const dur = fixes[b].ts - fixes[a].ts;
+		const peak = peakBetween(a, b);
+
+		// Boundaries: fold a sub-minute residual walk into the ride.
+		let driveStart = fixes[a].ts;
+		let driveEnd = fixes[b].ts;
+		if (driveStart - seg.startTs < VEHICLE_LEG_MIN_REMAINDER_S) driveStart = seg.startTs;
+		if (seg.endTs - driveEnd < VEHICLE_LEG_MIN_REMAINDER_S) driveEnd = seg.endTs;
+
+		// Train-bleed guard: a walk's tail accelerating into the next train
+		// (or its head decelerating out of the previous one) is the train
+		// boundary bleeding into the walk, not a separate ride. If the
+		// carved leg butts against an adjacent train segment, skip it.
+		const BLEED_S = 90;
+		if (isTrain(segments[i + 1]) && seg.endTs - driveEnd < BLEED_S) {
+			if (debug) console.error(`[vehicle-split]   skip: boarding bleed into next train`);
+			out.push(seg);
+			continue;
+		}
+		if (isTrain(segments[i - 1]) && driveStart - seg.startTs < BLEED_S) {
+			if (debug) console.error(`[vehicle-split]   skip: alighting bleed from prev train`);
+			out.push(seg);
+			continue;
+		}
+
+		const countIn = (from: number, to: number): number => points.filter((p) => p.ts >= from && p.ts < to).length;
+		const meanKmh = dur > 0 ? Math.round((netDist / dur) * 3.6 * 10) / 10 : 0;
+		// Carve the ride. Clear the inherited on-foot enrichment (footway
+		// name, place, walking refinedMode) — OSM enrichment already ran, so
+		// this leg stays an un-named `driving` for the bus-vs-car pass (#247)
+		// and the day-state layer to render.
+		const drivePart = { ...seg } as T & { refinedMode?: string; wayName?: string; place?: string };
+		drivePart.mode = "driving";
+		drivePart.refinedMode = undefined;
+		drivePart.wayName = undefined;
+		drivePart.place = undefined;
+		drivePart.startTs = driveStart;
+		drivePart.endTs = driveEnd;
+		drivePart.avgSpeed = meanKmh;
+		drivePart.maxSpeed = Math.round(peak * 10) / 10;
+		drivePart.linearity = 1;
+		drivePart.pointCount = countIn(driveStart, driveEnd);
+		drivePart.refinedReason = `vehicle-leg split: ${Math.round(netDist)} m net progress in ${Math.round(dur / 60)} min (peak ${Math.round(peak)} km/h) inside a walking segment — a ride, not a walk`;
+		if (driveStart > seg.startTs) out.push({ ...seg, endTs: driveStart, pointCount: countIn(seg.startTs, driveStart) });
+		out.push(drivePart);
+		if (driveEnd < seg.endTs) out.push({ ...seg, startTs: driveEnd, pointCount: countIn(driveEnd, seg.endTs) });
+	}
+	return out;
+}

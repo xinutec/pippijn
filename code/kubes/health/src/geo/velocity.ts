@@ -56,7 +56,7 @@ import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proxi
 import { interpolateTimes, type SnappedPoint } from "./rail-snap.js";
 import type { TrackSegment } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
-import { splitStaysOnEvidence, splitWalksOnEvidence } from "./stay-split.js";
+import { splitStaysOnEvidence, splitWalksOnEvidence, splitWalksOnVehicleLeg } from "./stay-split.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
 import { stationAtTrainAlight } from "./transit-place.js";
 import {
@@ -1056,11 +1056,19 @@ export async function computeVelocityFromInputs(
 	);
 	const withWalkThrough = timeSync("walkThrough", () => applyStationaryWalkThrough(withSplitInterchanges, steps));
 
+	// A "walking" segment that actually contains a short ride — got off
+	// the train, then a taxi/bus to the door — averages to walking pace and
+	// stays one walk. Carve the ride out as `driving` by net GPS progress
+	// (net displacement, not the jittery per-fix speed, so a stationary
+	// platform wait is never split). Runs here so the post-train walk
+	// already exists and the carved leg can still be bus-refined below.
+	const withVehicleSplit = timeSync("vehicleSplit", () => splitWalksOnVehicleLeg(withWalkThrough, points));
+
 	// Rail-snap: attach the precomputed rail-track geometry to each
 	// train run whose route is in rail_route_cache (filled offline by
 	// refresh-rail-routes). One indexed lookup — purely additive, the
 	// raw track is untouched. See annotateSnappedPaths.
-	const withSnapped = timeSync("railSnap", () => annotateSnappedPaths(withWalkThrough, inputs.railRouteCache));
+	const withSnapped = timeSync("railSnap", () => annotateSnappedPaths(withVehicleSplit, inputs.railRouteCache));
 
 	// Bus-vs-car stop-pattern evidence (task #247): a refined-driving leg
 	// whose boarding wait and mid-leg dwells coincide with bus_stop nodes
