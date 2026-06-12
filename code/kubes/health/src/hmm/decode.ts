@@ -33,6 +33,7 @@ import { buildObservationTensor } from "./observation.js";
 import { groupStatesIntoSegments, type HmmSegment } from "./persist.js";
 import { buildRouteRailEvidence } from "./route-rail-evidence.js";
 import { buildStateSpace, type FocusPlaceRef, type State } from "./state-space.js";
+import { buildTrainGeneratorPrior } from "./train-generator-prior.js";
 import { buildTransitionMatrix } from "./transitions.js";
 
 /** Tube lines the decoder models as named `train @ line` states. Fixed
@@ -142,12 +143,23 @@ export function decodeHsmm(inputs: HsmmInputs): HmmSegment[] {
 	});
 	const baseEmission = buildEmissionFn({ placeCoords, continuityContext: inputs.continuityContext });
 	const geometricFn = buildGeometricFeasibility({ placeCoords });
-	const routeRailFn = buildRouteRailEvidence({ routeGraph: inputs.routeGraph });
-	const lineProximityFn = buildLineProximityFactor({ routeGraph: inputs.routeGraph });
+	// Train-generator soft prior (Phase 1, `2026-06-phase1-train-softprior.md`):
+	// structural `(board, line, alight)` candidates become a per-segment entry
+	// prior over `train @ L`, and `isCovered` gates the per-minute line factors
+	// off where the generator is authoritative (no double-count).
+	const trainGen = buildTrainGeneratorPrior({
+		observations: tensor,
+		routeGraph: inputs.routeGraph,
+		knownLines: KNOWN_LINES,
+	});
+	const routeRailFn = buildRouteRailEvidence({ routeGraph: inputs.routeGraph, isCovered: trainGen.isCovered });
+	const lineProximityFn = buildLineProximityFactor({ routeGraph: inputs.routeGraph, isCovered: trainGen.isCovered });
 	const emission = (state: State, obs: Observation): number =>
 		baseEmission(state, obs) + geometricFn(state, obs) + routeRailFn(state, obs) + lineProximityFn(state, obs);
 	const initialLogProb = buildInitialStatePrior();
-	const entryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
+	const baseEntryLogProb = buildEntryPrior({ placeHourProfiles, placeVisitWeights });
+	const entryLogProb = (state: State, obs: Observation): number =>
+		baseEntryLogProb(state, obs) + trainGen.entry(state, obs);
 
 	const hmmStates = hsmmViterbi({
 		observations: tensor,
