@@ -117,6 +117,21 @@ export interface DayState {
   inferred?: boolean;
 }
 
+/** Display geometry for one episode, 1:1 with a DayState. The map
+ *  renders these (not the raw segments) so it tells the same story as
+ *  the narrative. `kind` is the only style input: solid for raw/matched,
+ *  dashed for snapped/tentative, a dot for anchor. See
+ *  src/geo/episode-geometry.ts. */
+export interface EpisodeGeometry {
+  startTs: number;
+  endTs: number;
+  mode: DayState["mode"];
+  kind: "snapped" | "raw" | "anchor" | "tentative" | "matched";
+  points: { lat: number; lon: number }[];
+  /** Stay label for an `anchor` episode — drives the marker popup. */
+  place?: string;
+}
+
 export interface VelocityData {
   points: VelocityPoint[];
   segments: TrackSegment[];
@@ -124,6 +139,9 @@ export interface VelocityData {
    *  Bottom layer of the three-altitude data model; sleep is folded
    *  in as a first-class mode. See src/sleep/day-state.ts. */
   states?: DayState[];
+  /** Per-episode display geometry, 1:1 with `states`. Optional so an
+   *  older backend that omits it doesn't break the client. */
+  episodes?: EpisodeGeometry[];
   /** The day's phone-battery trace, compressed to run boundaries.
    *  Optional so an older backend that omits it doesn't break the
    *  client — the battery chart just shows "no data". */

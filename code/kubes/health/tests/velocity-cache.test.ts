@@ -26,6 +26,7 @@ function makeResult(tag: string): VelocityResult {
 		points: [],
 		segments: [],
 		states: [{ startTs: 0, endTs: 1, mode: "stationary", place: tag }],
+		episodes: [],
 		battery: [],
 		timing: {},
 	};

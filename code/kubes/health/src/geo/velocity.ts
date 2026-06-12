@@ -28,6 +28,7 @@ import {
 import { bridgeStaysWithBiometrics } from "./bridge-stays-biometrics.js";
 import { annotateBusEvidence } from "./bus-evidence.js";
 import type { ClassificationInputs } from "./classification-inputs.js";
+import { buildEpisodes, type EpisodeGeometry } from "./episode-geometry.js";
 import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour } from "./focus-places.js";
 import { qualityFilterGps } from "./gps-quality.js";
@@ -487,6 +488,12 @@ export interface VelocityResult {
 	 *  attribute on the moving state. Adjacent same-state runs
 	 *  merge. See `src/sleep/day-state.ts`. */
 	states: DayState[];
+	/** Per-episode display geometry, 1:1 with `states`. The map renders
+	 *  this (not the raw segments) so the two views cannot diverge; a
+	 *  per-mode speed filter drops a faster neighbour's fixes that bled
+	 *  across a segment boundary. See `src/geo/episode-geometry.ts` and
+	 *  `docs/design/episode-geometry.md`. */
+	episodes: EpisodeGeometry[];
 	/** The day's phone-battery trace, compressed to run boundaries.
 	 *  Derived from the same PhoneTrack fixes as `points`; the Day
 	 *  view renders it as a standalone chart. */
@@ -600,7 +607,8 @@ export async function computeVelocityFromInputs(
 		// reflects the raw segment sequence (sleep windows = empty,
 		// no rewrite).
 		const states = segmentsToDayStates(segments as EnrichedSegment[], []);
-		return { points, segments, states, battery, timing: phaseTimes };
+		const episodes = buildEpisodes(states, segments as EnrichedSegment[], points);
+		return { points, segments, states, episodes, battery, timing: phaseTimes };
 	}
 
 	const N_SAMPLES = 5;
@@ -1204,10 +1212,25 @@ export async function computeVelocityFromInputs(
 		const inferred = await timeSync("inferEmptyDay", () =>
 			inferEmptyDayStatesFromBracket(inputs.emptyDayBracket, date, tz, inputs.osm),
 		);
-		if (inferred.length > 0) return { points, segments: withBiometrics, states: inferred, battery, timing: phaseTimes };
+		if (inferred.length > 0)
+			return {
+				points,
+				segments: withBiometrics,
+				states: inferred,
+				episodes: buildEpisodes(inferred, withBiometrics, points),
+				battery,
+				timing: phaseTimes,
+			};
 	}
 
-	return { points, segments: withBiometrics, states, battery, timing: phaseTimes };
+	return {
+		points,
+		segments: withBiometrics,
+		states,
+		episodes: buildEpisodes(states, withBiometrics, points),
+		battery,
+		timing: phaseTimes,
+	};
 }
 
 /**

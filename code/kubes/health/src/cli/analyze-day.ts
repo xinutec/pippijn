@@ -58,7 +58,7 @@ await withConnection(migrate);
 
 console.log(`Analyzing ${date} for user ${userId}${tz ? ` (${tz})` : ""}\n`);
 
-const { points, segments, states, battery } = await computeVelocity(config, userId, date, tz);
+const { points, segments, states, episodes, battery } = await computeVelocity(config, userId, date, tz);
 
 console.log(`Filtered points: ${points.length}`);
 console.log(`\n=== Segments (${segments.length}) ===`);
@@ -113,6 +113,20 @@ for (const s of states) {
 			? `${dur.toString().padStart(3)}m / ${s.minutesAsleep.toString().padStart(3)}m asleep`
 			: `${dur.toString().padStart(3)}m`;
 	console.log(`  ${fmt(s.startTs)}-${fmt(s.endTs)} (${durLabel}) ${s.mode.padEnd(11)}${ctx}`);
+}
+
+// Episode geometry — what the Map tab draws, 1:1 with the states above.
+// `kind` is the geometry provenance; `n` is how many vertices were drawn
+// after the per-mode speed filter (a `raw` moving episode that shed fixes
+// over its mode ceiling shows fewer than its window held). See
+// src/geo/episode-geometry.ts.
+console.log(`\n=== Episodes (${episodes.length}) ===`);
+for (const e of episodes) {
+	const dur = Math.round((e.endTs - e.startTs) / 60);
+	const ctx = e.place ? ` @ ${e.place}` : "";
+	console.log(
+		`  ${fmt(e.startTs)}-${fmt(e.endTs)} (${dur.toString().padStart(3)}m) ${e.mode.padEnd(11)} ${e.kind.padEnd(9)} n=${String(e.points.length).padStart(3)}${ctx}`,
+	);
 }
 
 // Battery trace — the phone-charge series the Day view's battery

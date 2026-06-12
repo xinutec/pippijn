@@ -225,7 +225,7 @@ const NEVER_FLIP_TARGET = new Set(["cycling"]);
  *  shake out — the speed dimension already excluded them. Modes not in
  *  the table have no cap (sit-modes: driving / train / plane can be
  *  arbitrarily slow or fast). */
-const MAX_SPEED_FOR_MODE: Record<string, number> = {
+export const MAX_SPEED_FOR_MODE: Record<string, number> = {
 	stationary: 5,
 	walking: 12,
 	cycling: 35,
