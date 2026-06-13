@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { type HsmmCapturedDay, hsmmInputsFromFixture } from "../src/cli/hsmm-fixture.js";
 import { parseGroundTruth } from "../src/eval/ground-truth.js";
 import { type DecoderMinute, scoreDay } from "../src/eval/score-day.js";
@@ -42,14 +42,19 @@ function segmentsToMinutes(segs: readonly HmmSegment[]): DecoderMinute[] {
 const hasCorpus = existsSync(FIXTURE) && existsSync(GROUND_TRUTH);
 
 describe.runIf(hasCorpus)("Phase 1 train-generator prior — 2026-05-22 real-data line score", () => {
-	const captured = JSON.parse(readFileSync(FIXTURE, "utf8")) as HsmmCapturedDay;
-	const gt = parseGroundTruth(readFileSync(GROUND_TRUTH, "utf8"), DAY, captured.meta.tz);
-
-	const decode = decodeHsmm(hsmmInputsFromFixture(captured));
-	const minutes = segmentsToMinutes(decode);
-	// Line scoring is independent of place resolution, so an empty
-	// placeName→id map is fine — we only assert on line counts.
-	const score = scoreDay(gt.rows, minutes, new Map());
+	// The fixtures are gitignored, so they're absent in CI. Read them inside
+	// `beforeAll` (NOT at the describe-callback top level): a skipped suite
+	// still EXECUTES its callback during collection but never runs its hooks,
+	// so a top-level `readFileSync` would ENOENT in CI even with `runIf` false.
+	let score: ReturnType<typeof scoreDay>;
+	beforeAll(() => {
+		const captured = JSON.parse(readFileSync(FIXTURE, "utf8")) as HsmmCapturedDay;
+		const gt = parseGroundTruth(readFileSync(GROUND_TRUTH, "utf8"), DAY, captured.meta.tz);
+		const minutes = segmentsToMinutes(decodeHsmm(hsmmInputsFromFixture(captured)));
+		// Line scoring is independent of place resolution, so an empty
+		// placeName→id map is fine — we only assert on line counts.
+		score = scoreDay(gt.rows, minutes, new Map());
+	});
 
 	it("has train minutes to score a line against (ground truth + decoder agree on train)", () => {
 		expect(score.lineScorable).toBeGreaterThan(0);
