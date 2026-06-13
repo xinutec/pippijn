@@ -203,6 +203,24 @@ better audit, and — via Phase 2 — the named bus on the heuristic path). 4
 is the heavily-gated ownership flip. 5 is mostly subtraction, with the
 cadence/jitter caveat.
 
+### Measured 2026-06-13: a premature segment-level mode flip was rejected
+
+An attempt to shortcut to Phase 4 — let the decoder's dominant per-segment
+mode (support fraction ≥ 0.6) override the pipeline's, with no composition
+layer and no calibrated confidence — was built, unit-tested, and run
+against the golden gate. Result: **0 wins, 2 regressions.** It flipped a
+real `12:41–12:52 driving on Fulton Road` (05-25, ground-truth driving) to
+walking and shuffled a 05-20 drive away; it did **not** fire on the 06-12
+interchange it was meant to fix, because that day's decode does not call
+those minutes walking either. Root cause: the decoder's aggregate per-minute
+mode edge (≈76% vs 71%) does **not** transfer to per-segment ownership —
+the HSMM systematically under-detects short road-vehicle drives as walking,
+exactly where the pipeline carries drivable-road-corridor evidence. This
+confirms the phase ordering: the cutover needs C-bus + C2–C5 (so the decode
+itself is right) and a calibrated per-segment confidence (so the flip is
+gated on evidence, not a bare support fraction), not a raw mode-override
+seam. Reverted; no code from the attempt remains.
+
 ## Validation discipline (the reason this is safe now)
 
 - **The golden corpus is the gate.** 13 fixture days replay zero-DB
