@@ -54,7 +54,10 @@ describe.runIf(hasCorpus)("Phase 1 train-generator prior — 2026-05-22 real-dat
 		// Line scoring is independent of place resolution, so an empty
 		// placeName→id map is fine — we only assert on line counts.
 		score = scoreDay(gt.rows, minutes, new Map());
-	});
+		// A full real `decodeHsmm` runs several seconds and slows further
+		// under full-suite parallel load — past Vitest's 10 s default hook
+		// timeout. Give the decode room so the suite is deterministic.
+	}, 30_000);
 
 	it("has train minutes to score a line against (ground truth + decoder agree on train)", () => {
 		expect(score.lineScorable).toBeGreaterThan(0);
