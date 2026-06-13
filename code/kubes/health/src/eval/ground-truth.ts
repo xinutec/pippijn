@@ -291,7 +291,14 @@ function nextDay(date: string): string {
  *  (`**wrong**`), trailing whitespace, and synonyms like "likely
  *  correct" are normalised here. */
 function normaliseStatus(text: string): AuditStatus {
-	const t = text.replace(/\*+/g, "").trim().toLowerCase();
+	// Strip bold markers AND an inline provenance tag (`{user}` etc.) — the
+	// doc allows the tag in the status cell, and `parseProvenance` reads it
+	// independently, so it must not defeat the verdict match here.
+	const t = text
+		.replace(/\*+/g, "")
+		.replace(/\{[^}]*\}/g, "")
+		.trim()
+		.toLowerCase();
 	if (t === "wrong") return "wrong";
 	if (t === "correct") return "correct";
 	if (t === "partial") return "partial";
@@ -311,8 +318,10 @@ export function parseBlessedCell(text: string): ParsedBlessed | null {
 	const mode = verb[1] as GroundTruthMode;
 	const rest = verb[2].trim();
 
-	if (mode === "train") {
-		// "train From → To" or "train From → To · Line"
+	if (mode === "train" || mode === "bus") {
+		// Transit leg: "From → To" or "From → To · Line/Route". `trainFromTo`
+		// + `lineName` carry the board/alight + the line (train) or route
+		// number (bus, e.g. "38") symmetrically.
 		const tm = /^(.+?)\s+→\s+([^·]+?)(?:\s*·\s*(.+))?$/.exec(rest);
 		if (tm) {
 			return {
