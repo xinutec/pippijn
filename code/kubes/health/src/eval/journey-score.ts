@@ -216,11 +216,33 @@ function argmax(tally: ReadonlyMap<string, number>): string | null {
 	return best;
 }
 
-/** Deduped ordered mode sequence of a journey — the trip's "shape". */
+/** Deduped ordered mode sequence of a journey — the trip's "shape", with
+ *  **same-vehicle interchanges smoothed**. A walking leg sandwiched between
+ *  two legs of the same vehicle mode (train↔train, bus↔bus) is an
+ *  interchange (changing tube lines, changing buses) and is dropped, so a
+ *  Met→change→Jubilee ride reads as one `train` — matching how the user
+ *  describes the trip (decision 2026-06-13). A walk between *different*
+ *  vehicles (tube→bus) is a real transfer and kept; leading/trailing
+ *  approach/egress walks are kept. Applied symmetrically to GT and decoder.
+ */
 function modeShape(journey: Journey): string[] {
+	const legs = journey.legs;
+	const kept: string[] = [];
+	for (let i = 0; i < legs.length; i++) {
+		const m = legs[i].mode;
+		if (m === "walking" && i > 0 && i < legs.length - 1) {
+			const prev = legs[i - 1].mode;
+			const next = legs[i + 1].mode;
+			const sameVehicle = prev === next && (prev === "train" || prev === "bus");
+			if (sameVehicle) continue; // interchange walk — smooth it away
+		}
+		kept.push(m);
+	}
+	// Dedupe consecutive identical modes (incl. the two vehicle legs the
+	// dropped interchange now leaves adjacent).
 	const shape: string[] = [];
-	for (const leg of journey.legs) {
-		if (shape[shape.length - 1] !== leg.mode) shape.push(leg.mode);
+	for (const m of kept) {
+		if (shape[shape.length - 1] !== m) shape.push(m);
 	}
 	return shape;
 }
