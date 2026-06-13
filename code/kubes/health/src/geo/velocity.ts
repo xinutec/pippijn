@@ -56,7 +56,7 @@ import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proximity.js";
 import { interpolateTimes, type SnappedPoint } from "./rail-snap.js";
 import type { TrackSegment } from "./segments.js";
-import { classifySegments, enforcePhysicalConstraints } from "./segments.js";
+import { classifySegments, enforcePhysicalConstraints, isStationaryIncoherent } from "./segments.js";
 import { splitStaysOnEvidence, splitWalksOnEvidence, splitWalksOnVehicleLeg } from "./stay-split.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
 import { stationAtTrainAlight } from "./transit-place.js";
@@ -971,7 +971,36 @@ export async function computeVelocityFromInputs(
 		}),
 	);
 
-	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(physicallyCorrected)));
+	// Stationary-coherence constraint: a segment the classifier called
+	// `stationary` but whose fixes march in a directed line over real
+	// distance is slow locomotion (a walk to a platform), not a stay —
+	// low per-fix speed misread it as dwelling. Reclassify to walking
+	// BEFORE merge + place attribution, so it (a) coalesces with the
+	// adjacent walk and (b) never gets named after a POI it merely drifted
+	// past (the 2026-06-12 "Bleecker" / "The Other Palace" phantoms). Net
+	// displacement is the straight-line first→last fix distance; isolated
+	// stays (low linearity) and barely-moving stays (small displacement)
+	// are untouched. See `isStationaryIncoherent`.
+	const coherent = timeSync("stationaryCoherence", () =>
+		physicallyCorrected.map((seg) => {
+			if ((seg.refinedMode ?? seg.mode) !== "stationary") return seg;
+			const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+			if (segPoints.length < 2) return seg;
+			const first = segPoints[0];
+			const last = segPoints[segPoints.length - 1];
+			const netDisplacementM = haversineMeters(first.lat, first.lon, last.lat, last.lon);
+			if (!isStationaryIncoherent({ linearity: seg.linearity, netDisplacementM })) return seg;
+			return {
+				...seg,
+				mode: "walking" as const,
+				refinedMode: "walking",
+				refinedReason: `stationary-coherence override (linear ${netDisplacementM.toFixed(0)} m progress, lin ${seg.linearity.toFixed(2)} — moving, not a stay)`,
+				place: undefined,
+			};
+		}),
+	);
+
+	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(coherent)));
 
 	// Collapse a sit that indoor/urban GPS jitter shattered into several
 	// co-located stays with different wrong labels (see demoteJitterWalkToStationary).
@@ -1005,12 +1034,23 @@ export async function computeVelocityFromInputs(
 		),
 	);
 
+	// Second cadence-drive revert. The FIRST revert (≈l.933) runs before
+	// annotateRailRuns / annotateUndergroundRuns exist, so the afternoon's
+	// fast underground fixes were still `driving` then — and a cadence-flip
+	// sandwiched between them (a platform interchange) saw a "driving"
+	// neighbour and survived. Now those neighbours are `train`, so an
+	// isolated walking-pace flip between two trains reverts to the walk it
+	// is (the 2026-06-12 King's Cross Victoria→Met interchange). A real
+	// drive to a station is unaffected: it is not pedestrian-paced, so the
+	// avg-speed gate in revertIsolatedCadenceDrives keeps it.
+	const reReverted = timeSync("revertIsolatedCadence2", () => revertIsolatedCadenceDrives(withUnderground));
+
 	// Absorb a platform / concourse wait into the boarding of its train
 	// run, so a station wait doesn't surface as a standalone stay
 	// mislabelled with the nearest focus place.
 	const withBoarding = await time(
 		"boardingPlatform",
-		absorbBoardingPlatform(withUnderground, points, (lat, lon) =>
+		absorbBoardingPlatform(reReverted, points, (lat, lon) =>
 			inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
 		),
 	);
@@ -1039,6 +1079,12 @@ export async function computeVelocityFromInputs(
 	// snap keys off the corrected station pair. See reconcileAdjacentRailLegs.
 	const withReconciledRail = timeSync("railReconcile", () => reconcileAdjacentRailLegs(withAbsorbedDriveStops));
 
+	// Coalesce a tube ride the reconstruction left as two adjacent
+	// same-route train segments (one possibly line-named, one not) — the
+	// 2026-06-12 Victoria→King's Cross split. Runs after reconciliation so
+	// it sees the final, station-corrected legs.
+	const withMergedTrains = timeSync("mergeSameRouteTrains", () => mergeAdjacentSameRouteTrains(withReconciledRail));
+
 	// Stationary walk-through correction (cadence + GPS-translation fusion):
 	// a "stationary" stop the watch shows was actually a walk-through — a clear
 	// per-minute step burst coinciding with real GPS translation. Runs HERE,
@@ -1053,7 +1099,7 @@ export async function computeVelocityFromInputs(
 	// from the line graph by timing fit.
 	const withSplitInterchanges = await time(
 		"interchangeSplit",
-		spliceInterchanges(withReconciledRail, points, steps, inputs.osm),
+		spliceInterchanges(withMergedTrains, points, steps, inputs.osm),
 	);
 	const withWalkThrough = timeSync("walkThrough", () => applyStationaryWalkThrough(withSplitInterchanges, steps));
 
@@ -1594,6 +1640,59 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 	return result;
 }
 
+/** The boarding→alighting station pair at the core of a train wayName
+ *  ("Victoria → King's Cross St Pancras"), stripped of any "· Line"
+ *  suffix. Null when the segment isn't a station-pair-labelled train. */
+function trainStationPair(seg: EnrichedSegment): string | null {
+	if ((seg.refinedMode ?? seg.mode) !== "train") return null;
+	const w = seg.wayName;
+	if (!w || !w.includes("→")) return null;
+	return w.split(" · ")[0].trim();
+}
+
+/**
+ * Merge consecutive train segments that resolve to the SAME board→alight
+ * station pair into one ride. The rail/underground reconstruction can
+ * leave a single tube journey as two adjacent train segments — a
+ * late-synced fix re-segmenting it, or a coarse-fix split — and only one
+ * half may carry the line name, so the timeline shows two identical-route
+ * "train A → B" rows back to back (the 2026-06-12 Victoria→King's Cross
+ * case). Coalesce them, keeping the line-named label and any snapped
+ * geometry. Two DIFFERENT routes never share a station-pair string, so a
+ * genuine interchange (a walk separates the legs anyway) is untouched.
+ * Pure.
+ */
+export function mergeAdjacentSameRouteTrains(segments: EnrichedSegment[]): EnrichedSegment[] {
+	const out: EnrichedSegment[] = [];
+	for (const seg of segments) {
+		const prev = out[out.length - 1];
+		const pair = trainStationPair(seg);
+		if (
+			prev &&
+			pair !== null &&
+			trainStationPair(prev) === pair &&
+			seg.startTs - prev.endTs <= MOVING_MERGE_MAX_GAP_S
+		) {
+			const w0 = prev.pointCount;
+			const w1 = seg.pointCount;
+			const wTot = w0 + w1 || 1;
+			prev.endTs = seg.endTs;
+			prev.pointCount = w0 + w1;
+			prev.avgSpeed = Math.round(((prev.avgSpeed * w0 + seg.avgSpeed * w1) / wTot) * 10) / 10;
+			prev.maxSpeed = Math.round(Math.max(prev.maxSpeed, seg.maxSpeed) * 10) / 10;
+			prev.linearity = Math.round(((prev.linearity * w0 + seg.linearity * w1) / wTot) * 100) / 100;
+			// Keep the more specific label — the half that resolved a line.
+			if (!(prev.wayName ?? "").includes(" · ") && (seg.wayName ?? "").includes(" · ")) {
+				prev.wayName = seg.wayName;
+			}
+			if (!prev.snappedPath && seg.snappedPath) prev.snappedPath = seg.snappedPath;
+			continue;
+		}
+		out.push({ ...seg });
+	}
+	return out;
+}
+
 /**
  * Annotate consecutive rail-like segments as a single tube/train journey.
  *
@@ -1745,6 +1844,36 @@ export function findBoardingPlatformFix(points: FilteredPoint[], startTs: number
 	}
 
 	return earliestIdx >= 0 ? windowFixes[earliestIdx] : null;
+}
+
+/** Canonicalise one OSM rail-line name into the set of physical lines it
+ *  denotes, so the board∩alight intersection can resolve a unique line
+ *  despite OSM's inconsistent naming. Two OSM quirks are handled:
+ *
+ *   1. **Direction split** — a line's two directions are separate relations
+ *      ("Victoria Line" vs "Victoria Line Northbound", "Jubilee Line" vs
+ *      "Jubilee Line Eastbound"). Strip the trailing compass word.
+ *   2. **Shared-track combine** — lines that share track are tagged under
+ *      one relation ("Circle, Hammersmith & City and Metropolitan Lines"
+ *      at King's Cross, "Circle and District Lines" at Victoria) while the
+ *      same line is plain ("Metropolitan Line") elsewhere. Split the
+ *      combined name on ", " / " and " and re-suffix each component, so
+ *      "Circle, Hammersmith & City and Metropolitan Lines" yields
+ *      ["Circle Line", "Hammersmith & City Line", "Metropolitan Line"]
+ *      (note "&" is not a separator, so "Hammersmith & City" stays whole).
+ *
+ *  A plain singular name returns itself. */
+export function expandTubeLineNames(name: string): string[] {
+	const base = name.replace(/\s+(?:East|West|North|South)bound$/i, "").trim();
+	const combined = base.match(/^(.*) Lines$/);
+	if (combined) {
+		const parts = combined[1]
+			.split(/,\s*|\s+and\s+/)
+			.map((p) => p.trim())
+			.filter(Boolean);
+		if (parts.length > 1) return parts.map((p) => `${p} Line`);
+	}
+	return [base];
 }
 
 export async function annotateRailRuns(
@@ -1993,7 +2122,16 @@ export async function annotateRailRuns(
 					linesLookup(beforeLookup.lat, beforeLookup.lon),
 					linesLookup(after.lat, after.lon),
 				]);
-				const intersection = [...startLines].filter((l) => endLines.has(l));
+				// OSM tags each travel direction as its own line name
+				// ("Jubilee Line Eastbound" at one station, "Jubilee Line" at
+				// the next), so a raw string intersection comes up empty for
+				// the same physical line. Canonicalise (drop the directional
+				// suffix) into a Set before intersecting — Wembley Park ∩ Green
+				// Park then resolves to the single Jubilee Line, King's Cross ∩
+				// Wembley Park to the Metropolitan.
+				const startCanon = new Set([...startLines].flatMap(expandTubeLineNames));
+				const endCanon = new Set([...endLines].flatMap(expandTubeLineNames));
+				const intersection = [...startCanon].filter((l) => endCanon.has(l));
 				if (intersection.length === 1) return `${base} · ${intersection[0]}`;
 				return base;
 			} catch {

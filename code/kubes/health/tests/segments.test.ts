@@ -4,6 +4,7 @@ import {
 	classifySegments,
 	enforcePhysicalConstraints,
 	inferTransitGaps,
+	isStationaryIncoherent,
 	normalizeScores,
 	type TrackSegment,
 } from "../src/geo/segments.js";
@@ -662,6 +663,37 @@ describe("classifySegments", () => {
 		// Should produce at least 3 segments: stationary → moving → stationary.
 		expect(segments.length).toBeGreaterThanOrEqual(3);
 		expect(segments.some((s) => s.mode !== "stationary")).toBe(true);
+	});
+});
+
+describe("isStationaryIncoherent", () => {
+	// A stay mills around a point (low linearity, ~0 net displacement). The
+	// 2026-06-12 "Bleecker" / "The Other Palace" phantoms were the opposite:
+	// a slow walk to Victoria, fixes marching in a line, mislabelled as a
+	// stay and named after a POI it drifted past.
+
+	it("flags a directed, displaced 'stationary' segment as incoherent (the Bleecker phantom)", () => {
+		// lin 0.91, ~106 m net progress — a walk, not a stay.
+		expect(isStationaryIncoherent({ linearity: 0.91, netDisplacementM: 106 })).toBe(true);
+	});
+
+	it("does NOT flag a genuine stay that mills around a point (clinic: low linearity)", () => {
+		expect(isStationaryIncoherent({ linearity: 0.28, netDisplacementM: 40 })).toBe(false);
+	});
+
+	it("does NOT flag a still stay whose few fixes happen to be colinear but barely move", () => {
+		// High linearity but tiny displacement — the floor protects it.
+		expect(isStationaryIncoherent({ linearity: 0.95, netDisplacementM: 20 })).toBe(false);
+	});
+
+	it("does NOT flag a home stay (moderate linearity, small displacement)", () => {
+		expect(isStationaryIncoherent({ linearity: 0.56, netDisplacementM: 60 })).toBe(false);
+	});
+
+	it("requires BOTH directed motion and real displacement", () => {
+		expect(isStationaryIncoherent({ linearity: 0.95, netDisplacementM: 80 })).toBe(false); // displaced too little
+		expect(isStationaryIncoherent({ linearity: 0.6, netDisplacementM: 300 })).toBe(false); // not directed
+		expect(isStationaryIncoherent({ linearity: 0.85, netDisplacementM: 250 })).toBe(true); // both
 	});
 });
 

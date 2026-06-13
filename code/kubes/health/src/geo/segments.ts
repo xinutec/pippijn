@@ -231,6 +231,31 @@ export function enforcePhysicalConstraints(seg: TrackSegment): TrackSegment {
 	return seg;
 }
 
+/** A genuine stay mills around a point: its fixes scatter (LOW linearity)
+ *  and stay put. Above this linearity the motion is *directed* — the user
+ *  is travelling in a line, not dwelling. */
+export const STAY_MAX_LINEARITY = 0.7;
+/** Maximum straight-line, start-to-end displacement a real stay may show.
+ *  GPS smear + a large venue footprint stay well under this; a walk toward
+ *  a station crosses it. Paired with the linearity gate so a jittery (but
+ *  genuinely still) stay — which never reaches high linearity — is safe. */
+export const STAY_MAX_NET_DISPLACEMENT_M = 90;
+
+/**
+ * Stationary-coherence constraint: a segment labelled `stationary` whose
+ * fixes progress in a directed line over a real distance is not a stay —
+ * it is slow locomotion (a walk to a platform, a crawl through traffic)
+ * that low per-fix speed misread as dwelling. Left unchecked, the place
+ * step then names the "stay" after whatever POI it drifted past (the
+ * 2026-06-12 "Bleecker" / "The Other Palace" phantoms on the walk to
+ * Victoria). This is a physical-impossibility constraint, not a heuristic:
+ * a stay does not translate `STAY_MAX_NET_DISPLACEMENT_M` along a straight
+ * line. Pure decision so the calibration is unit-testable.
+ */
+export function isStationaryIncoherent(opts: { linearity: number; netDisplacementM: number }): boolean {
+	return opts.linearity > STAY_MAX_LINEARITY && opts.netDisplacementM > STAY_MAX_NET_DISPLACEMENT_M;
+}
+
 /**
  * Normalise raw mode scores from `scoreWindow` into a probability + margin.
  *
