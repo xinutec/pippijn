@@ -97,9 +97,17 @@ export interface DayScore {
 }
 
 /** Canonicalise modes so sleeping↔stationary score as a match. */
-function canonicalMode(m: GroundTruthMode | DecoderMode): string {
+export function canonicalMode(m: GroundTruthMode | DecoderMode): string {
 	if (m === "sleeping") return "stationary";
 	return m;
+}
+
+/** Modes that count as "moving" — the legs that make up a journey.
+ *  `stationary`/`sleeping`/`unknown` are not journey legs; they bound
+ *  journeys instead. */
+export function isMovementMode(m: GroundTruthMode | DecoderMode): boolean {
+	const c = canonicalMode(m);
+	return c === "walking" || c === "cycling" || c === "driving" || c === "bus" || c === "train" || c === "plane";
 }
 
 export function scoreDay(
