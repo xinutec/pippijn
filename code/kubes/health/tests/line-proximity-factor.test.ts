@@ -204,3 +204,26 @@ describe("scoreLineProximity (pure decision)", () => {
 		).toBeGreaterThan(0);
 	});
 });
+
+describe("buildLineProximityFactor — unknown_rail road guard", () => {
+	const graph = buildRouteGraph([], []);
+	const fn = buildLineProximityFactor({ routeGraph: graph });
+	const here = { lat: 51.5, lon: -0.1, speedKmh: 18 };
+
+	it("penalises train @ unknown_rail when the fix is road-nearer than rail", () => {
+		const score = fn(train("unknown_rail"), obs({ gps: here, roadDistM: 8, railDistM: 240 }));
+		expect(score).toBeLessThan(0);
+	});
+
+	it("does not penalise unknown_rail when rail is nearer (a real surface ride)", () => {
+		expect(fn(train("unknown_rail"), obs({ gps: here, roadDistM: 200, railDistM: 6 }))).toBe(0);
+	});
+
+	it("does not fire on a GPS-null minute (a real underground ride)", () => {
+		expect(fn(train("unknown_rail"), obs({ gps: null, roadDistM: 8, railDistM: 240 }))).toBe(0);
+	});
+
+	it("does not fire when road/rail proximity is unknown", () => {
+		expect(fn(train("unknown_rail"), obs({ gps: here }))).toBe(0);
+	});
+});
