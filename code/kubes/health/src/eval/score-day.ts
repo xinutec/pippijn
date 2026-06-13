@@ -27,7 +27,16 @@
 
 import type { GroundTruthMode, GroundTruthRow } from "./ground-truth.js";
 
-export type DecoderMode = "stationary" | "sleeping" | "walking" | "cycling" | "driving" | "train" | "plane" | "unknown";
+export type DecoderMode =
+	| "stationary"
+	| "sleeping"
+	| "walking"
+	| "cycling"
+	| "driving"
+	| "bus"
+	| "train"
+	| "plane"
+	| "unknown";
 
 /** Per-minute decoder output the scorer consumes. */
 export interface DecoderMinute {

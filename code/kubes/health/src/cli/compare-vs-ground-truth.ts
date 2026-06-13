@@ -453,7 +453,11 @@ function pipelineToDecoderMinutes(
 			minutes.push({ ts, mode: "unknown", placeId: null, lineName: null });
 			continue;
 		}
-		const mode = (seg.refinedMode ?? seg.mode) as DecoderMinute["mode"];
+		// `vehicleKind=bus` refines a driving leg into a bus — mirror the UI
+		// (`day-state.ts`) so the scorer sees the same mode the user does, and
+		// a blessed `bus` row is scorable instead of always reading `driving`.
+		const mode: DecoderMinute["mode"] =
+			seg.vehicleKind === "bus" ? "bus" : ((seg.refinedMode ?? seg.mode) as DecoderMinute["mode"]);
 		const placeId = seg.place !== undefined ? (placeNameToId.get(seg.place.toLowerCase()) ?? null) : null;
 		const lineName = mode === "train" ? pipelineLineName(seg.wayName) : null;
 		minutes.push({ ts, mode, placeId, lineName });
