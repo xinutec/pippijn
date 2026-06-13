@@ -26,7 +26,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { parseGroundTruth } from "../eval/ground-truth.js";
-import { scoreJourneys } from "../eval/journey-score.js";
+import { decoderJourneys, groundTruthJourneys, scoreJourneys } from "../eval/journey-score.js";
 import { type DecoderMinute, scoreDay } from "../eval/score-day.js";
 import { decodeHsmm } from "../hmm/decode.js";
 import type { HmmSegment } from "../hmm/persist.js";
@@ -50,9 +50,15 @@ function pct(n: number, d: number): string {
 	return d === 0 ? "  n/a" : `${((100 * n) / d).toFixed(1)}%`;
 }
 
+/** Compact one-line shape of a journey's legs, e.g. "walking → train:Jubilee Line → walking". */
+function journeyShape(legs: readonly { mode: string; line: string | null }[]): string {
+	return legs.map((l) => l.mode + (l.line !== null ? `:${l.line}` : "")).join(" → ");
+}
+
 async function main(): Promise<void> {
 	const args = process.argv.slice(2);
 	const onlyDate = args.find((a) => /^\d{4}-\d{2}-\d{2}$/.test(a)) ?? null;
+	const verbose = args.includes("--verbose") || args.includes("-v");
 
 	let files: string[];
 	try {
@@ -106,6 +112,15 @@ async function main(): Promise<void> {
 		console.log(
 			`   (journey)  trips ${j.journeysModeSequenceMatched}/${j.journeysExpected} ${pct(j.journeysModeSequenceMatched, j.journeysExpected)} · legs-mode ${j.legModeMatching}/${j.legModeScorable} ${pct(j.legModeMatching, j.legModeScorable)} · legs-line ${j.legLineMatching}/${j.legLineScorable} ${pct(j.legLineMatching, j.legLineScorable)}`,
 		);
+
+		if (verbose) {
+			const gtJ = groundTruthJourneys(gt.rows);
+			const decJ = decoderJourneys(minutes);
+			console.log("   GT  journeys (the truth):");
+			for (const jj of gtJ) console.log(`     · ${journeyShape(jj.legs)}`);
+			console.log("   DEC journeys (decoder):");
+			for (const jj of decJ) console.log(`     · ${journeyShape(jj.legs)}`);
+		}
 
 		tScorable += s.scorableMinutes;
 		tModeMatch += s.modeMatching;

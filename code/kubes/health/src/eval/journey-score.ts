@@ -85,11 +85,21 @@ export interface LegResult {
 	lineMatch: "match" | "mismatch" | "na";
 }
 
+/** A stay shorter than this is an *in-journey pause* (a platform wait, an
+ *  interchange, a GPS-null blip) and does NOT end the journey; a stay this
+ *  long or longer is a destination that ends it. Without this, a single
+ *  stationary minute mid-trip shatters one journey into several — the metric
+ *  would then punish "trip structure" for noise, not for a real fragmentation.
+ *  Applied symmetrically to the ground-truth and decoder sides so they are
+ *  comparable. 5 min absorbs waits/blips without merging genuine visits. */
+const JOURNEY_PAUSE_MAX_S = 5 * 60;
+
 /** Build the ground-truth leg + journey structure from the audit rows.
  *  Only `correct` rows with a parsed blessed cell contribute (the only
  *  rows where the cell IS the truth — same gate as `score-day.ts`).
- *  Consecutive movement rows form one journey; any non-movement
- *  (`stationary`/`sleeping`) or unscorable row breaks the run. */
+ *  Consecutive movement rows form one journey; a non-movement stay of
+ *  `JOURNEY_PAUSE_MAX_S`+ (or any unscorable row) breaks the run, while a
+ *  shorter stay is absorbed as an in-journey pause. */
 export function groundTruthJourneys(rows: readonly GroundTruthRow[]): Journey[] {
 	const journeys: Journey[] = [];
 	let current: Leg[] = [];
@@ -108,7 +118,8 @@ export function groundTruthJourneys(rows: readonly GroundTruthRow[]): Journey[] 
 			continue;
 		}
 		if (!isMovementMode(b.mode)) {
-			flush();
+			// A long stay ends the journey; a brief pause is absorbed.
+			if (row.endTs - row.startTs >= JOURNEY_PAUSE_MAX_S) flush();
 			continue;
 		}
 		current.push({
@@ -133,7 +144,10 @@ function lineOf(mode: GroundTruthMode, lineName: string | null): string | null {
  *  leg; movement legs separated only by ≤ `gapToleranceMin` of
  *  non-movement still belong to one journey (a brief stay mid-trip — e.g.
  *  a platform wait — does not split the journey). */
-export function decoderJourneys(minutes: readonly DecoderMinute[], gapToleranceMin = 0): Journey[] {
+export function decoderJourneys(
+	minutes: readonly DecoderMinute[],
+	gapToleranceMin = JOURNEY_PAUSE_MAX_S / 60,
+): Journey[] {
 	const sorted = [...minutes].sort((a, b) => a.ts - b.ts);
 	// First collapse into legs (movement only).
 	const legs: Leg[] = [];
