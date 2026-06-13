@@ -140,4 +140,33 @@ describe("scoreJourneys — trip structure", () => {
 		const score = scoreJourneys(rows, decoder);
 		expect(score.journeysModeSequenceMatched).toBe(0);
 	});
+
+	it("smooths a same-vehicle interchange (Met→change→Jubilee) into one train", () => {
+		// GT says one `train`; decoder splits it with an interchange walk.
+		// Per the 2026-06-13 decision, that interchange smooths away → match.
+		const decoder = [
+			...dec(0, 5, "walking"),
+			...dec(5, 12, "train", "Metropolitan Line"),
+			...dec(12, 14, "walking"), // interchange at Baker St
+			...dec(14, 20, "train", "Jubilee Line"),
+			...dec(20, 25, "walking"),
+		];
+		const score = scoreJourneys(rows, decoder);
+		expect(score.journeysModeSequenceMatched).toBe(1);
+	});
+
+	it("keeps a real multi-modal transfer (tube→bus) as distinct legs", () => {
+		// A walk between DIFFERENT vehicles is a genuine transfer, not an
+		// interchange — it must not smooth. GT here is a single train, so a
+		// train→walk→bus decoder correctly does NOT match.
+		const decoder = [
+			...dec(0, 5, "walking"),
+			...dec(5, 12, "train", "Jubilee Line"),
+			...dec(12, 14, "walking"),
+			...dec(14, 20, "bus", "38"),
+			...dec(20, 25, "walking"),
+		];
+		const score = scoreJourneys(rows, decoder);
+		expect(score.journeysModeSequenceMatched).toBe(0);
+	});
 });
