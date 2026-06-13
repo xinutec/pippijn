@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: health-bus-refresh
+  namespace: health
+spec:
+  # Daily at 05:30 UTC — 30 min after the rail refresh (05:00) so the two
+  # Overpass jobs never run concurrently (one heavy mirror call at a time).
+  # Daily cadence keeps a newly-ridden route's stop list no more than a day
+  # stale; the table is a pure cache, rebuilt transactionally each run.
+  schedule: "30 5 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 5400
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: refresh
+              image: xinutec/health-sync:latest
+              command: ["node", "dist/cli/refresh-bus-routes.js"]
+              env:
+                - name: DB_HOST
+                  value: health-db
+                - name: DB_NAME
+                  value: health
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_PASSWORD
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
