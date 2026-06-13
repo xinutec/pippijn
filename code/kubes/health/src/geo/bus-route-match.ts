@@ -158,3 +158,68 @@ export function matchBusRoute(
 	}
 	return best;
 }
+
+/** A timeline-ready label for a matched route, in the same `From → To ·
+ *  Ref` shape the ground-truth bus cells use (`ground-truth.ts`). Falls
+ *  back to the bare ref when a stop has no name. */
+export function busRouteLabel(match: BusRouteMatch): string {
+	const from = match.boardStop.name;
+	const to = match.alightStop.name;
+	return from && to ? `${from} → ${to} · ${match.routeRef}` : match.routeRef;
+}
+
+/** The fields `annotateBusRoutes` reads/writes on a pipeline segment — a
+ *  structural subset of `EnrichedSegment`, so this module stays free of a
+ *  velocity import cycle. */
+export interface BusRouteAnnotatable {
+	startTs: number;
+	endTs: number;
+	mode: string;
+	refinedMode?: string;
+	vehicleKind?: "bus";
+	wayName?: string;
+}
+
+type TsFix = { ts: number; lat: number; lon: number };
+
+/**
+ * Name the bus route each road-vehicle leg rode. For every segment whose
+ * effective mode is `driving`, anchor its first + last fix to a cached
+ * route's stops (`matchBusRoute`); on a match, mark it `vehicleKind:"bus"`
+ * and set `wayName` to the route label. Purely additive — an unmatched leg
+ * (taxi/car, or no routes loaded) is returned untouched, so with an empty
+ * `routes` set the pass is a no-op. Stronger than the dwell-based
+ * `bus-evidence` pass: a leg that matches a route's stop sequence IS that
+ * bus even with too few dwells to score, which is the short-ride
+ * (06-12 Green Park→clinic) failure that motivated C-bus.
+ */
+export function annotateBusRoutes<T extends BusRouteAnnotatable>(
+	segments: readonly T[],
+	points: readonly TsFix[],
+	routes: readonly BusRoute[],
+	opts?: MatchOptions,
+): T[] {
+	if (routes.length === 0) return segments.slice();
+	const out: T[] = [];
+	for (const seg of segments) {
+		const effective = seg.refinedMode ?? seg.mode;
+		if (effective !== "driving") {
+			out.push(seg);
+			continue;
+		}
+		const legFixes = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+		if (legFixes.length < 2) {
+			out.push(seg);
+			continue;
+		}
+		const board = legFixes[0];
+		const alight = legFixes[legFixes.length - 1];
+		const match = matchBusRoute({ board, alight }, routes, opts);
+		if (match === null) {
+			out.push(seg);
+			continue;
+		}
+		out.push({ ...seg, vehicleKind: "bus", wayName: busRouteLabel(match) });
+	}
+	return out;
+}

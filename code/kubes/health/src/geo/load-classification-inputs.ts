@@ -27,6 +27,7 @@ import { loadDecode } from "../hmm/persist.js";
 import type { NextcloudConfig } from "../nextcloud/phonetrack.js";
 import { fetchTrackPointsRange, openPhoneTrack } from "../nextcloud/phonetrack.js";
 import { loadDaySleepWindows } from "../sleep/load.js";
+import { loadAllBusRoutes } from "./bus-route-cache.js";
 import type {
 	ClassificationInputs,
 	DayIdentity,
@@ -91,6 +92,7 @@ export async function loadClassificationInputs(
 		biometrics,
 		hsmmDecode,
 		railRouteCache,
+		busRouteCache,
 		homeTzRaw,
 		sleepWindows,
 		emptyDayBracket,
@@ -104,6 +106,7 @@ export async function loadClassificationInputs(
 		}),
 		loadDecode(db(), userId, date),
 		loadRailRouteCacheQuery(),
+		loadAllBusRoutes(),
 		getSyncState(userId, "home_tz"),
 		loadDaySleepWindows(userId, date),
 		loadEmptyDayBracket(userId, date),
@@ -122,6 +125,7 @@ export async function loadClassificationInputs(
 		modeBiometrics,
 		hsmmDecode,
 		railRouteCache,
+		busRouteCache,
 		// OSM / Nominatim adapter — `dbOsmAdapter` in production (delegates
 		// to the top-level functions in `osm.ts`), or a wrapping recorder
 		// during fixture capture. The classification core reaches all OSM

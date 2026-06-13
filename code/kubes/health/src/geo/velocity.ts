@@ -27,6 +27,7 @@ import {
 } from "./biometrics.js";
 import { bridgeStaysWithBiometrics } from "./bridge-stays-biometrics.js";
 import { annotateBusEvidence } from "./bus-evidence.js";
+import { annotateBusRoutes } from "./bus-route-match.js";
 import type { ClassificationInputs } from "./classification-inputs.js";
 import { buildEpisodes, type EpisodeGeometry } from "./episode-geometry.js";
 import { useBiometricFactor } from "./factors/feature-flag.js";
@@ -1076,6 +1077,17 @@ export async function computeVelocityFromInputs(
 	// driving legs; purely additive annotation.
 	const withVehicleKind = await time("busEvidence", annotateBusEvidence(withSnapped, points, inputs.osm));
 
+	// C-bus route naming (#252): for each driving leg, anchor its first +
+	// last fix to a mirrored bus route's stops and, on a match, name the
+	// bus ("From → To · Ref") + mark it a bus. Stronger than the dwell
+	// evidence above — it catches short rides with too few dwells to score
+	// (the 06-12 Green Park→clinic leg). Purely additive: with an empty
+	// `bus_route_cache` (no mirror yet, or fixtures predating it) this is a
+	// no-op, so the golden corpus is unchanged until routes are captured.
+	const withBusRoutes = timeSync("busRoutes", () =>
+		annotateBusRoutes(withVehicleKind, points, inputs.busRouteCache ?? []),
+	);
+
 	// Per-segment displayTz: the IANA tz the frontend should use to render
 	// the segment's wall-clock. Derived from the segment's geographic
 	// location (centroid for stationary, midpoint for moving). Lets the UI
@@ -1085,7 +1097,7 @@ export async function computeVelocityFromInputs(
 	// gap segments).
 	const homeTz = inputs.homeTz;
 	const withDisplayTz = timeSync("displayTz", () =>
-		withVehicleKind.map((s): EnrichedSegment => {
+		withBusRoutes.map((s): EnrichedSegment => {
 			const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
 			if (segPoints.length === 0) {
 				return { ...s, displayTz: homeTz };

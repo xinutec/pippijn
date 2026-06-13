@@ -31,6 +31,7 @@
 import type { HmmSegment } from "../hmm/persist.js";
 import type { RawSleepWindow } from "../sleep/load.js";
 import type { HrPoint, SleepStageRecord, StepPoint } from "./biometrics.js";
+import type { BusRoute } from "./bus-route-match.js";
 import type { ModeStats } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import type { KnownPlace } from "./place-snap.js";
@@ -145,6 +146,12 @@ export interface ClassificationInputs {
 	 *  is global (not user-scoped) and small enough to load in full
 	 *  for the day. Phase 5 of the deterministic-fixtures proposal. */
 	railRouteCache: RailRouteEntry[];
+	/** Mirrored OSM bus routes (`bus_route_cache`, filled offline by
+	 *  refresh-bus-routes). `annotateBusRoutes` anchors each driving leg's
+	 *  endpoints to a route's stops to name the bus (#252 / C-bus).
+	 *  Optional — fixtures captured before the field existed (and any day
+	 *  with an empty mirror) replay as "no bus routes", a no-op. */
+	busRouteCache?: BusRoute[];
 	/** OSM + Nominatim lookups, as an adapter interface. Production
 	 *  injects `dbOsmAdapter` (delegates to the top-level functions in
 	 *  `osm.ts`); test fixtures will inject `FixtureOsmAdapter`
