@@ -36,7 +36,7 @@ import { serializeBusRoute } from "../geo/bus-route-cache.js";
 import type { BusRoute } from "../geo/bus-route-match.js";
 import { buildBusRouteOverpassQuery, extractBusRoutes } from "../geo/osm-bus-routes.js";
 import { overpassFetch } from "../geo/osm-overpass.js";
-import { type Bbox, bboxFromFixes, tileBbox } from "../geo/route-graph-loader.js";
+import { type Bbox, bboxFromFixes, clusterIntoRegions, tileBbox } from "../geo/route-graph-loader.js";
 
 const config = z
 	.object({
@@ -58,38 +58,44 @@ const config = z
 		},
 	});
 
-/** Hard cap on the mirror bbox span (degrees ≈ 55 km/°). A focus set
- *  spanning more than this is travel history across cities, not a single
- *  metropolitan area — refuse rather than pull a continent of bus routes. */
-const MAX_BBOX_SPAN_DEG = 0.7;
+/** Only mirror around focus places seen within this window — drops stale
+ *  travel history (a user's old San Francisco / Toronto clusters) so the
+ *  mirror tracks where they live now. */
+const RECENT_DAYS = 120;
+/** Two focus places belong to the same metropolitan region if within this
+ *  of each other. Comfortably larger than a city's diameter, far smaller
+ *  than the gap between cities — cleanly separates London from Amsterdam. */
+const REGION_GAP_KM = 80;
 
 initPool(config.db);
 await withConnection(migrate);
 
-/** Bounding box over every user's focus places, padded. The mirror is
- *  global (not user-scoped), so one bbox covers everyone's home area. */
+/** Bounding box of the user's CURRENT home metro: the focus places seen in
+ *  the last `RECENT_DAYS`, clustered into regions, taking the region with
+ *  the most places (the home metro). Robust to a focus set that spans
+ *  continents of travel history — one global bbox would be useless. */
 async function focusPlacesBbox(): Promise<Bbox | null> {
-	const places = await db().selectFrom("focus_places").select(["centroid_lat", "centroid_lon"]).execute();
+	const cutoff = Math.floor(Date.now() / 1000) - RECENT_DAYS * 86400;
+	const places = await db()
+		.selectFrom("focus_places")
+		.select(["centroid_lat", "centroid_lon"])
+		.where("last_seen_ts", ">=", cutoff)
+		.execute();
 	const fixes = places.map((p) => ({ lat: Number(p.centroid_lat), lon: Number(p.centroid_lon) }));
-	return bboxFromFixes(fixes, 1500);
+	if (fixes.length === 0) return null;
+	const regions = clusterIntoRegions(fixes, REGION_GAP_KM);
+	const home = regions.reduce((a, b) => (b.length > a.length ? b : a));
+	console.log(
+		`Recent focus places: ${fixes.length} in ${regions.length} region(s); mirroring the home region (${home.length} places)`,
+	);
+	return bboxFromFixes(home, 1500);
 }
 
 const bbox = await focusPlacesBbox();
 if (!bbox) {
-	console.log("No focus places — nothing to mirror.");
+	console.log("No recent focus places — nothing to mirror.");
 	await destroyPool();
 	process.exit(0);
-}
-
-const latSpan = bbox.maxLat - bbox.minLat;
-const lonSpan = bbox.maxLon - bbox.minLon;
-if (latSpan > MAX_BBOX_SPAN_DEG || lonSpan > MAX_BBOX_SPAN_DEG) {
-	console.error(
-		`Refusing to mirror: focus-place bbox spans ${latSpan.toFixed(2)}°×${lonSpan.toFixed(2)}° (cap ${MAX_BBOX_SPAN_DEG}°). ` +
-			"Focus places span multiple regions; tile the mirror before widening.",
-	);
-	await destroyPool();
-	process.exit(1);
 }
 
 // A single whole-bbox `relation[route=bus]` query over greater London

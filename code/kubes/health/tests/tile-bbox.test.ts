@@ -1,5 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { type Bbox, tileBbox } from "../src/geo/route-graph-loader.js";
+import { type Bbox, clusterIntoRegions, tileBbox } from "../src/geo/route-graph-loader.js";
+
+describe("clusterIntoRegions", () => {
+	// pippijn's focus places span three metros from travel history.
+	const london = [
+		{ lat: 51.56, lon: -0.28 },
+		{ lat: 51.5, lon: -0.14 },
+		{ lat: 51.46, lon: -0.49 },
+	];
+	const sf = [
+		{ lat: 37.76, lon: -122.5 },
+		{ lat: 37.42, lon: -122.07 },
+	];
+	const toronto = [{ lat: 43.68, lon: -79.6 }];
+
+	it("separates metros into distinct regions", () => {
+		const regions = clusterIntoRegions([...london, ...sf, ...toronto], 80);
+		expect(regions).toHaveLength(3);
+	});
+
+	it("keeps a single metro's spread-out places in one region", () => {
+		const regions = clusterIntoRegions(london, 80);
+		expect(regions).toHaveLength(1);
+		expect(regions[0]).toHaveLength(3);
+	});
+
+	it("picks the largest region as 'home' (most places)", () => {
+		const regions = clusterIntoRegions([...london, ...sf, ...toronto], 80);
+		const home = regions.reduce((a, b) => (b.length > a.length ? b : a));
+		expect(home).toHaveLength(3); // London
+		expect(home.every((p) => p.lon < 0 && p.lon > -1)).toBe(true);
+	});
+
+	it("returns one region per point when all are far apart", () => {
+		expect(clusterIntoRegions([london[0], sf[0], toronto[0]], 80)).toHaveLength(3);
+	});
+});
 
 /**
  * `tileBbox` splits an area into bounded cells for the refresh-bus-routes

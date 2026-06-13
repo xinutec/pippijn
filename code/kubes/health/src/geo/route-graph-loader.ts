@@ -60,6 +60,48 @@ export function bboxFromFixes(fixes: readonly { lat: number; lon: number }[], ma
 	return expandBbox({ minLat, maxLat, minLon, maxLon }, marginM);
 }
 
+/** Group points into geographic regions: connected components where two
+ *  points join the same region if within `maxGapKm` of each other. O(n²),
+ *  fine for the few hundred focus places. Separates metro areas a user has
+ *  lived in / travelled to (London vs Amsterdam vs San Francisco) so each
+ *  can be bounded independently instead of one globe-spanning bbox. */
+export function clusterIntoRegions<T extends { lat: number; lon: number }>(
+	points: readonly T[],
+	maxGapKm: number,
+): T[][] {
+	const parent = points.map((_, i) => i);
+	const find = (i: number): number => {
+		let r = i;
+		while (parent[r] !== r) {
+			parent[r] = parent[parent[r]];
+			r = parent[r];
+		}
+		return r;
+	};
+	const km = (a: T, b: T): number => {
+		const R = 6371;
+		const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+		const dLon = ((b.lon - a.lon) * Math.PI) / 180;
+		const h =
+			Math.sin(dLat / 2) ** 2 +
+			Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+		return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+	};
+	for (let i = 0; i < points.length; i++) {
+		for (let j = i + 1; j < points.length; j++) {
+			if (km(points[i], points[j]) <= maxGapKm) parent[find(i)] = find(j);
+		}
+	}
+	const groups = new Map<number, T[]>();
+	points.forEach((p, i) => {
+		const r = find(i);
+		const g = groups.get(r);
+		if (g) g.push(p);
+		else groups.set(r, [p]);
+	});
+	return [...groups.values()];
+}
+
 /** Split a bbox into a grid of cells no larger than `maxCellDeg` on a
  *  side. Used to keep a per-query Overpass response bounded when one
  *  whole-area query would be too heavy (the refresh-bus-routes mirror).
