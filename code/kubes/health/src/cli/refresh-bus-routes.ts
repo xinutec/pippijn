@@ -33,9 +33,10 @@ import { z } from "zod";
 import { db, destroyPool, initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import { serializeBusRoute } from "../geo/bus-route-cache.js";
+import type { BusRoute } from "../geo/bus-route-match.js";
 import { buildBusRouteOverpassQuery, extractBusRoutes } from "../geo/osm-bus-routes.js";
 import { overpassFetch } from "../geo/osm-overpass.js";
-import { type Bbox, bboxFromFixes } from "../geo/route-graph-loader.js";
+import { type Bbox, bboxFromFixes, tileBbox } from "../geo/route-graph-loader.js";
 
 const config = z
 	.object({
@@ -91,24 +92,52 @@ if (latSpan > MAX_BBOX_SPAN_DEG || lonSpan > MAX_BBOX_SPAN_DEG) {
 	process.exit(1);
 }
 
+// A single whole-bbox `relation[route=bus]` query over greater London
+// matches ~700 routes and pulls every member node of each — far too big
+// for one Overpass fetch (it timed out on first run). Tile the bbox into
+// small cells and union the routes across cells (deduped by relation id):
+// each cell matches only the routes touching it, so each query is light.
+// `node(r)` still returns each matched route's FULL stop list, so a route
+// is mirrored end-to-end even when only its middle crosses a cell.
+const MIRROR_TILE_DEG = 0.05; // ≈ 3.5 km — keeps each cell's route set small.
+const TILE_TIMEOUT_MS = 90_000; // offline budget, well above the 20s request-path cap.
+const tiles = tileBbox(bbox, MIRROR_TILE_DEG);
 console.log(
-	`Mirroring route=bus relations in bbox ${bbox.minLat.toFixed(3)},${bbox.minLon.toFixed(3)}→${bbox.maxLat.toFixed(3)},${bbox.maxLon.toFixed(3)}`,
+	`Mirroring route=bus relations across ${tiles.length} tiles of bbox ${bbox.minLat.toFixed(3)},${bbox.minLon.toFixed(3)}→${bbox.maxLat.toFixed(3)},${bbox.maxLon.toFixed(3)}`,
 );
 
 const t0 = Date.now();
-const res = await overpassFetch(buildBusRouteOverpassQuery(bbox));
-if (!res.ok) {
-	console.error(`Overpass returned ${res.status} — leaving bus_route_cache untouched.`);
+const byRelation = new Map<number, BusRoute>();
+let tileFailures = 0;
+for (const [i, tile] of tiles.entries()) {
+	try {
+		const res = await overpassFetch(buildBusRouteOverpassQuery(tile), { timeoutMs: TILE_TIMEOUT_MS });
+		if (!res.ok) {
+			console.warn(`  tile ${i + 1}/${tiles.length}: Overpass ${res.status} — skipped`);
+			tileFailures++;
+			continue;
+		}
+		const data = (await res.json()) as Parameters<typeof extractBusRoutes>[0];
+		const routes = extractBusRoutes(data);
+		for (const r of routes) byRelation.set(r.osmRelationId, r);
+		console.log(`  tile ${i + 1}/${tiles.length}: ${routes.length} routes (${byRelation.size} unique so far)`);
+	} catch (e) {
+		console.warn(`  tile ${i + 1}/${tiles.length}: ${e instanceof Error ? e.message : String(e)} — skipped`);
+		tileFailures++;
+	}
+}
+
+// Refuse to clobber a populated cache with a near-empty rebuild when the
+// fetches broadly failed (Overpass down / breaker open) — a partial mirror
+// is fine, but an all-failed run must not wipe yesterday's good data.
+if (byRelation.size === 0 && tileFailures > 0) {
+	console.error(`All ${tiles.length} tiles failed — leaving bus_route_cache untouched.`);
 	await destroyPool();
 	process.exit(1);
 }
 
-// The relation⇄member-node join needs the whole element set together, so
-// this reads the full response (bounded by the capped bbox) rather than
-// streaming chunk-by-chunk, which would split relations from their nodes.
-const data = (await res.json()) as Parameters<typeof extractBusRoutes>[0];
-const routes = extractBusRoutes(data);
-console.log(`Parsed ${routes.length} bus routes (${Date.now() - t0}ms)`);
+const routes = [...byRelation.values()];
+console.log(`Parsed ${routes.length} unique bus routes from ${tiles.length} tiles (${Date.now() - t0}ms)`);
 
 await withConnection(async (conn) => {
 	// Transactional full rebuild — readers see the old snapshot until

@@ -69,8 +69,13 @@ function release(): void {
  * if every mirror fails — caller decides whether to negative-cache,
  * skip, or surface the error.
  */
-export async function overpassFetch(body: string): Promise<Response> {
-	// Fail-fast when the breaker is open: skip the 20s timeout dance
+export async function overpassFetch(body: string, opts: { timeoutMs?: number } = {}): Promise<Response> {
+	// Per-call timeout: defaults to the request-path-friendly 20s, but the
+	// offline mirror CLIs (refresh-bus-routes) pass a larger budget for
+	// heavier area queries that legitimately take longer than the
+	// fail-fast request path tolerates.
+	const timeoutMs = opts.timeoutMs ?? OVERPASS_TIMEOUT_MS;
+	// Fail-fast when the breaker is open: skip the timeout dance
 	// on calls that are highly likely to fail anyway. Caller treats
 	// this like any other Overpass failure.
 	if (isOverpassBreakerOpen()) {
@@ -81,7 +86,7 @@ export async function overpassFetch(body: string): Promise<Response> {
 		let lastErr: unknown;
 		for (const url of OVERPASS_URLS) {
 			const controller = new AbortController();
-			const timer = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
+			const timer = setTimeout(() => controller.abort(), timeoutMs);
 			try {
 				const res = await fetch(url, {
 					method: "POST",

@@ -60,6 +60,30 @@ export function bboxFromFixes(fixes: readonly { lat: number; lon: number }[], ma
 	return expandBbox({ minLat, maxLat, minLon, maxLon }, marginM);
 }
 
+/** Split a bbox into a grid of cells no larger than `maxCellDeg` on a
+ *  side. Used to keep a per-query Overpass response bounded when one
+ *  whole-area query would be too heavy (the refresh-bus-routes mirror).
+ *  Cells tile the bbox exactly with no overlap; an already-small bbox
+ *  returns a single cell (itself). */
+export function tileBbox(b: Bbox, maxCellDeg: number): Bbox[] {
+	const latCells = Math.max(1, Math.ceil((b.maxLat - b.minLat) / maxCellDeg));
+	const lonCells = Math.max(1, Math.ceil((b.maxLon - b.minLon) / maxCellDeg));
+	const latStep = (b.maxLat - b.minLat) / latCells;
+	const lonStep = (b.maxLon - b.minLon) / lonCells;
+	const cells: Bbox[] = [];
+	for (let i = 0; i < latCells; i++) {
+		for (let j = 0; j < lonCells; j++) {
+			cells.push({
+				minLat: b.minLat + i * latStep,
+				maxLat: b.minLat + (i + 1) * latStep,
+				minLon: b.minLon + j * lonStep,
+				maxLon: b.minLon + (j + 1) * lonStep,
+			});
+		}
+	}
+	return cells;
+}
+
 export interface LoadRouteGraphOpts {
 	/** Optional feature-type filter — when set, only rows with
 	 *  `feature_type IN (...)` are loaded. Use this when the consumer
