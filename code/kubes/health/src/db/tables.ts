@@ -329,6 +329,21 @@ export interface RailRouteCacheTable {
 	computed_at: Generated<Date>;
 }
 
+/** Mirrored OSM `route=bus` relations — one row per relation (per travel
+ *  direction), holding the route's ref, name, and ordered stop list as a
+ *  JSON array of `{name, lat, lon, seq}`. Filled offline by the
+ *  refresh-bus-routes CLI; the velocity pipeline reads it to name the bus
+ *  a road-vehicle leg rode. `osm_relation_id` is BIGINT (returned as
+ *  bigint); relation ids are well under 2^53 so the loader narrows to
+ *  number for the matcher. Pure cache — safe to truncate and rebuild. */
+export interface BusRouteCacheTable {
+	osm_relation_id: bigint;
+	route_ref: string;
+	route_name: string | null;
+	stops_json: string;
+	computed_at: Generated<Date>;
+}
+
 /** Per-day HMM decode cache. Each row holds the MAP segment sequence
  *  produced by the joint-sequence model for one (user, date). Cached
  *  so a request for a previously-decoded day serves directly from
@@ -440,6 +455,7 @@ export interface Database {
 	focus_places: FocusPlacesTable;
 	mode_biometrics: ModeBiometricsTable;
 	rail_route_cache: RailRouteCacheTable;
+	bus_route_cache: BusRouteCacheTable;
 	decoded_days: DecodedDaysTable;
 	presence_log: PresenceLogTable;
 	learned_hmm_models: LearnedHmmModelsTable;

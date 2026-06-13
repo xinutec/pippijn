@@ -514,6 +514,24 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (route_key)
   )`,
 
+	// bus_route_cache — one row per OSM `route=bus` relation: the route's
+	// rider-facing ref ("38"), name, and ordered stop list. Mirrored
+	// offline by the refresh-bus-routes CLI (throttled Overpass) and read
+	// on the request path to NAME the bus a road-vehicle leg rode
+	// (`bus-route-match.ts`). A route's stop sequence is stable, so it is
+	// keyed by relation, reused across every day it appears. Each OSM
+	// travel direction is its own relation → its own row, opposite stop
+	// order. Pure cache — rebuildable from scratch, safe to truncate.
+	`CREATE TABLE IF NOT EXISTS bus_route_cache (
+    osm_relation_id BIGINT NOT NULL,
+    route_ref VARCHAR(64) NOT NULL,
+    route_name VARCHAR(255) NULL,
+    stops_json LONGTEXT NOT NULL,
+    computed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (osm_relation_id),
+    INDEX idx_bus_route_ref (route_ref)
+  )`,
+
 	// Hour-of-day dwell profile on focus_places. A normalised 24-bucket
 	// histogram of where, across the local solar clock, a place's visits
 	// spend their time — stored as 24 comma-joined permille integers.
