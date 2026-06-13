@@ -29,6 +29,7 @@ import { z } from "zod";
 import { db, initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import { type GroundTruthDay, parseGroundTruth } from "../eval/ground-truth.js";
+import { scoreJourneys } from "../eval/journey-score.js";
 import { type DayScore, type DecoderMinute, scoreDay } from "../eval/score-day.js";
 import { parseHourProfile } from "../geo/focus-places.js";
 import { stationsOnLine } from "../geo/line-stations.js";
@@ -613,6 +614,13 @@ async function main(): Promise<void> {
 	let totalPlaceMatching = 0;
 	let totalLineScorable = 0;
 	let totalLineMatching = 0;
+	// Journey-level (boundary-robust leg fidelity + trip-structure gate).
+	let totalJourneys = 0;
+	let totalJourneySeqMatched = 0;
+	let totalLegModeScorable = 0;
+	let totalLegModeMatching = 0;
+	let totalLegLineScorable = 0;
+	let totalLegLineMatching = 0;
 
 	for (const day of days) {
 		try {
@@ -668,6 +676,14 @@ async function main(): Promise<void> {
 			totalPlaceMatching += score.placeMatching;
 			totalLineScorable += score.lineScorable;
 			totalLineMatching += score.lineMatching;
+
+			const jscore = scoreJourneys(day.rows, decoderChunks);
+			totalJourneys += jscore.journeysExpected;
+			totalJourneySeqMatched += jscore.journeysModeSequenceMatched;
+			totalLegModeScorable += jscore.legModeScorable;
+			totalLegModeMatching += jscore.legModeMatching;
+			totalLegLineScorable += jscore.legLineScorable;
+			totalLegLineMatching += jscore.legLineMatching;
 		} catch (e) {
 			console.error(`# ${day.date} FAILED: ${e instanceof Error ? e.message : e}`);
 		}
@@ -680,6 +696,16 @@ async function main(): Promise<void> {
 	);
 	console.log(
 		`  line:  ${totalLineMatching}/${totalLineScorable} (${formatPct(totalLineMatching, totalLineScorable)})`,
+	);
+	console.log(`\n## JOURNEY-LEVEL (${days.length} days, source=${args.source})`);
+	console.log(
+		`  trips (mode-sequence):  ${totalJourneySeqMatched}/${totalJourneys} (${formatPct(totalJourneySeqMatched, totalJourneys)})`,
+	);
+	console.log(
+		`  legs (mode, boundary-robust):  ${totalLegModeMatching}/${totalLegModeScorable} (${formatPct(totalLegModeMatching, totalLegModeScorable)})`,
+	);
+	console.log(
+		`  legs (transit line):  ${totalLegLineMatching}/${totalLegLineScorable} (${formatPct(totalLegLineMatching, totalLegLineScorable)})`,
 	);
 
 	process.exit(0);

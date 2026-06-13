@@ -1,0 +1,292 @@
+/**
+ * Journey-level scorer — the cutover gate the decoder-owns-mode program
+ * depends on (`docs/proposals/2026-06-truth-engine.md`, measurement phase).
+ *
+ * `score-day.ts` scores per minute: it is brittle to a few minutes of
+ * boundary misalignment (a train leg the decoder places at 15:35–15:38
+ * against a ground-truth 15:30–15:38 scores most minutes wrong even when
+ * the *leg* is right) and it says nothing about whether the day reads as
+ * the right *sequence of trips*. This scorer works at the granularity a
+ * human narrates a day: **journeys** (a run of movement bounded by stays),
+ * each a sequence of **legs** (mode + transit line).
+ *
+ * It answers two questions the per-minute scorer can't:
+ *
+ *   1. **Leg fidelity** (boundary-robust) — for each ground-truth movement
+ *      leg, did the decoder's *dominant* mode over that leg's window match,
+ *      and for transit legs, the line? Dominant-over-window absorbs the few
+ *      minutes of edge slop that sink the per-minute line score, while still
+ *      honestly reporting a *genuinely* wrong mode (e.g. a train leg the
+ *      decoder mostly calls walking stays a miss — this is not a fudge).
+ *   2. **Trip structure** — did the decoder reconstruct each journey as the
+ *      same ordered sequence of modes? (Did it merge two train legs into
+ *      one, split one ride into two, or invent a leg?) This is the
+ *      regression gate: a change that scrambles a trip's shape fails here
+ *      even if per-minute mode accuracy is unchanged.
+ *
+ * Pure function. No DB, no IO, no globals. Consumes the same
+ * `GroundTruthRow[]` and `DecoderMinute[]` as `score-day.ts`.
+ */
+
+import type { GroundTruthMode, GroundTruthRow } from "./ground-truth.js";
+import { canonicalMode, type DecoderMinute, isMovementMode } from "./score-day.js";
+
+/** One leg of a journey: a contiguous stretch of one movement mode. */
+export interface Leg {
+	startTs: number;
+	/** Exclusive. */
+	endTs: number;
+	/** Canonical mode (sleeping folded to stationary; only movement modes
+	 *  appear as legs). */
+	mode: string;
+	/** Transit line for train/bus legs; null otherwise or when unknown. */
+	line: string | null;
+}
+
+/** A journey: a maximal run of consecutive movement legs (bounded by a
+ *  stay / sleep / gap on each side). */
+export interface Journey {
+	startTs: number;
+	endTs: number;
+	legs: Leg[];
+}
+
+export interface JourneyScore {
+	/** Number of journeys the ground truth describes. */
+	journeysExpected: number;
+	/** Of `journeysExpected`, how many the decoder reconstructed with the
+	 *  same ordered (deduped) sequence of leg modes. */
+	journeysModeSequenceMatched: number;
+	/** Ground-truth movement legs (from `correct` rows) — the scorable
+	 *  denominator for leg mode fidelity. */
+	legModeScorable: number;
+	/** Of `legModeScorable`, how many had the decoder's dominant mode
+	 *  (over the leg window) match. */
+	legModeMatching: number;
+	/** Ground-truth transit legs that name a line — denominator for line
+	 *  fidelity. */
+	legLineScorable: number;
+	/** Of `legLineScorable`, how many had the decoder's dominant line
+	 *  (over the mode-matching minutes) match. */
+	legLineMatching: number;
+	/** Per-leg outcomes, for human inspection. */
+	legResults: LegResult[];
+}
+
+export interface LegResult {
+	startTs: number;
+	endTs: number;
+	expectedMode: string;
+	dominantDecoderMode: string | null;
+	modeMatch: boolean;
+	expectedLine: string | null;
+	dominantDecoderLine: string | null;
+	/** `na` when the leg isn't a transit leg with a named line. */
+	lineMatch: "match" | "mismatch" | "na";
+}
+
+/** Build the ground-truth leg + journey structure from the audit rows.
+ *  Only `correct` rows with a parsed blessed cell contribute (the only
+ *  rows where the cell IS the truth — same gate as `score-day.ts`).
+ *  Consecutive movement rows form one journey; any non-movement
+ *  (`stationary`/`sleeping`) or unscorable row breaks the run. */
+export function groundTruthJourneys(rows: readonly GroundTruthRow[]): Journey[] {
+	const journeys: Journey[] = [];
+	let current: Leg[] = [];
+	const flush = (): void => {
+		if (current.length > 0) {
+			journeys.push({ startTs: current[0].startTs, endTs: current[current.length - 1].endTs, legs: current });
+			current = [];
+		}
+	};
+	for (const row of rows) {
+		const b = row.blessed;
+		if (row.status !== "correct" || b === null) {
+			// An unscorable row breaks journey continuity — we can't assert
+			// the trip is contiguous across a stretch we don't trust.
+			flush();
+			continue;
+		}
+		if (!isMovementMode(b.mode)) {
+			flush();
+			continue;
+		}
+		current.push({
+			startTs: row.startTs,
+			endTs: row.endTs,
+			mode: canonicalMode(b.mode),
+			line: lineOf(b.mode, b.lineName),
+		});
+	}
+	flush();
+	return journeys;
+}
+
+/** A line only attaches to transit legs. */
+function lineOf(mode: GroundTruthMode, lineName: string | null): string | null {
+	const c = canonicalMode(mode);
+	return c === "train" || c === "bus" ? lineName : null;
+}
+
+/** Collapse a per-minute decoder stream into movement legs + journeys.
+ *  Consecutive minutes with the same `(canonical mode, line)` merge into a
+ *  leg; movement legs separated only by ≤ `gapToleranceMin` of
+ *  non-movement still belong to one journey (a brief stay mid-trip — e.g.
+ *  a platform wait — does not split the journey). */
+export function decoderJourneys(minutes: readonly DecoderMinute[], gapToleranceMin = 0): Journey[] {
+	const sorted = [...minutes].sort((a, b) => a.ts - b.ts);
+	// First collapse into legs (movement only).
+	const legs: Leg[] = [];
+	for (const m of sorted) {
+		if (!isMovementMode(m.mode)) continue;
+		const mode = canonicalMode(m.mode);
+		const line = mode === "train" || mode === "bus" ? m.lineName : null;
+		const last = legs[legs.length - 1];
+		if (last !== undefined && last.mode === mode && last.line === line && m.ts <= last.endTs) {
+			last.endTs = m.ts + 60;
+		} else {
+			legs.push({ startTs: m.ts, endTs: m.ts + 60, mode, line });
+		}
+	}
+	// Group legs into journeys: a gap larger than the tolerance starts a
+	// new journey.
+	const journeys: Journey[] = [];
+	let current: Leg[] = [];
+	for (const leg of legs) {
+		const last = current[current.length - 1];
+		if (last !== undefined && leg.startTs - last.endTs > gapToleranceMin * 60) {
+			journeys.push({ startTs: current[0].startTs, endTs: last.endTs, legs: current });
+			current = [];
+		}
+		current.push(leg);
+	}
+	if (current.length > 0)
+		journeys.push({ startTs: current[0].startTs, endTs: current[current.length - 1].endTs, legs: current });
+	return journeys;
+}
+
+/** Tally the decoder's canonical mode over [startTs, endTs), and (for the
+ *  minutes that match `expectedMode`) the dominant line. Returns the
+ *  dominant mode + the dominant line among matching minutes. */
+function dominantOverWindow(
+	byTs: ReadonlyMap<number, DecoderMinute>,
+	startTs: number,
+	endTs: number,
+	expectedMode: string,
+): { mode: string | null; line: string | null } {
+	const modeTally = new Map<string, number>();
+	const lineTally = new Map<string, number>();
+	for (let t = startTs; t < endTs; t += 60) {
+		const dm = byTs.get(t);
+		if (dm === undefined) continue;
+		const c = canonicalMode(dm.mode);
+		modeTally.set(c, (modeTally.get(c) ?? 0) + 1);
+		if (c === expectedMode && dm.lineName !== null) {
+			lineTally.set(dm.lineName, (lineTally.get(dm.lineName) ?? 0) + 1);
+		}
+	}
+	return { mode: argmax(modeTally), line: argmax(lineTally) };
+}
+
+/** Key with the highest count, or null when empty. Ties broken by first
+ *  insertion (Map iteration order) for determinism. */
+function argmax(tally: ReadonlyMap<string, number>): string | null {
+	let best: string | null = null;
+	let bestN = 0;
+	for (const [k, n] of tally) {
+		if (n > bestN) {
+			bestN = n;
+			best = k;
+		}
+	}
+	return best;
+}
+
+/** Deduped ordered mode sequence of a journey — the trip's "shape". */
+function modeShape(journey: Journey): string[] {
+	const shape: string[] = [];
+	for (const leg of journey.legs) {
+		if (shape[shape.length - 1] !== leg.mode) shape.push(leg.mode);
+	}
+	return shape;
+}
+
+/** The decoder journey with the most temporal overlap with `gt`, or null. */
+function bestOverlap(gt: Journey, decoderJ: readonly Journey[]): Journey | null {
+	let best: Journey | null = null;
+	let bestOv = 0;
+	for (const d of decoderJ) {
+		const ov = Math.max(0, Math.min(gt.endTs, d.endTs) - Math.max(gt.startTs, d.startTs));
+		if (ov > bestOv) {
+			bestOv = ov;
+			best = d;
+		}
+	}
+	return best;
+}
+
+export function scoreJourneys(rows: readonly GroundTruthRow[], decoder: readonly DecoderMinute[]): JourneyScore {
+	const byTs = new Map<number, DecoderMinute>();
+	for (const m of decoder) byTs.set(m.ts, m);
+
+	const gtJourneys = groundTruthJourneys(rows);
+	const decJourneys = decoderJourneys(decoder);
+
+	let legModeScorable = 0;
+	let legModeMatching = 0;
+	let legLineScorable = 0;
+	let legLineMatching = 0;
+	let journeysModeSequenceMatched = 0;
+	const legResults: LegResult[] = [];
+
+	for (const gtJ of gtJourneys) {
+		for (const leg of gtJ.legs) {
+			legModeScorable++;
+			const dom = dominantOverWindow(byTs, leg.startTs, leg.endTs, leg.mode);
+			const modeMatch = dom.mode === leg.mode;
+			if (modeMatch) legModeMatching++;
+
+			// Line is only scorable on a mode-matched leg — a leg the decoder
+			// didn't even call transit can't have a creditable line (mirrors
+			// `score-day.ts`: line counts only where both agree on the mode).
+			let lineMatch: LegResult["lineMatch"] = "na";
+			if (leg.line !== null && modeMatch) {
+				legLineScorable++;
+				lineMatch = dom.line === leg.line ? "match" : "mismatch";
+				if (lineMatch === "match") legLineMatching++;
+			}
+
+			legResults.push({
+				startTs: leg.startTs,
+				endTs: leg.endTs,
+				expectedMode: leg.mode,
+				dominantDecoderMode: dom.mode,
+				modeMatch,
+				expectedLine: leg.line,
+				dominantDecoderLine: dom.line,
+				lineMatch,
+			});
+		}
+
+		const match = bestOverlap(gtJ, decJourneys);
+		if (match !== null && arraysEqual(modeShape(gtJ), modeShape(match))) {
+			journeysModeSequenceMatched++;
+		}
+	}
+
+	return {
+		journeysExpected: gtJourneys.length,
+		journeysModeSequenceMatched,
+		legModeScorable,
+		legModeMatching,
+		legLineScorable,
+		legLineMatching,
+		legResults,
+	};
+}
+
+function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+	return true;
+}
