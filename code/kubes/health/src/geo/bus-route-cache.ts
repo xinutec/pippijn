@@ -59,10 +59,21 @@ export function parseBusRouteRow(row: BusRouteCacheRow): BusRoute | null {
  *  and small — a city's routes are a few thousand stops of JSON in total.
  *  Malformed rows are dropped (see `parseBusRouteRow`). */
 export async function loadAllBusRoutes(): Promise<BusRoute[]> {
-	const rows = await db()
-		.selectFrom("bus_route_cache")
-		.select(["osm_relation_id", "route_ref", "route_name", "stops_json"])
-		.execute();
+	let rows: BusRouteCacheRow[];
+	try {
+		rows = await db()
+			.selectFrom("bus_route_cache")
+			.select(["osm_relation_id", "route_ref", "route_name", "stops_json"])
+			.execute();
+	} catch (e: unknown) {
+		// The bus mirror is a pure, optional cache: a missing table (e.g. a
+		// fresh deploy whose migration hasn't run) or any read error must
+		// degrade to "no routes" — bus naming is purely additive, and it
+		// must NEVER take down the whole day's timeline. Mirrors the
+		// defensive posture of the biometrics/venue-prior loaders.
+		console.warn(`loadAllBusRoutes failed — treating as no bus routes: ${e}`);
+		return [];
+	}
 	const routes: BusRoute[] = [];
 	for (const r of rows) {
 		const route = parseBusRouteRow(r);
