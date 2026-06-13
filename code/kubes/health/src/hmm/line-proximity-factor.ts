@@ -153,7 +153,23 @@ export function buildLineProximityFactor(opts: BuildLineProximityFactorOpts): Li
 	return (state: State, obs: Observation): number => {
 		if (state.mode !== "train") return 0;
 		if (isCovered?.(obs.ts)) return 0; // generator entry prior owns line here
-		if (state.lineName === null || state.lineName === "unknown_rail") return 0;
+		if (state.lineName === null) return 0;
+		if (state.lineName === "unknown_rail") {
+			// `unknown_rail` is rail of an undetermined line — we can't score
+			// line proximity, but it must still be ON rail. A road vehicle (bus /
+			// taxi) moving faster than walking otherwise settles on
+			// `train @ unknown_rail` (cheapest rail state, no line factors, and
+			// the mode prior favours train over driving). Penalise it ONLY when
+			// the fix is demonstrably road-nearer-than-rail — the line-agnostic
+			// form of the per-line road-vs-rail signal (#234). Never fires on
+			// GPS-null (a real underground ride) or rail-nearer fixes (real
+			// surface rail), so it can't harm a genuine unknown-line ride.
+			if (obs.gps === null) return 0;
+			if (obs.roadDistM != null && obs.railDistM != null && obs.roadDistM < obs.railDistM) {
+				return ROAD_NEARER_PENALTY;
+			}
+			return 0;
+		}
 		if (obs.gps === null) return 0;
 		const line = state.lineName;
 
