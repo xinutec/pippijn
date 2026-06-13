@@ -24,6 +24,22 @@
 
 import type { BusRoute, BusStop } from "./bus-route-match.js";
 
+/** Build the Overpass QL that the refresh-bus-routes mirror runs: every
+ *  `route=bus` relation intersecting the bbox, its ordered members, then
+ *  the member nodes (coords + name tags). `node(r)` returns the FULL stop
+ *  list of any route that merely touches the bbox, so a route the user
+ *  rides is mirrored end to end even when only its middle passes nearby.
+ *  Pure string builder — kept here so the query shape is unit-testable. */
+export function buildBusRouteOverpassQuery(bbox: {
+	minLat: number;
+	minLon: number;
+	maxLat: number;
+	maxLon: number;
+}): string {
+	const box = `${bbox.minLat},${bbox.minLon},${bbox.maxLat},${bbox.maxLon}`;
+	return `[out:json][timeout:180];relation[route=bus](${box});out body;node(r);out body;`;
+}
+
 interface OverpassMember {
 	type?: string;
 	ref?: number;

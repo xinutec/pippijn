@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { extractBusRoutes } from "../src/geo/osm-bus-routes.js";
+import { buildBusRouteOverpassQuery, extractBusRoutes } from "../src/geo/osm-bus-routes.js";
+
+describe("buildBusRouteOverpassQuery", () => {
+	it("emits a route=bus relation query with members + member nodes for the bbox", () => {
+		const q = buildBusRouteOverpassQuery({ minLat: 51.5, minLon: -0.2, maxLat: 51.6, maxLon: -0.1 });
+		expect(q).toContain("relation[route=bus](51.5,-0.2,51.6,-0.1)");
+		expect(q).toContain("out body;");
+		expect(q).toContain("node(r);"); // pulls member nodes (coords + names)
+		expect(q).toContain("[out:json]");
+	});
+});
 
 /**
  * `extractBusRoutes` parses OSM `route=bus` relations into ordered stop
