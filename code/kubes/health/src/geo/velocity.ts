@@ -1350,25 +1350,37 @@ export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment
 		// because most fixes are still at the table and only one or
 		// two outliers drag the position).
 		const prevPrev = result[result.length - 2];
+		// A middle segment to bridge across when bracketed by two stays at
+		// the same place. Two shapes qualify:
+		//   1. A brief GPS-multipath phantom move — a "walking" sliver the
+		//      raw classifier produced from one or two outlier fixes inside
+		//      a continuous stay (avg ≤ 2 km/h, ≤ 10 min). Tested on
+		//      `mode !== "stationary"` (not effectiveMode) so a middle that
+		//      biometricCorrect later reclassified to stationary still
+		//      bridges — the 2026-05-22 Royal Free 23:49-23:54 case.
+		//   2. A no-GPS BLACKOUT (`unknown`, zero fixes) of ANY length — an
+		//      absence of data, not an observed excursion. The stay-split
+		//      emits it on a speculative mid-stay-departure hint, but if the
+		//      place resolves the SAME on both sides the user never left
+		//      (the 2026-06-12 17-min Cleveland Clinic indoor-GPS gap). Place
+		//      identity outranks the speculative split, so the duration /
+		//      speed caps that guard shape 1 don't apply.
+		const isBriefPhantomMove =
+			prev?.mode !== "stationary" &&
+			prev !== undefined &&
+			prev.endTs - prev.startTs <= STAY_BRIDGE_MAX_GAP_S &&
+			prev.avgSpeed <= STAY_BRIDGE_MAX_AVG_KMH;
+		const isBlackoutGap = prev?.mode === "unknown" && prev.pointCount === 0;
 		if (
 			prev &&
 			prevPrev &&
 			effectiveMode(seg) === "stationary" &&
 			effectiveMode(prevPrev) === "stationary" &&
-			// Bridge a middle segment that the *raw* classifier called
-			// non-stationary — including ones biometricCorrect later
-			// re-classified to stationary. Using `effectiveMode` here
-			// would wrongly exclude reclassified middles, which are
-			// exactly the GPS-jittered "moving sliver" the bridge is
-			// for. See the 2026-05-22 Royal Free 23:49-23:54 regression
-			// caught when this predicate was naively unified.
-			prev.mode !== "stationary" &&
 			prevPrev.place &&
 			prevPrev.place === seg.place &&
-			prev.endTs - prev.startTs <= STAY_BRIDGE_MAX_GAP_S &&
-			prev.avgSpeed <= STAY_BRIDGE_MAX_AVG_KMH
+			(isBriefPhantomMove || isBlackoutGap)
 		) {
-			result.pop(); // drop the phantom-move
+			result.pop(); // drop the bridged middle
 			prevPrev.endTs = seg.endTs;
 			prevPrev.pointCount += prev.pointCount + seg.pointCount;
 			continue;

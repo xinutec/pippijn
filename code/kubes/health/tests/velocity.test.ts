@@ -190,6 +190,51 @@ describe("mergeAdjacentStays", () => {
 		expect(out.map((s) => s.mode)).toEqual(["stationary", "walking", "stationary"]);
 	});
 
+	it("bridges a no-GPS blackout gap bracketed by the same place into one stay (06-12 clinic)", () => {
+		// The stay-split inserts an `unknown` (0-fix) gap on a speculative
+		// mid-stay-departure hint. 17 min > the 10-min phantom-move cap, but
+		// the place resolves to the same venue on both sides → continuous
+		// presence. Collapse all three into one Cleveland Clinic stay.
+		const gap: EnrichedSegment = {
+			startTs: HOUR,
+			endTs: HOUR + 17 * 60,
+			mode: "unknown",
+			confidence: 0.1,
+			confidenceMargin: 1,
+			avgSpeed: 0,
+			maxSpeed: 0,
+			linearity: 0,
+			pointCount: 0,
+		};
+		const out = mergeAdjacentStays([
+			stay(0, HOUR, "Cleveland Clinic London (hospital)"),
+			gap,
+			stay(HOUR + 17 * 60, 3 * HOUR, "Cleveland Clinic London (hospital)"),
+		]);
+		expect(out).toHaveLength(1);
+		expect(out[0].mode).toBe("stationary");
+		expect(out[0].startTs).toBe(0);
+		expect(out[0].endTs).toBe(3 * HOUR);
+		expect(out[0].place).toBe("Cleveland Clinic London (hospital)");
+	});
+
+	it("does NOT bridge a blackout gap when the bracketing places differ", () => {
+		const gap: EnrichedSegment = {
+			startTs: HOUR,
+			endTs: HOUR + 17 * 60,
+			mode: "unknown",
+			confidence: 0.1,
+			confidenceMargin: 1,
+			avgSpeed: 0,
+			maxSpeed: 0,
+			linearity: 0,
+			pointCount: 0,
+		};
+		const out = mergeAdjacentStays([stay(0, HOUR, "Home"), gap, stay(HOUR + 17 * 60, 3 * HOUR, "Office")]);
+		expect(out).toHaveLength(3);
+		expect(out[1].mode).toBe("unknown");
+	});
+
 	it("collapses a chain of three same-place stays into one", () => {
 		const out = mergeAdjacentStays([
 			stay(0, HOUR, "Cafe X"),
