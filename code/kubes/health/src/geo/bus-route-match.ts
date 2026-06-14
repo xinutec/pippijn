@@ -70,11 +70,14 @@ export interface BusRouteMatch {
 }
 
 /** A board/alight coord must fall within this of a route stop to anchor
- *  to it. Urban GPS at a boarding standstill smears ~30–60 m; a bus
- *  stop's mapped node and the kerb where you wait differ by tens of
- *  metres. 75 m admits a real stop without reaching across a junction to
- *  a parallel route's stop. Tunable. */
-export const BUS_STOP_ANCHOR_M = 75;
+ *  to it. The board/alight coord is the leg's first/last GPS fix — where
+ *  GPS reacquired *after* pulling away / *before* the stop, not the kerb
+ *  itself — plus the stop's mapped-node-vs-kerb offset and urban GPS
+ *  error. Measured on the 2026-06-12 Green Park→Victoria 38 leg, the leg
+ *  endpoints sat 85–98 m from the true stops (Hyde Park Corner, Wilton
+ *  Street), so 75 m was just too tight. 120 m admits them while still
+ *  staying short of a parallel route across a junction. Tunable. */
+export const BUS_STOP_ANCHOR_M = 120;
 
 export interface MatchOptions {
 	/** Override the stop-anchor radius (metres). */
