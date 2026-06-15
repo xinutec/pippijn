@@ -108,19 +108,6 @@ const MIGRATIONS: readonly string[] = [
     deep_rmssd DECIMAL(8,2),
     PRIMARY KEY (user_id, date)
   )`,
-	// Intraday (5-minute) HRV: full within-night resolution — RMSSD plus the
-	// coverage fraction and HF/LF spectral power — where hrv_daily keeps only
-	// the nightly summary. `ts` is the verbatim Fitbit wall-clock, mirroring
-	// heart_rate_intraday. Filled by syncHrvIntraday (forward + backfill).
-	`CREATE TABLE IF NOT EXISTS hrv_intraday (
-    user_id VARCHAR(64) NOT NULL,
-    ts DATETIME NOT NULL,
-    rmssd DECIMAL(8,3) NOT NULL,
-    coverage DECIMAL(5,3),
-    hf DECIMAL(12,4),
-    lf DECIMAL(12,4),
-    PRIMARY KEY (user_id, ts)
-  )`,
 	`CREATE TABLE IF NOT EXISTS breathing_rate (
     user_id VARCHAR(64) NOT NULL,
     date DATE NOT NULL,
@@ -630,6 +617,25 @@ const MIGRATIONS: readonly string[] = [
     mined_stays INT NOT NULL,
     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id)
+  )`,
+
+	// NOTE: migrations are tracked by ARRAY INDEX (schema_migrations.version =
+	// position here). NEVER insert a new statement in the middle — it shifts
+	// every later index, which are already marked applied, so the new one
+	// silently never runs. ALWAYS APPEND new tables/ALTERs at the end.
+
+	// Intraday (5-minute) HRV: full within-night resolution — RMSSD plus the
+	// coverage fraction and HF/LF spectral power — where hrv_daily keeps only
+	// the nightly summary. `ts` is the verbatim Fitbit wall-clock, mirroring
+	// heart_rate_intraday. Filled by syncHrvIntraday (forward + backfill).
+	`CREATE TABLE IF NOT EXISTS hrv_intraday (
+    user_id VARCHAR(64) NOT NULL,
+    ts DATETIME NOT NULL,
+    rmssd DECIMAL(8,3) NOT NULL,
+    coverage DECIMAL(5,3),
+    hf DECIMAL(12,4),
+    lf DECIMAL(12,4),
+    PRIMARY KEY (user_id, ts)
   )`,
 ];
 
