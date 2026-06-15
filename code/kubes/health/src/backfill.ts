@@ -30,6 +30,8 @@
  *     silently truncate history after 14 consecutive failures.
  */
 
+import { RateLimitExhaustedError } from "./fitbit/rate-limit.js";
+
 export type BackfillDayResult = { ok: true; points: number } | { ok: false; error: unknown };
 
 /**
@@ -45,6 +47,12 @@ export async function backfillStreamDay(syncFn: DaySyncFn, date: string): Promis
 		const points = await syncFn(date);
 		return { ok: true, points };
 	} catch (error) {
+		// Rate-limit exhaustion is "stop the run", not "this day failed":
+		// re-throw so the caller bails out *before* advancing the cursor
+		// past a day that was never actually fetched. Every other error is
+		// a transient per-day failure the loop absorbs (cursor advances,
+		// empty streak left untouched).
+		if (error instanceof RateLimitExhaustedError) throw error;
 		return { ok: false, error };
 	}
 }

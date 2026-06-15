@@ -6,6 +6,7 @@ import {
 	shouldAdvanceEmptyStreak,
 	sortStreamsByCursorRecency,
 } from "../src/backfill.js";
+import { RateLimitExhaustedError } from "../src/fitbit/rate-limit.js";
 
 describe("backfillStreamDay", () => {
 	it("returns ok with the synced point count on success", async () => {
@@ -32,6 +33,19 @@ describe("backfillStreamDay", () => {
 			throw "ECONNRESET";
 		}, "2026-01-01");
 		expect(r.ok).toBe(false);
+	});
+
+	it("re-throws rate-limit exhaustion instead of swallowing it as a failed day", async () => {
+		// Exhaustion must NOT become {ok:false}: the loop advances the cursor
+		// on every result (ok or not), so swallowing it would skip a day that
+		// was never fetched. Re-throwing makes the loop bail before the
+		// cursor moves, so the next run resumes on the same day.
+		const err = new RateLimitExhaustedError(3500);
+		await expect(
+			backfillStreamDay(async () => {
+				throw err;
+			}, "2026-01-01"),
+		).rejects.toBe(err);
 	});
 });
 

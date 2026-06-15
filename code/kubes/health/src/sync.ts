@@ -16,6 +16,7 @@ import { db, destroyPool, initPool, withConnection } from "./db/pool.js";
 import { migrate } from "./db/schema.js";
 import { getSyncState, setSyncState } from "./db/sync-state.js";
 import { FitbitClient } from "./fitbit/client.js";
+import { RateLimitExhaustedError } from "./fitbit/rate-limit.js";
 import { syncActivity } from "./fitbit/sync/activity.js";
 import { syncBody } from "./fitbit/sync/body.js";
 import { syncBreathingRate } from "./fitbit/sync/breathing.js";
@@ -287,6 +288,13 @@ const trySync = async (userId: string, name: string, fn: () => Promise<unknown>)
 	try {
 		await fn();
 	} catch (e) {
+		// Rate-limit exhaustion is not a per-stream failure to swallow — it
+		// means the budget for this whole run is spent. Re-throw so it
+		// short-circuits the remaining streams (which would all hit the same
+		// wall) and the run ends cleanly; the per-user handler logs it and
+		// the next cron tick resumes. Everything else is a real per-stream
+		// hiccup we log and move past.
+		if (e instanceof RateLimitExhaustedError) throw e;
 		console.error(`[${userId}] ${name} sync failed: ${e}`);
 	}
 };
@@ -493,6 +501,14 @@ for (const user of users) {
 
 		console.log(`[${user.user_id}] Done. Rate limit remaining: ${client.rateLimitRemaining}`);
 	} catch (e) {
+		if (e instanceof RateLimitExhaustedError) {
+			// Expected, not an error: the budget ran out mid-run. Whatever was
+			// fetched is committed; each stream's cursor is parked where it
+			// stopped, so the next cron tick picks up exactly there. Log it
+			// plainly and move to the next user (the process then exits 0).
+			console.log(`[${user.user_id}] Rate budget spent for this run; resumes next run (resets in ~${e.resumeInSec}s)`);
+			continue;
+		}
 		console.error(`[${user.user_id}] Sync failed:`, e);
 	}
 }

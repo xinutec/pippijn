@@ -7,6 +7,7 @@
  */
 
 import { asFitbitSleepLogId } from "../db/branded.js";
+import { decideRateLimitWait, MAX_INPROCESS_WAIT_MS, RateLimitExhaustedError } from "./rate-limit.js";
 import { type FitbitOAuthConfig, getValidTokens } from "./token-manager.js";
 
 export class FitbitClient {
@@ -34,8 +35,14 @@ export class FitbitClient {
 		this.updateRateLimit(res.headers);
 
 		if (res.status === 429) {
-			if (retries >= 3) throw new Error(`Fitbit API ${path}: rate limited after ${retries} retries`);
 			const waitSec = parseInt(res.headers.get("retry-after") ?? "3600", 10);
+			// A real 429 means the budget is already spent. Ride out a short
+			// retry-after in-process, but once we'd block past the in-process
+			// cap (or after 3 tries) bail cleanly so the cron resumes next
+			// tick rather than overrunning the job deadline.
+			if (retries >= 3 || waitSec * 1000 > MAX_INPROCESS_WAIT_MS) {
+				throw new RateLimitExhaustedError(waitSec);
+			}
 			console.log(`Rate limited, waiting ${waitSec}s (retry ${retries + 1}/3)`);
 			await sleep(waitSec * 1000);
 			return this.get<T>(path, retries + 1);
@@ -50,10 +57,11 @@ export class FitbitClient {
 	}
 
 	private async waitForRateLimit(): Promise<void> {
-		if (this.rateLimitRemaining_ > 5 || Date.now() >= this.rateLimitResetAt) return;
-		const waitMs = this.rateLimitResetAt - Date.now();
-		console.log(`Rate limit low (${this.rateLimitRemaining_}), waiting ${Math.ceil(waitMs / 1000)}s`);
-		await sleep(waitMs);
+		const action = decideRateLimitWait(this.rateLimitRemaining_, this.rateLimitResetAt - Date.now());
+		if (action.kind === "proceed") return;
+		if (action.kind === "exhausted") throw new RateLimitExhaustedError(action.resumeInSec);
+		console.log(`Rate limit low (${this.rateLimitRemaining_}), waiting ${Math.ceil(action.ms / 1000)}s`);
+		await sleep(action.ms);
 	}
 
 	private updateRateLimit(headers: Headers): void {
