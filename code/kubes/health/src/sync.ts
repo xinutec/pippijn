@@ -21,7 +21,7 @@ import { syncBody } from "./fitbit/sync/body.js";
 import { syncBreathingRate } from "./fitbit/sync/breathing.js";
 import { syncDevices } from "./fitbit/sync/devices.js";
 import { syncHeartRateIntraday, syncHeartRateZones } from "./fitbit/sync/heartrate.js";
-import { syncHrv } from "./fitbit/sync/hrv.js";
+import { syncHrv, syncHrvIntraday } from "./fitbit/sync/hrv.js";
 import { syncSleep } from "./fitbit/sync/sleep.js";
 import { syncSpO2Daily } from "./fitbit/sync/spo2.js";
 import { syncStepsIntraday } from "./fitbit/sync/steps.js";
@@ -379,6 +379,9 @@ for (const user of users) {
 			);
 			await trySync(user.user_id, "SpO2", () => syncSpO2Daily(client, conn, user.user_id, lastSyncDate, today));
 			await trySync(user.user_id, "HRV", () => syncHrv(client, conn, user.user_id, lastSyncDate, today));
+			await trySync(user.user_id, "HRV intraday", () =>
+				syncHrvIntraday(client, conn, user.user_id, lastSyncDate, today),
+			);
 			await trySync(user.user_id, "breathing", () =>
 				syncBreathingRate(client, conn, user.user_id, lastSyncDate, today),
 			);
@@ -439,7 +442,31 @@ for (const user of users) {
 			// freshly-deployed stream (cursor still at today) gets the rate
 			// budget before an older stream that has been digging through 2024
 			// — otherwise HR'\''s deep backfill could starve Steps for hours.
-			const ordered = await orderStreamsByCursorRecency(user.user_id, [hrStream, stepsStream], lastSyncDate);
+			const hrvIntradayStream: IntradayStream = {
+				name: "hrv_intraday",
+				sync: (date: string) => syncHrvIntraday(client, conn, user.user_id, date, date),
+				// HRV only exists on days with a main-sleep period, which always
+				// have an HR row — so skip HR-less days to save rate limit, the
+				// same guard steps_intraday uses.
+				skipIf: async (date: string) => {
+					const start = `${date} 00:00:00`;
+					const end = `${date} 23:59:59`;
+					const row = await db()
+						.selectFrom("heart_rate_intraday")
+						.select("ts")
+						.where("user_id", "=", user.user_id)
+						.where("ts", ">=", start)
+						.where("ts", "<=", end)
+						.limit(1)
+						.executeTakeFirst();
+					return !row;
+				},
+			};
+			const ordered = await orderStreamsByCursorRecency(
+				user.user_id,
+				[hrStream, stepsStream, hrvIntradayStream],
+				lastSyncDate,
+			);
 			for (const stream of ordered) {
 				await runIntradayBackfill(client, user.user_id, stream, lastSyncDate);
 			}

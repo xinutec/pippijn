@@ -108,6 +108,19 @@ const MIGRATIONS: readonly string[] = [
     deep_rmssd DECIMAL(8,2),
     PRIMARY KEY (user_id, date)
   )`,
+	// Intraday (5-minute) HRV: full within-night resolution — RMSSD plus the
+	// coverage fraction and HF/LF spectral power — where hrv_daily keeps only
+	// the nightly summary. `ts` is the verbatim Fitbit wall-clock, mirroring
+	// heart_rate_intraday. Filled by syncHrvIntraday (forward + backfill).
+	`CREATE TABLE IF NOT EXISTS hrv_intraday (
+    user_id VARCHAR(64) NOT NULL,
+    ts DATETIME NOT NULL,
+    rmssd DECIMAL(8,3) NOT NULL,
+    coverage DECIMAL(5,3),
+    hf DECIMAL(12,4),
+    lf DECIMAL(12,4),
+    PRIMARY KEY (user_id, ts)
+  )`,
 	`CREATE TABLE IF NOT EXISTS breathing_rate (
     user_id VARCHAR(64) NOT NULL,
     date DATE NOT NULL,

@@ -102,6 +102,7 @@ const TABLES: Array<[keyof import("../db/tables.js").Database, string, boolean]>
 	["spo2_daily", "date", false],
 	["spo2_intraday", "ts", true],
 	["hrv_daily", "date", false],
+	["hrv_intraday", "ts", true],
 	["breathing_rate", "date", false],
 	["skin_temperature", "date", false],
 	["cardio_fitness", "date", false],

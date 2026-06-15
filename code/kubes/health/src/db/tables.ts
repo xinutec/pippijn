@@ -139,6 +139,18 @@ export interface HrvDailyTable {
 	deep_rmssd: number | null;
 }
 
+/** Intraday (5-minute) HRV — full within-night resolution. `ts` is the
+ *  verbatim Fitbit wall-clock DATETIME (string), as in heart_rate_intraday.
+ *  DECIMAL columns come back as strings from node-mariadb. */
+export interface HrvIntradayTable {
+	user_id: string;
+	ts: string;
+	rmssd: number;
+	coverage: number | null;
+	hf: number | null;
+	lf: number | null;
+}
+
 export interface BreathingRateTable {
 	user_id: string;
 	date: string;
@@ -440,6 +452,7 @@ export interface Database {
 	spo2_daily: SpO2DailyTable;
 	spo2_intraday: SpO2IntradayTable;
 	hrv_daily: HrvDailyTable;
+	hrv_intraday: HrvIntradayTable;
 	breathing_rate: BreathingRateTable;
 	skin_temperature: SkinTemperatureTable;
 	cardio_fitness: CardioFitnessTable;
