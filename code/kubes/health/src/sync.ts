@@ -6,6 +6,8 @@ import {
 	backfillStreamDay,
 	type IntradayStream,
 	prevDayBounded,
+	prevWindowBounded,
+	type RangeStream,
 	shouldAdvanceEmptyStreak,
 	sortStreamsByCursorRecency,
 } from "./backfill.js";
@@ -78,11 +80,11 @@ async function migrateLegacyBackfillKeys(userId: string): Promise<void> {
 
 /** Wrapper around the pure sortStreamsByCursorRecency helper: fetches each
  *  stream'\''s stored cursor from sync_state and feeds it into the sort. */
-async function orderStreamsByCursorRecency(
+async function orderStreamsByCursorRecency<T extends { name: string }>(
 	userId: string,
-	streams: IntradayStream[],
+	streams: T[],
 	defaultStartDate: string,
-): Promise<IntradayStream[]> {
+): Promise<T[]> {
 	const cursors = new Map<string, string>();
 	for (const s of streams) {
 		const stored = await getSyncState(userId, `backfill_${s.name}_cursor`);
@@ -172,6 +174,94 @@ async function runIntradayBackfill(
 		await setSyncState(userId, completeKey, "true");
 	} else {
 		console.log(`[${userId}] ${stream.name}: paused at ${currentDate}. Rate limit: ${client.rateLimitRemaining}`);
+	}
+}
+
+/** A 30-day inclusive window is the largest range Fitbit's daily-summary
+ *  endpoints (HRV, breathing, SpO2, skin temp) accept in one call, so it's
+ *  the cheapest unit of backward progress for the range backfill. */
+const RANGE_BACKFILL_WINDOW_DAYS = 30;
+
+/** Walk one daily-summary stream backwards from its stored cursor, fetching
+ *  one ~30-day window per iteration (a single Fitbit range call), until the
+ *  rate-limit budget is gone or we hit the empty-window threshold (stream
+ *  complete). This is how the daily metrics that never rode along HR's deep
+ *  backfill — HRV, breathing, SpO2, temperature, body, HR zones — reach the
+ *  same historical depth as the rest, ~30× cheaper than day-by-day. Each
+ *  stream is independent: its cursor + complete flag are its own, so a metric
+ *  whose history ends earlier stops without holding up the others. Mirrors
+ *  runIntradayBackfill's safety semantics (cursor always advances so a
+ *  persistently-failing window can't spin forever; transient errors leave the
+ *  empty streak untouched so they don't silently mark the stream complete). */
+async function runRangeBackfill(
+	client: FitbitClient,
+	userId: string,
+	stream: RangeStream,
+	defaultStartDate: string,
+): Promise<void> {
+	const completeKey = `backfill_${stream.name}_complete`;
+	const cursorKey = `backfill_${stream.name}_cursor`;
+	const maxEmpty = stream.maxEmptyWindows ?? 3;
+
+	if ((await getSyncState(userId, completeKey)) === "true") {
+		console.log(`[${userId}] ${stream.name}: backfill already complete`);
+		return;
+	}
+	if (client.rateLimitRemaining <= 15) {
+		console.log(`[${userId}] ${stream.name}: rate limit low (${client.rateLimitRemaining}), skipping`);
+		return;
+	}
+
+	const cursor = (await getSyncState(userId, cursorKey)) ?? defaultStartDate;
+	console.log(`[${userId}] ${stream.name}: range backfill from ${cursor} going backwards...`);
+
+	// The next window ends the day before the cursor (the oldest date already
+	// covered); prevWindowBounded expands that into a [start, end] span.
+	let windowEnd = prevDayBounded(cursor, BACKFILL_FLOOR_DATE);
+	if (windowEnd === null) {
+		console.log(`[${userId}] ${stream.name}: cursor at floor or malformed (${cursor}), marking complete`);
+		await setSyncState(userId, completeKey, "true");
+		return;
+	}
+	let emptyStreak = 0;
+
+	while (client.rateLimitRemaining > 15 && emptyStreak < maxEmpty) {
+		const window = prevWindowBounded(windowEnd, RANGE_BACKFILL_WINDOW_DAYS, BACKFILL_FLOOR_DATE);
+		if (window === null) {
+			console.log(`[${userId}] ${stream.name}: reached backfill floor ${BACKFILL_FLOOR_DATE}`);
+			await setSyncState(userId, completeKey, "true");
+			return;
+		}
+
+		const result = await backfillStreamDay(() => stream.sync(window.start, window.end), window.end);
+		if (!result.ok) {
+			console.error(`[${userId}] ${stream.name} ${window.start}..${window.end} failed: ${result.error}`);
+		}
+		if (shouldAdvanceEmptyStreak(result)) {
+			emptyStreak++;
+		} else if (result.ok) {
+			emptyStreak = 0;
+		}
+		// !ok: leave emptyStreak unchanged so a transient error doesn't
+		// silently terminate this stream's backfill.
+
+		// Advance the cursor past this window unconditionally (as the intraday
+		// backfill does): a persistently-failing window must not loop forever.
+		await setSyncState(userId, cursorKey, window.start);
+		const next = prevDayBounded(window.start, BACKFILL_FLOOR_DATE);
+		if (next === null) {
+			console.log(`[${userId}] ${stream.name}: reached backfill floor ${BACKFILL_FLOOR_DATE}`);
+			await setSyncState(userId, completeKey, "true");
+			return;
+		}
+		windowEnd = next;
+	}
+
+	if (emptyStreak >= maxEmpty) {
+		console.log(`[${userId}] ${stream.name}: backfill complete — ${maxEmpty} consecutive empty windows`);
+		await setSyncState(userId, completeKey, "true");
+	} else {
+		console.log(`[${userId}] ${stream.name}: paused at ${windowEnd}. Rate limit: ${client.rateLimitRemaining}`);
 	}
 }
 
@@ -352,6 +442,25 @@ for (const user of users) {
 			const ordered = await orderStreamsByCursorRecency(user.user_id, [hrStream, stepsStream], lastSyncDate);
 			for (const stream of ordered) {
 				await runIntradayBackfill(client, user.user_id, stream, lastSyncDate);
+			}
+
+			// Daily-summary backfill. Unlike activity + sleep (which ride along
+			// HR's deep backfill above), these six metrics were only ever
+			// forward-synced, so their history starts at the first forward sync.
+			// Walk each backward in 30-day range windows — one cheap Fitbit
+			// range call per window — to the same historical depth as the rest.
+			// Independent cursors so each stops at its own earliest data.
+			const rangeStreams: RangeStream[] = [
+				{ name: "hrv", sync: (s, e) => syncHrv(client, conn, user.user_id, s, e) },
+				{ name: "breathing", sync: (s, e) => syncBreathingRate(client, conn, user.user_id, s, e) },
+				{ name: "spo2", sync: (s, e) => syncSpO2Daily(client, conn, user.user_id, s, e) },
+				{ name: "temperature", sync: (s, e) => syncTemperature(client, conn, user.user_id, s, e) },
+				{ name: "body", sync: (s, e) => syncBody(client, conn, user.user_id, s, e) },
+				{ name: "hr_zones", sync: (s, e) => syncHeartRateZones(client, conn, user.user_id, s, e) },
+			];
+			const orderedRange = await orderStreamsByCursorRecency(user.user_id, rangeStreams, lastSyncDate);
+			for (const stream of orderedRange) {
+				await runRangeBackfill(client, user.user_id, stream, lastSyncDate);
 			}
 		});
 

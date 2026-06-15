@@ -122,3 +122,58 @@ export function sortStreamsByCursorRecency<T extends { name: string }>(
 		return cb.localeCompare(ca);
 	});
 }
+
+/**
+ * Compute the next OLDER fetch window `[start, end]` of `windowDays`
+ * inclusive days, ending at `end`. The range-based daily-summary backfill
+ * walks backward a window at a time — one Fitbit range call per step (the
+ * HRV / breathing / SpO2 / temperature / body / HR-zone endpoints all accept
+ * a date range), which is ~30× cheaper than the day-by-day intraday backfill.
+ *
+ * `start` is clamped UP to `floor`, so a window never reaches before the
+ * earliest date the backfill should consider. Returns null when:
+ *   - `windowDays` < 1
+ *   - `end` is not a parseable `YYYY-MM-DD` date
+ *   - `end` is at or before `floor` (nothing older left to fetch)
+ *
+ * Same guard discipline as `prevDayBounded`: callers MUST stop when this
+ * returns null, so a loop bug can't walk the cursor into negative years.
+ */
+export function prevWindowBounded(
+	end: string,
+	windowDays: number,
+	floor: string,
+): { start: string; end: string } | null {
+	if (windowDays < 1) return null;
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) return null;
+	const e = new Date(`${end}T00:00:00Z`);
+	if (Number.isNaN(e.getTime())) return null;
+	if (end <= floor) return null;
+	const s = new Date(e);
+	s.setUTCDate(s.getUTCDate() - (windowDays - 1));
+	const start = s.toISOString().slice(0, 10);
+	return { start: start < floor ? floor : start, end };
+}
+
+/**
+ * Function shape for a date-range sync (one Fitbit range call). Whatever the
+ * caller binds here — e.g. `(s, e) => syncHrv(client, conn, userId, s, e)` —
+ * must resolve to the number of rows written across the range, or throw on
+ * transient failure.
+ */
+export type RangeSyncFn = (startDate: string, endDate: string) => Promise<number>;
+
+/**
+ * Descriptor for a range-backfillable daily-summary stream. The orchestrator
+ * walks backward one window at a time from the stream's stored cursor,
+ * calling `sync(start, end)` and using the same empty-streak completion logic
+ * as the intraday backfill — but counted in windows, not days.
+ */
+export interface RangeStream {
+	/** Stable name used for sync_state keys: `backfill_${name}_cursor` etc. */
+	name: string;
+	/** Fetch one window. Throws on transient failure (retried next run). */
+	sync: RangeSyncFn;
+	/** Consecutive empty windows that mark the stream complete. Default 3. */
+	maxEmptyWindows?: number;
+}

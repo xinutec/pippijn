@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	backfillStreamDay,
 	prevDayBounded,
+	prevWindowBounded,
 	shouldAdvanceEmptyStreak,
 	sortStreamsByCursorRecency,
 } from "../src/backfill.js";
@@ -152,5 +153,58 @@ describe("prevDayBounded", () => {
 		expect(prevDayBounded("-000026-02", "2000-01-01")).toBeNull();
 		expect(prevDayBounded("garbage", "2000-01-01")).toBeNull();
 		expect(prevDayBounded("", "2000-01-01")).toBeNull();
+	});
+});
+
+describe("prevWindowBounded", () => {
+	// Compute the next OLDER fetch window [start, end] of `windowDays`
+	// inclusive days, ending at `end`. Used by the range-based daily-summary
+	// backfill, which walks backward a window at a time (one ~30-day Fitbit
+	// range call per step) rather than one day at a time. Returns null at the
+	// floor / on malformed input, same guard discipline as prevDayBounded.
+
+	it("returns a 30-day inclusive window for a normal end date", () => {
+		// 2026-06-15 minus 29 days = 2026-05-17 (30 days inclusive).
+		expect(prevWindowBounded("2026-06-15", 30, "2000-01-01")).toEqual({
+			start: "2026-05-17",
+			end: "2026-06-15",
+		});
+	});
+
+	it("supports a 1-day window (start === end)", () => {
+		expect(prevWindowBounded("2026-06-15", 1, "2000-01-01")).toEqual({
+			start: "2026-06-15",
+			end: "2026-06-15",
+		});
+	});
+
+	it("clamps the window start up to the floor (never fetches before it)", () => {
+		expect(prevWindowBounded("2026-01-10", 30, "2026-01-01")).toEqual({
+			start: "2026-01-01",
+			end: "2026-01-10",
+		});
+	});
+
+	it("crosses year boundaries correctly", () => {
+		expect(prevWindowBounded("2026-01-05", 10, "2000-01-01")).toEqual({
+			start: "2025-12-27",
+			end: "2026-01-05",
+		});
+	});
+
+	it("returns null when end is at or before the floor", () => {
+		expect(prevWindowBounded("2000-01-01", 30, "2000-01-01")).toBeNull();
+		expect(prevWindowBounded("1999-12-31", 30, "2000-01-01")).toBeNull();
+	});
+
+	it("returns null for malformed input (never produces a negative-year window)", () => {
+		expect(prevWindowBounded("-000026-02", 30, "2000-01-01")).toBeNull();
+		expect(prevWindowBounded("garbage", 30, "2000-01-01")).toBeNull();
+		expect(prevWindowBounded("", 30, "2000-01-01")).toBeNull();
+	});
+
+	it("returns null for a non-positive window size", () => {
+		expect(prevWindowBounded("2026-06-15", 0, "2000-01-01")).toBeNull();
+		expect(prevWindowBounded("2026-06-15", -5, "2000-01-01")).toBeNull();
 	});
 });

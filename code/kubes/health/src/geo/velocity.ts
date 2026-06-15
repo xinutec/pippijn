@@ -1658,7 +1658,7 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 function trainStationPair(seg: EnrichedSegment): string | null {
 	if ((seg.refinedMode ?? seg.mode) !== "train") return null;
 	const w = seg.wayName;
-	if (!w || !w.includes("→")) return null;
+	if (!w?.includes("→")) return null;
 	return w.split(" · ")[0].trim();
 }
 
