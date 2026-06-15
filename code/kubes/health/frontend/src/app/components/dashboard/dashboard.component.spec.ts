@@ -1,6 +1,6 @@
 import { type ComponentFixture, TestBed } from "@angular/core/testing";
 import { signal } from "@angular/core";
-import { provideRouter } from "@angular/router";
+import { provideRouter, Router } from "@angular/router";
 import { beforeEach, describe, expect, it } from "vitest";
 import { type ActivityDay, HealthService, type SleepLog, type VelocityData } from "../../services/health.service";
 import { todayLocal } from "../../time-utils";
@@ -61,6 +61,10 @@ interface HealthMock {
 	health: HealthService;
 	/** Per-date deferred velocity loads, so the test controls completion order. */
 	pending: Map<string, Deferred<VelocityData>>;
+	/** Every `days` value the window resource asked `getActivity` for, in
+	 *  order — lets a test assert the Trends control refetches at the new
+	 *  span. */
+	activityDaysSeen: number[];
 }
 
 /** A complete enough HealthService stand-in to run ngOnInit cleanly: a
@@ -69,6 +73,7 @@ interface HealthMock {
  *  immediately. */
 function makeHealthMock(opts: { activity?: ActivityDay[]; sleep?: SleepLog[] } = {}): HealthMock {
 	const pending = new Map<string, Deferred<VelocityData>>();
+	const activityDaysSeen: number[] = [];
 	const health = {
 		user: signal({ fitbitLinked: true }),
 		shareToken: signal(null),
@@ -76,7 +81,10 @@ function makeHealthMock(opts: { activity?: ActivityDay[]; sleep?: SleepLog[] } =
 		clientLog: async () => {},
 		syncPhoneTrackFilter: async () => {},
 		getLatestFix: async () => null,
-		getActivity: async () => opts.activity ?? [],
+		getActivity: async (days: number) => {
+			activityDaysSeen.push(days);
+			return opts.activity ?? [];
+		},
 		getSleep: async () => opts.sleep ?? [],
 		getHrv: async () => [],
 		getSleepStages: async () => [],
@@ -87,7 +95,7 @@ function makeHealthMock(opts: { activity?: ActivityDay[]; sleep?: SleepLog[] } =
 			return d.promise;
 		},
 	} as unknown as HealthService;
-	return { health, pending };
+	return { health, pending, activityDaysSeen };
 }
 
 const vel = (): VelocityData => ({ points: [], segments: [] }) as unknown as VelocityData;
@@ -260,6 +268,77 @@ describe("DashboardComponent — loading UX (rendered DOM)", () => {
 		await pump(fixture);
 		expect(q(fixture, ".day-body.stale"), "un-stale after load").toBeFalsy();
 		expect(q(fixture, ".day-body-overlay"), "overlay gone after load").toBeFalsy();
+	});
+});
+
+describe("DashboardComponent — Trends window control", () => {
+	beforeEach(() => TestBed.resetTestingModule());
+
+	it("defaults to a 30-day window and fetches that span once", async () => {
+		const mock = makeHealthMock();
+		const fixture = setup(mock);
+		const cmp = fixture.componentInstance;
+		await boot(fixture);
+
+		expect(cmp.trendDays()).toBe(30);
+		expect(mock.activityDaysSeen).toEqual([30]);
+	});
+
+	it("setTrendDays refetches the window at the new span", async () => {
+		const mock = makeHealthMock();
+		const fixture = setup(mock);
+		const cmp = fixture.componentInstance;
+		await boot(fixture);
+
+		cmp.setTrendDays(90);
+		await pump(fixture);
+
+		expect(cmp.trendDays()).toBe(90);
+		expect(mock.activityDaysSeen).toEqual([30, 90]);
+	});
+
+	it("clamps out-of-range and fractional inputs to [1, 365] integers", async () => {
+		const mock = makeHealthMock();
+		const fixture = setup(mock);
+		const cmp = fixture.componentInstance;
+		await boot(fixture);
+
+		cmp.setTrendDays(0);
+		expect(cmp.trendDays()).toBe(1);
+		cmp.setTrendDays(10_000);
+		expect(cmp.trendDays()).toBe(365);
+		cmp.setTrendDays(45.7);
+		expect(cmp.trendDays()).toBe(46);
+	});
+
+	it("ignores a no-op set so it does not refetch or push history", async () => {
+		const mock = makeHealthMock();
+		const fixture = setup(mock);
+		const cmp = fixture.componentInstance;
+		await boot(fixture);
+
+		cmp.setTrendDays(30); // already the default
+		await pump(fixture);
+
+		expect(mock.activityDaysSeen).toEqual([30]);
+	});
+
+	it("restores the window from a ?trendDays= query param on first paint", async () => {
+		const mock = makeHealthMock();
+		TestBed.configureTestingModule({
+			imports: [DashboardComponent],
+			providers: [
+				provideRouter([{ path: "**", children: [] }]),
+				{ provide: HealthService, useValue: mock.health },
+			],
+		});
+		const router = TestBed.inject(Router);
+		await router.navigate([], { queryParams: { trendDays: "90" } });
+		const fixture = TestBed.createComponent(DashboardComponent);
+		await boot(fixture);
+
+		expect(fixture.componentInstance.trendDays()).toBe(90);
+		expect(mock.activityDaysSeen).toEqual([90]);
 	});
 });
 

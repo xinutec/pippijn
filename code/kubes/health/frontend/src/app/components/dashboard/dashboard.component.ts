@@ -3,8 +3,12 @@ import { DecimalPipe, KeyValuePipe } from "@angular/common";
 import { ActivatedRoute, Router } from "@angular/router";
 import { Subscription } from "rxjs";
 import { MatButtonModule } from "@angular/material/button";
+import { MatButtonToggleModule } from "@angular/material/button-toggle";
+import { MatFormFieldModule } from "@angular/material/form-field";
+import { MatInputModule } from "@angular/material/input";
 import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";
 import { MatTabsModule } from "@angular/material/tabs";
+import { FormsModule } from "@angular/forms";
 import {
 	type ActivityDay,
 	HealthService,
@@ -24,6 +28,16 @@ const LIVE_POLL_MS = 15_000;
 /** localStorage key for the last live fix — lets the Map tab show a
  *  position immediately after a reload, before the first poll. */
 const LIVE_FIX_CACHE_KEY = "health:live-fix";
+
+/** Default Trends-tab window. Matches the backend `daysParam` default
+ *  and is the value omitted from the URL for a clean default link. */
+const DEFAULT_TREND_DAYS = 30;
+/** Trends-window bounds. The backend caps `days` at 365; mirror it here
+ *  so the custom-number input cannot request a window the API rejects. */
+const MIN_TREND_DAYS = 1;
+const MAX_TREND_DAYS = 365;
+/** Quick-pick presets for the Trends window toggle. */
+export const TREND_DAY_PRESETS = [7, 30, 90, 365] as const;
 import { logBootContext } from "../../client-diagnostics";
 import { BatteryChartComponent } from "../battery-chart/battery-chart.component";
 import { DayNavComponent } from "../day-nav/day-nav.component";
@@ -97,7 +111,11 @@ export interface LoadTimings {
 	imports: [
 		DecimalPipe,
 		KeyValuePipe,
+		FormsModule,
 		MatButtonModule,
+		MatButtonToggleModule,
+		MatFormFieldModule,
+		MatInputModule,
 		MatProgressSpinnerModule,
 		MatTabsModule,
 		DayNavComponent,
@@ -121,6 +139,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	/** Tab index for `<mat-tab-group [selectedIndex]>`, derived from `view`. */
 	readonly tabIndex = computed(() => (this.view() === "today" ? 0 : this.view() === "trends" ? 1 : 2));
 	readonly selectedDate = signal(todayLocal());
+	/** How many days of history the Trends tab charts span. Reflected
+	 *  into `?trendDays=N`; the default (30) is omitted for a clean URL.
+	 *  Drives the `windowData` resource, so changing it refetches. */
+	readonly trendDays = signal(DEFAULT_TREND_DAYS);
 
 	// Auth / linkage gates. `dataReady` flips true once we know the user
 	// is signed in with a linked Fitbit — only then do the resources load.
@@ -141,24 +163,26 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	/** Recorded fetch durations for the performance panel. */
 	readonly timings = signal<LoadTimings>({});
 
-	/** Last 30 days of activity + sleep. Day-independent: the `params`
-	 *  key is constant once ready, so this loads exactly once per session
-	 *  rather than on every day-navigation. */
-	private readonly windowData = resource<WindowData, "ready" | undefined>({
-		// `undefined` keeps the resource idle until the user is ready; a
-		// constant key thereafter means it loads exactly once.
-		params: () => (this.dataReady() ? "ready" : undefined),
+	/** Activity + sleep + HRV over the Trends window. Day-independent but
+	 *  keyed on `trendDays`, so it loads once per session at the default
+	 *  span and refetches only when the user changes the Trends range —
+	 *  never on day-navigation. */
+	private readonly windowData = resource<WindowData, number | undefined>({
+		// `undefined` keeps the resource idle until the user is ready; the
+		// `trendDays` key thereafter means it reloads only when the span
+		// changes.
+		params: () => (this.dataReady() ? this.trendDays() : undefined),
 		defaultValue: { activity: [], sleep: [], hrv: [] },
-		loader: async ({ abortSignal }) => {
+		loader: async ({ params: days, abortSignal }) => {
 			const t0 = performance.now();
 			const timed = <T>(p: Promise<T>): Promise<[T, number]> => {
 				const start = performance.now();
 				return p.then((v) => [v, performance.now() - start] as [T, number]);
 			};
 			const [[activity, tActivity], [sleep, tSleep], [hrv, tHrv]] = await Promise.all([
-				timed(this.health.getActivity(30, abortSignal).catch(() => [] as ActivityDay[])),
-				timed(this.health.getSleep(30, abortSignal).catch(() => [] as SleepLog[])),
-				timed(this.health.getHrv(30, abortSignal).catch(() => [] as HrvDay[])),
+				timed(this.health.getActivity(days, abortSignal).catch(() => [] as ActivityDay[])),
+				timed(this.health.getSleep(days, abortSignal).catch(() => [] as SleepLog[])),
+				timed(this.health.getHrv(days, abortSignal).catch(() => [] as HrvDay[])),
 			]);
 			this.timings.update((t) => ({
 				...t,
@@ -349,6 +373,18 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		return raw === "today" || raw === "trends" || raw === "map" ? raw : null;
 	}
 
+	/** Validate a `?trendDays=N` query parameter. Returns null for absent
+	 *  or non-integer input so the caller falls back to the default; a
+	 *  valid integer is clamped into [MIN, MAX] to match the backend cap. */
+	private parseTrendDaysParam(raw: string | null): number | null {
+		if (raw === null) return null;
+		if (!/^\d+$/.test(raw)) return null;
+		const n = Number(raw);
+		if (n < MIN_TREND_DAYS) return MIN_TREND_DAYS;
+		if (n > MAX_TREND_DAYS) return MAX_TREND_DAYS;
+		return n;
+	}
+
 	async ngOnInit(): Promise<void> {
 		// Share mode: stash the route's `:token` param onto HealthService
 		// so every API call carries `X-Share-Token`. The rest of the
@@ -380,6 +416,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
 				if (initial !== null) this.selectedDate.set(initial);
 				const initialTab = this.parseTabParam(this.route.snapshot.queryParamMap.get("tab"));
 				if (initialTab !== null) this.view.set(initialTab);
+				const initialDays = this.parseTrendDaysParam(this.route.snapshot.queryParamMap.get("trendDays"));
+				if (initialDays !== null) this.trendDays.set(initialDays);
 
 				// Adopt query-param changes the app did not initiate itself:
 				// browser back/forward and direct URL edits. Navigation the
@@ -390,6 +428,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
 					if (tab !== null && tab !== this.view()) this.view.set(tab);
 					const next = this.parseDateParam(params.get("date")) ?? todayLocal();
 					if (next !== this.selectedDate()) this.selectedDate.set(next);
+					const days = this.parseTrendDaysParam(params.get("trendDays")) ?? DEFAULT_TREND_DAYS;
+					if (days !== this.trendDays()) this.trendDays.set(days);
 				});
 
 				// Fire-and-forget: keep PhoneTrack's visualisation filter
@@ -454,6 +494,28 @@ export class DashboardComponent implements OnInit, OnDestroy {
 			queryParamsHandling: "merge",
 		});
 	}
+
+	/** Set the Trends-tab window, clamped to the backend-supported range,
+	 *  and mirror it into `?trendDays=N`. The default (30) is omitted for
+	 *  a clean URL — same convention as `?date=` / `?tab=`. The
+	 *  `windowData` resource is keyed on `trendDays`, so this triggers a
+	 *  single refetch at the new span. Ignores a no-op (same value) so a
+	 *  duplicate toggle/blur doesn't push a redundant history entry. */
+	setTrendDays(n: number): void {
+		const clamped = !Number.isFinite(n)
+			? DEFAULT_TREND_DAYS
+			: Math.min(MAX_TREND_DAYS, Math.max(MIN_TREND_DAYS, Math.round(n)));
+		if (clamped === this.trendDays()) return;
+		this.trendDays.set(clamped);
+		void this.router.navigate([], {
+			relativeTo: this.route,
+			queryParams: { trendDays: clamped === DEFAULT_TREND_DAYS ? null : clamped },
+			queryParamsHandling: "merge",
+		});
+	}
+
+	/** The preset windows offered by the Trends range toggle. */
+	readonly trendPresets = TREND_DAY_PRESETS;
 
 	isToday(): boolean {
 		return this.selectedDate() === todayLocal();

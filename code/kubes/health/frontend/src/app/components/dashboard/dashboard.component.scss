@@ -4,6 +4,22 @@
 .section {
 	margin-bottom: 16px;
 }
+/* Trends-tab window control: preset toggle + custom-day input, on one
+ * row that wraps on narrow screens. The number field is kept compact —
+ * it only ever holds a 1-3 digit day count. */
+.trend-range {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin-bottom: 16px;
+}
+.trend-range .trend-days-field {
+	width: 96px;
+	/* Pull the outline field's intrinsic bottom padding (subscript wrapper)
+	 * so it lines up with the toggle group beside it. */
+	margin-bottom: -1.25em;
+}
 /* Velocity load-failure banner: a centred message + retry button shown
  * in place of the location/transport/timeline charts when their data
  * failed to load (as opposed to genuinely being empty). */

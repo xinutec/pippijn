@@ -115,6 +115,26 @@
 		</mat-tab>
 		<mat-tab label="Trends">
 			<div class="tab-content">
+				<div class="trend-range">
+					<mat-button-toggle-group
+						aria-label="Trends window"
+						[value]="trendPresets.includes($any(trendDays())) ? trendDays() : null"
+						(change)="setTrendDays($event.value)">
+						@for (preset of trendPresets; track preset) {
+							<mat-button-toggle [value]="preset">{{ preset }}d</mat-button-toggle>
+						}
+					</mat-button-toggle-group>
+					<mat-form-field appearance="outline" class="trend-days-field">
+						<mat-label>Days</mat-label>
+						<input
+							matInput
+							type="number"
+							min="1"
+							max="365"
+							[ngModel]="trendDays()"
+							(change)="setTrendDays($any($event.target).valueAsNumber)" />
+					</mat-form-field>
+				</div>
 				<div class="charts-row">
 					<app-steps-chart [activity]="activity()" />
 					<app-heartrate-chart [activity]="activity()" />
