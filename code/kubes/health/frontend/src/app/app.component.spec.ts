@@ -4,9 +4,11 @@
  *   - hidden when no share link is active (shareStatus null or inactive)
  *   - shown when a share link is active
  *   - clicking it copies the share URL to the clipboard
- *   - the copied link carries the day and tab currently open (the
- *     dashboard's `?date=` / `?tab=` params), so the recipient lands
- *     on the same view
+ *   - the copied link carries the current view verbatim: whatever query
+ *     string is on the dashboard URL (`?date=` / `?tab=` / `?trendDays=`
+ *     / any future view param) is appended to the share URL, so the
+ *     recipient lands on the same view with no per-param allowlist to
+ *     keep in sync
  *
  * The button is a toolbar shortcut for the share URL otherwise only
  * reachable via Settings. Visibility tracks HealthService's
@@ -84,13 +86,15 @@ describe("AppComponent toolbar — share quick-copy button", () => {
 		expect(writeText).toHaveBeenCalledWith(url);
 	});
 
-	it("carries the current day and tab into the copied link", async () => {
+	it("carries the full current view (day, tab, trendDays) into the copied link", async () => {
 		const url = "https://health.example/share/abc";
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		vi.stubGlobal("navigator", { userAgent: "test", clipboard: { writeText } });
-		const fixture = await setup({ active: true, url }, "/?date=2026-05-20&tab=map");
+		const fixture = await setup({ active: true, url }, "/?date=2026-05-20&tab=trends&trendDays=60");
 		const button = fixture.nativeElement.querySelector(".share-link") as HTMLButtonElement;
 		button.click();
-		expect(writeText).toHaveBeenCalledWith(`${url}?date=2026-05-20&tab=map`);
+		// The whole query string rides along verbatim — including trendDays,
+		// which no allowlist had to be taught about.
+		expect(writeText).toHaveBeenCalledWith(`${url}?date=2026-05-20&tab=trends&trendDays=60`);
 	});
 });

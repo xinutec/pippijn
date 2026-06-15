@@ -58,34 +58,23 @@ export class AppComponent {
 
 	private readonly snackBar = inject(MatSnackBar);
 
-	/** The `date`/`tab` query params of the page currently open,
-	 *  re-serialised in a stable order. These are exactly the params
-	 *  the dashboard round-trips through the URL (see DashboardComponent),
-	 *  so carrying them into a share link lands the recipient on the
-	 *  same day and tab. Empty when neither is set — today on the
-	 *  default tab, or a page like Settings that has no day. */
-	private readonly deepLinkParams = computed<string>(() => {
-		const u = this.url();
-		const qIdx = u.indexOf("?");
-		if (qIdx < 0) return "";
-		const src = new URLSearchParams(u.slice(qIdx + 1));
-		const out = new URLSearchParams();
-		const date = src.get("date");
-		const tab = src.get("tab");
-		if (date) out.set("date", date);
-		if (tab) out.set("tab", tab);
-		return out.toString();
-	});
-
 	/** The share link for the toolbar quick-copy button, or null while
-	 *  no share link is active. Carries the day and tab currently open
-	 *  so the recipient opens on the same view; falls back to the bare
-	 *  link (as shown in Settings) when the URL has no day/tab. */
+	 *  no share link is active.
+	 *
+	 *  A share link is, by definition, "the view I'm looking at, handed to
+	 *  someone else." The dashboard already round-trips its whole view
+	 *  state through the URL query string and restores from it on load, so
+	 *  the URL *is* the canonical view — and the share link is just that
+	 *  URL with the path swapped to the share token: the current query
+	 *  string carried verbatim onto `s.url`. No allowlist to maintain, so
+	 *  any view param the dashboard adds (date, tab, trendDays, …) rides
+	 *  along automatically and none can silently drop out of sync. */
 	readonly shareUrl = computed<string | null>(() => {
 		const s = this.health.shareStatus();
 		if (!s?.active || !s.url) return null;
-		const params = this.deepLinkParams();
-		return params ? `${s.url}?${params}` : s.url;
+		const u = this.url();
+		const qIdx = u.indexOf("?");
+		return qIdx < 0 ? s.url : s.url + u.slice(qIdx);
 	});
 
 	constructor() {
