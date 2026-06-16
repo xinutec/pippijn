@@ -51,7 +51,7 @@ resource "cloudflare_dns_record" "net_www" {
   proxied = false
 }
 
-# --- AAAA (IRC on isis) ---
+# --- AAAA (IRC on the partner host, not isis) ---
 
 resource "cloudflare_dns_record" "net_irc_v6" {
   zone_id = local.xinutec_net_id
@@ -62,7 +62,7 @@ resource "cloudflare_dns_record" "net_irc_v6" {
   proxied = false
 }
 
-# --- A (IRC) ---
+# --- A (IRC — round-robin across isis and the partner host) ---
 
 resource "cloudflare_dns_record" "net_irc_v4_isis" {
   zone_id = local.xinutec_net_id
@@ -73,7 +73,8 @@ resource "cloudflare_dns_record" "net_irc_v4_isis" {
   proxied = false
 }
 
-resource "cloudflare_dns_record" "net_irc_v4_legacy" {
+# Partner-operated host (a friend's box), not part of our fleet.
+resource "cloudflare_dns_record" "net_irc_v4_partner" {
   zone_id = local.xinutec_net_id
   type    = "A"
   name    = "irc"
