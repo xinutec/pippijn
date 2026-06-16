@@ -82,7 +82,7 @@ resource "cloudflare_dns_record" "net_irc_v4_legacy" {
   proxied = false
 }
 
-# --- A (webchat → legacy IRC host) ---
+# --- A (webchat → partner-operated IRC host 5.9.157.210, outside our fleet) ---
 
 resource "cloudflare_dns_record" "net_webchat_v4" {
   zone_id = local.xinutec_net_id
