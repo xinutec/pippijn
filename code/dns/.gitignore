@@ -1,1 +1,4 @@
 .terraform/
+# Timestamped state backups from `tofu state mv/rm`; the canonical
+# terraform.tfstate(.backup) are tracked, and history holds the rest.
+terraform.tfstate.*.backup
