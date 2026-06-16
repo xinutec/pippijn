@@ -260,14 +260,33 @@ speed *with GPS present* (12:21–12:23, 13–23 km/h) — it **credited a rail
 line to a road vehicle** because `line-proximity-factor.ts` scores `train @ L`
 by GPS-to-track distance, and the bus's road runs parallel to the Piccadilly
 tunnel. (Not `route-rail-evidence.ts`, which fires only on GPS-null minutes.)
-So the real decoder brick is **#238**: gate rail credit on the trajectory
-*following the track / not following a drivable road* — the decoder twin of
-the bus-corroboration fix already shipped on the pipeline. Once the leg
-decodes `driving`, the existing C-bus annotation names it `bus` (composition,
-Phase 4). Heuristic-path C-bus is done; the decoder #238 rail-over-credit
-fix is the remaining piece, and it is delicate probabilistic-scoring work
-(the #238/#241/#234 family) that MUST be validated against the
-`score-decoder` baseline + golden before it ships.
+So the real decoder brick *seemed* to be **#238** (gate rail credit on
+track-following). **But capturing the real decode (`capture-hsmm-day
+2026-06-16`, continuity-on) and inspecting it refuted that** — and this is
+the headline lesson of doing it properly:
+
+> In the actual production-config decode, the bus-38 leg does **not** decode
+> `train | Piccadilly` — it decodes **`unknown`** (12:05–12:24). And the
+> Victoria→change→Metropolitan **return decodes correctly** (`train |
+> Victoria Line` 16:31, `train | Metropolitan Line` 17:04, with the King's
+> Cross change as walking→stationary). The `train|Piccadilly` seen in the
+> 06-16 `compare-hmm-vs-heuristic` run was a per-minute artifact of a
+> different (continuity-off / no-generator) config, **not** the corpus
+> reality. Changing the line-proximity scoring would have been fixing a bug
+> that does not exist in the real decode, while overriding a deliberate prior
+> tie-keeps-the-boost decision — exactly the kind of mis-targeted change the
+> measurement gate exists to catch.
+
+**Corrected target:** the decoder's real weakness on 06-16 is
+**under-reconstruction** — it abandons the bus leg and part of the morning
+to `unknown` rather than committing a mode. That is the `trips 48%` number,
+and it is **C4 continuity** (the design's acknowledged hardest, most
+slip-prone phase), *not* #238 rail-over-crediting. The first decoder code
+brick is therefore the continuity / under-reconstruction work, validated
+against `score-decoder` with 2026-06-16 in the corpus (captured) once its
+ground-truth narrative is made machine-scoreable. #238 stays a real but
+*lower-priority* guard (the 05-25 taxi fixture already pins it). Heuristic-
+path C-bus (#256) is done and names the bus on the pipeline regardless.
 
 **Confirmed next bricks, in order (each measured against the 48%/76%/50%
 baseline, never re-blessed against decoder output alone):** decoder-side
