@@ -100,6 +100,25 @@ describe("buildEpisodes — per-mode geometry resolution", () => {
 		expect(train.points[1].lat).toBeCloseTo(51.507, 2); // alights Green Park
 	});
 
+	it("anchors a raw train leg to its station join points so a neighbour walk does not bridge green", () => {
+		// Real Met-leg shape: the train's GPS starts well after boarding and
+		// stops well before alighting, so without stitching the next walk would
+		// bridge green across the missing tail. The surrounding walks supply the
+		// station ends (Wembley Park boarding, Baker Street alighting).
+		const segs = [seg({ startTs: 100, endTs: 300, mode: "train", pointCount: 1 })];
+		const fixes = [
+			fix(50, 51.563, -0.279, 4), // boarding walk @ Wembley Park
+			fix(200, 51.545, -0.21, 80), // one mid-route train fix
+			fix(350, 51.523, -0.157, 4), // alighting walk @ Baker Street
+		];
+		const states = [state(0, 100, "walking"), state(100, 300, "train"), state(300, 400, "walking")];
+		const train = buildEpisodes(states, segs, fixes)[1];
+		expect(train.kind).toBe("raw");
+		expect(train.points).toHaveLength(3); // boarding + the fix + alighting
+		expect(train.points[0].lat).toBeCloseTo(51.563, 2); // stitched to Wembley Park
+		expect(train.points.at(-1)?.lat).toBeCloseTo(51.523, 2); // stitched to Baker Street
+	});
+
 	it("collapses a stay to a single anchor at the segment centroid", () => {
 		const segs = [seg({ startTs: 0, endTs: 100, mode: "stationary", centroidLat: 51.5, centroidLon: -0.12 })];
 		const [ep] = buildEpisodes([state(0, 100, "stationary")], segs, [fix(10, 51.6, -0.2, 0)]);

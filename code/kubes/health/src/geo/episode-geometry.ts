@@ -60,6 +60,12 @@ interface LatLon {
  *  `rejectSpikes`'s 500 m spike bar; not a classifier threshold. */
 const UNKNOWN_CONNECTOR_MAX_M = 2000;
 
+/** A raw train leg whose drawn end sits more than this from its station
+ *  join point gets that point stitched on, so the leg reaches its station
+ *  and the neighbour doesn't bridge across the gap. Below it the gap is
+ *  negligible and stitching would add a redundant near-duplicate point. */
+const STATION_STITCH_MIN_M = 100;
+
 const MOVING_MODES: ReadonlySet<DayStateMode> = new Set(["walking", "cycling", "driving", "bus", "plane"]);
 
 /**
@@ -103,23 +109,28 @@ function resolveEpisode(
 			.map((sp) => ({ lat: sp.lat, lon: sp.lon }));
 		if (snapped && snapped.length >= 2) return { ...base, kind: "snapped", points: snapped };
 
+		// Boarding / alighting join points: where the previous episode left off
+		// and where the next one begins — i.e. this leg's two stations.
+		const from = resolved[index - 1]?.points.at(-1);
+		const to = entryPoint(states[index + 1], segments, points);
+
 		// A reconstructed underground leg (pointCount 0) has no real GPS for the
-		// ride: its window fixes are teleporting cell-network garbage that, after
-		// spike-rejection, clusters near the *boarding* station. Drawing that
-		// leaves the leg ending where it began, so the next (walking) episode
-		// bridges green all the way to the alighting station — the "walked between
-		// stations" map artifact (2026-06-16 Baker St → Green Park Jubilee leg).
-		// Draw a tentative connector station-to-station in train colour instead,
-		// so the tube leg reads as a line between its stations and the onward walk
-		// bridges from the right end. No cap (cf. the `unknown` connector): a known
-		// rail leg legitimately spans several km between its stations.
+		// ride: its window holds only teleporting cell-network garbage. Draw a
+		// clean connector station-to-station in train colour, so the tube leg
+		// reads as a line between its stations and the onward walk bridges from
+		// the alighting end — not a green line across the gap (the 2026-06-16
+		// Baker St → Green Park "walked between stations" artifact). No cap (cf.
+		// the `unknown` connector): a rail leg legitimately spans km.
 		const reconstructed = covering.some((s) => effectiveMode(s) === "train" && s.pointCount === 0);
-		if (reconstructed) {
-			const from = resolved[index - 1]?.points.at(-1);
-			const to = entryPoint(states[index + 1], segments, points);
-			if (from && to) return { ...base, kind: "tentative", points: [from, to] };
-		}
-		return { ...base, kind: "raw", points: rejectSpikes(windowFixes).map(toLatLon) };
+		if (reconstructed) return { ...base, kind: "tentative", points: from && to ? [from, to] : [] };
+
+		// Uncached overground leg: real GPS, but it commonly starts after the
+		// train pulls away and stops before it arrives. Anchor the ends to the
+		// station join points so the whole leg stays train-coloured and its
+		// neighbours bridge from zero — otherwise the adjacent walk draws a green
+		// line across the missing tail (the ~950 m Baker St tail on 2026-06-16).
+		const raw = rejectSpikes(windowFixes).map(toLatLon);
+		return { ...base, kind: "raw", points: stitchTrainEnds(raw, from, to) };
 	}
 
 	if (MOVING_MODES.has(mode)) {
@@ -156,6 +167,22 @@ function resolveEpisode(
 
 function effectiveMode(seg: EnrichedSegment): string {
 	return seg.refinedMode ?? seg.mode;
+}
+
+/** Anchor a raw train leg's geometry to its station join points. A train's
+ *  GPS commonly starts after it pulls away and stops before it arrives, so
+ *  `raw` falls short of the boarding (`from`) and alighting (`to`) ends; the
+ *  adjacent walk then bridges green across the gap. Prepend `from` / append
+ *  `to` (when present and more than STATION_STITCH_MIN_M from the existing
+ *  end) so the whole leg stays train-coloured and neighbours bridge from
+ *  zero. The fixes in between are untouched. */
+function stitchTrainEnds(raw: readonly LatLon[], from: LatLon | undefined, to: LatLon | undefined): LatLon[] {
+	const pts = [...raw];
+	const farFromEnd = (p: LatLon, end: LatLon | undefined): boolean =>
+		end === undefined || equirectMeters(p.lat, p.lon, end.lat, end.lon) > STATION_STITCH_MIN_M;
+	if (from && farFromEnd(from, pts[0])) pts.unshift(from);
+	if (to && farFromEnd(to, pts.at(-1))) pts.push(to);
+	return pts;
 }
 
 /** A stay's single anchor point: the covering stationary segment's
