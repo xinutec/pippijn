@@ -248,13 +248,26 @@ Victoria→change→Metropolitan back) set the target and validate the design:
   fixture's `hsmmDecode` is null — today's map is 100% the heuristic
   pipeline. The smart brain is built and measured but switched off.
 
-**Distinction this sharpens:** the C-bus work shipped 2026-06-15/16
-(stop-anchored route matcher + intermediate-stop corroboration,
-`bus-route-match.ts`, #256) lives on the **heuristic path** — it names the
-bus *there*. Phase 2's remaining decoder-side job is to add **bus to the
-decoder's own state space + emission**, so the joint model stops mapping
-buses onto tube lines once it owns mode. Heuristic-path C-bus and
-decoder-side bus are both needed; only the former is done.
+**Distinction this sharpens (corrected 2026-06-16 after reading the decode):**
+the C-bus work shipped 2026-06-15/16 (stop-anchored route matcher +
+intermediate-stop corroboration, `bus-route-match.ts`, #256) lives on the
+**heuristic path** — it names the bus *there*. The decoder's remaining job is
+**NOT** to add a `bus` mode: there is no `bus` `TransportMode` anywhere
+(`segments.ts` — bus is a *display* mode derived from `driving` +
+`vehicleKind:"bus"` in `day-state.ts:176`). The decoder's actual failure on
+the 06-16 bus-38 leg is that it emitted `train | Piccadilly Line` at road
+speed *with GPS present* (12:21–12:23, 13–23 km/h) — it **credited a rail
+line to a road vehicle** because `line-proximity-factor.ts` scores `train @ L`
+by GPS-to-track distance, and the bus's road runs parallel to the Piccadilly
+tunnel. (Not `route-rail-evidence.ts`, which fires only on GPS-null minutes.)
+So the real decoder brick is **#238**: gate rail credit on the trajectory
+*following the track / not following a drivable road* — the decoder twin of
+the bus-corroboration fix already shipped on the pipeline. Once the leg
+decodes `driving`, the existing C-bus annotation names it `bus` (composition,
+Phase 4). Heuristic-path C-bus is done; the decoder #238 rail-over-credit
+fix is the remaining piece, and it is delicate probabilistic-scoring work
+(the #238/#241/#234 family) that MUST be validated against the
+`score-decoder` baseline + golden before it ships.
 
 **Confirmed next bricks, in order (each measured against the 48%/76%/50%
 baseline, never re-blessed against decoder output alone):** decoder-side
