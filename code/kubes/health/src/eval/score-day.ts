@@ -118,6 +118,13 @@ export function scoreDay(
 	// Index decoder minutes by ts → O(1) lookup per ground-truth minute.
 	const decoderByTs = new Map<number, DecoderMinute>();
 	for (const m of decoder) decoderByTs.set(m.ts, m);
+	// Resolve place names case-insensitively. Callers disagree on key
+	// casing — the golden harness lowercases displayName, the unit tests
+	// pass title-case — so normalise both the map keys and the lookup to
+	// lowercase here. Without this, an exact-case mismatch silently scores
+	// every place dimension 0/0 (the golden harness's "Home"/"home" miss).
+	const placeByLower = new Map<string, number>();
+	for (const [k, v] of placeNameToId) placeByLower.set(k.toLowerCase(), v);
 	// Round ts to the minute since decoder/ground truth both use 60s
 	// granularity. (The caller is responsible for aligning these; this
 	// is defensive only.)
@@ -151,7 +158,7 @@ export function scoreDay(
 		if (blessed === null) continue; // defensive — scorable already gates on it
 
 		const expectedMode = canonicalMode(blessed.mode);
-		const expectedPlaceId = blessed.place === null ? null : (placeNameToId.get(blessed.place) ?? null);
+		const expectedPlaceId = blessed.place === null ? null : (placeByLower.get(blessed.place.toLowerCase()) ?? null);
 		if (blessed.place !== null && expectedPlaceId === null) {
 			unresolvedNames.add(blessed.place);
 		}

@@ -167,6 +167,28 @@ describe("scoreDay", () => {
 		expect(score.unresolvedPlaceNames).toEqual(["MysteryPlace"]);
 	});
 
+	it("resolves places case-insensitively (lowercased map keys vs title-case GT)", () => {
+		// The golden harness keys placeNameToId by displayName.toLowerCase();
+		// ground-truth cells are written title-case ("Home"). An exact-case
+		// lookup silently scored every place dimension 0/0 — this pins the
+		// case-insensitive resolution that fixes it.
+		const rows = [
+			gt(0, 60, "correct", {
+				mode: "stationary",
+				place: "Home",
+				wayName: null,
+				placeQualifier: null,
+				trainFromTo: null,
+				lineName: null,
+			}),
+		];
+		const decoder = dec(0, 60, "stationary", 42);
+		const score = scoreDay(rows, decoder, new Map([["home", 42]])); // lowercased key
+		expect(score.placeScorable).toBe(60);
+		expect(score.placeMatching).toBe(60);
+		expect(score.unresolvedPlaceNames).toEqual([]);
+	});
+
 	it("scores train line matching when both ground truth and decoder name a line", () => {
 		const rows = [
 			gt(0, 10, "correct", {
