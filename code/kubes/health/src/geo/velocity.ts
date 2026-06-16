@@ -1103,13 +1103,20 @@ export async function computeVelocityFromInputs(
 	);
 	const withWalkThrough = timeSync("walkThrough", () => applyStationaryWalkThrough(withSplitInterchanges, steps));
 
+	// A short walk between two train legs that share a station is the
+	// platform-to-platform interchange (a line change), not a street walk —
+	// relabel it to the station so GPS resurfacing mid-change doesn't name it
+	// after the nearest road (the 2026-06-16 Baker St Met→Jubilee change,
+	// mislabelled "Allsop Place"). See relabelWalkingInterchanges.
+	const withInterchangeLabels = timeSync("interchangeLabel", () => relabelWalkingInterchanges(withWalkThrough));
+
 	// A "walking" segment that actually contains a short ride — got off
 	// the train, then a taxi/bus to the door — averages to walking pace and
 	// stays one walk. Carve the ride out as `driving` by net GPS progress
 	// (net displacement, not the jittery per-fix speed, so a stationary
 	// platform wait is never split). Runs here so the post-train walk
 	// already exists and the carved leg can still be bus-refined below.
-	const withVehicleSplit = timeSync("vehicleSplit", () => splitWalksOnVehicleLeg(withWalkThrough, points));
+	const withVehicleSplit = timeSync("vehicleSplit", () => splitWalksOnVehicleLeg(withInterchangeLabels, points));
 
 	// Rail-snap: attach the precomputed rail-track geometry to each
 	// train run whose route is in rail_route_cache (filled offline by
@@ -2430,6 +2437,47 @@ export function absorbInterchanges(segments: EnrichedSegment[]): EnrichedSegment
 		i++;
 	}
 	return out;
+}
+
+/** A walking segment longer than this between two trains is treated as a
+ *  genuine out-of-station walk, not a platform interchange. A line change
+ *  inside one station is short; walking out to do something and coming back
+ *  to the same station is not. */
+const INTERCHANGE_WALK_MAX_S = 300;
+
+/**
+ * Relabel a short walking segment sandwiched between two train legs that
+ * share a station as the interchange at that station.
+ *
+ * Changing lines (e.g. Metropolitan → Jubilee at Baker Street) is a walk
+ * between platforms *inside* the station. GPS often resurfaces mid-change,
+ * so the segment is correctly `walking` but gets named after the nearest
+ * street the fix happened to see — "Allsop Place" for the 2026-06-16 Baker
+ * Street change — which reads as if the user left the station. The two
+ * bounding train legs already share a station (leg A alights where leg B
+ * boards), so a short walk between them can only be the platform-to-platform
+ * interchange. Rewrite its `wayName` to the station; mode and duration are
+ * left untouched — the walk is real, only its *location* was wrong.
+ */
+export function relabelWalkingInterchanges(segments: EnrichedSegment[]): EnrichedSegment[] {
+	const modeOf = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
+	return segments.map((seg, i) => {
+		if (modeOf(seg) !== "walking") return seg;
+		if (seg.endTs - seg.startTs > INTERCHANGE_WALK_MAX_S) return seg;
+		const prev = segments[i - 1];
+		const next = segments[i + 1];
+		if (!prev || !next || modeOf(prev) !== "train" || modeOf(next) !== "train") return seg;
+		const prevRail = parseRailWayName(prev.wayName);
+		const nextRail = parseRailWayName(next.wayName);
+		if (!prevRail || !nextRail || prevRail.alight !== nextRail.board) return seg;
+		const station = prevRail.alight;
+		const lineChange = prevRail.line && nextRail.line ? ` (${prevRail.line} → ${nextRail.line})` : "";
+		return {
+			...seg,
+			wayName: `${station} (interchange)`,
+			refinedReason: `walking interchange at ${station}${lineChange}`,
+		};
+	});
 }
 
 /** Separator between a rail run's two stations in a `wayName`. */
