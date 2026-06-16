@@ -221,6 +221,48 @@ itself is right) and a calibrated per-segment confidence (so the flip is
 gated on evidence, not a bare support fraction), not a raw mode-override
 seam. Reverted; no code from the attempt remains.
 
+### Measured 2026-06-16: baseline established + the decoder already wins the case the heuristic can't
+
+Two measurements taken on the real 2026-06-16 clinic day (tube + bus out,
+Victoria→change→Metropolitan back) set the target and validate the design:
+
+- **Decoder baseline (`score-decoder`, 7-day decoded_days corpus):**
+  per-minute `mode 75.6% · line 50.0%`; journey `trips 48.0% ·
+  leg-modes 74.5% · leg-lines 50.0%`. **Trips 48% is the number to beat**
+  — below the heuristic pipeline's ~52% — and it is the single quantity
+  that gates the cutover. The per-minute strength (76%) not transferring
+  to trips is the same under-reconstruction the 06-13 attempt hit.
+- **The decoder already reconstructs the return the heuristic mangles**
+  (`compare-hmm-vs-heuristic --date 2026-06-16`): at 16:31 and **16:37** it
+  emits `train | Victoria Line` — 16:37 being the exact minute the heuristic
+  pipeline draws a phantom `walking on Eversholt Street` — and `train |
+  Metropolitan Line` for the leg home, naming both lines. No local heuristic
+  recovers this; the joint model does. This is the concrete proof the
+  ownership flip is worth finishing.
+- **The decoder's two gaps, made concrete on the same run:** (1) **no bus
+  in the decoder state space** — it labels the bus-38 leg (12:21–12:23)
+  `train | Piccadilly Line`, snapping a road vehicle onto the nearest tube
+  line; (2) **fragmentation** — it leaves the deep-tube Jubilee minutes
+  (12:11–12:13) `unknown`. (1) is decoder-side C-bus; (2) is C4 continuity.
+- **The decoder is not even running on the live timeline:** the 2026-06-16
+  fixture's `hsmmDecode` is null — today's map is 100% the heuristic
+  pipeline. The smart brain is built and measured but switched off.
+
+**Distinction this sharpens:** the C-bus work shipped 2026-06-15/16
+(stop-anchored route matcher + intermediate-stop corroboration,
+`bus-route-match.ts`, #256) lives on the **heuristic path** — it names the
+bus *there*. Phase 2's remaining decoder-side job is to add **bus to the
+decoder's own state space + emission**, so the joint model stops mapping
+buses onto tube lines once it owns mode. Heuristic-path C-bus and
+decoder-side bus are both needed; only the former is done.
+
+**Confirmed next bricks, in order (each measured against the 48%/76%/50%
+baseline, never re-blessed against decoder output alone):** decoder-side
+bus mode → C4 continuity (the fragmentation / trip-structure fix) →
+calibrated per-segment confidence → cutover (Phase 4) gated on
+journey-level parity. Capture 2026-06-16 (return + morning) into the
+decoded_days corpus as the headline acceptance day.
+
 ## Validation discipline (the reason this is safe now)
 
 - **The golden corpus is the gate.** 13 fixture days replay zero-DB
