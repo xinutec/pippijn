@@ -86,9 +86,21 @@ type WaysLookup = (lat: number, lon: number) => Promise<NearbyWay[]>;
 type StationsLookup = (lat: number, lon: number) => Promise<NearbyStation[]>;
 
 /** A coarse cell-network fix whose coordinate is reliable enough to
- *  snap to a station. */
+ *  snap to a station (accuracy in [COARSE_ACCURACY_M, COARSE_ACCURACY_MAX_M]). */
 function isCoarse(f: CoarseFix): boolean {
 	return f.accuracy != null && f.accuracy >= COARSE_ACCURACY_M && f.accuracy <= COARSE_ACCURACY_MAX_M;
+}
+
+/** Any fix that marks the GPS-dark window — a coarse cell-network fix OR
+ *  a total-loss fix (accuracy above COARSE_ACCURACY_MAX_M, a multi-km
+ *  radius). Total-loss fixes can't be snapped to a station, but their
+ *  *presence* is itself the underground signal: open-air GPS does not
+ *  report kilometre-scale uncertainty, deep tube does. Counting them when
+ *  detecting the dark window (not when snapping) is what lets a deep-tube
+ *  leg whose few coarse fixes are interleaved with total-loss garbage —
+ *  too short a coarse-only run to qualify — still be recognised. */
+function isUndergroundSignal(f: CoarseFix): boolean {
+	return f.accuracy != null && f.accuracy >= COARSE_ACCURACY_M;
 }
 
 /**
@@ -207,12 +219,15 @@ export async function annotateUndergroundRuns(
 			continue;
 		}
 
-		// Cluster the host's coarse fixes into runs. A gap longer than
-		// MAX_COARSE_GAP_S between consecutive coarse fixes means GPS
-		// recovered in between — one run ended — so a later unrelated
-		// coarse blip cannot be mistaken for part of the same journey.
+		// Cluster the host's GPS-dark fixes (coarse OR total-loss) into runs.
+		// A gap longer than MAX_COARSE_GAP_S between consecutive dark fixes
+		// means GPS recovered in between — one run ended — so a later
+		// unrelated blip cannot be mistaken for part of the same journey.
+		// Total-loss fixes are counted here (window detection) but not for
+		// snapping (reconstructUndergroundRun re-filters to coarse): they
+		// extend a deep-tube window whose coarse fixes alone are too sparse.
 		const hostCoarse = rawFixes
-			.filter((f) => f.ts >= host.startTs && f.ts <= host.endTs && isCoarse(f))
+			.filter((f) => f.ts >= host.startTs && f.ts <= host.endTs && isUndergroundSignal(f))
 			.sort((a, b) => a.ts - b.ts);
 		const runs: CoarseFix[][] = [];
 		for (const f of hostCoarse) {
