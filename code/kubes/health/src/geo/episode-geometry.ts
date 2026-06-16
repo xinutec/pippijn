@@ -102,6 +102,23 @@ function resolveEpisode(
 			?.filter((sp) => sp.ts >= state.startTs && sp.ts <= state.endTs)
 			.map((sp) => ({ lat: sp.lat, lon: sp.lon }));
 		if (snapped && snapped.length >= 2) return { ...base, kind: "snapped", points: snapped };
+
+		// A reconstructed underground leg (pointCount 0) has no real GPS for the
+		// ride: its window fixes are teleporting cell-network garbage that, after
+		// spike-rejection, clusters near the *boarding* station. Drawing that
+		// leaves the leg ending where it began, so the next (walking) episode
+		// bridges green all the way to the alighting station — the "walked between
+		// stations" map artifact (2026-06-16 Baker St → Green Park Jubilee leg).
+		// Draw a tentative connector station-to-station in train colour instead,
+		// so the tube leg reads as a line between its stations and the onward walk
+		// bridges from the right end. No cap (cf. the `unknown` connector): a known
+		// rail leg legitimately spans several km between its stations.
+		const reconstructed = covering.some((s) => effectiveMode(s) === "train" && s.pointCount === 0);
+		if (reconstructed) {
+			const from = resolved[index - 1]?.points.at(-1);
+			const to = entryPoint(states[index + 1], segments, points);
+			if (from && to) return { ...base, kind: "tentative", points: [from, to] };
+		}
 		return { ...base, kind: "raw", points: rejectSpikes(windowFixes).map(toLatLon) };
 	}
 

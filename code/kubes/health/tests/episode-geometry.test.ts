@@ -80,6 +80,26 @@ describe("buildEpisodes — per-mode geometry resolution", () => {
 		expect(ep.points).toHaveLength(3); // fast train fixes kept — train has no ceiling
 	});
 
+	it("draws a reconstructed underground leg as a station-to-station connector, not its teleport garbage", () => {
+		// pointCount 0 = an underground leg synthesised with no real GPS. Its
+		// window holds only teleporting cell-network garbage; drawing that would
+		// leave the leg near the boarding end and let the next walk bridge green
+		// across the gap. Instead it must connect boarding → alighting.
+		const segs = [seg({ startTs: 100, endTs: 300, mode: "train", pointCount: 0 })];
+		const fixes = [
+			fix(50, 51.523, -0.157, 4), // boarding walk @ Baker Street
+			fix(150, 51.515, -0.149, 200), // teleport garbage mid-tube (Bond St jump)
+			fix(200, 51.523, -0.157, 0), // garbage snapped back to Baker St
+			fix(350, 51.507, -0.143, 4), // alighting walk @ Green Park
+		];
+		const states = [state(0, 100, "walking"), state(100, 300, "train"), state(300, 400, "walking")];
+		const train = buildEpisodes(states, segs, fixes)[1];
+		expect(train.kind).toBe("tentative");
+		expect(train.points).toHaveLength(2);
+		expect(train.points[0].lat).toBeCloseTo(51.523, 2); // boards Baker Street
+		expect(train.points[1].lat).toBeCloseTo(51.507, 2); // alights Green Park
+	});
+
 	it("collapses a stay to a single anchor at the segment centroid", () => {
 		const segs = [seg({ startTs: 0, endTs: 100, mode: "stationary", centroidLat: 51.5, centroidLon: -0.12 })];
 		const [ep] = buildEpisodes([state(0, 100, "stationary")], segs, [fix(10, 51.6, -0.2, 0)]);
