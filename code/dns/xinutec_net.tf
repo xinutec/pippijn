@@ -82,6 +82,17 @@ resource "cloudflare_dns_record" "net_irc_v4_legacy" {
   proxied = false
 }
 
+# --- A (webchat → legacy IRC host) ---
+
+resource "cloudflare_dns_record" "net_webchat_v4" {
+  zone_id = local.xinutec_net_id
+  type    = "A"
+  name    = "webchat"
+  content = "5.9.157.210"
+  ttl     = 600
+  proxied = false
+}
+
 # --- Wildcard MX (all subdomains deliver to mail.xinutec.org) ---
 
 resource "cloudflare_dns_record" "net_wildcard_mx" {
