@@ -1101,7 +1101,9 @@ export async function computeVelocityFromInputs(
 		"interchangeSplit",
 		spliceInterchanges(withMergedTrains, points, steps, inputs.osm),
 	);
-	const withWalkThrough = timeSync("walkThrough", () => applyStationaryWalkThrough(withSplitInterchanges, steps));
+	const withWalkThrough = timeSync("walkThrough", () =>
+		applyStationaryWalkThrough(withSplitInterchanges, steps, points),
+	);
 
 	// A short walk between two train legs that share a station is the
 	// platform-to-platform interchange (a line change), not a street walk —

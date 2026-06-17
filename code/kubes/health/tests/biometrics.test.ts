@@ -12,6 +12,7 @@ import {
 	type SleepStageRecord,
 	type StepPoint,
 } from "../src/geo/biometrics.js";
+import type { FilteredPoint } from "../src/geo/kalman.js";
 import type { TrackSegment } from "../src/geo/segments.js";
 
 function seg(startTs: number, endTs: number): TrackSegment {
@@ -370,6 +371,55 @@ describe("correctModeFromCadence — stationary walk-through detection (2026-05-
 		const seg = stationarySeg(1.4, 5 * 60);
 		const r = correctStationaryWalkThrough(seg, []);
 		expect(r.refinedMode ?? r.mode).toBe("stationary");
+	});
+
+	// Geometry veto: a long dwell whose fixes go nowhere is a stay, even when
+	// jitter inflates avgSpeed past the translation threshold and a step burst
+	// fires. The 2026-06-17 Bloomsbury Surgery appointment: 15 min within ~45 m,
+	// erased into a phantom walk before this guard.
+	const clusteredFixes = (n: number, spreadDeg: number): FilteredPoint[] =>
+		Array.from({ length: n }, (_, i) => {
+			const j = ((i * 37) % 11) - 5; // deterministic -5..5 wobble
+			return {
+				ts: i * 30,
+				lat: 51.5256 + j * spreadDeg,
+				lon: -0.1231 + j * spreadDeg,
+				speed_kmh: i % 5 === 0 ? 5 : 1,
+				bearing: 0,
+			};
+		});
+
+	it("does NOT flip a long, geometrically-tight dwell despite a walking burst (the GP appointment)", () => {
+		const seg = stationarySeg(1.5, 15 * 60); // avgSpeed 1.5 > 1.0 → clears the old guard
+		const burst: StepPoint[] = [step(0, 8), step(120, 95), step(300, 12), step(600, 0), step(840, 5)];
+		const pts = clusteredFixes(30, 0.00007); // ~±39 m, extent < 80 m
+		const r = correctStationaryWalkThrough(seg, burst, pts);
+		expect(r.refinedMode ?? r.mode).toBe("stationary");
+	});
+
+	it("STILL flips a long walk-through whose fixes actually cover ground (extent > 80 m)", () => {
+		const seg = stationarySeg(1.5, 15 * 60);
+		const burst: StepPoint[] = [step(0, 8), step(120, 95), step(300, 90), step(600, 88), step(840, 80)];
+		// 30 fixes progressing ~330 m — a real walk the GPS scored stationary.
+		const pts: FilteredPoint[] = Array.from({ length: 30 }, (_, i) => ({
+			ts: i * 30,
+			lat: 51.52 + i * 0.0001,
+			lon: -0.12,
+			speed_kmh: 3,
+			bearing: 0,
+		}));
+		const r = correctStationaryWalkThrough(seg, burst, pts);
+		expect(r.refinedMode).toBe("walking");
+	});
+
+	it("does not apply the geometry veto to a short walk-through (5-min Union Park still flips)", () => {
+		// Same tight cluster, but only 5 min — under the long-dwell threshold,
+		// so the veto stays out of the way and the burst flips it.
+		const seg = stationarySeg(1.4, 5 * 60);
+		const steps: StepPoint[] = [step(0, 8), step(60, 18), step(120, 104), step(180, 12), step(240, 0)];
+		const pts = clusteredFixes(10, 0.00007);
+		const r = correctStationaryWalkThrough(seg, steps, pts);
+		expect(r.refinedMode).toBe("walking");
 	});
 });
 

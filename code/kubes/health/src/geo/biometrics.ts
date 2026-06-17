@@ -11,6 +11,8 @@
  * cases — the timeline still works, just without the extra context.
  */
 
+import type { FilteredPoint } from "./kalman.js";
+import { haversineMeters } from "./place-snap.js";
 import type { TrackSegment } from "./segments.js";
 
 export interface HrPoint {
@@ -198,6 +200,23 @@ const STATIONARY_WALK_PEAK_CADENCE = 80;
  *  ward). This is the GPS + watch fusion: steps alone cannot tell
  *  walking-in-place from walking-somewhere — GPS translation can. */
 const STATIONARY_WALK_MIN_AVG_SPEED_KMH = 1.0;
+
+/** Physical-plausibility veto on the walk-through flip. `avgSpeed` is the mean
+ *  of per-fix speeds, so urban / indoor GPS multipath jitter inflates it above
+ *  the translation threshold even when the user never left a tiny area — a
+ *  walking burst (arriving, pacing a waiting room) then flips a genuine STAY
+ *  into a phantom walk-through. The fix reads the SHAPE, not the per-fix speed:
+ *  a segment this long whose fixes never stray more than
+ *  STATIONARY_WALK_STAY_MAX_EXTENT_M from their centroid did not go anywhere —
+ *  you cannot "walk through" a ~60 m spot for ten-plus minutes — so it is a
+ *  stay and the flip is vetoed. 10 min clears real walk-throughs (the
+ *  2026-05-25 Union Park stroll is ~5 min and genuinely covers ground); 80 m
+ *  absorbs multipath spread (the 2026-06-17 Bloomsbury Surgery dwell stayed
+ *  within ~50 m for 15 min while jitter spikes lifted avgSpeed past 1 km/h).
+ *  Skipped when no fixes are supplied — without the geometry the old behaviour
+ *  stands. */
+const STATIONARY_WALK_STAY_MIN_DURATION_S = 10 * 60;
+const STATIONARY_WALK_STAY_MAX_EXTENT_M = 80;
 
 /** Require at least one step row at or after the segment'\''s end within this
  *  window — proof that Fitbit data has been synced through the segment'\''s
@@ -402,6 +421,7 @@ export function demoteJitterWalkToStationary<T extends TrackSegment & { refinedM
 export function correctStationaryWalkThrough<T extends TrackSegment & { refinedMode?: string; refinedReason?: string }>(
 	segment: T,
 	stepPoints: StepPoint[],
+	points: readonly FilteredPoint[] = [],
 ): T {
 	if (stepPoints.length === 0) return segment;
 	const duration = segment.endTs - segment.startTs;
@@ -410,6 +430,21 @@ export function correctStationaryWalkThrough<T extends TrackSegment & { refinedM
 	const currentMode = segment.refinedMode ?? segment.mode;
 	if (currentMode !== "stationary") return segment;
 	if (segment.avgSpeed < STATIONARY_WALK_MIN_AVG_SPEED_KMH) return segment;
+
+	// Physical-plausibility veto: a long segment whose fixes never leave a
+	// tight radius is a STAY, no matter how a step burst or jitter-inflated
+	// avgSpeed reads. The geometry (net-zero displacement) dominates the
+	// per-fix speed. Skipped when no fixes are supplied.
+	if (duration >= STATIONARY_WALK_STAY_MIN_DURATION_S) {
+		const win = points.filter((p) => p.ts >= segment.startTs && p.ts <= segment.endTs);
+		if (win.length > 0) {
+			const cLat = win.reduce((s, p) => s + p.lat, 0) / win.length;
+			const cLon = win.reduce((s, p) => s + p.lon, 0) / win.length;
+			let extent = 0;
+			for (const p of win) extent = Math.max(extent, haversineMeters(cLat, cLon, p.lat, p.lon));
+			if (extent <= STATIONARY_WALK_STAY_MAX_EXTENT_M) return segment;
+		}
+	}
 
 	const peak = peakCadenceForSegment(segment, stepPoints);
 	if (peak < STATIONARY_WALK_PEAK_CADENCE) return segment;
@@ -476,7 +511,11 @@ function mergeAdjacentWalking<T extends WalkThroughSeg>(segments: T[]): T[] {
  * MUST run after the rail / drive absorbers — see the contract on
  * `correctStationaryWalkThrough`.
  */
-export function applyStationaryWalkThrough<T extends WalkThroughSeg>(segments: T[], stepPoints: StepPoint[]): T[] {
+export function applyStationaryWalkThrough<T extends WalkThroughSeg>(
+	segments: T[],
+	stepPoints: StepPoint[],
+	points: readonly FilteredPoint[] = [],
+): T[] {
 	const flipped = segments.map((seg, i) => {
 		if (segMode(seg) !== "stationary") return seg;
 
@@ -491,7 +530,7 @@ export function applyStationaryWalkThrough<T extends WalkThroughSeg>(segments: T
 			prev.place === next.place;
 		if (bracketedBySamePlace) return seg;
 
-		const out = correctStationaryWalkThrough(seg, stepPoints);
+		const out = correctStationaryWalkThrough(seg, stepPoints, points);
 		if (out === seg || out.refinedMode !== "walking") return out;
 		// Reclassified to walking → the stay label no longer applies.
 		return { ...out, place: undefined, city: undefined };
