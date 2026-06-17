@@ -1205,7 +1205,10 @@ export async function computeVelocityFromInputs(
 	// stage skipped because its raw `mode` was still "walking"). Re-run
 	// mergeAdjacentStays so two consecutive same-place segments don't
 	// surface as duplicates — the 2026-06-02 "two Home stays" case.
-	const withBiometrics = timeSync("finalMerge", () => mergeAdjacentStays(overridden));
+	// Absorb intra-place pottering (a kitchen / bathroom run that split a
+	// long office or home stay in two) BEFORE the final merge, so the demoted
+	// walk coalesces into its stay. See absorbIntraPlaceWalk.
+	const withBiometrics = timeSync("finalMerge", () => mergeAdjacentStays(absorbIntraPlaceWalk(overridden, points)));
 
 	const total = Date.now() - t0;
 	const summary = Object.entries(phaseTimes)
@@ -1403,6 +1406,71 @@ export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment
  *  the jitter-consolidation merge. Sized for indoor/urban-canyon GPS scatter
  *  (the 2026-06-09 Olivomare sit jittered in a ~50 m blob). */
 const JITTER_STAY_MERGE_RADIUS_M = 75;
+
+/** Longest intra-place walk to absorb — a kitchen / bathroom / meeting-room
+ *  run inside a building, not a real outing. */
+const INTRA_PLACE_WALK_MAX_S = 12 * 60;
+/** The two bracketing stays must resolve to the same spot (same building). */
+const INTRA_PLACE_SAME_SPOT_M = 75;
+/** The walk must stay within this radius of the stay — it pottered around the
+ *  building, it didn't go anywhere. Sized for a large office footprint; a real
+ *  excursion (a walk round the block, a coffee across the road) strays past it
+ *  and is kept as a leg. */
+const INTRA_PLACE_FOOTPRINT_M = 120;
+
+/**
+ * Demote a short "walking" segment to stationary when it is intra-place
+ * pottering: bracketed by two stays at the SAME place and the SAME spot, and
+ * its fixes never leave the building footprint. The user got up from the desk,
+ * walked to the kitchen and back — real steps, but no journey (the 2026-06-17
+ * 5-min walk that split a 5-hour office stay in two; the two Work centroids
+ * were 2 m apart).
+ *
+ * This is the geometric sibling of `mergeAdjacentStays`' multipath-spike
+ * bridge: that one keys off avg speed ≤ 2 km/h (the fixes never really moved);
+ * this one accepts genuine movement, gated instead on staying inside the
+ * place. After demotion the neighbouring `mergeAdjacentStays` coalesces the
+ * three into one continuous stay. Pure.
+ */
+export function absorbIntraPlaceWalk<T extends EnrichedSegment>(segments: T[], points: readonly FilteredPoint[]): T[] {
+	const mode = (s: T): string => s.refinedMode ?? s.mode;
+	const centroidOf = (s: T): { lat: number; lon: number } | null => {
+		// The stay's attached centroid is canonical; fall back to its fixes.
+		if (s.centroidLat != null && s.centroidLon != null) return { lat: s.centroidLat, lon: s.centroidLon };
+		const win = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
+		if (win.length === 0) return null;
+		return {
+			lat: win.reduce((a, p) => a + p.lat, 0) / win.length,
+			lon: win.reduce((a, p) => a + p.lon, 0) / win.length,
+		};
+	};
+	return segments.map((seg, i) => {
+		if (mode(seg) !== "walking" || seg.endTs - seg.startTs > INTRA_PLACE_WALK_MAX_S) return seg;
+		const prev = segments[i - 1];
+		const next = segments[i + 1];
+		if (!prev || !next || mode(prev) !== "stationary" || mode(next) !== "stationary") return seg;
+		if (!prev.place || prev.place !== next.place) return seg;
+		const cp = centroidOf(prev);
+		const cn = centroidOf(next);
+		if (!cp || !cn || haversineMeters(cp.lat, cp.lon, cn.lat, cn.lon) > INTRA_PLACE_SAME_SPOT_M) return seg;
+		const win = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+		if (win.length === 0) return seg;
+		let maxD = 0;
+		for (const p of win) maxD = Math.max(maxD, haversineMeters(cp.lat, cp.lon, p.lat, p.lon));
+		if (maxD > INTRA_PLACE_FOOTPRINT_M) return seg;
+		const reason = `intra-place movement within ${prev.place} (stayed ${Math.round(maxD)} m from the stay, returned to it) — not a journey leg`;
+		return {
+			...seg,
+			refinedMode: "stationary",
+			place: prev.place,
+			city: prev.city,
+			wayName: undefined,
+			centroidLat: cp.lat,
+			centroidLon: cp.lon,
+			refinedReason: seg.refinedReason ? `${seg.refinedReason}; ${reason}` : reason,
+		};
+	});
+}
 
 /** Attach each stationary segment's GPS centroid (mean of its in-window fixes).
  *  Pure. Moving segments and stays with no fixes are returned unchanged. The
