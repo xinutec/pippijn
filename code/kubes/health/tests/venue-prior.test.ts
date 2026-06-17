@@ -149,6 +149,57 @@ describe("rankVenues without stay context", () => {
 	});
 });
 
+// --- near-field distance dominance ---------------------------------------
+
+// A short late-morning sit, like the 2026-06-17 GP appointment (15 min, 11:13).
+const GP_VISIT = {
+	startUnix: Date.UTC(2026, 5, 17, 10, 13) / 1000,
+	endUnix: Date.UTC(2026, 5, 17, 10, 28) / 1000,
+	tz: "Europe/London",
+};
+
+describe("near-field distance dominance", () => {
+	it("a venue you are sitting on (≤12 m) beats a farther one despite food-heavy history (the GP case)", () => {
+		// Bloomsbury Surgery 8 m vs Project68 cafe 28 m. Food-heavy history
+		// (no doctor visits) used to hand the café the win; a venue you are
+		// 8 m from is where you are.
+		const r = rankVenues(
+			[venue("Project68", "cafe", 28), venue("Bloomsbury Surgery", "doctors", 8)],
+			GP_VISIT,
+			foodHeavyPriors(),
+		);
+		expect(r[0].landmark.name).toBe("Bloomsbury Surgery");
+	});
+
+	it("picks the nearest of two near-field venues", () => {
+		const r = rankVenues([venue("Doctors", "doctors", 10), venue("Clinic", "clinic", 6)], GP_VISIT, foodHeavyPriors());
+		expect(r[0].landmark.name).toBe("Clinic");
+	});
+
+	it("does NOT fire beyond 12 m — an ambiguous mid-field sit still uses the prior", () => {
+		// At 20 m vs 28 m neither is "sat upon"; the café's shape prior may
+		// legitimately break the tie. Near-field must not reach this far.
+		const r = rankVenues(
+			[venue("Project68", "cafe", 28), venue("Bloomsbury Surgery", "doctors", 20)],
+			GP_VISIT,
+			foodHeavyPriors(),
+		);
+		expect(r[0].landmark.name).toBe("Project68");
+	});
+
+	it("an enclosing institution still outranks a near-field point venue", () => {
+		const hospital: NearbyLandmark = {
+			name: "City Hospital",
+			type: "amenity",
+			subtype: "hospital",
+			distanceM: 55,
+			enclosing: true,
+		};
+		const r = rankVenues([venue("Corner Cafe", "cafe", 8), hospital], GP_VISIT, foodHeavyPriors());
+		expect(r[0].landmark.name).toBe("City Hospital");
+	});
+});
+
 // --- never-a-destination -------------------------------------------------
 
 describe("never-a-destination filter", () => {

@@ -347,7 +347,7 @@ function nominatimVenueCandidate(r: NominatimResult): NearbyLandmark | null {
 	if (!name) return null;
 	const type =
 		r.category === "tourism" || r.category === "shop" || r.category === "leisure" ? r.category : ("amenity" as const);
-	return { name, type, subtype: r.type, distanceM: 0 };
+	return { name, type, subtype: r.type, distanceM: 0, reverseGeocoded: true };
 }
 
 export async function bestPlace(
@@ -498,6 +498,14 @@ export interface NearbyLandmark {
 	 *  A stay whose centroid falls inside such a footprint is a stay
 	 *  *in* the institution, not at a nearer point POI. */
 	enclosing?: boolean;
+	/** True for a candidate synthesised from a Nominatim reverse-geocode
+	 *  rather than measured against the query point. Its `distanceM` is 0 by
+	 *  construction (Nominatim placed the query *in* the building), so it must
+	 *  NOT qualify for near-field distance dominance — that shortcut is for
+	 *  genuinely-measured proximity (an Overpass POI a few metres away). It
+	 *  still competes on score, where distance 0 already gives it a strong
+	 *  lead that real evidence (e.g. closed hours) can override. */
+	reverseGeocoded?: boolean;
 }
 
 /** `amenity` values that get the enclosing-institution override — where a

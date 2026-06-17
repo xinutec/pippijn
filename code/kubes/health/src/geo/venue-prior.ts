@@ -239,6 +239,16 @@ const BASE_RATE_MIN_TYPES = 8;
  *  single piece of evidence may dominate unboundedly. */
 const SHAPE_CLAMP = { dwell: [-2, 1.2], hour: [-1.5, 1.2], base: [-2, 1.5] } as const;
 
+/** Near-field distance dominance: a real point venue (amenity/tourism/shop)
+ *  within this many metres of the stay centroid is one you are *sitting on* —
+ *  it wins outright over any farther candidate, regardless of mined shape or
+ *  opening-hours. Physical proximity at this scale is stronger evidence than
+ *  any prior: you cannot be "at" a café 28 m away when a clinic is 8 m away.
+ *  12 m is the urban doorstep scale — tight enough that a genuinely ambiguous
+ *  mid-field sit (the closed-venue-15 m-away hours case) still falls through
+ *  to the scored ranking. Enclosing institutions still outrank this. */
+const NEAR_FIELD_DECISIVE_M = 12;
+
 const clamp = (x: number, [lo, hi]: readonly [number, number]): number => Math.min(hi, Math.max(lo, x));
 
 /** Shrunk estimate of P(bin | subtype): subtype mass, backed off through a
@@ -431,10 +441,27 @@ export function rankVenues(
 			parts: { distance, venue, shape, hours },
 		};
 	});
+	// A real point venue within NEAR_FIELD_DECISIVE_M is one you are sitting
+	// on — it outranks any farther candidate (and the prior) but not an
+	// enclosing institution. EXCEPT a venue OSM says is closed during the
+	// stay: then either OSM is stale or you are at a different (perhaps
+	// unmapped) place — proximity is no longer decisive, so fall back to the
+	// scored ranking where the closed penalty can be weighed. Open or
+	// hours-unknown venues remain eligible.
+	const nearField = (l: NearbyLandmark): boolean => {
+		if (l.reverseGeocoded || !VENUE_TYPES.has(l.type) || l.distanceM > NEAR_FIELD_DECISIVE_M) return false;
+		const h = stay ? hoursScore(l, stay) : null;
+		return h === null || h >= 0;
+	};
 	return scored.sort((a, b) => {
 		const ea = a.landmark.enclosing === true;
 		const eb = b.landmark.enclosing === true;
 		if (ea !== eb) return ea ? -1 : 1;
+		const na = nearField(a.landmark);
+		const nb = nearField(b.landmark);
+		if (na !== nb) return na ? -1 : 1;
+		// Two near-field venues: the nearer one is what you are sitting on.
+		if (na && nb && a.landmark.distanceM !== b.landmark.distanceM) return a.landmark.distanceM - b.landmark.distanceM;
 		if (a.total !== b.total) return b.total - a.total;
 		if (a.landmark.distanceM !== b.landmark.distanceM) return a.landmark.distanceM - b.landmark.distanceM;
 		return a.landmark.name.localeCompare(b.landmark.name);
