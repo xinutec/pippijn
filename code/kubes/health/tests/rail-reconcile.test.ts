@@ -8,7 +8,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { type EnrichedSegment, parseRailWayName, reconcileAdjacentRailLegs } from "../src/geo/velocity.js";
+import { parseRailWayName, reconcileAdjacentRailLegs } from "../src/geo/passes/rail-reconcile.js";
+import type { EnrichedSegment } from "../src/geo/velocity.js";
 
 /** Build an EnrichedSegment; times given in whole minutes for clarity. */
 function seg(

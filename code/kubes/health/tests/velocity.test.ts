@@ -1,16 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
 import { composeWayName, mergeAdjacentMoving } from "../src/geo/passes/moving.js";
+import { mergeAdjacentSameRouteTrains } from "../src/geo/passes/rail-reconcile.js";
 import { annotateRailRuns, expandTubeLineNames } from "../src/geo/passes/rail-runs.js";
 import type { TransportMode } from "../src/geo/segments.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
-import {
-	attachStayCentroids,
-	batterySeries,
-	mergeAdjacentSameRouteTrains,
-	mergeAdjacentStays,
-	planJitterStayRuns,
-} from "../src/geo/velocity.js";
+import { attachStayCentroids, batterySeries, mergeAdjacentStays, planJitterStayRuns } from "../src/geo/velocity.js";
 
 describe("mergeAdjacentSameRouteTrains", () => {
 	const train = (startTs: number, endTs: number, wayName: string): EnrichedSegment =>
