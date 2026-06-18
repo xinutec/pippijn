@@ -28,6 +28,7 @@ import {
 	detectVehicleDwells,
 	scoreBusEvidence,
 } from "../src/geo/bus-evidence.js";
+import type { TransportMode } from "../src/geo/segments.js";
 
 const T0 = 1_750_000_000;
 const LAT_PER_M = 1 / 111_000;
@@ -165,8 +166,8 @@ describe("annotateBusEvidence (orchestrator)", () => {
 	const seg = {
 		startTs: T0,
 		endTs: T0 + 10 * 60,
-		mode: "driving",
-		refinedMode: undefined as string | undefined,
+		mode: "driving" as TransportMode,
+		refinedMode: undefined as TransportMode | undefined,
 	};
 	/** Boarding wait + one mid-leg dwell, both standstills detectable. */
 	const busShapedFixes = [
@@ -202,7 +203,7 @@ describe("annotateBusEvidence (orchestrator)", () => {
 				throw new Error("must not be called");
 			},
 		};
-		const train = { ...seg, mode: "train" };
+		const train = { ...seg, mode: "train" as TransportMode };
 		const out = await annotateBusEvidence([train], busShapedFixes, osm);
 		expect(out[0].vehicleKind).toBeUndefined();
 	});

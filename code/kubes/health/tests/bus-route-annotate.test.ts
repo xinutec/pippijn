@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { annotateBusRoutes, type BusRoute, type BusRouteMatch, busRouteLabel } from "../src/geo/bus-route-match.js";
+import type { TransportMode } from "../src/geo/segments.js";
 
 /**
  * `annotateBusRoutes` is the pipeline pass that names a driving leg's bus
@@ -33,8 +34,8 @@ function fixesAlong(i0: number, i1: number, startTs: number): Array<{ ts: number
 interface Seg {
 	startTs: number;
 	endTs: number;
-	mode: string;
-	refinedMode?: string;
+	mode: TransportMode;
+	refinedMode?: TransportMode;
 	vehicleKind?: "bus";
 	wayName?: string;
 }

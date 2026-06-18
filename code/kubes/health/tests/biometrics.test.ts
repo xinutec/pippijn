@@ -13,7 +13,7 @@ import {
 	type StepPoint,
 } from "../src/geo/biometrics.js";
 import type { FilteredPoint } from "../src/geo/kalman.js";
-import type { TrackSegment } from "../src/geo/segments.js";
+import type { TrackSegment, TransportMode } from "../src/geo/segments.js";
 
 function seg(startTs: number, endTs: number): TrackSegment {
 	return {
@@ -216,7 +216,7 @@ describe("cadenceForSegment", () => {
 
 describe("correctModeFromCadence — passenger-in-traffic detection", () => {
 	const step = (ts: number, steps: number): StepPoint => ({ ts, steps });
-	type SegLike = TrackSegment & { refinedMode?: string; refinedReason?: string };
+	type SegLike = TrackSegment & { refinedMode?: TransportMode; refinedReason?: string };
 	const baseSeg = (mode: "walking" | "driving" | "stationary", avgSpeed: number, durationS: number): SegLike => ({
 		startTs: 0,
 		endTs: durationS,
@@ -318,7 +318,7 @@ describe("correctModeFromCadence — passenger-in-traffic detection", () => {
 
 describe("correctModeFromCadence — stationary walk-through detection (2026-05-25 Union Park)", () => {
 	const step = (ts: number, steps: number): StepPoint => ({ ts, steps });
-	type SegLike = TrackSegment & { refinedMode?: string; refinedReason?: string };
+	type SegLike = TrackSegment & { refinedMode?: TransportMode; refinedReason?: string };
 	const stationarySeg = (avgSpeed: number, durationS: number): SegLike => ({
 		startTs: 0,
 		endTs: durationS,
@@ -425,7 +425,7 @@ describe("correctModeFromCadence — stationary walk-through detection (2026-05-
 
 describe("applyStationaryWalkThrough — sequence-level guards", () => {
 	const step = (ts: number, steps: number): StepPoint => ({ ts, steps });
-	type Seg = TrackSegment & { refinedMode?: string; refinedReason?: string; place?: string; wayName?: string };
+	type Seg = TrackSegment & { refinedMode?: TransportMode; refinedReason?: string; place?: string; wayName?: string };
 	const stat = (startTs: number, endTs: number, avgSpeed: number, place?: string): Seg => ({
 		startTs,
 		endTs,
@@ -501,7 +501,7 @@ describe("applyStationaryWalkThrough — sequence-level guards", () => {
 });
 
 describe("revertIsolatedCadenceDrives — undo a cadence flip with no vehicular context", () => {
-	type SegLike = TrackSegment & { refinedMode?: string; refinedReason?: string };
+	type SegLike = TrackSegment & { refinedMode?: TransportMode; refinedReason?: string };
 	let ts = 0;
 	const span = (mode: SegLike["mode"], durS: number, avg: number, max: number): SegLike => {
 		const s: SegLike = {
@@ -592,7 +592,7 @@ describe("revertIsolatedCadenceDrives — undo a cadence flip with no vehicular 
 });
 
 describe("demoteJitterWalkToStationary — a 0-step jittery 'walk' is really sitting still", () => {
-	type SegLike = TrackSegment & { refinedMode?: string; refinedReason?: string };
+	type SegLike = TrackSegment & { refinedMode?: TransportMode; refinedReason?: string };
 	const step = (ts: number, steps: number): StepPoint => ({ ts, steps });
 	// freshness: a step row shortly after the segment end proves Fitbit synced.
 	const fresh = (endTs: number): StepPoint[] => [step(endTs + 5 * 60, 50)];
