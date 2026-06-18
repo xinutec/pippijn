@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { findBoardingPlatformFix } from "../../src/geo/velocity.js";
+import { findBoardingPlatformFix } from "../../src/geo/passes/rail-runs.js";
 
 // Synthetic anchor: middle-of-nowhere coordinates. Two stations
 // laid out ~165 m apart along an east-west line so the geometry of

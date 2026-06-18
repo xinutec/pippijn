@@ -29,7 +29,8 @@
 import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../../src/geo/kalman.js";
 import type { NearbyStation } from "../../src/geo/osm.js";
-import { annotateRailRuns, type EnrichedSegment } from "../../src/geo/velocity.js";
+import { annotateRailRuns } from "../../src/geo/passes/rail-runs.js";
+import type { EnrichedSegment } from "../../src/geo/velocity.js";
 import { tsAt } from "./synth-day.js";
 
 // Anonymised coordinates. Three stations along an east–west line:
