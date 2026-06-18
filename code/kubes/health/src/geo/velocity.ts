@@ -1909,6 +1909,23 @@ const POST_TRANSIT_ALIGHT_SPEED_KMH = 5;
  *  to-walking-pace transition. */
 const MID_RIDE_DWELL_RESUME_S = 120;
 
+// A short stationary segment bordered by rail-like segments is almost
+// always a train pause (signal stop, station dwell) — the user is on
+// the same train the whole time. Collapse the whole run into one
+// segment so the timeline doesn't show meaningless "Cafe X · 2 min"
+// artefacts in the middle of a tube ride. Threshold deliberately
+// tight (5 min) so that genuine longer stays still surface.
+const TRAIN_PAUSE_MAX_SEC = 5 * 60;
+const TRAIN_PAUSE_MAX_AVG_KMH = 10;
+const TRAIN_DWELL_RADIUS_M = 100;
+const TRAIN_DWELL_PERCENTILE = 0.8;
+
+/** Apparent velocity (km/h) above which a fix-to-fix hop is treated as
+ *  mid-tunnel GPS noise rather than a genuine walk between stations. Used
+ *  to decide whether to trust a preceding-stationary boarding station over
+ *  the `slowBefore` fix's own station lookup. */
+const BOARDING_NOISE_SPEED_KMH = 15;
+
 /** How far back in time to scan for a platform-train-platform fix
  *  pattern that suggests the velocity classifier closed the train
  *  segment's startTs too late. 15 minutes accommodates a multi-
@@ -2044,13 +2061,24 @@ export function expandTubeLineNames(name: string): string[] {
 	return [base];
 }
 
-export async function annotateRailRuns(
-	segments: EnrichedSegment[],
-	points: FilteredPoint[],
-	stationsLookup: (lat: number, lon: number) => Promise<NearbyStation[]> = (lat, lon) =>
-		dbOsmAdapter.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
-	linesLookup: (lat: number, lon: number) => Promise<Set<string>> = (lat, lon) => dbOsmAdapter.linesAtPoint(lat, lon),
-): Promise<EnrichedSegment[]> {
+/** A maximal rail run: a span of segments `[from, toExclusive)` that begins
+ *  and ends with a rail-like segment, plus the indices of any short
+ *  stationary "platform" segments absorbed into its interior. */
+interface RailRun {
+	from: number;
+	toExclusive: number;
+	absorbedStationary: number[];
+}
+
+/**
+ * Identify maximal rail runs in a segment list.
+ *
+ * A run starts and ends with a rail-like segment but may absorb short
+ * stationary "platform" segments in the middle when followed by another
+ * rail-like segment. The interior absorbed stationaries get relabelled by
+ * {@link applyRailRuns}.
+ */
+function findRailRuns(segments: EnrichedSegment[], points: FilteredPoint[]): RailRun[] {
 	const isRailLike = (s: EnrichedSegment): boolean => {
 		if (s.mode === "train" || s.refinedMode === "train") return true;
 		const inferredVehicleGap =
@@ -2058,13 +2086,6 @@ export async function annotateRailRuns(
 		return Boolean(inferredVehicleGap);
 	};
 
-	// A short stationary segment bordered by rail-like segments is almost
-	// always a train pause (signal stop, station dwell) — the user is on
-	// the same train the whole time. Collapse the whole run into one
-	// segment so the timeline doesn't show meaningless "Cafe X · 2 min"
-	// artefacts in the middle of a tube ride. Threshold deliberately
-	// tight (5 min) so that genuine longer stays still surface.
-	//
 	// A short non-rail-like segment bookended by rail-like segments
 	// (caller checks bookends) is almost certainly a platform
 	// interchange. Three disjunctive signals confirm it isn't a real
@@ -2081,10 +2102,6 @@ export async function annotateRailRuns(
 	// inflate the apparent spread — the actual April 29 prod case had
 	// 7 fixes covering 2.8 km of apparent path with avgSpeed 4.7 km/h).
 	// Trusting whichever signal looks sane catches both failure modes.
-	const TRAIN_PAUSE_MAX_SEC = 5 * 60;
-	const TRAIN_PAUSE_MAX_AVG_KMH = 10;
-	const TRAIN_DWELL_RADIUS_M = 100;
-	const TRAIN_DWELL_PERCENTILE = 0.8;
 	const couldBeTrainPause = (s: EnrichedSegment): boolean => {
 		if (s.endTs - s.startTs > TRAIN_PAUSE_MAX_SEC) return false;
 		if (s.mode === "stationary") return true;
@@ -2100,11 +2117,7 @@ export async function annotateRailRuns(
 		return distances[idx] <= TRAIN_DWELL_RADIUS_M;
 	};
 
-	// Identify maximal rail runs. A run starts and ends with a rail-like
-	// segment but may absorb short stationary "platform" segments in the
-	// middle when followed by another rail-like segment. The interior
-	// absorbed stationaries get relabelled below.
-	const runs: { from: number; toExclusive: number; absorbedStationary: number[] }[] = [];
+	const runs: RailRun[] = [];
 	for (let i = 0; i < segments.length; ) {
 		if (!isRailLike(segments[i])) {
 			i++;
@@ -2130,194 +2143,222 @@ export async function annotateRailRuns(
 		runs.push({ from: i, toExclusive: j, absorbedStationary: absorbed });
 		i = j;
 	}
+	return runs;
+}
 
-	// Look up board/alight stations and disambiguating line names for each
-	// run in parallel. The station lookup and line lookup have independent
-	// failure modes — a line-lookup failure (Overpass down, no data) should
-	// degrade to a station-pair label, not lose the annotation entirely.
-	const runLabels = await Promise.all(
-		runs.map(async (run) => {
-			const startTs = segments[run.from].startTs;
-			const endTs = segments[run.toExclusive - 1].endTs;
-			// Prefer fixes where the user is NOT in transit (speed below
-			// walking pace) — these are at-or-near a station rather than
-			// mid-route. A subway line that surfaces between stations
-			// means the first fix at-or-after the run's endTs can be a
-			// real GPS reading at ~30 km/h mid-train. Skipping
-			// transit-speed fixes gets us to the actual disembark-and-
-			// walk-near-station fix. Fall back to any fix if none qualify.
-			const slow = (p: FilteredPoint): boolean => p.speed_kmh < POST_TRANSIT_SPEED_KMH;
-			// First check whether the classifier's startTs is too late.
-			// When the per-window scorer averages over a stop-and-go
-			// platform sequence, the early part of a multi-station
-			// tube ride can land in the preceding "walking" segment.
-			// findBoardingPlatformFix walks back through the
-			// platform-train-platform fix pattern and returns the true
-			// boarding fix; if no such pattern exists, slowBefore
-			// falls through to the prior latest-slow-fix lookup.
-			const platformBoardingFix = findBoardingPlatformFix(points, startTs);
-			const slowBefore =
-				platformBoardingFix ??
-				[...points].reverse().find((p) => p.ts <= startTs && slow(p)) ??
-				[...points].reverse().find((p) => p.ts <= startTs);
-			// Alight lookup: two reasons we need to be picky about which
-			// post-train fix we use.
-			//   1. Strict `>` (not `>=`): the fix AT endTs is still
-			//      inside the train segment — the classifier closes a
-			//      train segment on the first slow-enough fix, but that
-			//      fix is mid-ride. `>=` picks it; `>` doesn't.
-			//   2. Tighter speed threshold: between endTs and the actual
-			//      disembark, a decelerating train through a non-
-			//      disembark station can land a fix at 5-15 km/h. The
-			//      looser POST_TRANSIT threshold accepts those and the
-			//      alight resolves to "wherever the train is currently
-			//      passing" rather than the actual disembark station.
-			//      Fall back to the looser threshold if no fix below 5
-			//      exists, then to any fix as final fallback.
-			// Walk past mid-ride dwells: a slow fix followed within
-			// MID_RIDE_DWELL_RESUME_S by a transit-speed fix is the
-			// train pausing at a station, not the user getting off.
-			// The actual alight is the first slow fix that ISN'T
-			// followed by a return to transit speed.
-			const findSustainedAlight = (predicate: (p: FilteredPoint) => boolean): FilteredPoint | undefined => {
-				for (const p of points) {
-					if (p.ts <= endTs) continue;
-					if (!predicate(p)) continue;
-					const cutoff = p.ts + MID_RIDE_DWELL_RESUME_S;
-					const resumes = points.some((q) => q.ts > p.ts && q.ts <= cutoff && q.speed_kmh >= POST_TRANSIT_SPEED_KMH);
-					if (!resumes) return p;
-				}
-				return undefined;
-			};
-			const alightFix =
-				findSustainedAlight((p) => p.speed_kmh < POST_TRANSIT_ALIGHT_SPEED_KMH) ??
-				findSustainedAlight((p) => slow(p)) ??
-				points.find((p) => p.ts > endTs);
-			const after = alightFix;
-			if (!slowBefore || !after) return null;
-
-			// Boarding-station lookup with preceding-stationary preference,
-			// gated by a walking-pace sanity check.
-			//
-			// Walk back through stationary + walking segments only; stop
-			// at any other mode (e.g. a previous train, driving) so we
-			// don't claim the last journey's destination as this one's
-			// boarding station. The first stationary segment we hit whose
-			// location resolves to a real station is a *candidate*.
-			//
-			// The candidate is used IFF the user's apparent velocity from
-			// the stationary endpoint to slowBefore is mid-tunnel-noise
-			// territory (> 15 km/h). If it's realistic walking pace, the
-			// user genuinely moved to a different station between the
-			// stay and the boarding and we trust slowBefore's lookup
-			// instead.
-			let startStation: string | undefined;
-			let beforeLookup = { lat: slowBefore.lat, lon: slowBefore.lon };
-			let endStation: string | undefined;
-			const BOARDING_NOISE_SPEED_KMH = 15;
-			try {
-				let stationaryCandidate: { name: string; lat: number; lon: number; endTs: number } | null = null;
-				for (let i = run.from - 1; i >= 0; i--) {
-					const seg = segments[i];
-					if (seg.mode === "stationary") {
-						// Strict `<` on the upper bound: seg.endTs equals the
-						// next segment's startTs (the segment classifier puts
-						// adjacent segments back-to-back). The fix at that
-						// boundary is the FIRST fix of the next segment, not
-						// the last of this one. Including it picks up the
-						// mid-ride boundary fix as the "last stationary fix"
-						// and the boarding-station lookup resolves to wherever
-						// the train was passing, not the actual boarding
-						// platform.
-						const segPoints = samplesInWindowExclusiveEnd(points, seg);
-						if (segPoints.length > 0) {
-							const last = segPoints[segPoints.length - 1];
-							const stations = await stationsLookup(last.lat, last.lon);
-							const best = pickBestStation(stations);
-							if (best) {
-								stationaryCandidate = { name: best.name, lat: last.lat, lon: last.lon, endTs: last.ts };
-							}
-						}
-						break;
-					}
-					if (seg.mode !== "walking") break;
-				}
-
-				if (stationaryCandidate) {
-					const dM = haversineMeters(stationaryCandidate.lat, stationaryCandidate.lon, slowBefore.lat, slowBefore.lon);
-					const dt = Math.max(1, slowBefore.ts - stationaryCandidate.endTs);
-					const apparentKmh = (dM / dt) * 3.6;
-					if (apparentKmh > BOARDING_NOISE_SPEED_KMH) {
-						// slowBefore is mid-tunnel GPS noise — trust stationary.
-						startStation = stationaryCandidate.name;
-						beforeLookup = { lat: stationaryCandidate.lat, lon: stationaryCandidate.lon };
-					}
-					// else: realistic walking pace, fall through to slowBefore.
-				}
-
-				const [startStationsSlow, endStations] = await Promise.all([
-					startStation ? Promise.resolve([]) : stationsLookup(slowBefore.lat, slowBefore.lon),
-					stationsLookup(after.lat, after.lon),
-				]);
-				if (!startStation) startStation = pickBestStation(startStationsSlow)?.name;
-				// Fallback for back-compat: when slowBefore doesn't resolve
-				// to a station but a preceding-stationary station exists,
-				// use that — covers the original "user noisy at platform"
-				// case from before the velocity gate was added.
-				if (!startStation && stationaryCandidate) {
-					startStation = stationaryCandidate.name;
-					beforeLookup = { lat: stationaryCandidate.lat, lon: stationaryCandidate.lon };
-				}
-				endStation = pickBestStation(endStations)?.name;
-			} catch {
-				return null;
-			}
-			if (!startStation || !endStation) return null;
-			// Same station at both ends: probably hanging around a single
-			// station rather than actually riding. Skip annotation — don't
-			// even fetch lines for this run.
-			if (startStation === endStation) return null;
-			const base = `${startStation} → ${endStation}`;
-			// Line intersection: which line serves both physical endpoints?
-			// Two lines might both serve one endpoint but only one
-			// reaches the other — the intersection picks the right line.
-			// Append the suffix only
-			// when the intersection is a singleton; on empty (one endpoint
-			// off-OSM, or disjoint sets) or ambiguous (>1 line serves both),
-			// fall through to the bare station-pair label.
-			try {
-				const [startLines, endLines] = await Promise.all([
-					linesLookup(beforeLookup.lat, beforeLookup.lon),
-					linesLookup(after.lat, after.lon),
-				]);
-				// OSM tags each travel direction as its own line name
-				// ("Jubilee Line Eastbound" at one station, "Jubilee Line" at
-				// the next), so a raw string intersection comes up empty for
-				// the same physical line. Canonicalise (drop the directional
-				// suffix) into a Set before intersecting — Wembley Park ∩ Green
-				// Park then resolves to the single Jubilee Line, King's Cross ∩
-				// Wembley Park to the Metropolitan.
-				const startCanon = new Set([...startLines].flatMap(expandTubeLineNames));
-				const endCanon = new Set([...endLines].flatMap(expandTubeLineNames));
-				const intersection = [...startCanon].filter((l) => endCanon.has(l));
-				if (intersection.length === 1) return `${base} · ${intersection[0]}`;
-				return base;
-			} catch {
-				return base;
-			}
-		}),
+/**
+ * Select the boarding fix for a rail run.
+ *
+ * Prefer fixes where the user is NOT in transit (speed below walking pace)
+ * — these are at-or-near a station rather than mid-route. A subway line
+ * that surfaces between stations means a fix near the run's startTs can be
+ * a real GPS reading at ~30 km/h mid-train; skipping transit-speed fixes
+ * gets us to the actual boarding-near-station fix.
+ *
+ * First {@link findBoardingPlatformFix} checks whether the classifier's
+ * startTs is too late: when the per-window scorer averages over a stop-and-
+ * go platform sequence, the early part of a multi-station tube ride can
+ * land in the preceding "walking" segment. It walks back through the
+ * platform-train-platform fix pattern and returns the true boarding fix; if
+ * no such pattern exists, we fall through to the latest slow fix at-or-
+ * before startTs, then to any fix at-or-before startTs.
+ */
+function findRunBoardingFix(points: FilteredPoint[], startTs: number): FilteredPoint | undefined {
+	const slow = (p: FilteredPoint): boolean => p.speed_kmh < POST_TRANSIT_SPEED_KMH;
+	const platformBoardingFix = findBoardingPlatformFix(points, startTs);
+	return (
+		platformBoardingFix ??
+		[...points].reverse().find((p) => p.ts <= startTs && slow(p)) ??
+		[...points].reverse().find((p) => p.ts <= startTs)
 	);
+}
 
-	// Apply. For each rail run:
-	//   - Single-segment run: keep shape, just annotate with the
-	//     station-pair label (if available).
-	//   - Multi-segment run (with or without absorbed short stationaries):
-	//     collapse into one train segment spanning the whole journey.
-	//     The user thinks of it as one ride — "I got on at station A,
-	//     off at station B" — not three sub-windows of the classifier
-	//     plus a momentary train pause. Surface the journey, not the
-	//     artefacts.
-	// Segments outside any run pass through unchanged.
+/**
+ * Select the alighting fix for a rail run.
+ *
+ * Two reasons we need to be picky about which post-train fix we use:
+ *   1. Strict `>` (not `>=`): the fix AT endTs is still inside the train
+ *      segment — the classifier closes a train segment on the first slow-
+ *      enough fix, but that fix is mid-ride. `>=` picks it; `>` doesn't.
+ *   2. Tighter speed threshold: between endTs and the actual disembark, a
+ *      decelerating train through a non-disembark station can land a fix at
+ *      5-15 km/h. The looser POST_TRANSIT threshold accepts those and the
+ *      alight resolves to "wherever the train is currently passing" rather
+ *      than the actual disembark station. Fall back to the looser threshold
+ *      if no fix below 5 exists, then to any fix as final fallback.
+ *
+ * Walk past mid-ride dwells: a slow fix followed within
+ * MID_RIDE_DWELL_RESUME_S by a transit-speed fix is the train pausing at a
+ * station, not the user getting off. The actual alight is the first slow
+ * fix that ISN'T followed by a return to transit speed.
+ */
+function findRunAlightFix(points: FilteredPoint[], endTs: number): FilteredPoint | undefined {
+	const slow = (p: FilteredPoint): boolean => p.speed_kmh < POST_TRANSIT_SPEED_KMH;
+	const findSustainedAlight = (predicate: (p: FilteredPoint) => boolean): FilteredPoint | undefined => {
+		for (const p of points) {
+			if (p.ts <= endTs) continue;
+			if (!predicate(p)) continue;
+			const cutoff = p.ts + MID_RIDE_DWELL_RESUME_S;
+			const resumes = points.some((q) => q.ts > p.ts && q.ts <= cutoff && q.speed_kmh >= POST_TRANSIT_SPEED_KMH);
+			if (!resumes) return p;
+		}
+		return undefined;
+	};
+	return (
+		findSustainedAlight((p) => p.speed_kmh < POST_TRANSIT_ALIGHT_SPEED_KMH) ??
+		findSustainedAlight((p) => slow(p)) ??
+		points.find((p) => p.ts > endTs)
+	);
+}
+
+/**
+ * Resolve the station-pair (and optional line) label for a single rail run.
+ *
+ * Selects boarding/alighting fixes, resolves their stations (with a
+ * preceding-stationary preference gated by a walking-pace sanity check),
+ * and appends a disambiguating line name when a single line serves both
+ * endpoints. The station lookup and line lookup have independent failure
+ * modes — a line-lookup failure (Overpass down, no data) degrades to a
+ * station-pair label rather than losing the annotation entirely. A station-
+ * lookup failure returns null.
+ */
+async function resolveRailRunLabel(
+	run: RailRun,
+	segments: EnrichedSegment[],
+	points: FilteredPoint[],
+	stationsLookup: (lat: number, lon: number) => Promise<NearbyStation[]>,
+	linesLookup: (lat: number, lon: number) => Promise<Set<string>>,
+): Promise<string | null> {
+	const startTs = segments[run.from].startTs;
+	const endTs = segments[run.toExclusive - 1].endTs;
+	const slowBefore = findRunBoardingFix(points, startTs);
+	const after = findRunAlightFix(points, endTs);
+	if (!slowBefore || !after) return null;
+
+	// Boarding-station lookup with preceding-stationary preference,
+	// gated by a walking-pace sanity check.
+	//
+	// Walk back through stationary + walking segments only; stop
+	// at any other mode (e.g. a previous train, driving) so we
+	// don't claim the last journey's destination as this one's
+	// boarding station. The first stationary segment we hit whose
+	// location resolves to a real station is a *candidate*.
+	//
+	// The candidate is used IFF the user's apparent velocity from
+	// the stationary endpoint to slowBefore is mid-tunnel-noise
+	// territory (> 15 km/h). If it's realistic walking pace, the
+	// user genuinely moved to a different station between the
+	// stay and the boarding and we trust slowBefore's lookup
+	// instead.
+	let startStation: string | undefined;
+	let beforeLookup = { lat: slowBefore.lat, lon: slowBefore.lon };
+	let endStation: string | undefined;
+	try {
+		let stationaryCandidate: { name: string; lat: number; lon: number; endTs: number } | null = null;
+		for (let i = run.from - 1; i >= 0; i--) {
+			const seg = segments[i];
+			if (seg.mode === "stationary") {
+				// Strict `<` on the upper bound: seg.endTs equals the
+				// next segment's startTs (the segment classifier puts
+				// adjacent segments back-to-back). The fix at that
+				// boundary is the FIRST fix of the next segment, not
+				// the last of this one. Including it picks up the
+				// mid-ride boundary fix as the "last stationary fix"
+				// and the boarding-station lookup resolves to wherever
+				// the train was passing, not the actual boarding
+				// platform.
+				const segPoints = samplesInWindowExclusiveEnd(points, seg);
+				if (segPoints.length > 0) {
+					const last = segPoints[segPoints.length - 1];
+					const stations = await stationsLookup(last.lat, last.lon);
+					const best = pickBestStation(stations);
+					if (best) {
+						stationaryCandidate = { name: best.name, lat: last.lat, lon: last.lon, endTs: last.ts };
+					}
+				}
+				break;
+			}
+			if (seg.mode !== "walking") break;
+		}
+
+		if (stationaryCandidate) {
+			const dM = haversineMeters(stationaryCandidate.lat, stationaryCandidate.lon, slowBefore.lat, slowBefore.lon);
+			const dt = Math.max(1, slowBefore.ts - stationaryCandidate.endTs);
+			const apparentKmh = (dM / dt) * 3.6;
+			if (apparentKmh > BOARDING_NOISE_SPEED_KMH) {
+				// slowBefore is mid-tunnel GPS noise — trust stationary.
+				startStation = stationaryCandidate.name;
+				beforeLookup = { lat: stationaryCandidate.lat, lon: stationaryCandidate.lon };
+			}
+			// else: realistic walking pace, fall through to slowBefore.
+		}
+
+		const [startStationsSlow, endStations] = await Promise.all([
+			startStation ? Promise.resolve([]) : stationsLookup(slowBefore.lat, slowBefore.lon),
+			stationsLookup(after.lat, after.lon),
+		]);
+		if (!startStation) startStation = pickBestStation(startStationsSlow)?.name;
+		// Fallback for back-compat: when slowBefore doesn't resolve
+		// to a station but a preceding-stationary station exists,
+		// use that — covers the original "user noisy at platform"
+		// case from before the velocity gate was added.
+		if (!startStation && stationaryCandidate) {
+			startStation = stationaryCandidate.name;
+			beforeLookup = { lat: stationaryCandidate.lat, lon: stationaryCandidate.lon };
+		}
+		endStation = pickBestStation(endStations)?.name;
+	} catch {
+		return null;
+	}
+	if (!startStation || !endStation) return null;
+	// Same station at both ends: probably hanging around a single
+	// station rather than actually riding. Skip annotation — don't
+	// even fetch lines for this run.
+	if (startStation === endStation) return null;
+	const base = `${startStation} → ${endStation}`;
+	// Line intersection: which line serves both physical endpoints?
+	// Two lines might both serve one endpoint but only one
+	// reaches the other — the intersection picks the right line.
+	// Append the suffix only
+	// when the intersection is a singleton; on empty (one endpoint
+	// off-OSM, or disjoint sets) or ambiguous (>1 line serves both),
+	// fall through to the bare station-pair label.
+	try {
+		const [startLines, endLines] = await Promise.all([
+			linesLookup(beforeLookup.lat, beforeLookup.lon),
+			linesLookup(after.lat, after.lon),
+		]);
+		// OSM tags each travel direction as its own line name
+		// ("Jubilee Line Eastbound" at one station, "Jubilee Line" at
+		// the next), so a raw string intersection comes up empty for
+		// the same physical line. Canonicalise (drop the directional
+		// suffix) into a Set before intersecting — Wembley Park ∩ Green
+		// Park then resolves to the single Jubilee Line, King's Cross ∩
+		// Wembley Park to the Metropolitan.
+		const startCanon = new Set([...startLines].flatMap(expandTubeLineNames));
+		const endCanon = new Set([...endLines].flatMap(expandTubeLineNames));
+		const intersection = [...startCanon].filter((l) => endCanon.has(l));
+		if (intersection.length === 1) return `${base} · ${intersection[0]}`;
+		return base;
+	} catch {
+		return base;
+	}
+}
+
+/**
+ * Apply resolved rail runs to a segment list, producing the output segments.
+ *
+ * For each rail run:
+ *   - Single-segment run: keep shape, just annotate with the station-pair
+ *     label (if available) and upgrade the mode to "train".
+ *   - Multi-segment run (with or without absorbed short stationaries):
+ *     collapse into one train segment spanning the whole journey. The user
+ *     thinks of it as one ride — "I got on at station A, off at station B" —
+ *     not three sub-windows of the classifier plus a momentary train pause.
+ *     Surface the journey, not the artefacts.
+ * Segments outside any run pass through unchanged.
+ */
+function applyRailRuns(segments: EnrichedSegment[], runs: RailRun[], runLabels: (string | null)[]): EnrichedSegment[] {
 	const out: EnrichedSegment[] = [];
 	const runByStart = new Map(runs.map((r, idx) => [r.from, idx]));
 	let i = 0;
@@ -2384,6 +2425,22 @@ export async function annotateRailRuns(
 		i = run.toExclusive;
 	}
 	return out;
+}
+
+export async function annotateRailRuns(
+	segments: EnrichedSegment[],
+	points: FilteredPoint[],
+	stationsLookup: (lat: number, lon: number) => Promise<NearbyStation[]> = (lat, lon) =>
+		dbOsmAdapter.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+	linesLookup: (lat: number, lon: number) => Promise<Set<string>> = (lat, lon) => dbOsmAdapter.linesAtPoint(lat, lon),
+): Promise<EnrichedSegment[]> {
+	const runs = findRailRuns(segments, points);
+	// Look up board/alight stations and disambiguating line names for each
+	// run in parallel.
+	const runLabels = await Promise.all(
+		runs.map((run) => resolveRailRunLabel(run, segments, points, stationsLookup, linesLookup)),
+	);
+	return applyRailRuns(segments, runs, runLabels);
 }
 
 /** Longest stationary stretch (s) before a rail run still treated as a
