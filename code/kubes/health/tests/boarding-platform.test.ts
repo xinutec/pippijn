@@ -13,7 +13,8 @@
 import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
 import type { NearbyStation } from "../src/geo/osm.js";
-import { absorbBoardingPlatform, type EnrichedSegment } from "../src/geo/velocity.js";
+import { absorbBoardingPlatform } from "../src/geo/passes/rail-absorbers.js";
+import type { EnrichedSegment } from "../src/geo/velocity.js";
 
 const LAT_DEG_PER_M = 1 / 111_000;
 const LON_DEG_PER_M = 1 / (111_000 * Math.cos((50 * Math.PI) / 180));

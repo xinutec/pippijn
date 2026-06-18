@@ -11,8 +11,8 @@
 
 import { describe, expect, it } from "vitest";
 import type { StepPoint } from "../src/geo/biometrics.js";
+import { absorbDriveStops } from "../src/geo/passes/rail-absorbers.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
-import { absorbDriveStops } from "../src/geo/velocity.js";
 
 function seg(
 	over: Partial<EnrichedSegment> & { startTs: number; endTs: number; mode: EnrichedSegment["mode"] },

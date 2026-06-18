@@ -7,7 +7,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { absorbInterchanges, type EnrichedSegment } from "../src/geo/velocity.js";
+import { absorbInterchanges } from "../src/geo/passes/rail-absorbers.js";
+import type { EnrichedSegment } from "../src/geo/velocity.js";
 
 /** Build an EnrichedSegment; times given in whole minutes for clarity. */
 function seg(

@@ -7,7 +7,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { type EnrichedSegment, relabelWalkingInterchanges } from "../src/geo/velocity.js";
+import { relabelWalkingInterchanges } from "../src/geo/passes/rail-absorbers.js";
+import type { EnrichedSegment } from "../src/geo/velocity.js";
 
 function seg(
 	mode: EnrichedSegment["mode"],
