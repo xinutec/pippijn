@@ -29,7 +29,7 @@
  * Pure function. No DB, no IO, no globals.
  */
 
-import type { EnrichedSegment } from "../geo/velocity.js";
+import type { EnrichedSegment } from "../geo/enriched-segment.js";
 import type { HmmSegment } from "./persist.js";
 
 export interface PlaceLookup {

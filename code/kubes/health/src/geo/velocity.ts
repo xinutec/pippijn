@@ -16,7 +16,6 @@ import { enrichSleepWindows } from "../sleep/load.js";
 import { biometricCoherence } from "./biometric-coherence.js";
 import {
 	applyStationaryWalkThrough,
-	type BiometricEnrichment,
 	correctModeFromCadence,
 	demoteJitterWalkToStationary,
 	enrichSegmentWithBiometrics,
@@ -29,6 +28,7 @@ import { bridgeStaysWithBiometrics } from "./bridge-stays-biometrics.js";
 import { annotateBusEvidence } from "./bus-evidence.js";
 import { annotateBusRoutes } from "./bus-route-match.js";
 import type { ClassificationInputs } from "./classification-inputs.js";
+import type { EnrichedSegment } from "./enriched-segment.js";
 import { buildEpisodes, type EpisodeGeometry } from "./episode-geometry.js";
 import { useBiometricFactor } from "./factors/feature-flag.js";
 import { hourProfileForRange, localSolarHour } from "./focus-places.js";
@@ -54,9 +54,9 @@ import { dbOsmAdapter, type OsmAdapter } from "./osm-adapter.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proximity.js";
-import { interpolateTimes, type SnappedPoint } from "./rail-snap.js";
+import { interpolateTimes } from "./rail-snap.js";
 import { effectiveMode, hasRefinedKind, samplesInWindow, samplesInWindowExclusiveEnd } from "./segment-util.js";
-import type { TrackSegment, TransportMode } from "./segments.js";
+import type { TransportMode } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints, isStationaryIncoherent } from "./segments.js";
 import { splitStaysOnEvidence, splitWalksOnEvidence, splitWalksOnVehicleLeg } from "./stay-split.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
@@ -422,36 +422,10 @@ function toPlaceCandidate(p: NamedPlace): PlaceCandidate {
 	};
 }
 
-export interface EnrichedSegment extends TrackSegment {
-	place?: string; // human-readable place name (for stationary segments)
-	city?: string; // city/town/village (for stationary segments) — frontend groups consecutive same-city segments
-	/** Mean lat/lon of this stay's GPS fixes. Attached for stationary
-	 *  segments by `attachStayCentroids` so the co-location merge can compare
-	 *  stays and re-resolve a merged stay's place from its combined centre. */
-	centroidLat?: number;
-	centroidLon?: number;
-	wayName?: string; // road/rail name (for moving segments)
-	/** Stop-pattern refinement of a driving segment (task #247): "bus"
-	 *  when the leg's boarding wait + mid-leg dwells coincide with
-	 *  bus_stop nodes. The mode stays "driving" internally; the
-	 *  day-state layer renders the kind. */
-	vehicleKind?: "bus";
-	refinedMode?: TransportMode; // OSM-refined transport mode (may differ from heuristic mode)
-	refinedReason?: string;
-	displayTz?: string; // IANA tz to render the segment's timestamps in (frontend uses this instead of browser tz)
-	biometrics?: BiometricEnrichment;
-	snappedPath?: SnappedPoint[]; // derived: this train segment drawn on the OSM rail track — see annotateSnappedPaths
-	/** Fraction of the moving segment's sampled points whose nearest
-	 *  drivable road is closer than any rail-only way (a sample with a
-	 *  road but no rail in range counts as road-nearest — there is no
-	 *  track there). Computed at enrichment from the same `nearbyWays`
-	 *  samples the OSM lookup already takes, so it costs no extra query.
-	 *  `undefined` when too few samples carry usable proximity. The HSMM
-	 *  movement→train override weighs this against the HSMM's line
-	 *  support — a road-following trace makes a train improbable, not
-	 *  impossible. See `decideHsmmTrainOverride`. */
-	roadCorridorFraction?: number;
-}
+// `EnrichedSegment` now lives in ./enriched-segment.ts so the passes can depend
+// on it without importing this orchestrator. Re-exported here for the existing
+// consumers (CLIs, routes, sleep, tests) that import it from this module.
+export type { EnrichedSegment } from "./enriched-segment.js";
 
 /** One phone-battery reading: a charge level (integer percent, 0–100)
  *  at a wall-clock instant. Sourced from the `battery` field PhoneTrack

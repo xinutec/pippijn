@@ -1,0 +1,49 @@
+/**
+ * The pipeline's central segment type.
+ *
+ * `EnrichedSegment` is the unit every classification pass reads and rewrites:
+ * a raw {@link TrackSegment} plus the place / way / mode / biometric / geometry
+ * annotations the cascade attaches as it runs. It lives in its own module —
+ * rather than in `velocity.ts` where the cascade is orchestrated — so the
+ * individual passes (`./passes/*`) can depend on the *shape* of a segment
+ * without importing the 2700-line orchestrator (which in turn imports them).
+ * That keeps the dependency graph a DAG: passes → enriched-segment, orchestrator
+ * → passes, with no back-edge.
+ *
+ * Types only; no runtime code.
+ */
+
+import type { BiometricEnrichment } from "./biometrics.js";
+import type { SnappedPoint } from "./rail-snap.js";
+import type { TrackSegment, TransportMode } from "./segments.js";
+
+export interface EnrichedSegment extends TrackSegment {
+	place?: string; // human-readable place name (for stationary segments)
+	city?: string; // city/town/village (for stationary segments) — frontend groups consecutive same-city segments
+	/** Mean lat/lon of this stay's GPS fixes. Attached for stationary
+	 *  segments by `attachStayCentroids` so the co-location merge can compare
+	 *  stays and re-resolve a merged stay's place from its combined centre. */
+	centroidLat?: number;
+	centroidLon?: number;
+	wayName?: string; // road/rail name (for moving segments)
+	/** Stop-pattern refinement of a driving segment (task #247): "bus"
+	 *  when the leg's boarding wait + mid-leg dwells coincide with
+	 *  bus_stop nodes. The mode stays "driving" internally; the
+	 *  day-state layer renders the kind. */
+	vehicleKind?: "bus";
+	refinedMode?: TransportMode; // OSM-refined transport mode (may differ from heuristic mode)
+	refinedReason?: string;
+	displayTz?: string; // IANA tz to render the segment's timestamps in (frontend uses this instead of browser tz)
+	biometrics?: BiometricEnrichment;
+	snappedPath?: SnappedPoint[]; // derived: this train segment drawn on the OSM rail track — see annotateSnappedPaths
+	/** Fraction of the moving segment's sampled points whose nearest
+	 *  drivable road is closer than any rail-only way (a sample with a
+	 *  road but no rail in range counts as road-nearest — there is no
+	 *  track there). Computed at enrichment from the same `nearbyWays`
+	 *  samples the OSM lookup already takes, so it costs no extra query.
+	 *  `undefined` when too few samples carry usable proximity. The HSMM
+	 *  movement→train override weighs this against the HSMM's line
+	 *  support — a road-following trace makes a train improbable, not
+	 *  impossible. See `decideHsmmTrainOverride`. */
+	roadCorridorFraction?: number;
+}

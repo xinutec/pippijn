@@ -23,10 +23,10 @@
  */
 
 import type { DayState, DayStateMode } from "../sleep/day-state.js";
+import type { EnrichedSegment } from "./enriched-segment.js";
 import type { FilteredPoint } from "./kalman.js";
 import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import { centroidOf, effectiveMode, samplesInWindow } from "./segment-util.js";
-import type { EnrichedSegment } from "./velocity.js";
 
 /** Geometry provenance — the only style input the map needs. Solid for
  *  `raw`/`matched`, dashed for `snapped`/`tentative`, a dot for

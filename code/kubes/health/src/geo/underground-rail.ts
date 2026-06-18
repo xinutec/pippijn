@@ -24,10 +24,10 @@
  * near this point" lookup.
  */
 
+import type { EnrichedSegment } from "./enriched-segment.js";
 import type { NearbyStation, NearbyWay } from "./osm.js";
 import { pickBestStation } from "./osm.js";
 import { dbOsmAdapter } from "./osm-adapter.js";
-import type { EnrichedSegment } from "./velocity.js";
 
 /** A raw GPS fix with its reported accuracy radius, in metres. */
 export interface CoarseFix {
