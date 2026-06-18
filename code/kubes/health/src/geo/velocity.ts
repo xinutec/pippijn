@@ -1370,7 +1370,8 @@ export async function computeVelocityFromInputs(
 	// volume. See infer-empty-day.ts. Days that aren't bracketed stay
 	// blank (genuinely unknown).
 	if (states.length === 0 && points.length === 0) {
-		const inferred = await timeSync("inferEmptyDay", () =>
+		const inferred = await time(
+			"inferEmptyDay",
 			inferEmptyDayStatesFromBracket(inputs.emptyDayBracket, date, tz, inputs.osm),
 		);
 		if (inferred.length > 0)

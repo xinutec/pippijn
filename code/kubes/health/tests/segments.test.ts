@@ -6,6 +6,7 @@ import {
 	inferTransitGaps,
 	isStationaryIncoherent,
 	normalizeScores,
+	smoothSegments,
 	type TrackSegment,
 } from "../src/geo/segments.js";
 
@@ -858,5 +859,33 @@ describe("normalizeScores", () => {
 		// Sentinel: still safe to consume.
 		expect(r.probability).toBe(0);
 		expect(r.margin).toBe(1);
+	});
+});
+
+describe("smoothSegments — no input mutation", () => {
+	const seg = (startTs: number, endTs: number, mode: TrackSegment["mode"]): TrackSegment => ({
+		startTs,
+		endTs,
+		mode,
+		confidence: 0.9,
+		confidenceMargin: 100,
+		avgSpeed: 0,
+		maxSpeed: 0,
+		linearity: 0,
+		pointCount: 3,
+	});
+
+	it("merges short segments into the previous one without mutating the input array", () => {
+		// A long walk, a sub-threshold (60s) sliver that must merge back, then
+		// another long walk. The sliver merge mutates the kept segment's endTs/
+		// pointCount in place — it must touch the OUTPUT copy, never the input.
+		const input = [seg(0, 600, "walking"), seg(600, 660, "stationary"), seg(660, 1260, "walking")];
+		const snapshot = structuredClone(input);
+		const out = smoothSegments(input, 5 * 60);
+		expect(input).toEqual(snapshot); // input untouched
+		// And the merge actually happened (sliver folded into the first walk).
+		expect(out).toHaveLength(2);
+		expect(out[0].endTs).toBe(660);
+		expect(out[0].pointCount).toBe(6);
 	});
 });

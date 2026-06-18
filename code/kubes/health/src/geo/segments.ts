@@ -383,7 +383,6 @@ function mergeWindows(windows: WindowFeatures[], scores: ModeScore[][]): TrackSe
 
 	const segments: TrackSegment[] = [];
 	let currentMode = scores[0][0].mode;
-	let _currentConfidence = scores[0][0].score;
 	let segStart = 0;
 
 	function flushSegment(endIdx: number): void {
@@ -433,7 +432,6 @@ function mergeWindows(windows: WindowFeatures[], scores: ModeScore[][]): TrackSe
 			flushSegment(i);
 			if (i < windows.length) {
 				currentMode = scores[i][0].mode;
-				_currentConfidence = scores[i][0].score;
 				segStart = i;
 			}
 		}
@@ -446,10 +444,14 @@ function mergeWindows(windows: WindowFeatures[], scores: ModeScore[][]): TrackSe
  * Remove segments shorter than minDuration by merging them into neighbors.
  * A 10-second "driving" segment between two "walking" segments is noise.
  */
-function smoothSegments(segments: TrackSegment[], minDurationSec: number): TrackSegment[] {
+export function smoothSegments(segments: TrackSegment[], minDurationSec: number): TrackSegment[] {
 	if (segments.length <= 1) return segments;
 
-	const result: TrackSegment[] = [segments[0]];
+	// Copy every segment we keep: the merge branch below mutates the last
+	// element of `result` in place, so aliasing an input object would corrupt
+	// the caller's array. (Today the caller passes fresh mergeWindows output,
+	// but the copy makes the no-mutation contract hold for any caller.)
+	const result: TrackSegment[] = [{ ...segments[0] }];
 
 	for (let i = 1; i < segments.length; i++) {
 		const seg = segments[i];
@@ -462,7 +464,7 @@ function smoothSegments(segments: TrackSegment[], minDurationSec: number): Track
 			prev.pointCount += seg.pointCount;
 			prev.maxSpeed = Math.max(prev.maxSpeed, seg.maxSpeed);
 		} else {
-			result.push(seg);
+			result.push({ ...seg });
 		}
 	}
 

@@ -333,10 +333,10 @@ export function revertIsolatedCadenceDrives<
 	});
 }
 
-/** A "walking" segment whose single-minute peak step count never reaches this
- *  recorded NO real walking minute at all — even a slow, interrupted urban walk
- *  hits a clear minute well above this. Below it, the GPS "movement" has no
- *  pedometer backing. */
+/** A "walking" segment whose single-minute *peak* step count never reaches this
+ *  recorded no real walking minute at all — even a slow, interrupted urban walk
+ *  produces one clear minute well above this. Below it, the GPS "movement" has
+ *  no pedometer backing, so it is jitter, not a walk. */
 const STATIONARY_JITTER_MAX_PEAK_CADENCE = 20;
 
 /** ...and the path doubled back on itself: straight-line / path-length below
