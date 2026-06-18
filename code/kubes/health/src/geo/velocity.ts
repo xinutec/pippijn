@@ -55,7 +55,7 @@ import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proximity.js";
 import { interpolateTimes, type SnappedPoint } from "./rail-snap.js";
-import { effectiveMode, samplesInWindow, samplesInWindowExclusiveEnd } from "./segment-util.js";
+import { effectiveMode, hasRefinedKind, samplesInWindow, samplesInWindowExclusiveEnd } from "./segment-util.js";
 import type { TrackSegment, TransportMode } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints, isStationaryIncoherent } from "./segments.js";
 import { splitStaysOnEvidence, splitWalksOnEvidence, splitWalksOnVehicleLeg } from "./stay-split.js";
@@ -1586,7 +1586,7 @@ export function attachStayCentroids<T extends EnrichedSegment>(
  *  jitter fragmented a sit (see `demoteJitterWalkToStationary`), so it can't
  *  disturb normal multi-stay days. Pure; returns runs of length ≥ 2 only. */
 export function planJitterStayRuns(segments: EnrichedSegment[]): Array<{ start: number; end: number }> {
-	const isJitter = (s: EnrichedSegment): boolean => (s.refinedReason ?? "").includes("GPS jitter");
+	const isJitter = (s: EnrichedSegment): boolean => hasRefinedKind(s, "gps-jitter");
 	const runs: Array<{ start: number; end: number }> = [];
 	let i = 0;
 	while (i < segments.length) {
@@ -2082,8 +2082,7 @@ interface RailRun {
 function findRailRuns(segments: EnrichedSegment[], points: FilteredPoint[]): RailRun[] {
 	const isRailLike = (s: EnrichedSegment): boolean => {
 		if (s.mode === "train" || s.refinedMode === "train") return true;
-		const inferredVehicleGap =
-			s.refinedReason?.startsWith("inferred from GPS gap") && s.mode !== "stationary" && s.avgSpeed >= 7;
+		const inferredVehicleGap = hasRefinedKind(s, "gps-gap-inferred") && s.mode !== "stationary" && s.avgSpeed >= 7;
 		return Boolean(inferredVehicleGap);
 	};
 

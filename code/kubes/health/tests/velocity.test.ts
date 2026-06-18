@@ -499,6 +499,7 @@ describe("annotateRailRuns", () => {
 		linearity: 1,
 		pointCount: 0,
 		refinedReason: "inferred from GPS gap (3.2 km in 5 min)",
+		refinedKinds: ["gps-gap-inferred"],
 	});
 
 	const fix = (ts: number, lat: number, lon: number): FilteredPoint => ({
@@ -1325,6 +1326,7 @@ describe("planJitterStayRuns", () => {
 		...stay(start, end, o.place),
 		refinedMode: "stationary",
 		refinedReason: o.jitter ? "no walking steps (peak 0/min) ... — sitting, GPS jitter" : undefined,
+		refinedKinds: o.jitter ? ["gps-jitter"] : undefined,
 		centroidLat: lat,
 		centroidLon: lon,
 	});

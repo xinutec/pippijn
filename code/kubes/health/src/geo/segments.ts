@@ -11,6 +11,21 @@ import { samplesInWindow } from "./segment-util.js";
 
 export type TransportMode = "stationary" | "walking" | "cycling" | "driving" | "train" | "plane" | "unknown";
 
+/** A machine-readable tag for the *kind* of refinement a downstream pass made,
+ *  for the cases where a later pass needs to branch on "was this segment touched
+ *  by rule X?". This exists alongside the free-form `refinedReason` string so
+ *  control flow never depends on substring-matching a human-readable sentence
+ *  (reword the sentence and the matching silently breaks). Only kinds that some
+ *  pass actually branches on are enumerated here:
+ *    - `gps-gap-inferred` — mode synthesised across a no-coverage gap from the
+ *      implied straight-line speed (see {@link inferGapSegments}); a candidate
+ *      for rail upgrade.
+ *    - `gps-jitter` — a "walking" leg demoted to stationary because the watch
+ *      recorded no steps and the path only jittered in place (sitting indoors).
+ *    - `low-cadence` — a leg flipped to driving by the low-cadence rule, so a
+ *      later pass can revert it when it has no vehicular neighbour. */
+export type RefinedKind = "gps-gap-inferred" | "gps-jitter" | "low-cadence";
+
 export interface TrackSegment {
 	startTs: number;
 	endTs: number;
@@ -30,8 +45,14 @@ export interface TrackSegment {
 	/** Free-form annotation: why this segment is the mode it is. Set by
 	 *  cross-modal inference (cadence correction, gap inference) and by
 	 *  OSM-aware mode refinement downstream. Optional; absent on plain
-	 *  GPS-classified segments. */
+	 *  GPS-classified segments. For display and debugging only — never branch
+	 *  on its text; use {@link refinedKinds} for that. */
 	refinedReason?: string;
+	/** Machine-readable tags for refinements a later pass branches on. Carried
+	 *  forward (merged) as a segment passes through the cascade, in parallel
+	 *  with `refinedReason`. Absent when no branch-relevant refinement applied.
+	 *  See {@link RefinedKind}. */
+	refinedKinds?: readonly RefinedKind[];
 }
 
 export interface WindowFeatures {
@@ -716,6 +737,10 @@ export function inferTransitGaps(segments: TrackSegment[], points: FilteredPoint
 			linearity: honestUnknown ? 0 : 1,
 			pointCount: 0,
 			refinedReason: reason,
+			// Tag the positively-inferred (non-`unknown`) gap so a later pass can
+			// branch on it without re-parsing `reason`. The honest-unknown gap is
+			// not a mode claim, so it carries no kind.
+			refinedKinds: honestUnknown ? undefined : ["gps-gap-inferred"],
 		});
 	}
 	return result;

@@ -14,7 +14,7 @@
  * Pure; no DB, no IO.
  */
 
-import type { TransportMode } from "./segments.js";
+import type { RefinedKind, TransportMode } from "./segments.js";
 
 /** The minimum shape these helpers read: a time window plus a mode that a
  *  later pass may have refined. */
@@ -70,6 +70,24 @@ export function samplesInWindowExclusiveEnd<P extends Timestamped>(
 	window: { startTs: number; endTs: number },
 ): P[] {
 	return samples.filter((p) => p.ts >= window.startTs && p.ts < window.endTs);
+}
+
+/** Append a refinement kind to a segment's existing tags, preserving any
+ *  already carried forward. Mirrors the `refinedReason` string-append pattern
+ *  but for the machine-readable {@link RefinedKind} channel: a pass that both
+ *  appends a reason and branches-relevantly tags should call this so an earlier
+ *  tag (e.g. `gps-gap-inferred`) is not dropped when a later one is added. */
+export function addRefinedKind(
+	existing: readonly RefinedKind[] | undefined,
+	kind: RefinedKind,
+): readonly RefinedKind[] {
+	return existing ? [...existing, kind] : [kind];
+}
+
+/** Whether a segment carries a given refinement tag — the typed replacement for
+ *  substring-matching `refinedReason`. */
+export function hasRefinedKind(seg: { refinedKinds?: readonly RefinedKind[] }, kind: RefinedKind): boolean {
+	return seg.refinedKinds?.includes(kind) ?? false;
 }
 
 /** A geographic point. */

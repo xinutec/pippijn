@@ -247,6 +247,9 @@ describe("correctModeFromCadence — passenger-in-traffic detection", () => {
 		const r = correctModeFromCadence(seg, stepsThisDay);
 		expect(r.refinedMode).toBe("driving");
 		expect(r.refinedReason).toMatch(/cadence/i);
+		// The machine-readable tag — what `revertIsolatedCadenceDrives` branches
+		// on — must be set, not just the human-readable reason.
+		expect(r.refinedKinds).toContain("low-cadence");
 	});
 
 	it("does NOT correct when step data is stale (no rows past segment end — sync hasn'''t caught up)", () => {
@@ -519,11 +522,12 @@ describe("revertIsolatedCadenceDrives — undo a cadence flip with no vehicular 
 		return s;
 	};
 	// A segment the cadence pass flipped walking -> driving: base mode stays
-	// "walking", refinedMode is "driving", reason mentions cadence.
+	// "walking", refinedMode is "driving", tagged with the low-cadence kind.
 	const flip = (durS: number, avg: number, max: number): SegLike => ({
 		...span("walking", durS, avg, max),
 		refinedMode: "driving",
 		refinedReason: "low cadence (0/min)",
+		refinedKinds: ["low-cadence"],
 	});
 	const walking = (durS: number) => span("walking", durS, 4, 7);
 	const stay = (durS: number) => span("stationary", durS, 0.2, 1);
@@ -615,6 +619,8 @@ describe("demoteJitterWalkToStationary — a 0-step jittery 'walk' is really sit
 		const r = demoteJitterWalkToStationary(seg, fresh(seg.endTs));
 		expect(eff(r)).toBe("stationary");
 		expect(r.refinedReason).toMatch(/jitter|sitting/i);
+		// `planJitterStayRuns` groups co-located fragments by this tag.
+		expect(r.refinedKinds).toContain("gps-jitter");
 	});
 
 	it("KEEPS a directed walk where Fitbit merely missed the steps (high linearity)", () => {

@@ -13,7 +13,7 @@
 
 import type { FilteredPoint } from "./kalman.js";
 import { haversineMeters } from "./place-snap.js";
-import { effectiveMode, samplesInWindow } from "./segment-util.js";
+import { addRefinedKind, effectiveMode, hasRefinedKind, samplesInWindow } from "./segment-util.js";
 import type { TrackSegment, TransportMode } from "./segments.js";
 
 export interface HrPoint {
@@ -272,6 +272,7 @@ export function correctModeFromCadence<
 		...segment,
 		refinedMode: "driving",
 		refinedReason: segment.refinedReason ? `${segment.refinedReason}; ${reason}` : reason,
+		refinedKinds: addRefinedKind(segment.refinedKinds, "low-cadence"),
 	};
 }
 
@@ -303,7 +304,7 @@ export function revertIsolatedCadenceDrives<
 	T extends TrackSegment & { refinedMode?: TransportMode; refinedReason?: string },
 >(segments: T[]): T[] {
 	const isCadenceFlip = (s: T): boolean =>
-		s.mode === "walking" && s.refinedMode === "driving" && (s.refinedReason ?? "").includes("cadence");
+		s.mode === "walking" && s.refinedMode === "driving" && hasRefinedKind(s, "low-cadence");
 	// A neighbour counts as "real driving" only if GPS classified it as driving
 	// (base mode), not a sibling cadence flip — otherwise a run of flips would
 	// vouch for each other and none would revert.
@@ -388,6 +389,7 @@ export function demoteJitterWalkToStationary<
 		...segment,
 		refinedMode: "stationary",
 		refinedReason: segment.refinedReason ? `${segment.refinedReason}; ${reason}` : reason,
+		refinedKinds: addRefinedKind(segment.refinedKinds, "gps-jitter"),
 	};
 }
 
