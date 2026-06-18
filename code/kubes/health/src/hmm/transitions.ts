@@ -49,8 +49,38 @@ export interface BuildTransitionMatrixOpts {
 
 const DEFAULT_SELF_LOOP = Math.log(0.95);
 
+/** Modes in which you are aboard a vehicle. Moving between two *different*
+ *  vehicles always requires alighting first — you cannot step from a car
+ *  straight onto a moving train, or off a train straight onto a bicycle,
+ *  without a non-vehicle moment (a platform wait, a walk to the car park)
+ *  in between. */
+const VEHICLE_MODES: ReadonlySet<string> = new Set(["driving", "train", "cycling", "plane"]);
+
+/** Extra log-cost on a direct transition between two *distinct* vehicle
+ *  modes (e.g. train → driving). Not a hard zero: the intervening walk can
+ *  occasionally be sub-minute and so unobserved, and a hard zero would make
+ *  a genuine fast interchange impossible. But ~8 nats is steep enough that
+ *  the decoder strongly prefers to route through a walking/stationary minute
+ *  — i.e. `train → walking → driving` beats `train → driving`. This is the
+ *  rule that forbids the physically-absurd "drove along the tube line, then
+ *  boarded the tube" narrative the per-segment cascade produces. */
+const INTER_VEHICLE_PENALTY_LOG = -8;
+
 function sameState(a: State, b: State): boolean {
 	return a.mode === b.mode && a.placeId === b.placeId && a.lineName === b.lineName;
+}
+
+/** Relative prior weight of a cross-state transition, before per-row
+ *  normalisation. 1 is the neutral default (the old uniform behaviour);
+ *  values < 1 down-weight a physically-implausible pair. The cross mass is
+ *  split across each row's valid destinations in proportion to this weight,
+ *  so the matrix stays row-stochastic for any weighting. */
+function transitionWeight(from: State, to: State): number {
+	// Two different vehicles with no non-vehicle state between them.
+	if (from.mode !== to.mode && VEHICLE_MODES.has(from.mode) && VEHICLE_MODES.has(to.mode)) {
+		return Math.exp(INTER_VEHICLE_PENALTY_LOG);
+	}
+	return 1;
 }
 
 /**
@@ -74,31 +104,28 @@ export function buildTransitionMatrix(opts: BuildTransitionMatrixOpts): Transiti
 
 	const isHardZeroFn = (from: State, to: State): boolean => isHardZero(from, to, placeNearLine);
 
-	// Pre-compute the per-row cross-state log-prob: for each from-state,
-	// count the valid cross destinations and divide the cross mass.
-	// O(S²) once, then O(1) per query.
-	const crossLogByFrom = new Map<string, number>();
+	// Pre-compute the per-row cross-state weight sum: for each from-state,
+	// total the relative weights of its valid cross destinations. The cross
+	// mass is then split in proportion to weight, so `log P(from→to) =
+	// log(crossMass · w(from,to) / Σ w(from,·))`. Uniform weights reproduce
+	// the old `crossMass / validCrossCount`. O(S²) once, then O(1) per query.
+	const crossWeightSumByFrom = new Map<string, number>();
 	for (const from of opts.states) {
-		let validCrossCount = 0;
+		let weightSum = 0;
 		for (const to of opts.states) {
 			if (sameState(from, to)) continue;
 			if (isHardZeroFn(from, to)) continue;
-			validCrossCount++;
+			weightSum += transitionWeight(from, to);
 		}
-		const fromKey = stateInternalKey(from);
-		if (validCrossCount > 0) {
-			crossLogByFrom.set(fromKey, Math.log(crossMass / validCrossCount));
-		} else {
-			// No valid cross destinations — self-loop is the only option.
-			// (Shouldn't happen in practice; defensive.)
-			crossLogByFrom.set(fromKey, Number.NEGATIVE_INFINITY);
-		}
+		crossWeightSumByFrom.set(stateInternalKey(from), weightSum);
 	}
 
 	return (from: State, to: State): number => {
 		if (sameState(from, to)) return selfLoop;
 		if (isHardZeroFn(from, to)) return Number.NEGATIVE_INFINITY;
-		return crossLogByFrom.get(stateInternalKey(from)) ?? Number.NEGATIVE_INFINITY;
+		const weightSum = crossWeightSumByFrom.get(stateInternalKey(from)) ?? 0;
+		if (weightSum <= 0) return Number.NEGATIVE_INFINITY;
+		return Math.log((crossMass * transitionWeight(from, to)) / weightSum);
 	};
 }
 

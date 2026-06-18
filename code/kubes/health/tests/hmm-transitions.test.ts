@@ -129,6 +129,22 @@ describe("buildTransitionMatrix", () => {
 		expect(transitionLogProbWithGraph(unknownTrain, home)).toBeGreaterThan(Number.NEGATIVE_INFINITY);
 	});
 
+	it("penalises a direct vehicle→vehicle transition vs routing through walking", () => {
+		const train = find("train", null, "Metropolitan Line");
+		const driving = find("driving", null, null);
+		const walking = find("walking", null, null);
+		// train → driving directly is finite (not a hard zero — a sub-minute
+		// interchange can be unobserved) but much cheaper to route through a
+		// non-vehicle state: train → walking → driving.
+		const direct = transitionLogProb(train, driving);
+		const viaWalk = transitionLogProb(train, walking) + transitionLogProb(walking, driving);
+		expect(direct).toBeGreaterThan(Number.NEGATIVE_INFINITY);
+		expect(direct).toBeLessThan(viaWalk);
+		// And the inter-vehicle pair is steeply below an ordinary cross-state
+		// transition out of the same source (train → walking).
+		expect(transitionLogProb(train, walking) - direct).toBeGreaterThan(5);
+	});
+
 	it("rows sum to <= 1 in probability space (proper probability distribution)", () => {
 		// For each state, summing exp(logProb(state, *)) over all
 		// destinations should be ≤ 1 (could be < 1 because hard-zeros
