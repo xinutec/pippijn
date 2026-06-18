@@ -78,6 +78,20 @@ describe("checkDayConstraints", () => {
 		expect(v[0].constraint).toBe("transit-same-endpoint");
 	});
 
+	it("does NOT flag two distinct stays separated by an unobserved gap (honest hole, not a teleport)", () => {
+		// 2026-05-22 / 04-30 shape: a stay ends, then hours later a stay at a
+		// different place begins — the travel happened in the unobserved gap.
+		const a: DayState = { startTs: 0, endTs: 3600, mode: "stationary", place: "Royal Free Hospital" };
+		const b: DayState = { startTs: 3600 + 2 * 3600, endTs: 3600 + 3 * 3600, mode: "sleeping", place: "Home" };
+		expect(checkDayConstraints([a, b])).toEqual([]);
+	});
+
+	it("does NOT flag a vehicle→vehicle change across a gap (alighting happened in the gap)", () => {
+		const a: DayState = { startTs: 0, endTs: 600, mode: "driving" };
+		const b: DayState = { startTs: 600 + 600, endTs: 600 + 1200, mode: "train", wayName: "X → Y · L" };
+		expect(checkDayConstraints([a, b])).toEqual([]);
+	});
+
 	it("allows a vehicle bracketed by walking on both sides", () => {
 		t = 0;
 		const day = [st("walking"), st("bus", { wayName: "Stop A → Stop B · 38" }), st("walking"), st("driving")];

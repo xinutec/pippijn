@@ -36,6 +36,15 @@ const VEHICLE_MODES: ReadonlySet<DayStateMode> = new Set(["driving", "bus", "tra
 const STATION_SEP = " → ";
 const LINE_SEP = " · ";
 
+/** Two states count as *contiguous* — back-to-back with no time to do anything
+ *  between them — when the gap from one's end to the next's start is at most
+ *  this. The adjacency laws only fire on contiguous pairs: a real gap (a GPS
+ *  blackout, an overnight hole) is unobserved time during which the user could
+ *  legitimately have travelled or alighted, so it is *incomplete*, not
+ *  *impossible*. Flagging it would punish the honest "we didn't see this"
+ *  rather than a genuine physics violation — the opposite of what we want. */
+const CONTIGUITY_MAX_GAP_S = 120;
+
 export type ConstraintId =
 	/** Two adjacent vehicle legs of *different* modes with no non-vehicle state
 	 *  between them — you cannot step from one moving vehicle straight into
@@ -92,6 +101,9 @@ export function checkDayConstraints(states: readonly DayState[]): Violation[] {
 
 		const next = states[i + 1];
 		if (!next) continue;
+		// Adjacency laws apply only to contiguous pairs — a real gap is
+		// unobserved time the user could have travelled/alighted in.
+		if (next.startTs - s.endTs > CONTIGUITY_MAX_GAP_S) continue;
 
 		// Law 1 — no direct hand-off between two different vehicles.
 		if (VEHICLE_MODES.has(s.mode) && VEHICLE_MODES.has(next.mode) && s.mode !== next.mode) {
