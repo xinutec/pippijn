@@ -125,4 +125,40 @@ describe("absorbIntraPlaceWalk", () => {
 		const out = absorbIntraPlaceWalk(segs, pts);
 		expect(out.map(mode)).toEqual(["stationary", "walking", "stationary"]);
 	});
+
+	it("demotes BOTH walks of a stay→walk→stay→walk→stay ladder (neighbours read from the input)", () => {
+		// Two kitchen runs in one afternoon. The map reads neighbours from the
+		// original array, so both interior walks are demoted in one pass (no
+		// fixpoint loop needed); mergeAdjacentStays then collapses the lot.
+		const segs = [
+			stay(T0, T0 + 60 * 60, "Work"),
+			walk(T0 + 60 * 60, T0 + 64 * 60),
+			stay(T0 + 64 * 60, T0 + 120 * 60, "Work"),
+			walk(T0 + 120 * 60, T0 + 124 * 60),
+			stay(T0 + 124 * 60, T0 + 300 * 60, "Work"),
+		];
+		const pts = [
+			...excursionFixes(T0 + 60 * 60, T0 + 64 * 60, 45),
+			...excursionFixes(T0 + 120 * 60, T0 + 124 * 60, 45),
+		];
+		const out = absorbIntraPlaceWalk(segs, pts);
+		expect(out.map(mode)).toEqual(["stationary", "stationary", "stationary", "stationary", "stationary"]);
+	});
+
+	it("does not demote when the bracketing stays have neither a centroid nor any fixes (can't confirm same spot)", () => {
+		// Conservative fallback: with no centroid field and no in-window fixes
+		// for the stays, the same-spot test can't be evaluated, so the walk is
+		// left as a leg.
+		const noCentroid = (startTs: number, endTs: number): EnrichedSegment =>
+			({ ...stay(startTs, endTs, "Work"), centroidLat: undefined, centroidLon: undefined }) as EnrichedSegment;
+		const segs = [
+			noCentroid(T0, T0 + 90 * 60),
+			walk(T0 + 90 * 60, T0 + 95 * 60),
+			noCentroid(T0 + 95 * 60, T0 + 300 * 60),
+		];
+		// Fixes only for the walk window, none for the stays.
+		const pts = excursionFixes(T0 + 90 * 60, T0 + 95 * 60, 40);
+		const out = absorbIntraPlaceWalk(segs, pts);
+		expect(mode(out[1])).toBe("walking");
+	});
 });

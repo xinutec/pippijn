@@ -124,7 +124,17 @@ export function scoreDay(
 	// lowercase here. Without this, an exact-case mismatch silently scores
 	// every place dimension 0/0 (the golden harness's "Home"/"home" miss).
 	const placeByLower = new Map<string, number>();
-	for (const [k, v] of placeNameToId) placeByLower.set(k.toLowerCase(), v);
+	for (const [k, v] of placeNameToId) {
+		const lk = k.toLowerCase();
+		const prior = placeByLower.get(lk);
+		// Two distinct display names that case-fold to the same key would
+		// otherwise silently resolve to whichever id was inserted last — a
+		// place scored as a different place. Surface it rather than hide it.
+		if (prior !== undefined && prior !== v) {
+			console.warn(`scoreDay: place-name case collision on "${lk}" (ids ${prior} vs ${v}); keeping ${v}`);
+		}
+		placeByLower.set(lk, v);
+	}
 	// Round ts to the minute since decoder/ground truth both use 60s
 	// granularity. (The caller is responsible for aligning these; this
 	// is defensive only.)

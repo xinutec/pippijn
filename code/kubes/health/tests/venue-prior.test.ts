@@ -198,6 +198,23 @@ describe("near-field distance dominance", () => {
 		const r = rankVenues([venue("Corner Cafe", "cafe", 8), hospital], GP_VISIT, foodHeavyPriors());
 		expect(r[0].landmark.name).toBe("City Hospital");
 	});
+
+	it("does NOT grant near-field to a reverse-geocode candidate (distance 0 by construction)", () => {
+		// A Nominatim reverse-geocode result has distanceM 0 because Nominatim
+		// placed the query INSIDE the building — not a measured proximity. It
+		// must not get the near-field shortcut, so a genuinely-measured nearby
+		// venue still wins it. Without the `reverseGeocoded` exclusion the
+		// distance-0 candidate would dominate every other POI.
+		const reverseGeocoded: NearbyLandmark = {
+			name: "Reverse-Geocoded Bistro",
+			type: "amenity",
+			subtype: "restaurant",
+			distanceM: 0,
+			reverseGeocoded: true,
+		};
+		const r = rankVenues([reverseGeocoded, venue("Measured Clinic", "clinic", 8)], GP_VISIT, foodHeavyPriors());
+		expect(r[0].landmark.name).toBe("Measured Clinic");
+	});
 });
 
 // --- never-a-destination -------------------------------------------------

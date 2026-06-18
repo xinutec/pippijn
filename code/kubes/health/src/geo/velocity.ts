@@ -966,9 +966,9 @@ export async function computeVelocityFromInputs(
 	// Runs, frontend) see the corrected mode.
 	const physicallyCorrected = timeSync("physicalConstraints", () =>
 		biometricCorrected.map((seg) => {
-			const corrected = enforcePhysicalConstraints(seg);
-			if (corrected.mode === seg.mode) return seg;
-			return { ...corrected, refinedMode: corrected.mode };
+			const constrained = enforcePhysicalConstraints(seg);
+			if (constrained.mode === seg.mode) return seg;
+			return { ...constrained, refinedMode: constrained.mode };
 		}),
 	);
 
