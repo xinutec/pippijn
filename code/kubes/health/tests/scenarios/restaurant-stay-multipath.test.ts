@@ -24,7 +24,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { type EnrichedSegment, mergeAdjacentStays } from "../../src/geo/velocity.js";
+import { mergeAdjacentStays } from "../../src/geo/passes/stays.js";
+import type { EnrichedSegment } from "../../src/geo/velocity.js";
 import { tsAt } from "./synth-day.js";
 
 const PLACE = "Place X";

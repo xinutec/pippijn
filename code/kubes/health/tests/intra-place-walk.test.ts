@@ -14,7 +14,8 @@
 
 import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
-import { absorbIntraPlaceWalk, type EnrichedSegment } from "../src/geo/velocity.js";
+import { absorbIntraPlaceWalk } from "../src/geo/passes/stays.js";
+import type { EnrichedSegment } from "../src/geo/velocity.js";
 
 const T0 = 1_750_000_000;
 // ~1 m ≈ 0.000009 deg latitude at this scale.
