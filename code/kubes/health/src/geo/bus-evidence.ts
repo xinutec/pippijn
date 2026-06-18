@@ -21,6 +21,8 @@
  */
 
 import type { FilteredPoint } from "./kalman.js";
+import { effectiveMode, samplesInWindow } from "./segment-util.js";
+import type { TransportMode } from "./segments.js";
 
 /** A standstill within a moving leg. */
 export interface VehicleDwell {
@@ -152,7 +154,7 @@ export function detectBoardingWait(
  * proximity.
  */
 export function detectVehicleDwells(fixes: readonly Fix[], startTs: number, endTs: number): VehicleDwell[] {
-	const inLeg = fixes.filter((p) => p.ts >= startTs && p.ts <= endTs);
+	const inLeg = samplesInWindow(fixes, { startTs, endTs });
 	const dwells: VehicleDwell[] = [];
 	let runStart = -1;
 	for (let i = 1; i <= inLeg.length; i++) {
@@ -205,11 +207,11 @@ const MIN_LEG_S = 3 * 60;
  * like every other OSM call), then defers to the pure scorer.
  */
 export async function annotateBusEvidence<
-	T extends { startTs: number; endTs: number; mode: string; refinedMode?: string },
+	T extends { startTs: number; endTs: number; mode: TransportMode; refinedMode?: TransportMode },
 >(segments: readonly T[], points: readonly Fix[], osm: TransitStopSource): Promise<(T & { vehicleKind?: "bus" })[]> {
 	const out: (T & { vehicleKind?: "bus" })[] = [];
 	for (const seg of segments) {
-		const effective = seg.refinedMode ?? seg.mode;
+		const effective = effectiveMode(seg);
 		if (effective !== "driving" || seg.endTs - seg.startTs < MIN_LEG_S) {
 			out.push(seg);
 			continue;

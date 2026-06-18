@@ -13,7 +13,8 @@
 
 import type { FilteredPoint } from "./kalman.js";
 import { haversineMeters } from "./place-snap.js";
-import type { TrackSegment } from "./segments.js";
+import { effectiveMode, samplesInWindow } from "./segment-util.js";
+import type { TrackSegment, TransportMode } from "./segments.js";
 
 export interface HrPoint {
 	ts: number; // unix seconds
@@ -242,15 +243,14 @@ const CADENCE_CORRECTION_FRESHNESS_S = 30 * 60;
  *  cadence and a false-positive correction would be worse than leaving
  *  the GPS classification alone.
  */
-export function correctModeFromCadence<T extends TrackSegment & { refinedMode?: string; refinedReason?: string }>(
-	segment: T,
-	stepPoints: StepPoint[],
-): T {
+export function correctModeFromCadence<
+	T extends TrackSegment & { refinedMode?: TransportMode; refinedReason?: string },
+>(segment: T, stepPoints: StepPoint[]): T {
 	if (stepPoints.length === 0) return segment;
 	const duration = segment.endTs - segment.startTs;
 	if (duration < CADENCE_CORRECTION_MIN_DURATION_S) return segment;
 
-	const currentMode = segment.refinedMode ?? segment.mode;
+	const currentMode = effectiveMode(segment);
 	if (currentMode !== "walking") return segment;
 	if (segment.avgSpeed > WALKING_MAX_SPEED_KMH) return segment;
 
@@ -299,23 +299,22 @@ export function correctModeFromCadence<T extends TrackSegment & { refinedMode?: 
  *  `correctModeFromCadence`, before merge, so surviving flips can still be
  *  absorbed by their drive.
  */
-export function revertIsolatedCadenceDrives<T extends TrackSegment & { refinedMode?: string; refinedReason?: string }>(
-	segments: T[],
-): T[] {
-	const eff = (s: T): string => s.refinedMode ?? s.mode;
+export function revertIsolatedCadenceDrives<
+	T extends TrackSegment & { refinedMode?: TransportMode; refinedReason?: string },
+>(segments: T[]): T[] {
 	const isCadenceFlip = (s: T): boolean =>
 		s.mode === "walking" && s.refinedMode === "driving" && (s.refinedReason ?? "").includes("cadence");
 	// A neighbour counts as "real driving" only if GPS classified it as driving
 	// (base mode), not a sibling cadence flip — otherwise a run of flips would
 	// vouch for each other and none would revert.
-	const isRealDrive = (s: T): boolean => eff(s) === "driving" && !isCadenceFlip(s);
+	const isRealDrive = (s: T): boolean => effectiveMode(s) === "driving" && !isCadenceFlip(s);
 	// Scan outward in `dir`, skipping stationary stops and other cadence flips,
 	// to the nearest segment that constitutes independent evidence; true iff it
 	// is real driving.
 	const hasDriveNeighbour = (i: number, dir: -1 | 1): boolean => {
 		for (let j = i + dir; j >= 0 && j < segments.length; j += dir) {
 			const s = segments[j];
-			if (eff(s) === "stationary" || isCadenceFlip(s)) continue;
+			if (effectiveMode(s) === "stationary" || isCadenceFlip(s)) continue;
 			return isRealDrive(s);
 		}
 		return false;
@@ -367,14 +366,13 @@ const STATIONARY_JITTER_MAX_LINEARITY = 0.35;
  *  coalesce with the stays around it into one clean visit. Pure; conservative
  *  on missing data (empty `stepPoints` → no change).
  */
-export function demoteJitterWalkToStationary<T extends TrackSegment & { refinedMode?: string; refinedReason?: string }>(
-	segment: T,
-	stepPoints: StepPoint[],
-): T {
+export function demoteJitterWalkToStationary<
+	T extends TrackSegment & { refinedMode?: TransportMode; refinedReason?: string },
+>(segment: T, stepPoints: StepPoint[]): T {
 	if (stepPoints.length === 0) return segment;
 	const duration = segment.endTs - segment.startTs;
 	if (duration < CADENCE_CORRECTION_MIN_DURATION_S) return segment;
-	if ((segment.refinedMode ?? segment.mode) !== "walking") return segment;
+	if (effectiveMode(segment) !== "walking") return segment;
 	if (segment.linearity >= STATIONARY_JITTER_MAX_LINEARITY) return segment;
 
 	const hasFreshData = stepPoints.some(
@@ -418,16 +416,14 @@ export function demoteJitterWalkToStationary<T extends TrackSegment & { refinedM
  *
  * Pure; conservative on missing data (empty `stepPoints` → no change).
  */
-export function correctStationaryWalkThrough<T extends TrackSegment & { refinedMode?: string; refinedReason?: string }>(
-	segment: T,
-	stepPoints: StepPoint[],
-	points: readonly FilteredPoint[] = [],
-): T {
+export function correctStationaryWalkThrough<
+	T extends TrackSegment & { refinedMode?: TransportMode; refinedReason?: string },
+>(segment: T, stepPoints: StepPoint[], points: readonly FilteredPoint[] = []): T {
 	if (stepPoints.length === 0) return segment;
 	const duration = segment.endTs - segment.startTs;
 	if (duration < CADENCE_CORRECTION_MIN_DURATION_S) return segment;
 
-	const currentMode = segment.refinedMode ?? segment.mode;
+	const currentMode = effectiveMode(segment);
 	if (currentMode !== "stationary") return segment;
 	if (segment.avgSpeed < STATIONARY_WALK_MIN_AVG_SPEED_KMH) return segment;
 
@@ -436,7 +432,7 @@ export function correctStationaryWalkThrough<T extends TrackSegment & { refinedM
 	// avgSpeed reads. The geometry (net-zero displacement) dominates the
 	// per-fix speed. Skipped when no fixes are supplied.
 	if (duration >= STATIONARY_WALK_STAY_MIN_DURATION_S) {
-		const win = points.filter((p) => p.ts >= segment.startTs && p.ts <= segment.endTs);
+		const win = samplesInWindow(points, segment);
 		if (win.length > 0) {
 			const cLat = win.reduce((s, p) => s + p.lat, 0) / win.length;
 			const cLon = win.reduce((s, p) => s + p.lon, 0) / win.length;
@@ -460,14 +456,12 @@ export function correctStationaryWalkThrough<T extends TrackSegment & { refinedM
 /** Segment shape the walk-through sequence pass needs: a TrackSegment plus the
  *  refined-mode / place / wayName fields carried by enriched segments. */
 type WalkThroughSeg = TrackSegment & {
-	refinedMode?: string;
+	refinedMode?: TransportMode;
 	refinedReason?: string;
 	place?: string;
 	city?: string;
 	wayName?: string;
 };
-
-const segMode = (s: WalkThroughSeg): string => s.refinedMode ?? s.mode;
 
 /** Coalesce consecutive WALKING segments into one. Only touches walking —
  *  never trains or drives — so it cannot collapse two distinct train legs at
@@ -479,7 +473,7 @@ function mergeAdjacentWalking<T extends WalkThroughSeg>(segments: T[]): T[] {
 	const out: T[] = [];
 	for (const seg of segments) {
 		const prev = out[out.length - 1];
-		if (prev && segMode(prev) === "walking" && segMode(seg) === "walking") {
+		if (prev && effectiveMode(prev) === "walking" && effectiveMode(seg) === "walking") {
 			prev.endTs = seg.endTs;
 			prev.pointCount += seg.pointCount;
 			prev.maxSpeed = Math.max(prev.maxSpeed, seg.maxSpeed);
@@ -517,15 +511,15 @@ export function applyStationaryWalkThrough<T extends WalkThroughSeg>(
 	points: readonly FilteredPoint[] = [],
 ): T[] {
 	const flipped = segments.map((seg, i) => {
-		if (segMode(seg) !== "stationary") return seg;
+		if (effectiveMode(seg) !== "stationary") return seg;
 
 		const prev = segments[i - 1];
 		const next = segments[i + 1];
 		const bracketedBySamePlace =
 			prev !== undefined &&
 			next !== undefined &&
-			segMode(prev) === "stationary" &&
-			segMode(next) === "stationary" &&
+			effectiveMode(prev) === "stationary" &&
+			effectiveMode(next) === "stationary" &&
 			prev.place != null &&
 			prev.place === next.place;
 		if (bracketedBySamePlace) return seg;

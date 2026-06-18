@@ -31,6 +31,7 @@
  */
 
 import type { HrPoint, StepPoint } from "./biometrics.js";
+import { samplesInWindow } from "./segment-util.js";
 import type { TrackSegment } from "./segments.js";
 
 export interface BridgeStaysInput {
@@ -105,7 +106,7 @@ const MAX_MERGE_HR_MEAN = 130;
 /** Pull HR samples strictly inside `[startTs, endTs]` and return their
  *  mean, or null when there are no samples. */
 function meanHrInWindow(startTs: number, endTs: number, hr: readonly HrPoint[]): number | null {
-	const inWin = hr.filter((p) => p.ts >= startTs && p.ts <= endTs);
+	const inWin = samplesInWindow(hr, { startTs, endTs });
 	if (inWin.length === 0) return null;
 	return inWin.reduce((s, p) => s + p.bpm, 0) / inWin.length;
 }

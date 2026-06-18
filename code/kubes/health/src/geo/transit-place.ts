@@ -1,4 +1,5 @@
 import type { OsmAdapter } from "./osm-adapter.js";
+import type { TransportMode } from "./segments.js";
 
 /** "You are at the station" footprint: how close a train-alighting stay
  *  must sit to a station node before we name the stay after it. Tight
@@ -22,7 +23,7 @@ export const STATION_AT_ALIGHT_RADIUS_M = 150;
  * alight and the stay, so `prev` would be walking, not train.
  */
 export async function stationAtTrainAlight(
-	prev: { mode: string; refinedMode?: string } | undefined,
+	prev: { mode: TransportMode; refinedMode?: TransportMode } | undefined,
 	lat: number,
 	lon: number,
 	osm: Pick<OsmAdapter, "nearbyStations">,

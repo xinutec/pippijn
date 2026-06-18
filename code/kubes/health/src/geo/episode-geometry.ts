@@ -25,6 +25,7 @@
 import type { DayState, DayStateMode } from "../sleep/day-state.js";
 import type { FilteredPoint } from "./kalman.js";
 import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
+import { centroidOf, effectiveMode, samplesInWindow } from "./segment-util.js";
 import type { EnrichedSegment } from "./velocity.js";
 
 /** Geometry provenance — the only style input the map needs. Solid for
@@ -96,7 +97,7 @@ function resolveEpisode(
 	const mode = state.mode;
 	const base = { startTs: state.startTs, endTs: state.endTs, mode };
 	const covering = segments.filter((s) => s.startTs < state.endTs && s.endTs > state.startTs);
-	const windowFixes = points.filter((p) => p.ts >= state.startTs && p.ts <= state.endTs);
+	const windowFixes = samplesInWindow(points, state);
 
 	if (mode === "train") {
 		// A cached route carries a snapped rail line: draw it (clipped to
@@ -165,10 +166,6 @@ function resolveEpisode(
 	return { ...base, kind: "raw", points: rejectSpikes(windowFixes).map(toLatLon) };
 }
 
-function effectiveMode(seg: EnrichedSegment): string {
-	return seg.refinedMode ?? seg.mode;
-}
-
 /** Anchor a raw train leg's geometry to its station join points. A train's
  *  GPS commonly starts after it pulls away and stops before it arrives, so
  *  `raw` falls short of the boarding (`from`) and alighting (`to`) ends; the
@@ -193,7 +190,7 @@ function stayAnchor(covering: readonly EnrichedSegment[], windowFixes: readonly 
 	if (seg?.centroidLat !== undefined && seg.centroidLon !== undefined) {
 		return { lat: seg.centroidLat, lon: seg.centroidLon };
 	}
-	return centroidOf(windowFixes);
+	return centroidOf(windowFixes) ?? undefined;
 }
 
 /** A representative entry coordinate for a state — its first window fix,
@@ -208,17 +205,6 @@ function entryPoint(
 	if (first) return { lat: first.lat, lon: first.lon };
 	const covering = segments.filter((s) => s.startTs < state.endTs && s.endTs > state.startTs);
 	return stayAnchor(covering, []);
-}
-
-function centroidOf(fixes: readonly FilteredPoint[]): LatLon | undefined {
-	if (fixes.length === 0) return undefined;
-	let lat = 0;
-	let lon = 0;
-	for (const p of fixes) {
-		lat += p.lat;
-		lon += p.lon;
-	}
-	return { lat: lat / fixes.length, lon: lon / fixes.length };
 }
 
 function toLatLon(p: FilteredPoint): LatLon {

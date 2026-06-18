@@ -42,7 +42,8 @@
 
 import type { HrPoint, StepPoint } from "./biometrics.js";
 import type { FilteredPoint } from "./kalman.js";
-import type { TrackSegment } from "./segments.js";
+import { samplesInWindow } from "./segment-util.js";
+import type { TrackSegment, TransportMode } from "./segments.js";
 
 export interface SplitContext {
 	hr: HrPoint[];
@@ -188,7 +189,7 @@ export function splitStaysOnEvidence(
 			out.push(seg);
 			continue;
 		}
-		const segFixes = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs).sort((a, b) => a.ts - b.ts);
+		const segFixes = samplesInWindow(points, seg).sort((a, b) => a.ts - b.ts);
 		if (segFixes.length < 2) {
 			out.push(seg);
 			continue;
@@ -509,14 +510,14 @@ export function splitWalksOnVehicleLeg<T extends TrackSegment>(
 	const tt = (ts: number): string => new Date(ts * 1000).toISOString().slice(11, 16);
 	const out: T[] = [];
 	const isTrain = (s: T | undefined): boolean =>
-		s !== undefined && ((s as { refinedMode?: string }).refinedMode ?? s.mode) === "train";
+		s !== undefined && ((s as { refinedMode?: TransportMode }).refinedMode ?? s.mode) === "train";
 	for (let i = 0; i < segments.length; i++) {
 		const seg = segments[i];
 		if (seg.mode !== "walking" || seg.endTs - seg.startTs < VEHICLE_LEG_MIN_SEGMENT_S) {
 			out.push(seg);
 			continue;
 		}
-		const fixes = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs).sort((a, b) => a.ts - b.ts);
+		const fixes = samplesInWindow(points, seg).sort((a, b) => a.ts - b.ts);
 		if (debug) {
 			console.error(
 				`[vehicle-split] walk ${tt(seg.startTs)}-${tt(seg.endTs)} fixes=${fixes.length} speeds=${fixes.map((f) => Math.round(f.speed_kmh ?? 0)).join(",")}`,
@@ -607,7 +608,7 @@ export function splitWalksOnVehicleLeg<T extends TrackSegment>(
 		// name, place, walking refinedMode) — OSM enrichment already ran, so
 		// this leg stays an un-named `driving` for the bus-vs-car pass (#247)
 		// and the day-state layer to render.
-		const drivePart = { ...seg } as T & { refinedMode?: string; wayName?: string; place?: string };
+		const drivePart = { ...seg } as T & { refinedMode?: TransportMode; wayName?: string; place?: string };
 		drivePart.mode = "driving";
 		drivePart.refinedMode = undefined;
 		drivePart.wayName = undefined;

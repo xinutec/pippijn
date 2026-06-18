@@ -55,7 +55,8 @@ import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proximity.js";
 import { interpolateTimes, type SnappedPoint } from "./rail-snap.js";
-import type { TrackSegment } from "./segments.js";
+import { effectiveMode, samplesInWindow, samplesInWindowExclusiveEnd } from "./segment-util.js";
+import type { TrackSegment, TransportMode } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints, isStationaryIncoherent } from "./segments.js";
 import { splitStaysOnEvidence, splitWalksOnEvidence, splitWalksOnVehicleLeg } from "./stay-split.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
@@ -285,26 +286,26 @@ function applyBiometricSignature(
 	const obsHr = meanInWindow(hr, (p) => p.bpm, seg.startTs, seg.endTs);
 	const obsCadence = meanInWindow(steps, (p) => p.steps, seg.startTs, seg.endTs);
 	const obsSpeed = seg.avgSpeed;
-	const currentMode = seg.refinedMode ?? seg.mode;
+	const currentMode = effectiveMode(seg);
 	const r = correctModeBySignature(
 		{ mode: currentMode, confidenceMargin: seg.confidenceMargin, obsHr, obsCadence, obsSpeed },
 		modeStats,
 	);
-	const effectiveMode = r.changed ? r.mode : currentMode;
+	const correctedMode = r.changed ? r.mode : currentMode;
 	// Hard-evidence gate: a segment still labelled "cycling" is kept only
 	// with genuine cycling evidence; otherwise it is demoted.
-	const gate = gateCycling({ mode: effectiveMode, obsCadence, obsSpeed });
+	const gate = gateCycling({ mode: correctedMode, obsCadence, obsSpeed });
 	if (gate.changed) {
 		return {
 			...seg,
-			refinedMode: gate.mode,
+			refinedMode: gate.mode as TransportMode,
 			refinedReason: `cycling demoted to ${gate.mode} — no hard cycling evidence`,
 		};
 	}
 	if (!r.changed) return seg;
 	return {
 		...seg,
-		refinedMode: r.mode,
+		refinedMode: r.mode as TransportMode,
 		refinedReason: `re-classified as ${r.mode} by biometric signature`,
 	};
 }
@@ -435,7 +436,7 @@ export interface EnrichedSegment extends TrackSegment {
 	 *  bus_stop nodes. The mode stays "driving" internally; the
 	 *  day-state layer renders the kind. */
 	vehicleKind?: "bus";
-	refinedMode?: string; // OSM-refined transport mode (may differ from heuristic mode)
+	refinedMode?: TransportMode; // OSM-refined transport mode (may differ from heuristic mode)
 	refinedReason?: string;
 	displayTz?: string; // IANA tz to render the segment's timestamps in (frontend uses this instead of browser tz)
 	biometrics?: BiometricEnrichment;
@@ -657,7 +658,7 @@ export async function computeVelocityFromInputs(
 	// of failure (ground-truth #185).
 	const segCentroids: (readonly [number, number] | null)[] = walkSplitSegments.map((s) => {
 		if (s.mode !== "stationary") return null;
-		const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
+		const segPoints = samplesInWindow(points, s);
 		if (segPoints.length === 0) return null;
 		const cLat = segPoints.reduce((sum, p) => sum + p.lat, 0) / segPoints.length;
 		const cLon = segPoints.reduce((sum, p) => sum + p.lon, 0) / segPoints.length;
@@ -688,7 +689,7 @@ export async function computeVelocityFromInputs(
 		// OSM places would invent context we don't have. Pass them
 		// through with their refinedReason intact.
 		if (seg.pointCount === 0) return seg;
-		const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+		const segPoints = samplesInWindow(points, seg);
 		if (segPoints.length === 0) return seg;
 
 		try {
@@ -908,7 +909,7 @@ export async function computeVelocityFromInputs(
 			const movingCity = commonCity(startPlace, endPlace);
 			return {
 				...seg,
-				refinedMode: plausible.mode,
+				refinedMode: plausible.mode as TransportMode,
 				refinedReason: plausible.reason ?? refined.reason,
 				wayName: plausible.wayName,
 				...(movingCity ? { city: movingCity } : {}),
@@ -983,8 +984,8 @@ export async function computeVelocityFromInputs(
 	// are untouched. See `isStationaryIncoherent`.
 	const coherent = timeSync("stationaryCoherence", () =>
 		physicallyCorrected.map((seg) => {
-			if ((seg.refinedMode ?? seg.mode) !== "stationary") return seg;
-			const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+			if (effectiveMode(seg) !== "stationary") return seg;
+			const segPoints = samplesInWindow(points, seg);
 			if (segPoints.length < 2) return seg;
 			const first = segPoints[0];
 			const last = segPoints[segPoints.length - 1];
@@ -993,7 +994,7 @@ export async function computeVelocityFromInputs(
 			return {
 				...seg,
 				mode: "walking" as const,
-				refinedMode: "walking",
+				refinedMode: "walking" as const,
 				refinedReason: `stationary-coherence override (linear ${netDisplacementM.toFixed(0)} m progress, lin ${seg.linearity.toFixed(2)} — moving, not a stay)`,
 				place: undefined,
 			};
@@ -1153,7 +1154,7 @@ export async function computeVelocityFromInputs(
 	const homeTz = inputs.homeTz;
 	const withDisplayTz = timeSync("displayTz", () =>
 		withBusRoutes.map((s): EnrichedSegment => {
-			const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
+			const segPoints = samplesInWindow(points, s);
 			if (segPoints.length === 0) {
 				return { ...s, displayTz: homeTz };
 			}
@@ -1332,7 +1333,6 @@ const STAY_BRIDGE_MAX_GAP_S = 10 * 60;
 const STAY_BRIDGE_MAX_AVG_KMH = 2;
 
 export function mergeAdjacentStays(segments: EnrichedSegment[]): EnrichedSegment[] {
-	const effectiveMode = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
 	const result: EnrichedSegment[] = [];
 	for (const seg of segments) {
 		const prev = result[result.length - 1];
@@ -1433,11 +1433,10 @@ const INTRA_PLACE_FOOTPRINT_M = 120;
  * three into one continuous stay. Pure.
  */
 export function absorbIntraPlaceWalk<T extends EnrichedSegment>(segments: T[], points: readonly FilteredPoint[]): T[] {
-	const mode = (s: T): string => s.refinedMode ?? s.mode;
-	const centroidOf = (s: T): { lat: number; lon: number } | null => {
+	const stayCentroid = (s: T): { lat: number; lon: number } | null => {
 		// The stay's attached centroid is canonical; fall back to its fixes.
 		if (s.centroidLat != null && s.centroidLon != null) return { lat: s.centroidLat, lon: s.centroidLon };
-		const win = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
+		const win = samplesInWindow(points, s);
 		if (win.length === 0) return null;
 		return {
 			lat: win.reduce((a, p) => a + p.lat, 0) / win.length,
@@ -1445,15 +1444,15 @@ export function absorbIntraPlaceWalk<T extends EnrichedSegment>(segments: T[], p
 		};
 	};
 	return segments.map((seg, i) => {
-		if (mode(seg) !== "walking" || seg.endTs - seg.startTs > INTRA_PLACE_WALK_MAX_S) return seg;
+		if (effectiveMode(seg) !== "walking" || seg.endTs - seg.startTs > INTRA_PLACE_WALK_MAX_S) return seg;
 		const prev = segments[i - 1];
 		const next = segments[i + 1];
-		if (!prev || !next || mode(prev) !== "stationary" || mode(next) !== "stationary") return seg;
+		if (!prev || !next || effectiveMode(prev) !== "stationary" || effectiveMode(next) !== "stationary") return seg;
 		if (!prev.place || prev.place !== next.place) return seg;
-		const cp = centroidOf(prev);
-		const cn = centroidOf(next);
+		const cp = stayCentroid(prev);
+		const cn = stayCentroid(next);
 		if (!cp || !cn || haversineMeters(cp.lat, cp.lon, cn.lat, cn.lon) > INTRA_PLACE_SAME_SPOT_M) return seg;
-		const win = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+		const win = samplesInWindow(points, seg);
 		if (win.length === 0) return seg;
 		let maxD = 0;
 		for (const p of win) maxD = Math.max(maxD, haversineMeters(cp.lat, cp.lon, p.lat, p.lon));
@@ -1480,7 +1479,7 @@ export function attachStayCentroids<T extends EnrichedSegment>(
 	points: { ts: number; lat: number; lon: number }[],
 ): T[] {
 	return segments.map((seg) => {
-		if ((seg.refinedMode ?? seg.mode) !== "stationary") return seg;
+		if (effectiveMode(seg) !== "stationary") return seg;
 		let n = 0;
 		let sumLat = 0;
 		let sumLon = 0;
@@ -1504,20 +1503,19 @@ export function attachStayCentroids<T extends EnrichedSegment>(
  *  jitter fragmented a sit (see `demoteJitterWalkToStationary`), so it can't
  *  disturb normal multi-stay days. Pure; returns runs of length ≥ 2 only. */
 export function planJitterStayRuns(segments: EnrichedSegment[]): Array<{ start: number; end: number }> {
-	const eff = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
 	const isJitter = (s: EnrichedSegment): boolean => (s.refinedReason ?? "").includes("GPS jitter");
 	const runs: Array<{ start: number; end: number }> = [];
 	let i = 0;
 	while (i < segments.length) {
 		const anchor = segments[i];
-		if (eff(anchor) !== "stationary" || anchor.centroidLat === undefined) {
+		if (effectiveMode(anchor) !== "stationary" || anchor.centroidLat === undefined) {
 			i++;
 			continue;
 		}
 		let j = i;
 		while (j + 1 < segments.length) {
 			const next = segments[j + 1];
-			if (eff(next) !== "stationary" || next.centroidLat === undefined) break;
+			if (effectiveMode(next) !== "stationary" || next.centroidLat === undefined) break;
 			const d = haversineMeters(
 				anchor.centroidLat,
 				anchor.centroidLon as number,
@@ -1663,7 +1661,6 @@ export function composeWayName(contribs: Map<string, number>): string | null {
 }
 
 export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegment[] {
-	const modeOf = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
 	const result: EnrichedSegment[] = [];
 	const wayContribs = new WeakMap<EnrichedSegment, Map<string, number>>();
 	const addContribution = (target: EnrichedSegment, name: string | undefined, durationS: number): void => {
@@ -1678,7 +1675,7 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 
 	for (const seg of segments) {
 		const prev = result[result.length - 1];
-		const segMode = modeOf(seg);
+		const segMode = effectiveMode(seg);
 		const segDuration = seg.endTs - seg.startTs;
 		// Strictly conflicting city tags (both defined, different value) block
 		// the merge — the user crossed an actual boundary. A defined city
@@ -1690,7 +1687,7 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
 		if (
 			prev &&
 			segMode !== "stationary" &&
-			modeOf(prev) === segMode &&
+			effectiveMode(prev) === segMode &&
 			seg.startTs - prev.endTs <= MOVING_MERGE_MAX_GAP_S &&
 			!citiesConflict
 		) {
@@ -1733,7 +1730,7 @@ export function mergeAdjacentMoving(segments: EnrichedSegment[]): EnrichedSegmen
  *  ("Victoria → King's Cross St Pancras"), stripped of any "· Line"
  *  suffix. Null when the segment isn't a station-pair-labelled train. */
 function trainStationPair(seg: EnrichedSegment): string | null {
-	if ((seg.refinedMode ?? seg.mode) !== "train") return null;
+	if (effectiveMode(seg) !== "train") return null;
 	const w = seg.wayName;
 	if (!w?.includes("→")) return null;
 	return w.split(" · ")[0].trim();
@@ -1877,7 +1874,7 @@ const PLATFORM_MAX_SPREAD_M = 150;
  */
 export function findBoardingPlatformFix(points: FilteredPoint[], startTs: number): FilteredPoint | null {
 	const windowStart = startTs - PLATFORM_PATTERN_WALKBACK_S;
-	const windowFixes = points.filter((p) => p.ts >= windowStart && p.ts <= startTs).sort((a, b) => a.ts - b.ts);
+	const windowFixes = samplesInWindow(points, { startTs: windowStart, endTs: startTs }).sort((a, b) => a.ts - b.ts);
 	if (windowFixes.length === 0) return null;
 
 	// Find the earliest train-speed fix in the window. If none, the
@@ -2012,7 +2009,7 @@ export async function annotateRailRuns(
 		if (s.avgSpeed <= TRAIN_PAUSE_MAX_AVG_KMH) return true;
 		// Fallback: GPS-cluster check for the case where the classifier
 		// over-estimated avgSpeed (instant-speed spikes at a platform).
-		const segPoints = points.filter((p) => p.ts >= s.startTs && p.ts <= s.endTs);
+		const segPoints = samplesInWindow(points, s);
 		if (segPoints.length < 2) return false;
 		const cLat = segPoints.reduce((sum, p) => sum + p.lat, 0) / segPoints.length;
 		const cLon = segPoints.reduce((sum, p) => sum + p.lon, 0) / segPoints.length;
@@ -2150,7 +2147,7 @@ export async function annotateRailRuns(
 						// and the boarding-station lookup resolves to wherever
 						// the train was passing, not the actual boarding
 						// platform.
-						const segPoints = points.filter((p) => p.ts >= seg.startTs && p.ts < seg.endTs);
+						const segPoints = samplesInWindowExclusiveEnd(points, seg);
 						if (segPoints.length > 0) {
 							const last = segPoints[segPoints.length - 1];
 							const stations = await stationsLookup(last.lat, last.lon);
@@ -2348,7 +2345,7 @@ export async function absorbBoardingPlatform(
 		if (prev.mode !== "stationary") continue;
 		if (prev.endTs - prev.startTs > PLATFORM_WAIT_MAX_S) continue;
 
-		const segPoints = points.filter((p) => p.ts >= prev.startTs && p.ts < prev.endTs);
+		const segPoints = samplesInWindowExclusiveEnd(points, prev);
 		if (segPoints.length === 0) continue;
 		const cLat = segPoints.reduce((a, p) => a + p.lat, 0) / segPoints.length;
 		const cLon = segPoints.reduce((a, p) => a + p.lon, 0) / segPoints.length;
@@ -2409,7 +2406,6 @@ const DRIVE_STOP_ABSORB_MAX_STEPS = 5;
  * the start or end of a day, or before a longer stay, is left alone.
  */
 export function absorbDriveStops(segments: EnrichedSegment[], steps: readonly StepPoint[]): EnrichedSegment[] {
-	const modeOf = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
 	const stepsBetween = (startTs: number, endTs: number): number => {
 		let total = 0;
 		for (const p of steps) if (p.ts >= startTs && p.ts <= endTs) total += p.steps;
@@ -2421,7 +2417,7 @@ export function absorbDriveStops(segments: EnrichedSegment[], steps: readonly St
 		let i = 0;
 		while (i < input.length) {
 			const seg = input[i];
-			if (modeOf(seg) !== "driving" || i + 2 >= input.length) {
+			if (effectiveMode(seg) !== "driving" || i + 2 >= input.length) {
 				out.push(seg);
 				i++;
 				continue;
@@ -2429,8 +2425,8 @@ export function absorbDriveStops(segments: EnrichedSegment[], steps: readonly St
 			const middle = input[i + 1];
 			const next = input[i + 2];
 			const isPhantomStop =
-				modeOf(middle) === "stationary" &&
-				modeOf(next) === "driving" &&
+				effectiveMode(middle) === "stationary" &&
+				effectiveMode(next) === "driving" &&
 				middle.endTs - middle.startTs <= DRIVE_STOP_ABSORB_MAX_S &&
 				stepsBetween(middle.startTs, middle.endTs) <= DRIVE_STOP_ABSORB_MAX_STEPS;
 			if (isPhantomStop) {
@@ -2475,12 +2471,11 @@ export function absorbDriveStops(segments: EnrichedSegment[], steps: readonly St
  * stay, is left as a stay.
  */
 export function absorbInterchanges(segments: EnrichedSegment[]): EnrichedSegment[] {
-	const modeOf = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
 	const out: EnrichedSegment[] = [];
 	let i = 0;
 	while (i < segments.length) {
 		const seg = segments[i];
-		if (modeOf(seg) !== "train") {
+		if (effectiveMode(seg) !== "train") {
 			out.push(seg);
 			i++;
 			continue;
@@ -2489,7 +2484,7 @@ export function absorbInterchanges(segments: EnrichedSegment[]): EnrichedSegment
 		let runEnd = i + 1;
 		while (
 			runEnd < segments.length &&
-			modeOf(segments[runEnd]) === "stationary" &&
+			effectiveMode(segments[runEnd]) === "stationary" &&
 			segments[runEnd].endTs - segments[runEnd].startTs <= INTERCHANGE_SEGMENT_MAX_S
 		) {
 			runEnd++;
@@ -2497,7 +2492,7 @@ export function absorbInterchanges(segments: EnrichedSegment[]): EnrichedSegment
 		// Absorb only when the run is non-empty AND the journey continues
 		// past it with a moving segment — a run that ends the day, or is
 		// stopped by a longer stationary stay, is not an interchange.
-		const continues = runEnd < segments.length && modeOf(segments[runEnd]) !== "stationary";
+		const continues = runEnd < segments.length && effectiveMode(segments[runEnd]) !== "stationary";
 		if (runEnd > i + 1 && continues) {
 			out.push({ ...seg, endTs: segments[runEnd - 1].endTs });
 			i = runEnd;
@@ -2530,13 +2525,12 @@ const INTERCHANGE_WALK_MAX_S = 300;
  * left untouched — the walk is real, only its *location* was wrong.
  */
 export function relabelWalkingInterchanges(segments: EnrichedSegment[]): EnrichedSegment[] {
-	const modeOf = (s: EnrichedSegment): string => s.refinedMode ?? s.mode;
 	return segments.map((seg, i) => {
-		if (modeOf(seg) !== "walking") return seg;
+		if (effectiveMode(seg) !== "walking") return seg;
 		if (seg.endTs - seg.startTs > INTERCHANGE_WALK_MAX_S) return seg;
 		const prev = segments[i - 1];
 		const next = segments[i + 1];
-		if (!prev || !next || modeOf(prev) !== "train" || modeOf(next) !== "train") return seg;
+		if (!prev || !next || effectiveMode(prev) !== "train" || effectiveMode(next) !== "train") return seg;
 		const prevRail = parseRailWayName(prev.wayName);
 		const nextRail = parseRailWayName(next.wayName);
 		if (!prevRail || !nextRail || prevRail.alight !== nextRail.board) return seg;
@@ -2596,7 +2590,7 @@ export function reconcileAdjacentRailLegs(segments: EnrichedSegment[]): Enriched
 	for (let i = 1; i < out.length; i++) {
 		const a = out[i - 1];
 		const b = out[i];
-		if ((a.refinedMode ?? a.mode) !== "train" || (b.refinedMode ?? b.mode) !== "train") continue;
+		if (effectiveMode(a) !== "train" || effectiveMode(b) !== "train") continue;
 		const aRail = parseRailWayName(a.wayName);
 		const bRail = parseRailWayName(b.wayName);
 		if (aRail === null || bRail === null) continue;
@@ -2629,7 +2623,7 @@ export function annotateSnappedPaths(
 	railRouteCache: ReadonlyArray<{ routeKey: string; geometryJson: string }>,
 ): EnrichedSegment[] {
 	const keys = new Set(
-		segments.filter((s) => (s.refinedMode ?? s.mode) === "train" && s.wayName).map((s) => s.wayName as string),
+		segments.filter((s) => effectiveMode(s) === "train" && s.wayName).map((s) => s.wayName as string),
 	);
 	if (keys.size === 0) return segments;
 
@@ -2646,7 +2640,7 @@ export function annotateSnappedPaths(
 	if (geomByKey.size === 0) return segments;
 
 	return segments.map((seg): EnrichedSegment => {
-		if ((seg.refinedMode ?? seg.mode) !== "train" || !seg.wayName) return seg;
+		if (effectiveMode(seg) !== "train" || !seg.wayName) return seg;
 		const geom = geomByKey.get(seg.wayName);
 		if (!geom) return seg;
 		return { ...seg, snappedPath: interpolateTimes(geom, seg.startTs, seg.endTs) };

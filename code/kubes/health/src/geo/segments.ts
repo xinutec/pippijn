@@ -7,6 +7,7 @@
  */
 
 import type { FilteredPoint } from "./kalman.js";
+import { samplesInWindow } from "./segment-util.js";
 
 export type TransportMode = "stationary" | "walking" | "cycling" | "driving" | "train" | "plane" | "unknown";
 
@@ -564,7 +565,7 @@ export function findStays(points: StayPoint[], existing: TrackSegment[]): TrackS
 	}
 
 	for (const gap of gaps) {
-		const inGap = points.filter((p) => p.ts >= gap.start && p.ts <= gap.end).sort((a, b) => a.ts - b.ts);
+		const inGap = samplesInWindow(points, { startTs: gap.start, endTs: gap.end }).sort((a, b) => a.ts - b.ts);
 		if (inGap.length < 2) continue;
 
 		let cluster: StayPoint[] = [];

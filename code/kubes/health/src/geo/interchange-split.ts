@@ -28,6 +28,8 @@
 
 import type { StepPoint } from "./biometrics.js";
 import type { Station } from "./line-stations.js";
+import { effectiveMode, samplesInWindow } from "./segment-util.js";
+import type { TransportMode } from "./segments.js";
 
 // --- burst detection ---------------------------------------------------------
 
@@ -131,8 +133,8 @@ const MIN_LEG_FOR_SPLIT_S = 10 * 60;
 interface SpliceableSegment {
 	startTs: number;
 	endTs: number;
-	mode: string;
-	refinedMode?: string;
+	mode: TransportMode;
+	refinedMode?: TransportMode;
 	wayName?: string;
 	pointCount: number;
 	confidence: number;
@@ -158,7 +160,7 @@ export async function spliceInterchanges<T extends SpliceableSegment>(
 ): Promise<T[]> {
 	const out: T[] = [];
 	for (const seg of segments) {
-		const effective = seg.refinedMode ?? seg.mode;
+		const effective = effectiveMode(seg);
 		if (effective !== "train" || seg.endTs - seg.startTs < MIN_LEG_FOR_SPLIT_S || !seg.wayName) {
 			out.push(seg);
 			continue;
@@ -169,7 +171,7 @@ export async function spliceInterchanges<T extends SpliceableSegment>(
 			continue;
 		}
 		const [boardName, alightName] = names;
-		const inLeg = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+		const inLeg = samplesInWindow(points, seg);
 		if (inLeg.length < 2) {
 			out.push(seg);
 			continue;

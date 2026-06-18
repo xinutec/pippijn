@@ -38,6 +38,9 @@
  * hands them in.
  */
 
+import { effectiveMode, samplesInWindow } from "./segment-util.js";
+import type { TransportMode } from "./segments.js";
+
 /** One stop on a bus route, in route order. `seq` is the stop's position
  *  along the route (monotonic; array order matches). */
 export interface BusStop {
@@ -267,8 +270,8 @@ export function busRouteLabel(match: BusRouteMatch): string {
 export interface BusRouteAnnotatable {
 	startTs: number;
 	endTs: number;
-	mode: string;
-	refinedMode?: string;
+	mode: TransportMode;
+	refinedMode?: TransportMode;
 	vehicleKind?: "bus";
 	wayName?: string;
 }
@@ -295,12 +298,12 @@ export function annotateBusRoutes<T extends BusRouteAnnotatable>(
 	if (routes.length === 0) return segments.slice();
 	const out: T[] = [];
 	for (const seg of segments) {
-		const effective = seg.refinedMode ?? seg.mode;
+		const effective = effectiveMode(seg);
 		if (effective !== "driving") {
 			out.push(seg);
 			continue;
 		}
-		const legFixes = points.filter((p) => p.ts >= seg.startTs && p.ts <= seg.endTs);
+		const legFixes = samplesInWindow(points, seg);
 		if (legFixes.length < 2) {
 			out.push(seg);
 			continue;
