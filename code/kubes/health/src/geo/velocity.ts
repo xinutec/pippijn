@@ -972,244 +972,326 @@ export async function computeVelocityFromInputs(
 		}),
 	);
 
-	// Stationary-coherence constraint: a segment the classifier called
-	// `stationary` but whose fixes march in a directed line over real
-	// distance is slow locomotion (a walk to a platform), not a stay —
-	// low per-fix speed misread it as dwelling. Reclassify to walking
-	// BEFORE merge + place attribution, so it (a) coalesces with the
-	// adjacent walk and (b) never gets named after a POI it merely drifted
-	// past (the 2026-06-12 "Bleecker" / "The Other Palace" phantoms). Net
-	// displacement is the straight-line first→last fix distance; isolated
-	// stays (low linearity) and barely-moving stays (small displacement)
-	// are untouched. See `isStationaryIncoherent`.
-	const coherent = timeSync("stationaryCoherence", () =>
-		physicallyCorrected.map((seg) => {
-			if (effectiveMode(seg) !== "stationary") return seg;
-			const segPoints = samplesInWindow(points, seg);
-			if (segPoints.length < 2) return seg;
-			const first = segPoints[0];
-			const last = segPoints[segPoints.length - 1];
-			const netDisplacementM = haversineMeters(first.lat, first.lon, last.lat, last.lon);
-			if (!isStationaryIncoherent({ linearity: seg.linearity, netDisplacementM })) return seg;
-			return {
-				...seg,
-				mode: "walking" as const,
-				refinedMode: "walking" as const,
-				refinedReason: `stationary-coherence override (linear ${netDisplacementM.toFixed(0)} m progress, lin ${seg.linearity.toFixed(2)} — moving, not a stay)`,
-				place: undefined,
-			};
-		}),
-	);
-
-	const merged = timeSync("merge", () => mergeAdjacentMoving(mergeAdjacentStays(coherent)));
-
-	// Collapse a sit that indoor/urban GPS jitter shattered into several
-	// co-located stays with different wrong labels (see demoteJitterWalkToStationary).
-	// Re-resolves the merged stay's venue from its combined centroid. Confined to
-	// runs containing a jitter-demoted leg, so normal multi-stay days are untouched.
-	const withCentroids = attachStayCentroids(merged, points);
-	const consolidated = await time(
-		"consolidateJitterStays",
-		consolidateJitterStays(withCentroids, inputs.osm, inputs.venuePriors ?? null),
-	);
-
-	const withStations = await annotateRailRuns(
-		consolidated,
-		points,
-		(lat, lon) => inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
-		(lat, lon) => inputs.osm.linesAtPoint(lat, lon),
-	);
-
-	// Underground reconstruction: a tube ride leaves only coarse
-	// cell-network fixes, which annotateRailRuns cannot resolve. Mine
-	// those coarse fixes (from the raw, pre-Kalman track) to identify the
-	// line and split the swallowing walk into walk → train → walk.
-	const withUnderground = await time(
-		"undergroundRail",
-		annotateUndergroundRuns(
-			withStations,
-			inDay,
-			(lat, lon) => inputs.osm.nearbyStations(lat, lon, UNDERGROUND_STATION_RADIUS_M),
-			(lat, lon) => inputs.osm.linesAtPoint(lat, lon, UNDERGROUND_LINES_RADIUS_M),
-			(lat, lon) => inputs.osm.nearbyWays(lat, lon),
-		),
-	);
-
-	// Second cadence-drive revert. The FIRST revert (≈l.933) runs before
-	// annotateRailRuns / annotateUndergroundRuns exist, so the afternoon's
-	// fast underground fixes were still `driving` then — and a cadence-flip
-	// sandwiched between them (a platform interchange) saw a "driving"
-	// neighbour and survived. Now those neighbours are `train`, so an
-	// isolated walking-pace flip between two trains reverts to the walk it
-	// is (the 2026-06-12 King's Cross Victoria→Met interchange). A real
-	// drive to a station is unaffected: it is not pedestrian-paced, so the
-	// avg-speed gate in revertIsolatedCadenceDrives keeps it.
-	const reReverted = timeSync("revertIsolatedCadence2", () => revertIsolatedCadenceDrives(withUnderground));
-
-	// Absorb a platform / concourse wait into the boarding of its train
-	// run, so a station wait doesn't surface as a standalone stay
-	// mislabelled with the nearest focus place.
-	const withBoarding = await time(
-		"boardingPlatform",
-		absorbBoardingPlatform(reReverted, points, (lat, lon) =>
-			inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
-		),
-	);
-
-	// Absorb a transit interchange — a run of short stationary segments
-	// between a train and onward movement — into the preceding train,
-	// so it doesn't surface as a phantom place-stay. See absorbInterchanges.
-	const withInterchanges = timeSync("interchange", () => absorbInterchanges(withBoarding));
-
-	// Absorb a phantom drive-stop — a brief stationary segment
-	// sandwiched between two driving segments with zero/near-zero steps
-	// across it. The biometric data confirms the user stayed in the
-	// vehicle; the stop was just GPS noise at a traffic light or in
-	// dense urban congestion. See absorbDriveStops + the 2026-06-02
-	// "phantom Lanesborough" case in conversation context.
-	const withAbsorbedDriveStops = timeSync("driveStops", () =>
-		absorbDriveStops(withInterchanges, biomForStaySplit.steps),
-	);
-
-	// Physical constraint: back-to-back train legs must share a station.
-	// You can't step off one train and instantly be on another at a
-	// different station — so a leg whose independently-resolved boarding
-	// contradicts the previous leg's alighting is corrected to board
-	// where that leg alighted. Runs after the interchange absorber so it
-	// sees the final train-leg adjacency, and before rail-snap so the
-	// snap keys off the corrected station pair. See reconcileAdjacentRailLegs.
-	const withReconciledRail = timeSync("railReconcile", () => reconcileAdjacentRailLegs(withAbsorbedDriveStops));
-
-	// Coalesce a tube ride the reconstruction left as two adjacent
-	// same-route train segments (one possibly line-named, one not) — the
-	// 2026-06-12 Victoria→King's Cross split. Runs after reconciliation so
-	// it sees the final, station-corrected legs.
-	const withMergedTrains = timeSync("mergeSameRouteTrains", () => mergeAdjacentSameRouteTrains(withReconciledRail));
-
-	// Stationary walk-through correction (cadence + GPS-translation fusion):
-	// a "stationary" stop the watch shows was actually a walk-through — a clear
-	// per-minute step burst coinciding with real GPS translation. Runs HERE,
-	// after every rail / drive absorber has claimed the station-walking and
-	// drive-stop segments it owns, so this only touches genuine standalone
-	// phantom stops (the 2026-05-25 Union Park park-stroll case). The pass
-	// carries its own cross-segment guards (intra-place pacing, walking-only
-	// coalesce) — see applyStationaryWalkThrough.
-	// Interchange decomposition (task #222): a train leg whose endpoint
-	// line sets are disjoint is impossible as one ride — split it at the
-	// watch-timed interchange step burst, with the change station picked
-	// from the line graph by timing fit.
-	const withSplitInterchanges = await time(
-		"interchangeSplit",
-		spliceInterchanges(withMergedTrains, points, steps, inputs.osm),
-	);
-	const withWalkThrough = timeSync("walkThrough", () =>
-		applyStationaryWalkThrough(withSplitInterchanges, steps, points),
-	);
-
-	// A short walk between two train legs that share a station is the
-	// platform-to-platform interchange (a line change), not a street walk —
-	// relabel it to the station so GPS resurfacing mid-change doesn't name it
-	// after the nearest road (the 2026-06-16 Baker St Met→Jubilee change,
-	// mislabelled "Allsop Place"). See relabelWalkingInterchanges.
-	const withInterchangeLabels = timeSync("interchangeLabel", () => relabelWalkingInterchanges(withWalkThrough));
-
-	// A "walking" segment that actually contains a short ride — got off
-	// the train, then a taxi/bus to the door — averages to walking pace and
-	// stays one walk. Carve the ride out as `driving` by net GPS progress
-	// (net displacement, not the jittery per-fix speed, so a stationary
-	// platform wait is never split). Runs here so the post-train walk
-	// already exists and the carved leg can still be bus-refined below.
-	const withVehicleSplit = timeSync("vehicleSplit", () => splitWalksOnVehicleLeg(withInterchangeLabels, points));
-
-	// Rail-snap: attach the precomputed rail-track geometry to each
-	// train run whose route is in rail_route_cache (filled offline by
-	// refresh-rail-routes). One indexed lookup — purely additive, the
-	// raw track is untouched. See annotateSnappedPaths.
-	const withSnapped = timeSync("railSnap", () => annotateSnappedPaths(withVehicleSplit, inputs.railRouteCache));
-
-	// Bus-vs-car stop-pattern evidence (task #247): a refined-driving leg
-	// whose boarding wait and mid-leg dwells coincide with bus_stop nodes
-	// is a bus. Runs after all mode refinement so it judges the final
-	// driving legs; purely additive annotation.
-	const withVehicleKind = await time("busEvidence", annotateBusEvidence(withSnapped, points, inputs.osm));
-
-	// C-bus route naming (#252): for each driving leg, anchor its first +
-	// last fix to a mirrored bus route's stops and, on a match, name the
-	// bus ("From → To · Ref") + mark it a bus. Stronger than the dwell
-	// evidence above — it catches short rides with too few dwells to score
-	// (the 06-12 Green Park→clinic leg). Purely additive: with an empty
-	// `bus_route_cache` (no mirror yet, or fixtures predating it) this is a
-	// no-op, so the golden corpus is unchanged until routes are captured.
-	const withBusRoutes = timeSync("busRoutes", () =>
-		annotateBusRoutes(withVehicleKind, points, inputs.busRouteCache ?? []),
-	);
-
-	// Per-segment displayTz: the IANA tz the frontend should use to render
-	// the segment's wall-clock. Derived from the segment's geographic
-	// location (centroid for stationary, midpoint for moving). Lets the UI
-	// show times "as the user experienced them" — morning at parents in
-	// CEST, evening home in BST, even across a travel day. Fallback to
-	// home_tz / Europe/Amsterdam when no points cover the segment (inferred
-	// gap segments).
 	const homeTz = inputs.homeTz;
-	const withDisplayTz = timeSync("displayTz", () =>
-		withBusRoutes.map((s): EnrichedSegment => {
-			const segPoints = samplesInWindow(points, s);
-			if (segPoints.length === 0) {
-				return { ...s, displayTz: homeTz };
-			}
-			// Stationary: centroid. Moving: midpoint of path.
-			let lat: number;
-			let lon: number;
-			if (s.mode === "stationary") {
-				lat = segPoints.reduce((acc, p) => acc + p.lat, 0) / segPoints.length;
-				lon = segPoints.reduce((acc, p) => acc + p.lon, 0) / segPoints.length;
-			} else {
-				const mid = segPoints[Math.floor(segPoints.length / 2)];
-				lat = mid.lat;
-				lon = mid.lon;
-			}
-			try {
-				return { ...s, displayTz: tzLookup(lat, lon) };
-			} catch {
-				return { ...s, displayTz: homeTz };
-			}
-		}),
-	);
-
-	// Final cross-modal enrichment: attach HR / sleep / steps stats per
-	// segment. Missing Fitbit data → biometrics fields are null/zero.
-	const enrichedSegments = timeSync("biomEnrich", () =>
-		withDisplayTz.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep, steps) })),
-	);
-
-	// HSMM place override — when an HSMM decode exists in decoded_days
-	// for this (user, date), use its place picks to override the
-	// pipeline's `place` attribution on stationary segments. The HSMM
-	// scores ~96% place vs ground truth (2026-05-25 audit) where the
-	// pipeline drifts on multi-candidate clusters. Falls back to the
-	// pipeline's label when no decode exists (cron hasn't run yet) or
-	// the HSMM is uncertain.
 	const hmmDecode = inputs.hsmmDecode;
-	const overridden = hmmDecode
-		? timeSync("hsmmOverride", () => {
+
+	type RefinementPass = {
+		name: string;
+		run: (segs: EnrichedSegment[]) => EnrichedSegment[] | Promise<EnrichedSegment[]>;
+	};
+
+	// A single timing wrapper for the refinement cascade below that handles
+	// sync OR async passes and records into `phaseTimes` exactly like
+	// `time` / `timeSync` do (start-to-finish wall clock, accumulated per phase).
+	const runPass = async (
+		phase: string,
+		run: () => EnrichedSegment[] | Promise<EnrichedSegment[]>,
+	): Promise<EnrichedSegment[]> => {
+		const start = Date.now();
+		try {
+			return await run();
+		} finally {
+			phaseTimes[phase] = (phaseTimes[phase] ?? 0) + (Date.now() - start);
+		}
+	};
+
+	// ───────────────────────────────────────────────────────────────────────
+	// Refinement cascade. The ORDER of these passes is load-bearing: each pass
+	// consumes the segments the previous one produced, and several rationale
+	// comments below spell out precisely why a pass must run after another
+	// (e.g. the second cadence revert needs annotateRailRuns to have run, the
+	// rail reconcile must precede rail-snap). It is now expressed as data — one
+	// array entry per pass, in execution order — so the whole sequence is
+	// auditable in one place. Do not reorder without reading the comments.
+	// ───────────────────────────────────────────────────────────────────────
+	const passes: RefinementPass[] = [
+		// Stationary-coherence constraint: a segment the classifier called
+		// `stationary` but whose fixes march in a directed line over real
+		// distance is slow locomotion (a walk to a platform), not a stay —
+		// low per-fix speed misread it as dwelling. Reclassify to walking
+		// BEFORE merge + place attribution, so it (a) coalesces with the
+		// adjacent walk and (b) never gets named after a POI it merely drifted
+		// past (the 2026-06-12 "Bleecker" / "The Other Palace" phantoms). Net
+		// displacement is the straight-line first→last fix distance; isolated
+		// stays (low linearity) and barely-moving stays (small displacement)
+		// are untouched. See `isStationaryIncoherent`.
+		{
+			name: "stationaryCoherence",
+			run: (segs) =>
+				segs.map((seg) => {
+					if (effectiveMode(seg) !== "stationary") return seg;
+					const segPoints = samplesInWindow(points, seg);
+					if (segPoints.length < 2) return seg;
+					const first = segPoints[0];
+					const last = segPoints[segPoints.length - 1];
+					const netDisplacementM = haversineMeters(first.lat, first.lon, last.lat, last.lon);
+					if (!isStationaryIncoherent({ linearity: seg.linearity, netDisplacementM })) return seg;
+					return {
+						...seg,
+						mode: "walking" as const,
+						refinedMode: "walking" as const,
+						refinedReason: `stationary-coherence override (linear ${netDisplacementM.toFixed(0)} m progress, lin ${seg.linearity.toFixed(2)} — moving, not a stay)`,
+						place: undefined,
+					};
+				}),
+		},
+
+		{
+			name: "merge",
+			run: (segs) => mergeAdjacentMoving(mergeAdjacentStays(segs)),
+		},
+
+		// Collapse a sit that indoor/urban GPS jitter shattered into several
+		// co-located stays with different wrong labels (see demoteJitterWalkToStationary).
+		// Re-resolves the merged stay's venue from its combined centroid. Confined to
+		// runs containing a jitter-demoted leg, so normal multi-stay days are untouched.
+		{
+			name: "consolidateJitterStays",
+			run: (segs) => consolidateJitterStays(attachStayCentroids(segs, points), inputs.osm, inputs.venuePriors ?? null),
+		},
+
+		{
+			name: "railRuns",
+			run: (segs) =>
+				annotateRailRuns(
+					segs,
+					points,
+					(lat, lon) => inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+					(lat, lon) => inputs.osm.linesAtPoint(lat, lon),
+				),
+		},
+
+		// Underground reconstruction: a tube ride leaves only coarse
+		// cell-network fixes, which annotateRailRuns cannot resolve. Mine
+		// those coarse fixes (from the raw, pre-Kalman track) to identify the
+		// line and split the swallowing walk into walk → train → walk.
+		{
+			name: "undergroundRail",
+			run: (segs) =>
+				annotateUndergroundRuns(
+					segs,
+					inDay,
+					(lat, lon) => inputs.osm.nearbyStations(lat, lon, UNDERGROUND_STATION_RADIUS_M),
+					(lat, lon) => inputs.osm.linesAtPoint(lat, lon, UNDERGROUND_LINES_RADIUS_M),
+					(lat, lon) => inputs.osm.nearbyWays(lat, lon),
+				),
+		},
+
+		// Second cadence-drive revert. The FIRST revert (≈l.933) runs before
+		// annotateRailRuns / annotateUndergroundRuns exist, so the afternoon's
+		// fast underground fixes were still `driving` then — and a cadence-flip
+		// sandwiched between them (a platform interchange) saw a "driving"
+		// neighbour and survived. Now those neighbours are `train`, so an
+		// isolated walking-pace flip between two trains reverts to the walk it
+		// is (the 2026-06-12 King's Cross Victoria→Met interchange). A real
+		// drive to a station is unaffected: it is not pedestrian-paced, so the
+		// avg-speed gate in revertIsolatedCadenceDrives keeps it.
+		{
+			name: "revertIsolatedCadence2",
+			run: (segs) => revertIsolatedCadenceDrives(segs),
+		},
+
+		// Absorb a platform / concourse wait into the boarding of its train
+		// run, so a station wait doesn't surface as a standalone stay
+		// mislabelled with the nearest focus place.
+		{
+			name: "boardingPlatform",
+			run: (segs) =>
+				absorbBoardingPlatform(segs, points, (lat, lon) =>
+					inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+				),
+		},
+
+		// Absorb a transit interchange — a run of short stationary segments
+		// between a train and onward movement — into the preceding train,
+		// so it doesn't surface as a phantom place-stay. See absorbInterchanges.
+		{
+			name: "interchange",
+			run: (segs) => absorbInterchanges(segs),
+		},
+
+		// Absorb a phantom drive-stop — a brief stationary segment
+		// sandwiched between two driving segments with zero/near-zero steps
+		// across it. The biometric data confirms the user stayed in the
+		// vehicle; the stop was just GPS noise at a traffic light or in
+		// dense urban congestion. See absorbDriveStops + the 2026-06-02
+		// "phantom Lanesborough" case in conversation context.
+		{
+			name: "driveStops",
+			run: (segs) => absorbDriveStops(segs, biomForStaySplit.steps),
+		},
+
+		// Physical constraint: back-to-back train legs must share a station.
+		// You can't step off one train and instantly be on another at a
+		// different station — so a leg whose independently-resolved boarding
+		// contradicts the previous leg's alighting is corrected to board
+		// where that leg alighted. Runs after the interchange absorber so it
+		// sees the final train-leg adjacency, and before rail-snap so the
+		// snap keys off the corrected station pair. See reconcileAdjacentRailLegs.
+		{
+			name: "railReconcile",
+			run: (segs) => reconcileAdjacentRailLegs(segs),
+		},
+
+		// Coalesce a tube ride the reconstruction left as two adjacent
+		// same-route train segments (one possibly line-named, one not) — the
+		// 2026-06-12 Victoria→King's Cross split. Runs after reconciliation so
+		// it sees the final, station-corrected legs.
+		{
+			name: "mergeSameRouteTrains",
+			run: (segs) => mergeAdjacentSameRouteTrains(segs),
+		},
+
+		// Stationary walk-through correction (cadence + GPS-translation fusion):
+		// a "stationary" stop the watch shows was actually a walk-through — a clear
+		// per-minute step burst coinciding with real GPS translation. Runs HERE,
+		// after every rail / drive absorber has claimed the station-walking and
+		// drive-stop segments it owns, so this only touches genuine standalone
+		// phantom stops (the 2026-05-25 Union Park park-stroll case). The pass
+		// carries its own cross-segment guards (intra-place pacing, walking-only
+		// coalesce) — see applyStationaryWalkThrough.
+		// Interchange decomposition (task #222): a train leg whose endpoint
+		// line sets are disjoint is impossible as one ride — split it at the
+		// watch-timed interchange step burst, with the change station picked
+		// from the line graph by timing fit.
+		{
+			name: "interchangeSplit",
+			run: (segs) => spliceInterchanges(segs, points, steps, inputs.osm),
+		},
+		{
+			name: "walkThrough",
+			run: (segs) => applyStationaryWalkThrough(segs, steps, points),
+		},
+
+		// A short walk between two train legs that share a station is the
+		// platform-to-platform interchange (a line change), not a street walk —
+		// relabel it to the station so GPS resurfacing mid-change doesn't name it
+		// after the nearest road (the 2026-06-16 Baker St Met→Jubilee change,
+		// mislabelled "Allsop Place"). See relabelWalkingInterchanges.
+		{
+			name: "interchangeLabel",
+			run: (segs) => relabelWalkingInterchanges(segs),
+		},
+
+		// A "walking" segment that actually contains a short ride — got off
+		// the train, then a taxi/bus to the door — averages to walking pace and
+		// stays one walk. Carve the ride out as `driving` by net GPS progress
+		// (net displacement, not the jittery per-fix speed, so a stationary
+		// platform wait is never split). Runs here so the post-train walk
+		// already exists and the carved leg can still be bus-refined below.
+		{
+			name: "vehicleSplit",
+			run: (segs) => splitWalksOnVehicleLeg(segs, points),
+		},
+
+		// Rail-snap: attach the precomputed rail-track geometry to each
+		// train run whose route is in rail_route_cache (filled offline by
+		// refresh-rail-routes). One indexed lookup — purely additive, the
+		// raw track is untouched. See annotateSnappedPaths.
+		{
+			name: "railSnap",
+			run: (segs) => annotateSnappedPaths(segs, inputs.railRouteCache),
+		},
+
+		// Bus-vs-car stop-pattern evidence (task #247): a refined-driving leg
+		// whose boarding wait and mid-leg dwells coincide with bus_stop nodes
+		// is a bus. Runs after all mode refinement so it judges the final
+		// driving legs; purely additive annotation.
+		{
+			name: "busEvidence",
+			run: (segs) => annotateBusEvidence(segs, points, inputs.osm),
+		},
+
+		// C-bus route naming (#252): for each driving leg, anchor its first +
+		// last fix to a mirrored bus route's stops and, on a match, name the
+		// bus ("From → To · Ref") + mark it a bus. Stronger than the dwell
+		// evidence above — it catches short rides with too few dwells to score
+		// (the 06-12 Green Park→clinic leg). Purely additive: with an empty
+		// `bus_route_cache` (no mirror yet, or fixtures predating it) this is a
+		// no-op, so the golden corpus is unchanged until routes are captured.
+		{
+			name: "busRoutes",
+			run: (segs) => annotateBusRoutes(segs, points, inputs.busRouteCache ?? []),
+		},
+
+		// Per-segment displayTz: the IANA tz the frontend should use to render
+		// the segment's wall-clock. Derived from the segment's geographic
+		// location (centroid for stationary, midpoint for moving). Lets the UI
+		// show times "as the user experienced them" — morning at parents in
+		// CEST, evening home in BST, even across a travel day. Fallback to
+		// home_tz / Europe/Amsterdam when no points cover the segment (inferred
+		// gap segments).
+		{
+			name: "displayTz",
+			run: (segs) =>
+				segs.map((s): EnrichedSegment => {
+					const segPoints = samplesInWindow(points, s);
+					if (segPoints.length === 0) {
+						return { ...s, displayTz: homeTz };
+					}
+					// Stationary: centroid. Moving: midpoint of path.
+					let lat: number;
+					let lon: number;
+					if (s.mode === "stationary") {
+						lat = segPoints.reduce((acc, p) => acc + p.lat, 0) / segPoints.length;
+						lon = segPoints.reduce((acc, p) => acc + p.lon, 0) / segPoints.length;
+					} else {
+						const mid = segPoints[Math.floor(segPoints.length / 2)];
+						lat = mid.lat;
+						lon = mid.lon;
+					}
+					try {
+						return { ...s, displayTz: tzLookup(lat, lon) };
+					} catch {
+						return { ...s, displayTz: homeTz };
+					}
+				}),
+		},
+
+		// Final cross-modal enrichment: attach HR / sleep / steps stats per
+		// segment. Missing Fitbit data → biometrics fields are null/zero.
+		{
+			name: "biomEnrich",
+			run: (segs) => segs.map((s) => ({ ...s, biometrics: enrichSegmentWithBiometrics(s, hr, sleep, steps) })),
+		},
+
+		// HSMM place override — when an HSMM decode exists in decoded_days
+		// for this (user, date), use its place picks to override the
+		// pipeline's `place` attribution on stationary segments. The HSMM
+		// scores ~96% place vs ground truth (2026-05-25 audit) where the
+		// pipeline drifts on multi-candidate clusters. Falls back to the
+		// pipeline's label when no decode exists (cron hasn't run yet) or
+		// the HSMM is uncertain.
+		{
+			name: "hsmmOverride",
+			run: (segs) => {
+				if (!hmmDecode) return segs;
 				const placeLookup = new Map<number, { displayName: string | null }>();
 				for (const p of knownPlaces) {
 					if (typeof p.id === "number") placeLookup.set(p.id, { displayName: p.displayName });
 				}
-				return applyHsmmPlaceOverride(enrichedSegments, hmmDecode, placeLookup);
-			})
-		: enrichedSegments;
-	// Final merge pass — by this point HSMM may have attached a place
-	// to a segment that was un-placed at the earlier merge (e.g., a
-	// walking-reclassified-to-stationary segment that the place-attribution
-	// stage skipped because its raw `mode` was still "walking"). Re-run
-	// mergeAdjacentStays so two consecutive same-place segments don't
-	// surface as duplicates — the 2026-06-02 "two Home stays" case.
-	// Absorb intra-place pottering (a kitchen / bathroom run that split a
-	// long office or home stay in two) BEFORE the final merge, so the demoted
-	// walk coalesces into its stay. See absorbIntraPlaceWalk.
-	const withBiometrics = timeSync("finalMerge", () => mergeAdjacentStays(absorbIntraPlaceWalk(overridden, points)));
+				return applyHsmmPlaceOverride(segs, hmmDecode, placeLookup);
+			},
+		},
+
+		// Final merge pass — by this point HSMM may have attached a place
+		// to a segment that was un-placed at the earlier merge (e.g., a
+		// walking-reclassified-to-stationary segment that the place-attribution
+		// stage skipped because its raw `mode` was still "walking"). Re-run
+		// mergeAdjacentStays so two consecutive same-place segments don't
+		// surface as duplicates — the 2026-06-02 "two Home stays" case.
+		// Absorb intra-place pottering (a kitchen / bathroom run that split a
+		// long office or home stay in two) BEFORE the final merge, so the demoted
+		// walk coalesces into its stay. See absorbIntraPlaceWalk.
+		{
+			name: "finalMerge",
+			run: (segs) => mergeAdjacentStays(absorbIntraPlaceWalk(segs, points)),
+		},
+	];
+
+	let segs = physicallyCorrected;
+	for (const pass of passes) segs = await runPass(pass.name, () => pass.run(segs));
+	const withBiometrics = segs;
 
 	const total = Date.now() - t0;
 	const summary = Object.entries(phaseTimes)
