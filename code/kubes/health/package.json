@@ -22,6 +22,7 @@
     "golden": "scripts/golden.sh",
     "golden-hsmm": "scripts/golden-hsmm.sh",
     "score-decoder": "scripts/score-decoder.sh",
+    "score-constraints": "scripts/score-constraints.sh",
     "capture-golden": "scripts/capture-golden.sh",
     "backtest": "scripts/backtest.sh"
   },
