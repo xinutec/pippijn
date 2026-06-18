@@ -69,7 +69,12 @@ export interface PlaceCandidate {
  *  capture a stay that merely falls in the same neighbourhood. With
  *  only the wide floor, the −8 posterior floor let even a once-visited
  *  place reach ~4σ ≈ 400 m and stamp its one-off mined label onto
- *  unrelated stays hundreds of metres away. */
+ *  unrelated stays hundreds of metres away. NB this σ governs the
+ *  distance-Gaussian SCORING and must stay generous enough that a
+ *  low-visit lobe co-located with a busier one is still disambiguated
+ *  by time-of-day rather than crushed on distance; the separate far-
+ *  reach problem (a one-off claiming a stop 100+ m away) is handled by
+ *  {@link ABS_VETO_REACH_MIN_M}, not by shrinking this floor. */
 const SIGMA_FLOOR_MAX_M = 100;
 const SIGMA_FLOOR_MIN_M = 40;
 
@@ -96,6 +101,21 @@ const POSTERIOR_FLOOR = -8;
  *  unique days, daytime hour profile — could win a stay 400 m away on
  *  priors alone (the 2026-05-22 Pizza-Union-as-Work bug). */
 const MAX_DISTANCE_SIGMAS = 3;
+
+/** Absolute cap (m) on the centroid-distance veto's reach for a place seen on
+ *  a single day — independent of, and tighter than, its σ-derived 3σ reach. A
+ *  one-off cluster sits at the SIGMA_FLOOR_MIN σ (40 m), giving a 3σ reach of
+ *  120 m: far enough to let a place seen once (15 Feb) claim a stop 118 m away
+ *  and stamp its mined label on it (2026-06-18 Wembley Park "Selekt Chicken").
+ *  Capping a barely-known place's absolute reach closes that WITHOUT shrinking
+ *  the distance-Gaussian σ (which scoring needs generous — see
+ *  SIGMA_FLOOR_MIN_M). The cap climbs to {@link ABS_VETO_REACH_MAX_M} as
+ *  visit-days accumulate; by ~2 days the 3σ reach is the binding limit again,
+ *  so this only meaningfully constrains the genuinely once-seen place. */
+const ABS_VETO_REACH_MIN_M = 90;
+/** Effectively unbounded: above any established place's 3σ reach, so the cap
+ *  never binds once a place has earned its σ. */
+const ABS_VETO_REACH_MAX_M = 1000;
 
 // --- Magnetic anchoring (2026-06-magnetic-focus-places.md) ---
 
@@ -253,7 +273,13 @@ export function pickBestPlace(
 		const magnetFactor = insideMagnet
 			? Math.min(MAGNET_VETO_RELAX_MAX, 1 + (magnetStrength(c) * Bs) / MAGNET_REF_DAYS)
 			: 1;
-		if (dist > MAX_DISTANCE_SIGMAS * effectiveSigmaM(c) * magnetFactor) continue;
+		// Absolute far-reach cap: a barely-visited place hasn't earned a long
+		// reach even though its σ floor gives it one. Climbs with visit-days,
+		// so it only meaningfully binds for the once-seen case.
+		const establishedness = 1 - Math.exp(-Math.max(0, c.uniqueDays - 1) / SIGMA_ESTABLISH_TAU_DAYS);
+		const absCap = ABS_VETO_REACH_MIN_M + (ABS_VETO_REACH_MAX_M - ABS_VETO_REACH_MIN_M) * establishedness;
+		const vetoReach = Math.min(MAX_DISTANCE_SIGMAS * effectiveSigmaM(c) * magnetFactor, absCap);
+		if (dist > vetoReach) continue;
 		if (!best || s > best.score) best = { winner: c, score: s };
 	}
 	if (best && best.score < POSTERIOR_FLOOR) return null;

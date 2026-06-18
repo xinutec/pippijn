@@ -210,6 +210,16 @@ describe("pickBestPlace", () => {
 		expect(pickBestPlace([oneOff()], seg200mEast.lat, seg200mEast.lon, { stayHourProfile: daytimeStay })).toBeNull();
 	});
 
+	it("a one-off place does not capture a stay ~115 m away (2026-06-18 Wembley Park)", () => {
+		// A place seen on a single day (15 Feb) claimed a stop 118 m away and
+		// stamped its mined "Selekt Chicken" label on it. A one-off's reach
+		// must stay well under ~100 m — the scale at which a distinct
+		// neighbouring place begins — so the stop falls through to a fresh OSM
+		// lookup at its own centroid.
+		const seg115mEast = { lat: 51.5, lon: -0.12 + 115 / (111_320 * Math.cos((51.5 * Math.PI) / 180)) };
+		expect(pickBestPlace([oneOff()], seg115mEast.lat, seg115mEast.lon, { stayHourProfile: daytimeStay })).toBeNull();
+	});
+
 	it("an established place still captures a stay within GPS-noise range", () => {
 		// Same 200 m offset, but a place visited on many separate days:
 		// noise of this size around a well-known place is expected, so
