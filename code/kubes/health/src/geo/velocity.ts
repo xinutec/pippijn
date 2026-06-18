@@ -61,6 +61,7 @@ import {
 	reconcileAdjacentRailLegs,
 } from "./passes/rail-reconcile.js";
 import { annotateRailRuns, RAIL_RUN_STATION_RADIUS_M } from "./passes/rail-runs.js";
+import { repairVehicleHandoff } from "./passes/repair-handoff.js";
 import {
 	absorbIntraPlaceWalk,
 	attachStayCentroids,
@@ -1274,6 +1275,14 @@ export async function computeVelocityFromInputs(
 		{
 			name: "finalMerge",
 			run: (segs) => mergeAdjacentStays(absorbIntraPlaceWalk(segs, points)),
+		},
+		// Plausibility critic: repair any contiguous vehicle hand-off the
+		// grammar forbids — absorb a non-train leg flush against an identified
+		// train journey into that journey (the tube-under-a-road "driving"
+		// stretch). See src/geo/passes/repair-handoff.ts and src/infer/day-grammar.ts.
+		{
+			name: "repairHandoff",
+			run: (segs) => repairVehicleHandoff(segs),
 		},
 	];
 
