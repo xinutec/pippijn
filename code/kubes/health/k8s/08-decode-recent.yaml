@@ -25,7 +25,17 @@ spec:
           containers:
             - name: decode
               image: xinutec/health-sync:latest
-              command: ["node", "dist/cli/decode-day.js", "--user", "pippijn", "--tz", "Europe/London", "--days", "7"]
+              # Decode the recent window, then rebuild presence_log from the
+              # fresh decoded_days. presence_log feeds the empty-day inference
+              # and the USE_CONTINUITY_CONTINUATION emission factor (below);
+              # without this second step it goes stale and both silently
+              # degrade. DB-only and idempotent (DELETE+INSERT over the window).
+              command:
+                - sh
+                - -c
+                - >-
+                  node dist/cli/decode-day.js --user pippijn --tz Europe/London --days 7 &&
+                  node dist/cli/refresh-presence-log.js 90
               env:
                 - name: DB_HOST
                   value: health-db
