@@ -47,7 +47,22 @@ describe("repairVehicleHandoff", () => {
 		expect(out.filter((s) => s.mode === "train")).toHaveLength(1);
 	});
 
-	it("does NOT touch a train→train interchange (same mode)", () => {
+	it("absorbs a bare-line train fragment into the identified journey (2026-06-18 Jubilee→Met)", () => {
+		// The underground half was line-attributed "Jubilee Line" on local
+		// proximity (Met and Jubilee share Baker St → Finchley Rd), but the ride
+		// boards at Euston Square, which only the Met serves. The bare-line
+		// fragment is part of the identified Met journey.
+		t = 0;
+		const jubileeFrag = seg("train", { wayName: "Jubilee Line", durS: 600 });
+		const metJourney = seg("train", { wayName: "Euston Square → Wembley Park · Metropolitan Line", durS: 300 });
+		const out = repairVehicleHandoff([jubileeFrag, metJourney]);
+		expect(out).toHaveLength(1);
+		expect(out[0].wayName).toContain("Euston Square → Wembley Park");
+		expect(out[0].startTs).toBe(jubileeFrag.startTs);
+		expect(out[0].endTs).toBe(metJourney.endTs);
+	});
+
+	it("does NOT touch a train→train interchange (both identified, real interchange)", () => {
 		t = 0;
 		const out = repairVehicleHandoff([
 			seg("train", { wayName: "A → B · Jubilee Line", durS: 600 }),

@@ -6,14 +6,21 @@
  * without alighting. This pass is the critic that *repairs* that violation in
  * the timeline rather than merely flagging it.
  *
- * The case it fixes: a contiguous non-train vehicle leg handing straight off
- * to (or from) an identified `train` journey, with no walk/stop between. That
- * is not two vehicles — it is one rail journey, part of which was mislabelled.
- * Overwhelmingly this is the underground stretch where a tube runs *under* a
- * road: GPS surfaces onto the road, the segment snaps to "driving", and it sits
- * flush against the overground rail leg (the 2026-06-18 "driving on Euston
- * Underpass" → "Euston Square → Wembley Park" tube). Absorb the non-train leg
- * into the train.
+ * The case it fixes: a contiguous vehicle leg that is NOT itself an identified
+ * rail journey, handing straight off to (or from) an identified `train` journey
+ * (one with a resolved board→alight station pair), with no walk/stop between.
+ * That is not two journeys — it is one rail journey, part of which was
+ * mislabelled. Two shapes:
+ *   - a non-train vehicle leg: the underground stretch where a tube runs *under*
+ *     a road, snapped to "driving" (the 2026-06-18 "driving on Euston Underpass"
+ *     flush against "Euston Square → Wembley Park");
+ *   - a bare-line train fragment with no station pair, line-attributed on local
+ *     proximity to a *parallel* line the journey can't actually be on (the
+ *     2026-06-18 "Jubilee Line" fragment of that same Euston Square → Wembley
+ *     Park ride — the Jubilee does not serve Euston Square, only the
+ *     Metropolitan does, but Met and Jubilee share the Baker St → Finchley Rd
+ *     corridor, so the gap alone can't tell them apart).
+ * Absorb the non-journey leg into the identified train.
  *
  * Conservative by construction: it fires ONLY on a contiguous hand-off (a real
  * park-and-ride has a walk or a GPS gap between car and platform, so it is
@@ -40,12 +47,16 @@ function isIdentifiedTrain(seg: EnrichedSegment): boolean {
 	return effectiveMode(seg) === "train" && (seg.wayName ?? "").includes(" → ");
 }
 
-/** Whether `a` immediately followed by `b` is an absorbable vehicle hand-off:
- *  contiguous, two distinct vehicles, exactly one of them an identified train. */
+/** Whether `a` immediately followed by `b` is an absorbable hand-off into a
+ *  rail journey: contiguous, both aboard a vehicle, and exactly one of them an
+ *  *identified* train (a resolved board→alight journey). The other side — a
+ *  non-train vehicle (driving), or a bare-line train fragment with no station
+ *  pair — is absorbed into it. Two identified trains (a real interchange) are
+ *  left alone; so are two un-identified legs (no journey to absorb into). */
 function isAbsorbableHandoff(a: EnrichedSegment, b: EnrichedSegment): boolean {
 	const ma = effectiveMode(a);
 	const mb = effectiveMode(b);
-	if (!VEHICLE_MODES.has(ma) || !VEHICLE_MODES.has(mb) || ma === mb) return false;
+	if (!VEHICLE_MODES.has(ma) || !VEHICLE_MODES.has(mb)) return false;
 	if (b.startTs - a.endTs > CONTIGUITY_MAX_GAP_S) return false;
 	// Exactly one side is an identified train: absorb the other into it.
 	return isIdentifiedTrain(a) !== isIdentifiedTrain(b);
