@@ -181,6 +181,14 @@ export interface HrvDay {
   deep_rmssd: number;
 }
 
+export interface BodyDay {
+  date: string;
+  // DECIMAL columns come back as strings from the driver; the chart coerces.
+  weight_kg: number | string | null;
+  bmi: number | string | null;
+  body_fat_pct: number | string | null;
+}
+
 export interface ShareStatus {
   active: boolean;
   token?: string;
@@ -260,6 +268,12 @@ export class HealthService {
   async getHrv(days = 30, signal?: AbortSignal): Promise<HrvDay[]> {
     const res = await this.fetch(`/api/hrv?days=${days}`, { signal });
     if (!res.ok) throw new Error("Failed to fetch HRV");
+    return res.json();
+  }
+
+  async getBody(days = 30, signal?: AbortSignal): Promise<BodyDay[]> {
+    const res = await this.fetch(`/api/body?days=${days}`, { signal });
+    if (!res.ok) throw new Error("Failed to fetch body");
     return res.json();
   }
 

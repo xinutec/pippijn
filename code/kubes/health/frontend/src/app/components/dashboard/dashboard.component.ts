@@ -11,6 +11,7 @@ import { MatTabsModule } from "@angular/material/tabs";
 import { FormsModule } from "@angular/forms";
 import {
 	type ActivityDay,
+	type BodyDay,
 	HealthService,
 	type HeartRatePoint,
 	type HrvDay,
@@ -51,6 +52,7 @@ import { SpeedChartComponent } from "../speed-chart/speed-chart.component";
 import { StepsChartComponent } from "../steps-chart/steps-chart.component";
 import { SummaryCardsComponent } from "../summary-cards/summary-cards.component";
 import { TimelineComponent } from "../timeline/timeline.component";
+import { WeightChartComponent } from "../weight-chart/weight-chart.component";
 import { selectDayActivity, selectDayMainSleep } from "./day-selection";
 
 /** Per-day payload — the data that changes when you navigate days. */
@@ -67,11 +69,12 @@ interface WindowData {
 	activity: ActivityDay[];
 	sleep: SleepLog[];
 	hrv: HrvDay[];
+	body: BodyDay[];
 }
 
 /** Client-side fetch durations (ms) for the performance panel. */
 export interface LoadTimings {
-	window?: { activity: number; sleep: number; hrv: number; total: number };
+	window?: { activity: number; sleep: number; hrv: number; body: number; total: number };
 	day?: { stages: number; hr: number; velocity: number; total: number };
 }
 
@@ -130,6 +133,7 @@ export interface LoadTimings {
 		HeartrateChartComponent,
 		HrvChartComponent,
 		SleepChartComponent,
+		WeightChartComponent,
 	],
 	templateUrl: "./dashboard.component.html",
 	styleUrl: "./dashboard.component.scss",
@@ -172,23 +176,24 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		// `trendDays` key thereafter means it reloads only when the span
 		// changes.
 		params: () => (this.dataReady() ? this.trendDays() : undefined),
-		defaultValue: { activity: [], sleep: [], hrv: [] },
+		defaultValue: { activity: [], sleep: [], hrv: [], body: [] },
 		loader: async ({ params: days, abortSignal }) => {
 			const t0 = performance.now();
 			const timed = <T>(p: Promise<T>): Promise<[T, number]> => {
 				const start = performance.now();
 				return p.then((v) => [v, performance.now() - start] as [T, number]);
 			};
-			const [[activity, tActivity], [sleep, tSleep], [hrv, tHrv]] = await Promise.all([
+			const [[activity, tActivity], [sleep, tSleep], [hrv, tHrv], [body, tBody]] = await Promise.all([
 				timed(this.health.getActivity(days, abortSignal).catch(() => [] as ActivityDay[])),
 				timed(this.health.getSleep(days, abortSignal).catch(() => [] as SleepLog[])),
 				timed(this.health.getHrv(days, abortSignal).catch(() => [] as HrvDay[])),
+				timed(this.health.getBody(days, abortSignal).catch(() => [] as BodyDay[])),
 			]);
 			this.timings.update((t) => ({
 				...t,
-				window: { activity: tActivity, sleep: tSleep, hrv: tHrv, total: performance.now() - t0 },
+				window: { activity: tActivity, sleep: tSleep, hrv: tHrv, body: tBody, total: performance.now() - t0 },
 			}));
-			return { activity, sleep, hrv };
+			return { activity, sleep, hrv, body };
 		},
 	});
 
@@ -251,6 +256,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	readonly activity = computed(() => this.windowData.value().activity);
 	readonly sleep = computed(() => this.windowData.value().sleep);
 	readonly hrv = computed(() => this.windowData.value().hrv);
+	readonly body = computed(() => this.windowData.value().body);
 	readonly sleepStages = computed(() => this.displayedDay().stages);
 	readonly intradayHr = computed(() => this.displayedDay().hr);
 	readonly velocity = computed(() => this.displayedDay().velocity);
