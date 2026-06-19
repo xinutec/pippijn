@@ -87,6 +87,7 @@ function makeHealthMock(opts: { activity?: ActivityDay[]; sleep?: SleepLog[] } =
 		},
 		getSleep: async () => opts.sleep ?? [],
 		getHrv: async () => [],
+		getBody: async () => [],
 		getSleepStages: async () => [],
 		getHeartRateIntraday: async () => [],
 		getVelocity: (date: string) => {
