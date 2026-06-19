@@ -11,6 +11,7 @@ import { z } from "zod";
 import { initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import { computeVelocity } from "../geo/velocity.js";
+import { clipInferredFuture } from "../sleep/day-state.js";
 
 const config = z
 	.object({
@@ -58,7 +59,9 @@ await withConnection(migrate);
 
 console.log(`Analyzing ${date} for user ${userId}${tz ? ` (${tz})` : ""}\n`);
 
-const { points, segments, states, episodes, battery } = await computeVelocity(config, userId, date, tz);
+const { points, segments, states: rawStates, episodes, battery } = await computeVelocity(config, userId, date, tz);
+// Mirror the API: clip inferred continuations to now (no future assertions).
+const states = clipInferredFuture(rawStates, Math.floor(Date.now() / 1000));
 
 console.log(`Filtered points: ${points.length}`);
 console.log(`\n=== Segments (${segments.length}) ===`);
@@ -106,6 +109,7 @@ for (const s of states) {
 	if (s.place) ctx = ` @ ${s.place}`;
 	else if (s.wayName) ctx = ` on ${s.wayName}`;
 	if (s.asleep) ctx += " · asleep";
+	if (s.inferred) ctx += " · inferred";
 	// For sleeping states, show wall-clock minutes "in bed" and the
 	// Fitbit minutes_asleep "actual" — same split the dashboard does.
 	const durLabel =

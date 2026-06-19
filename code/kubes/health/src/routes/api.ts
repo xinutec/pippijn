@@ -24,6 +24,7 @@ import {
 	updateShareDaysForUser,
 } from "../share/repository.js";
 import { buildShareUrl, clampShareDaysBack } from "../share/token.js";
+import { clipInferredFuture } from "../sleep/day-state.js";
 import { getVelocityCached } from "./velocity-cache.js";
 
 /** Subset of the full Config that the API routes actually need. Narrowing
@@ -345,7 +346,11 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			// on the first request after deploy.
 			const cacheKey = `${uid}|${date}|${tz ?? ""}`;
 			const result = await getVelocityCached(cacheKey, () => computeVelocity(config, uid, date, tz));
-			return c.json(result);
+			// Never assert the future: clip inferred continuations (dwell-prior,
+			// empty-day) to the current moment. Cache holds the full
+			// deterministic result; the clip is per-request so "now" advances.
+			const states = clipInferredFuture(result.states, Math.floor(Date.now() / 1000));
+			return c.json({ ...result, states });
 		} catch (e) {
 			// Graceful degradation: unlinked → empty timeline (200).
 			// Reauth required → 409 with structured error so the SPA

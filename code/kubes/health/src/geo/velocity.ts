@@ -28,6 +28,7 @@ import { bridgeStaysWithBiometrics } from "./bridge-stays-biometrics.js";
 import { annotateBusEvidence } from "./bus-evidence.js";
 import { annotateBusRoutes } from "./bus-route-match.js";
 import type { ClassificationInputs } from "./classification-inputs.js";
+import { applyDwellContinuation } from "./dwell-continuation.js";
 import type { EnrichedSegment } from "./enriched-segment.js";
 import { buildEpisodes, type EpisodeGeometry } from "./episode-geometry.js";
 import { useBiometricFactor } from "./factors/feature-flag.js";
@@ -1382,11 +1383,26 @@ export async function computeVelocityFromInputs(
 			};
 	}
 
+	// Dwell-prior continuation (#259): when the phone went quiet at a strong
+	// focus_place and nothing else carried the stay forward (no sleep window,
+	// no cross-day bracket), continue it to the place's survival horizon —
+	// silence at a well-known place is evidence of staying. No-op when the day
+	// is already filled to its end, or the last stay binds to no established
+	// place. The trailing time past the horizon stays an honest gap.
+	const finalStates = timeSync("dwellContinuation", () =>
+		applyDwellContinuation({
+			states,
+			segments: withBiometrics,
+			knownPlaces: inputs.knownPlaces,
+			dayEndTs: bounds.endUtc,
+		}),
+	);
+
 	return {
 		points,
 		segments: withBiometrics,
-		states,
-		episodes: buildEpisodes(states, withBiometrics, points),
+		states: finalStates,
+		episodes: buildEpisodes(finalStates, withBiometrics, points),
 		battery,
 		timing: phaseTimes,
 	};

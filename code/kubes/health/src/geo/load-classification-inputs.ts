@@ -193,6 +193,8 @@ async function loadKnownPlacesQuery(userId: string): Promise<KnownPlaceProjectio
 			"amenity_label",
 			"unique_days",
 			"hour_profile",
+			"total_dwell_sec",
+			"visit_count",
 		])
 		.where("user_id", "=", userId)
 		.execute();
@@ -206,6 +208,8 @@ async function loadKnownPlacesQuery(userId: string): Promise<KnownPlaceProjectio
 		amenityLabel: r.amenity_label,
 		uniqueDays: r.unique_days,
 		hourProfile: parseHourProfile(r.hour_profile),
+		totalDwellSec: Number(r.total_dwell_sec),
+		visitCount: r.visit_count,
 	}));
 }
 

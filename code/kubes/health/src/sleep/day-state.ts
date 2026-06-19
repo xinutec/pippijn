@@ -105,6 +105,30 @@ export function segmentsToDayStates(
 	return stripPartialMinutesAsleep(mergeAdjacent(states), sleepWindows);
 }
 
+/**
+ * Never assert the future. Inferred states (dwell-prior continuation,
+ * empty-day inference) can extend to a survival horizon or the day end that
+ * lies ahead of the current moment; for today that would claim presence at a
+ * place hours before it has happened. Clip any inferred state to `nowTs`:
+ * truncate one that straddles now, drop one wholly in the future. Observed
+ * states are untouched (real data can't be in the future). Presentation-layer
+ * only — the pipeline stays deterministic (fills to the horizon) so goldens,
+ * which replay past days where `nowTs` is already past the day end, are
+ * unaffected.
+ */
+export function clipInferredFuture(states: readonly DayState[], nowTs: number): DayState[] {
+	const out: DayState[] = [];
+	for (const s of states) {
+		if (!s.inferred || s.endTs <= nowTs) {
+			out.push(s);
+			continue;
+		}
+		if (s.startTs >= nowTs) continue; // wholly future — drop
+		out.push({ ...s, endTs: nowTs }); // straddles now — truncate
+	}
+	return out;
+}
+
 /** After merging adjacent same-state runs, a sleeping state's
  *  range either matches its sleep window exactly (the asleep
  *  total describes the whole row, OK to show) or covers only

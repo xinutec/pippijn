@@ -61,6 +61,12 @@ export interface KnownPlaceProjection extends KnownPlace {
 	amenityLabel: string | null;
 	uniqueDays: number;
 	hourProfile: number[] | null;
+	/** Total time spent at this cluster across all visits, seconds, and the
+	 *  visit count — together the mean-dwell scale τ for the dwell-prior
+	 *  continuation (#259). Optional so fixtures captured before the fields
+	 *  existed replay as "no dwell prior" (0 → no continuation). */
+	totalDwellSec?: number;
+	visitCount?: number;
 }
 
 /** Identity portion: which day, in which timezone, for which user.
