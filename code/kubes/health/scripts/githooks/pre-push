@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# health-sync pre-push gate: run the shared dev-lint custom rules
+# (~/Code/dev-lint — Python ast + ast-grep, e.g. angular-inline-template) on
+# the app source. This is a shared monorepo, so only run when the push actually
+# touches health-sync. dev-lint is a local flake; if it's missing the hook
+# skips rather than blocking the push.
+#
+# Installed by scripts/setup-hooks.sh (symlinked into .git/hooks/pre-push).
+set -euo pipefail
+
+HEALTH="code/kubes/health"
+DEVLINT="${DEVLINT_DIR:-$HOME/Code/dev-lint}"
+ZERO="0000000000000000000000000000000000000000"
+
+run=0
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+	[ "$local_sha" = "$ZERO" ] && continue # branch deletion
+	if [ "$remote_sha" = "$ZERO" ]; then
+		run=1 # new branch — just run
+	elif git diff --name-only "$remote_sha..$local_sha" -- "$HEALTH/" 2>/dev/null | grep -q .; then
+		run=1 # push touches health-sync
+	fi
+done
+[ "$run" -eq 1 ] || exit 0
+
+if [ ! -e "$DEVLINT/flake.nix" ]; then
+	echo "pre-push: dev-lint not found at $DEVLINT — skipping (set DEVLINT_DIR to override)" >&2
+	exit 0
+fi
+
+echo "pre-push: dev-lint on health-sync…" >&2
+nix run "$DEVLINT" -- "$HEALTH/frontend/src" "$HEALTH/src"
