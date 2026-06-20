@@ -18,19 +18,36 @@ export class WeightChartComponent {
   private static readonly PAD_KG = 1;
   private static readonly MIN_SPAN_KG = 4;
 
-  chartData: ChartConfiguration<"line">["data"] = { labels: [], datasets: [] };
+  chartData: ChartConfiguration<"line">["data"] = { datasets: [] };
   chartOptions: ChartConfiguration<"line">["options"] = this.buildOptions(60, 80);
 
+  // Weigh-ins are sparse and irregular, so the x-axis is a real *linear* time
+  // scale keyed on the date (epoch ms) — horizontal distance = elapsed time, so
+  // a multi-week gap reads as a gap and clustered daily weigh-ins bunch up.
+  // (The other trend charts are daily/contiguous, so they use a category axis.)
   private buildOptions(min: number, max: number): ChartConfiguration<"line">["options"] {
+    const fmt = (ms: number) => formatDay(new Date(ms).toISOString().slice(0, 10));
     return {
       responsive: true,
       maintainAspectRatio: true,
       plugins: {
         legend: { display: true, labels: { color: tickColor } },
-        tooltip: { callbacks: { label: (ctx) => `${(ctx.raw as number).toFixed(1)} kg` } },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const x = items[0]?.parsed.x;
+              return x == null ? "" : fmt(x);
+            },
+            label: (ctx) => `${(ctx.parsed.y as number).toFixed(1)} kg`,
+          },
+        },
       },
       scales: {
-        x: { ticks: { color: tickColor }, grid: { display: false } },
+        x: {
+          type: "linear",
+          ticks: { color: tickColor, maxTicksLimit: 6, callback: (v) => fmt(v as number) },
+          grid: { display: false },
+        },
         y: {
           ticks: { color: tickColor, callback: (v) => `${v} kg` },
           grid: { color: gridColor },
@@ -45,11 +62,12 @@ export class WeightChartComponent {
     effect(() => {
       // Weight is a DECIMAL (string off the wire); coerce and drop blank days.
       const pts = this.body()
-        .map((d) => ({ date: d.date, kg: d.weight_kg == null ? Number.NaN : Number(d.weight_kg) }))
-        .filter((d) => Number.isFinite(d.kg) && d.kg > 0);
+        .map((d) => ({ x: Date.parse(d.date), kg: d.weight_kg == null ? Number.NaN : Number(d.weight_kg) }))
+        .filter((d) => Number.isFinite(d.kg) && d.kg > 0 && Number.isFinite(d.x))
+        .sort((a, b) => a.x - b.x);
 
       if (pts.length === 0) {
-        this.chartData = { labels: [], datasets: [] };
+        this.chartData = { datasets: [] };
         return;
       }
 
@@ -65,11 +83,10 @@ export class WeightChartComponent {
       this.chartOptions = this.buildOptions(Math.max(0, lo), hi);
 
       this.chartData = {
-        labels: pts.map((d) => formatDay(d.date)),
         datasets: [
           {
             label: "Weight",
-            data: vals,
+            data: pts.map((d) => ({ x: d.x, y: d.kg })),
             borderColor: chartColors.green,
             backgroundColor: "rgba(34, 197, 94, 0.1)",
             fill: true,
