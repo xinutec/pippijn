@@ -18,7 +18,6 @@ import { getSyncState, setSyncState } from "./db/sync-state.js";
 import { FitbitClient } from "./fitbit/client.js";
 import { RateLimitExhaustedError } from "./fitbit/rate-limit.js";
 import { syncActivity } from "./fitbit/sync/activity.js";
-import { syncBody } from "./fitbit/sync/body.js";
 import { syncBreathingRate } from "./fitbit/sync/breathing.js";
 import { syncDevices } from "./fitbit/sync/devices.js";
 import { syncHeartRateIntraday, syncHeartRateZones } from "./fitbit/sync/heartrate.js";
@@ -378,7 +377,11 @@ for (const user of users) {
 			await trySync(user.user_id, "HR zones", () =>
 				syncHeartRateZones(client, conn, user.user_id, lastSyncDate, today),
 			);
-			await trySync(user.user_id, "body", () => syncBody(client, conn, user.user_id, lastSyncDate, today));
+			// Weight/body is NOT synced from Fitbit: the Fitbit Web API weight feed
+			// is forward-filled and froze in Apr 2026 (Hume scale → Health Connect →
+			// Google, not Fitbit). It now comes from the Google Health API
+			// (sync-google-weight, #260). Re-adding it here re-clobbers the real
+			// values nightly.
 			await trySync(user.user_id, "HR intraday", () =>
 				syncHeartRateIntraday(client, conn, user.user_id, lastSyncDate, today, forwardTzSource),
 			);
@@ -490,7 +493,7 @@ for (const user of users) {
 				{ name: "breathing", sync: (s, e) => syncBreathingRate(client, conn, user.user_id, s, e) },
 				{ name: "spo2", sync: (s, e) => syncSpO2Daily(client, conn, user.user_id, s, e) },
 				{ name: "temperature", sync: (s, e) => syncTemperature(client, conn, user.user_id, s, e) },
-				{ name: "body", sync: (s, e) => syncBody(client, conn, user.user_id, s, e) },
+				// body/weight intentionally omitted — see the forward-sync note above (#260).
 				{ name: "hr_zones", sync: (s, e) => syncHeartRateZones(client, conn, user.user_id, s, e) },
 			];
 			const orderedRange = await orderStreamsByCursorRecency(user.user_id, rangeStreams, lastSyncDate);
