@@ -172,11 +172,15 @@ const SPUR_RETURN_M = 25;
 const SPUR_MAX_SPAN_VERTS = 4;
 
 /** Douglas-Peucker tolerance (m) for simplifying the final matched polyline.
- *  The route emits every OSM way vertex, so it zig-zags across junction
- *  geometry even while staying within metres of the track; simplifying at
- *  this tolerance drops that visual noise while preserving real corners
- *  (which deviate far more than this from a straight chord). */
-const SIMPLIFY_TOLERANCE_M = 12;
+ *  Kept to roughly a lane width: the simplified chord then stays within a
+ *  carriageway of the routed road geometry, so it never cuts the inside of a
+ *  bend across front gardens / houses (the routed path is on the road, and DP
+ *  guarantees the kept polyline is within this of it). Tight enough to follow
+ *  curves, loose enough to drop redundant near-collinear OSM vertices. A
+ *  coarser value cut corners over houses; the junction zig-zag a coarse value
+ *  was meant to remove is now prevented upstream by the corridor + turn
+ *  penalties, not by throwing away road shape here. */
+const SIMPLIFY_TOLERANCE_M = 5;
 
 interface Pt {
 	lat: number;
