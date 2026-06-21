@@ -626,3 +626,131 @@ export function splitWalksOnVehicleLeg<T extends TrackSegment>(
 	}
 	return out;
 }
+
+// --- walk→vehicle boundary correction ---------------------------------
+// Sibling of splitWalksOnVehicleLeg, for the boundary case that pass can't
+// safely touch. When a drive begins, its first seconds — the launch from
+// the kerb — are slow enough to look on-foot in a 5-minute window, so
+// segmentation glues them onto the *preceding* walk. The median speed then
+// hides the fast tail and the leg stays "walking" (2026-06-21 morning: a
+// 24 km/h "walk" down the start of the drive). splitWalksOnVehicleLeg
+// won't reclaim it — its 400 m / 120 s bars are deliberately high because,
+// for a ride hidden in the *middle* of a walk, there is nothing to
+// corroborate it and urban-canyon jitter must not trigger a split.
+//
+// Here there IS corroboration: the next segment is already a confirmed
+// road vehicle. So the bar can be low — a short, sustained, real-progress
+// run at the walk's tail belongs to the drive it hands off to. We move the
+// boundary rather than carve a new segment: the vehicle simply starts
+// earlier. Net displacement (not speed readings) is still the gate, so
+// stationary jitter at the kerb can't trigger it.
+
+/** Per-step net-progress speed (km/h) that marks the tail as travelling,
+ *  not walking — above the 12 km/h walking ceiling so a real walk's GPS
+ *  noise can't reach it. */
+const HANDOFF_MOVE_KMH = 15;
+/** Require a sustained run (this many vehicle-paced steps), so a single
+ *  glitchy fix pair can't move the boundary. */
+const HANDOFF_MIN_TAIL_STEPS = 2;
+/** Net displacement floor for the run — comfortably beyond GPS noise
+ *  (~10–20 m), but far below splitWalksOnVehicleLeg's 400 m because the
+ *  adjacent confirmed vehicle already corroborates that travel happened. */
+const HANDOFF_MIN_NET_DIST_M = 80;
+/** …and one unambiguously-motorised instant, as a second signal. */
+const HANDOFF_PEAK_KMH = 20;
+/** Keep a real walk on the near side: if the run would consume all but
+ *  this much of the walk, it isn't a boundary tail — leave it for the
+ *  interior-ride pass / mode scorer, don't swallow the whole segment. */
+const HANDOFF_MIN_WALK_REMAINDER_S = 60;
+
+/** Road-vehicle modes a walk tail can be reassigned INTO. Train is
+ *  excluded on purpose: a walk accelerating into a train is boarding
+ *  bleed, handled by the platform/boarding passes, not a road ride. */
+const HANDOFF_VEHICLE_MODES: ReadonlySet<string> = new Set(["driving", "bus", "cycling"]);
+
+function segMode(s: { mode: string; refinedMode?: TransportMode }): string {
+	return s.refinedMode ?? s.mode;
+}
+
+/**
+ * Move a walking segment's vehicle-paced trailing run into the road-vehicle
+ * segment that immediately follows it, by advancing the shared boundary to
+ * where the sustained motion begins. Segment count is unchanged — only the
+ * boundary (and the two segments' recomputed speed stats) move. Walks with
+ * no qualifying tail, or no road-vehicle successor, pass through untouched.
+ * Pure.
+ */
+export function reassignWalkTailToVehicle<T extends TrackSegment>(
+	segments: readonly T[],
+	points: readonly FilteredPoint[],
+): T[] {
+	const segs = [...segments];
+	const out: T[] = [];
+	const stats = (start: number, end: number): { count: number; avg: number; max: number } => {
+		const speeds: number[] = [];
+		for (const p of points) if (p.ts >= start && p.ts < end) speeds.push(p.speed_kmh ?? 0);
+		const max = speeds.length ? Math.max(...speeds) : 0;
+		return { count: speeds.length, avg: Math.round(median(speeds) * 10) / 10, max: Math.round(max * 10) / 10 };
+	};
+
+	for (let i = 0; i < segs.length; i++) {
+		const cur = segs[i];
+		const next = segs[i + 1];
+		if (cur.mode !== "walking" || !next || !HANDOFF_VEHICLE_MODES.has(segMode(next))) {
+			out.push(cur);
+			continue;
+		}
+		const fixes = samplesInWindow(points, cur).sort((a, b) => a.ts - b.ts);
+		if (fixes.length < 3) {
+			out.push(cur);
+			continue;
+		}
+		const stepKmh = (a: number, b: number): number => {
+			const dt = fixes[b].ts - fixes[a].ts;
+			return dt > 0 ? (haversineMeters(fixes[a].lat, fixes[a].lon, fixes[b].lat, fixes[b].lon) / dt) * 3.6 : 0;
+		};
+		// Walk back from the last fix over consecutive vehicle-paced steps.
+		let s = fixes.length - 1;
+		let tailSteps = 0;
+		while (s > 0 && stepKmh(s - 1, s) >= HANDOFF_MOVE_KMH) {
+			s--;
+			tailSteps++;
+		}
+		if (tailSteps < HANDOFF_MIN_TAIL_STEPS) {
+			out.push(cur);
+			continue;
+		}
+		const last = fixes.length - 1;
+		const netDist = haversineMeters(fixes[s].lat, fixes[s].lon, fixes[last].lat, fixes[last].lon);
+		let peak = 0;
+		for (let k = s; k <= last; k++) peak = Math.max(peak, fixes[k].speed_kmh ?? 0);
+		const driveStart = fixes[s].ts;
+		if (netDist < HANDOFF_MIN_NET_DIST_M || peak < HANDOFF_PEAK_KMH) {
+			out.push(cur);
+			continue;
+		}
+		if (driveStart - cur.startTs < HANDOFF_MIN_WALK_REMAINDER_S) {
+			out.push(cur);
+			continue;
+		}
+		// Move the boundary: walk ends, vehicle begins, at driveStart.
+		const walkStats = stats(cur.startTs, driveStart);
+		const vehStats = stats(driveStart, next.endTs);
+		out.push({
+			...cur,
+			endTs: driveStart,
+			avgSpeed: walkStats.avg,
+			maxSpeed: walkStats.max,
+			pointCount: walkStats.count,
+		});
+		segs[i + 1] = {
+			...next,
+			startTs: driveStart,
+			avgSpeed: vehStats.avg,
+			maxSpeed: vehStats.max,
+			pointCount: vehStats.count,
+			refinedReason: `walk→vehicle boundary: ${Math.round(netDist)} m vehicle-paced run (peak ${Math.round(peak)} km/h) reassigned from the preceding walk to this ride`,
+		};
+	}
+	return out;
+}

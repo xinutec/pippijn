@@ -76,7 +76,12 @@ import { annotateRoadMatches } from "./road-match-annotate.js";
 import { effectiveMode, samplesInWindow } from "./segment-util.js";
 import type { TransportMode } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints, isStationaryIncoherent } from "./segments.js";
-import { splitStaysOnEvidence, splitWalksOnEvidence, splitWalksOnVehicleLeg } from "./stay-split.js";
+import {
+	reassignWalkTailToVehicle,
+	splitStaysOnEvidence,
+	splitWalksOnEvidence,
+	splitWalksOnVehicleLeg,
+} from "./stay-split.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
 import { stationAtTrainAlight } from "./transit-place.js";
 import {
@@ -1185,6 +1190,19 @@ export async function computeVelocityFromInputs(
 		{
 			name: "vehicleSplit",
 			run: (segs) => splitWalksOnVehicleLeg(segs, points),
+		},
+
+		// Walk→vehicle boundary correction (#176): a drive's launch from the
+		// kerb is slow enough to be glued onto the preceding walk by
+		// segmentation, leaving a vehicle-paced tail hidden inside a
+		// "walking" leg (the 2026-06-21 "24 km/h walk down Midholm"). Where
+		// the next segment is already a confirmed road vehicle, move that
+		// sustained tail across the boundary into the ride. Runs after
+		// vehicleSplit so an interior ride is carved first and its trailing
+		// walk, if any, is the segment evaluated here.
+		{
+			name: "walkVehicleHandoff",
+			run: (segs) => reassignWalkTailToVehicle(segs, points),
 		},
 
 		// Rail-snap: attach the precomputed rail-track geometry to each
