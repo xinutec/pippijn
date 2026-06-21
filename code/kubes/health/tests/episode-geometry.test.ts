@@ -69,7 +69,7 @@ describe("buildEpisodes — per-mode geometry resolution", () => {
 		const [ep] = buildEpisodes([state(0, 100, "train")], segs, []);
 		expect(ep.kind).toBe("snapped");
 		expect(ep.points).toHaveLength(3);
-		expect(ep.points[0]).toEqual({ lat: 51.0, lon: -0.1 });
+		expect(ep.points[0]).toEqual({ lat: 51.0, lon: -0.1, ts: 0 });
 	});
 
 	it("draws an uncached train raw from its own fixes (no speed filter)", () => {

@@ -91,6 +91,11 @@ export class MapComponent implements OnDestroy {
 	private recenterControl: L.Control | null = null;
 	/** Latest position the recentre control should jump to. */
 	private currentPos: { lat: number; lon: number } | null = null;
+	/** Every drawn vertex, flattened, for the tap-to-inspect popup — so a
+	 *  tap anywhere reports the nearest point's exact coordinate, time, and
+	 *  what KIND of point it is (raw GPS fix vs a derived stay centre or gap
+	 *  connector). Rebuilt on every render. */
+	private inspectPoints: { lat: number; lon: number; ts?: number; mode: string; kind: string; place?: string }[] = [];
 	/** The `data` reference the view was last fitted to — guards against
 	 *  re-fitting (and yanking the view) on every 15s poll. */
 	private fittedTo: VelocityData | null | undefined = undefined;
@@ -148,10 +153,13 @@ export class MapComponent implements OnDestroy {
 			// settles; re-measure so tiles and bounds use the real size.
 			this.resizeObs = new ResizeObserver(() => this.map?.invalidateSize());
 			this.resizeObs.observe(el);
+			// Tap-to-inspect: report the nearest drawn vertex. Bound once.
+			map.on("click", (e: L.LeafletMouseEvent) => this.showInspect(map as L.Map, e.latlng));
 			this.map = map;
 			this.layer = layer;
 		}
 		layer.clearLayers();
+		this.inspectPoints = [];
 
 		const episodes = data?.episodes ?? [];
 
@@ -166,6 +174,9 @@ export class MapComponent implements OnDestroy {
 		let prevLast: L.LatLngTuple | null = null;
 		for (const ep of episodes) {
 			if (ep.points.length === 0) continue;
+			for (const p of ep.points) {
+				this.inspectPoints.push({ lat: p.lat, lon: p.lon, ts: p.ts, mode: ep.mode, kind: ep.kind, place: ep.place });
+			}
 			if (ep.kind === "anchor") {
 				prevLast = [ep.points[0].lat, ep.points[0].lon];
 				allCoords.push(prevLast);
@@ -218,6 +229,9 @@ export class MapComponent implements OnDestroy {
 		// last track point. Emphasised: this is the "where are they
 		// now" marker the tab exists for.
 		const pos = fix ?? lastDrawn ?? null;
+		if (fix) {
+			this.inspectPoints.push({ lat: fix.lat, lon: fix.lon, ts: fix.ts, mode: "live", kind: "live" });
+		}
 		if (pos) {
 			L.circleMarker([pos.lat, pos.lon], {
 				radius: 9,
@@ -264,4 +278,54 @@ export class MapComponent implements OnDestroy {
 			}
 		}
 	}
+
+	/** Open a popup at the drawn vertex nearest the tapped point, reporting
+	 *  its exact coordinate, time, and — the useful part for debugging a
+	 *  stray location — WHAT it is: a raw GPS fix, a map-matched / rail-snapped
+	 *  vertex, a computed stay centre, or a gap connector with no GPS behind
+	 *  it. */
+	private showInspect(map: L.Map, latlng: L.LatLng): void {
+		let best: (typeof this.inspectPoints)[number] | null = null;
+		let bestD = Number.POSITIVE_INFINITY;
+		for (const p of this.inspectPoints) {
+			const d = map.distance(latlng, L.latLng(p.lat, p.lon));
+			if (d < bestD) {
+				bestD = d;
+				best = p;
+			}
+		}
+		if (!best) return;
+		const coord = `${best.lat.toFixed(6)}, ${best.lon.toFixed(6)}`;
+		const when =
+			best.ts !== undefined
+				? new Date(best.ts * 1000).toLocaleString("en-GB", {
+						day: "2-digit",
+						month: "short",
+						hour: "2-digit",
+						minute: "2-digit",
+						second: "2-digit",
+					})
+				: "—";
+		const source = MapComponent.SOURCE_LABEL[best.kind] ?? best.kind;
+		const placeLine = best.place ? `<br><i>${best.place}</i>` : "";
+		const html =
+			`<div style="font:13px/1.5 system-ui">` +
+			`<b>${coord}</b>${placeLine}<br>` +
+			`${best.mode} · ${source}<br>` +
+			`${when}<br>` +
+			`<span style="color:#64748b">${bestD < 1 ? "on this point" : `${bestD.toFixed(0)} m from your tap`}</span>` +
+			`</div>`;
+		L.popup({ closeButton: true }).setLatLng([best.lat, best.lon]).setContent(html).openOn(map);
+	}
+
+	/** What each episode `kind` means as a data source — the answer to
+	 *  "where does this point come from". */
+	private static readonly SOURCE_LABEL: Record<string, string> = {
+		raw: "raw GPS fix",
+		matched: "map-matched to road",
+		snapped: "snapped to rail line",
+		anchor: "stay centre (computed average)",
+		tentative: "gap connector (inferred, no GPS)",
+		live: "live position (latest fix)",
+	};
 }

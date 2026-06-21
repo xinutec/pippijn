@@ -53,6 +53,12 @@ export interface EpisodeGeometry {
 interface LatLon {
 	lat: number;
 	lon: number;
+	/** UTC seconds of the underlying fix, when this vertex came from a
+	 *  timestamped point (raw GPS, matched, or snapped). Absent for derived
+	 *  geometry with no single moment — a stay anchor (centroid) or a gap
+	 *  connector endpoint. Surfaced so the map's point-inspector can show
+	 *  *when* a drawn vertex was, for debugging a stray location. */
+	ts?: number;
 }
 
 /** A no-GPS `unknown` gap longer than this (metres, straight-line) is
@@ -112,7 +118,7 @@ function resolveEpisode(
 		const trainSeg = covering.find((s) => effectiveMode(s) === "train" && (s.snappedPath?.length ?? 0) >= 2);
 		const snapped = trainSeg?.snappedPath
 			?.filter((sp) => sp.ts >= state.startTs && sp.ts <= state.endTs)
-			.map((sp) => ({ lat: sp.lat, lon: sp.lon }));
+			.map((sp) => ({ lat: sp.lat, lon: sp.lon, ts: sp.ts }));
 		if (snapped && snapped.length >= 2) return { ...base, kind: "snapped", points: snapped };
 
 		// Boarding / alighting join points: where the previous episode left off
@@ -149,7 +155,7 @@ function resolveEpisode(
 		const roadSeg = covering.find((s) => (s.matchedPath?.length ?? 0) >= 2 && ROAD_MATCH_MODES.has(effectiveMode(s)));
 		const matched = roadSeg?.matchedPath
 			?.filter((mp) => mp.ts >= state.startTs && mp.ts <= state.endTs)
-			.map((mp) => ({ lat: mp.lat, lon: mp.lon }));
+			.map((mp) => ({ lat: mp.lat, lon: mp.lon, ts: mp.ts }));
 		if (matched && matched.length >= 2) return { ...base, kind: "matched", points: matched };
 
 		// Speed-plausibility filter THEN geometric spike rejection. The
@@ -225,7 +231,7 @@ function entryPoint(
 }
 
 function toLatLon(p: FilteredPoint): LatLon {
-	return { lat: p.lat, lon: p.lon };
+	return { lat: p.lat, lon: p.lon, ts: p.ts };
 }
 
 function equirectMeters(aLat: number, aLon: number, bLat: number, bLon: number): number {
