@@ -590,6 +590,18 @@ export async function computeVelocityFromInputs(
 		.filter((p) => p.accuracy === null || p.accuracy <= 200)
 		.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon }));
 
+	// Display fixes for drawing road-vehicle legs from raw GPS (#265 Phase 1).
+	// Same accuracy ceiling as `gpsPoints` but derived from `cleaned`, i.e.
+	// BEFORE place-snap. Place-snap pulls a fix near a known cluster to that
+	// cluster's centroid — correct for stay detection, but on a moving leg
+	// that *passes* home/work it yanks the drawn line off the road to the
+	// centroid (measured: leg 0's first drive fix snapped ~63 m onto the home
+	// centroid, vs ~11 m for the true fix). The raw renderer wants where the
+	// phone actually was, quality-filtered but un-snapped.
+	const displayFixes = cleaned
+		.filter((p) => p.accuracy === null || p.accuracy <= 200)
+		.map((p) => ({ ts: p.ts, lat: p.lat, lon: p.lon, accuracy: p.accuracy }));
+
 	const points = timeSync("kalman", () => filterGpsTrack(gpsPoints));
 	const segments = timeSync("segments", () => classifySegments(points, stayPoints));
 
@@ -600,7 +612,7 @@ export async function computeVelocityFromInputs(
 		// reflects the raw segment sequence (sleep windows = empty,
 		// no rewrite).
 		const states = segmentsToDayStates(segments as EnrichedSegment[], []);
-		const episodes = buildEpisodes(states, segments as EnrichedSegment[], points);
+		const episodes = buildEpisodes(states, segments as EnrichedSegment[], points, displayFixes);
 		return { points, segments, states, episodes, battery, timing: phaseTimes };
 	}
 
@@ -1389,7 +1401,7 @@ export async function computeVelocityFromInputs(
 				points,
 				segments: withBiometrics,
 				states: inferred,
-				episodes: buildEpisodes(inferred, withBiometrics, points),
+				episodes: buildEpisodes(inferred, withBiometrics, points, displayFixes),
 				battery,
 				timing: phaseTimes,
 			};
@@ -1414,7 +1426,7 @@ export async function computeVelocityFromInputs(
 		points,
 		segments: withBiometrics,
 		states: finalStates,
-		episodes: buildEpisodes(finalStates, withBiometrics, points),
+		episodes: buildEpisodes(finalStates, withBiometrics, points, displayFixes),
 		battery,
 		timing: phaseTimes,
 	};

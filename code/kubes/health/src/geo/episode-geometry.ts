@@ -85,14 +85,25 @@ const ROAD_MATCH_MODES: ReadonlySet<string> = new Set(["driving", "bus", "cyclin
  * aware: the `unknown` connector reads the previous resolved episode and
  * the next state's entry point.
  */
+/** A raw GPS fix as captured (pre-Kalman). The road-vehicle drawn line uses
+ *  these directly rather than the Kalman-smoothed `points` — see the road
+ *  branch in `resolveEpisode`. */
+export interface RawFix {
+	ts: number;
+	lat: number;
+	lon: number;
+	accuracy?: number | null;
+}
+
 export function buildEpisodes(
 	states: readonly DayState[],
 	segments: readonly EnrichedSegment[],
 	points: readonly FilteredPoint[],
+	rawFixes?: readonly RawFix[],
 ): EpisodeGeometry[] {
 	const episodes: EpisodeGeometry[] = [];
 	for (let i = 0; i < states.length; i++) {
-		episodes.push(resolveEpisode(states[i], i, states, segments, points, episodes));
+		episodes.push(resolveEpisode(states[i], i, states, segments, points, episodes, rawFixes));
 	}
 	return episodes;
 }
@@ -104,6 +115,7 @@ function resolveEpisode(
 	segments: readonly EnrichedSegment[],
 	points: readonly FilteredPoint[],
 	resolved: readonly EpisodeGeometry[],
+	rawFixes?: readonly RawFix[],
 ): EpisodeGeometry {
 	const mode = state.mode;
 	const base = { startTs: state.startTs, endTs: state.endTs, mode };
@@ -157,6 +169,21 @@ function resolveEpisode(
 			?.filter((mp) => mp.ts >= state.startTs && mp.ts <= state.endTs)
 			.map((mp) => ({ lat: mp.lat, lon: mp.lon, ts: mp.ts }));
 		if (matched && matched.length >= 2) return { ...base, kind: "matched", points: matched };
+
+		// Unmatched road-vehicle leg (driving / bus / cycling): draw the RAW
+		// GPS fixes, not the Kalman-smoothed `points`. Measured (position eval,
+		// #265 Phase 1): on these legs the Kalman coasts on a noisy low-speed
+		// velocity and swings the line up to ~75 m off the reliable GPS, while
+		// the raw fixes sit within ~5 m of where the phone actually was — the
+		// road-blind smoother makes good data worse here. (Walking / plane keep
+		// the smoothed `points`; rawFixes absent — e.g. legacy callers, tests —
+		// also keeps the smoothed path.) rejectSpikes drops lone teleports.
+		if (rawFixes && ROAD_MATCH_MODES.has(mode)) {
+			const rawWin = rejectSpikes(samplesInWindow(rawFixes, state));
+			if (rawWin.length >= 2) {
+				return { ...base, kind: "raw", points: rawWin.map((p) => ({ lat: p.lat, lon: p.lon, ts: p.ts })) };
+			}
+		}
 
 		// Speed-plausibility filter THEN geometric spike rejection. The
 		// filter drops a faster neighbour's fixes that bled across the
@@ -249,9 +276,9 @@ function equirectMeters(aLat: number, aLon: number, bLat: number, bLon: number):
  * here from the frontend `map.component`, which used to do this; the
  * geometry layer now owns it so both renderers cannot diverge.)
  */
-export function rejectSpikes(pts: readonly FilteredPoint[]): FilteredPoint[] {
+export function rejectSpikes<T extends { lat: number; lon: number }>(pts: readonly T[]): T[] {
 	if (pts.length < 3) return [...pts];
-	const keep: FilteredPoint[] = [pts[0]];
+	const keep: T[] = [pts[0]];
 	for (let i = 1; i < pts.length - 1; i++) {
 		const prev = keep[keep.length - 1];
 		const cur = pts[i];
