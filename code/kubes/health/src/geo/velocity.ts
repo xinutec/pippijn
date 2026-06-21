@@ -72,6 +72,7 @@ import {
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proximity.js";
+import { annotateRoadMatches } from "./road-match-annotate.js";
 import { effectiveMode, samplesInWindow } from "./segment-util.js";
 import type { TransportMode } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints, isStationaryIncoherent } from "./segments.js";
@@ -1202,6 +1203,17 @@ export async function computeVelocityFromInputs(
 		{
 			name: "busRoutes",
 			run: (segs) => annotateBusRoutes(segs, points, inputs.busRouteCache ?? []),
+		},
+
+		// Road map-matching (#261): snap each road-vehicle leg (driving / bus /
+		// cycling) onto the OSM street network so the map draws it on the road
+		// instead of the raw GPS zigzag through buildings. Runs after all mode
+		// refinement so it only matches the final road legs. Purely additive —
+		// attaches `matchedPath`; with no road data (fixtures predating #261, or
+		// a leg the matcher can't place) it is a no-op and the raw track draws.
+		{
+			name: "roadMatch",
+			run: (segs) => annotateRoadMatches(segs, points, inputs.osm),
 		},
 
 		// Per-segment displayTz: the IANA tz the frontend should use to render

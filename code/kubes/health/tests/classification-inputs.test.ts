@@ -97,5 +97,6 @@ function stubOsmAdapter(): OsmAdapter {
 		reverseGeocode: unreached,
 		nearbyTransitStops: unreached,
 		stationsOnLine: unreached,
+		drivableRoads: unreached,
 	};
 }

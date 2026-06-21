@@ -30,6 +30,7 @@
 
 import { type Station, stationsOnLine } from "./line-stations.js";
 import {
+	drivableRoads,
 	linesAtPoint,
 	type NearbyLandmark,
 	type NearbyStation,
@@ -42,6 +43,7 @@ import {
 	nearbyWays,
 	reverseGeocode,
 } from "./osm.js";
+import type { OsmRoadWay } from "./road-match.js";
 
 /** The OSM + Nominatim lookups the classification pipeline reads.
  *
@@ -59,6 +61,8 @@ export interface OsmAdapter {
 	nearbyTransitStops(lat: number, lon: number, radiusM?: number): Promise<NearbyTransitStop[]>;
 	/** All stations along a named rail line (task #222). */
 	stationsOnLine(lineName: string): Promise<Station[]>;
+	/** Drivable street geometry near a point for road map-matching (#261). */
+	drivableRoads(lat: number, lon: number, radiusM?: number): Promise<OsmRoadWay[]>;
 }
 
 /** Production adapter: delegate to the existing top-level functions
@@ -73,4 +77,5 @@ export const dbOsmAdapter: OsmAdapter = {
 	reverseGeocode,
 	nearbyTransitStops,
 	stationsOnLine,
+	drivableRoads,
 };

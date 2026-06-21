@@ -20,6 +20,7 @@ import type { Station } from "./line-stations.js";
 import type { NearbyLandmark, NearbyStation, NearbyTransitStop, NearbyWay, NominatimResult } from "./osm.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import type { OsmTrace } from "./osm-adapter-recording.js";
+import type { OsmRoadWay } from "./road-match.js";
 
 function key3(lat: number, lon: number, third: number | undefined): string {
 	return `${lat}|${lon}|${third ?? ""}`;
@@ -94,6 +95,20 @@ export class FixtureOsmAdapter implements OsmAdapter {
 		const result = section[lineName];
 		if (result === undefined) {
 			throw new Error(`FixtureOsmAdapter: uncaptured stationsOnLine(${lineName}) — re-capture required`);
+		}
+		return result;
+	}
+
+	async drivableRoads(lat: number, lon: number, radiusM?: number): Promise<OsmRoadWay[]> {
+		// Fixtures captured before task #261 have no road section at all —
+		// replay them as "no road data" so the matcher falls back to the raw
+		// track and old goldens are byte-unchanged. A PRESENT section with a
+		// missing key is the normal uncaptured-query error.
+		const section = this.trace.drivableRoads;
+		if (section === undefined) return [];
+		const result = section[key3(lat, lon, radiusM)];
+		if (result === undefined) {
+			throw new Error(`FixtureOsmAdapter: uncaptured drivableRoads(${lat}, ${lon}, ${radiusM}) — re-capture required`);
 		}
 		return result;
 	}

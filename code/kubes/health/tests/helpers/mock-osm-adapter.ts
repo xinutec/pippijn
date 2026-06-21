@@ -25,6 +25,7 @@ import type {
 	NominatimResult,
 } from "../../src/geo/osm.js";
 import type { OsmAdapter } from "../../src/geo/osm-adapter.js";
+import type { OsmRoadWay } from "../../src/geo/road-match.js";
 
 /** A recorded invocation of an adapter primitive. */
 export interface RecordedCall<Args extends readonly unknown[]> {
@@ -44,6 +45,7 @@ export interface MockOsmAdapterOptions {
 	reverseGeocode?: Stub<[number, number, number | undefined], NominatimResult | null>;
 	nearbyTransitStops?: Stub<[number, number, number | undefined], NearbyTransitStop[]>;
 	stationsOnLine?: Stub<[string], Station[]>;
+	drivableRoads?: Stub<[number, number, number | undefined], OsmRoadWay[]>;
 }
 
 export interface MockOsmAdapter extends OsmAdapter {
@@ -55,6 +57,7 @@ export interface MockOsmAdapter extends OsmAdapter {
 		reverseGeocode: Array<RecordedCall<[number, number, number | undefined]>>;
 		nearbyTransitStops: Array<RecordedCall<[number, number, number | undefined]>>;
 		stationsOnLine: Array<RecordedCall<[string]>>;
+		drivableRoads: Array<RecordedCall<[number, number, number | undefined]>>;
 	};
 }
 
@@ -71,6 +74,7 @@ export function mockOsmAdapter(options: MockOsmAdapterOptions = {}): MockOsmAdap
 		reverseGeocode: [],
 		nearbyTransitStops: [],
 		stationsOnLine: [],
+		drivableRoads: [],
 	};
 	return {
 		calls,
@@ -101,6 +105,10 @@ export function mockOsmAdapter(options: MockOsmAdapterOptions = {}): MockOsmAdap
 		async stationsOnLine(lineName) {
 			calls.stationsOnLine.push({ args: [lineName] });
 			return options.stationsOnLine?.(lineName) ?? [];
+		},
+		async drivableRoads(lat, lon, radiusM) {
+			calls.drivableRoads.push({ args: [lat, lon, radiusM] });
+			return options.drivableRoads?.(lat, lon, radiusM) ?? [];
 		},
 	};
 }

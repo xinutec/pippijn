@@ -66,6 +66,7 @@ import streamArray from "stream-json/streamers/stream-array.js";
 import { db } from "../db/pool.js";
 import { overpassFetch } from "./osm-overpass.js";
 import type { OsmLine, OsmStation, RailGeometry } from "./rail-snap.js";
+import type { OsmRoadWay } from "./road-match.js";
 
 /** A coverage row as read from the DB. */
 export interface CoverageRow {
@@ -861,4 +862,63 @@ export async function queryRailCorridor(fixes: Array<{ lat: number; lon: number 
 	}
 
 	return { lines, wayRoutes: [], stations };
+}
+
+/** Drivable highway subtypes the road map-matcher routes over. Kept in
+ *  sync with `DRIVABLE_HIGHWAY_SUBTYPES` in `rail-road-proximity.ts` — a
+ *  local copy avoids an import cycle (rail-road-proximity → osm → osm-local).
+ *  Pedestrian / cycleway are excluded; a car / bus did not drive them. */
+const DRIVABLE_ROAD_SUBTYPES = [
+	"motorway",
+	"trunk",
+	"primary",
+	"secondary",
+	"tertiary",
+	"residential",
+	"service",
+	"unclassified",
+	"track",
+	"living_street",
+];
+
+/** Margin (m) around a road leg's fixes when reading its street network —
+ *  enough that the carriageway and the streets either side of a scattered
+ *  fix fall inside the box. Tighter than the rail corridor (roads are
+ *  dense and a road leg is local, not a cross-city rail run). */
+const ROAD_CORRIDOR_MARGIN_M = 400;
+
+/**
+ * Read the drivable street geometry around a point from the local OSM
+ * mirror — the self-contained {@link OsmRoadWay} bundle the road
+ * map-matcher (`road-match.ts`) routes a driving / bus leg onto.
+ *
+ * A box of `radiusM` (+ {@link ROAD_CORRIDOR_MARGIN_M}) around the point is
+ * MBR-filtered against the spatial index, so this is a local query (a leg
+ * spans ~1–2 km), not the heavy cross-city scan `queryRailCorridor` warns
+ * about. No network: the mirror is already populated for travelled areas by
+ * the classification pipeline.
+ */
+export async function queryDrivableRoads(lat: number, lon: number, radiusM: number): Promise<OsmRoadWay[]> {
+	const dLat = (radiusM + ROAD_CORRIDOR_MARGIN_M) / 111_320;
+	const dLon = (radiusM + ROAD_CORRIDOR_MARGIN_M) / (111_320 * Math.cos((lat * Math.PI) / 180));
+	const bbox: CorridorBbox = { minLat: lat - dLat, maxLat: lat + dLat, minLon: lon - dLon, maxLon: lon + dLon };
+	const poly = bboxPolygonWkt(bbox);
+
+	const rows = (
+		await sql<{ osm_id: bigint; name: string | null; subtype: string | null; wkt: string }>`
+			SELECT osm_id, name, subtype, ST_AsText(geom) AS wkt
+			FROM osm_lines
+			WHERE feature_type = 'highway'
+			  AND subtype IN (${sql.join(DRIVABLE_ROAD_SUBTYPES)})
+			  AND MBRIntersects(geom, ST_GeomFromText(${poly}, 4326))
+			LIMIT 20000
+		`.execute(db())
+	).rows;
+
+	const ways: OsmRoadWay[] = [];
+	for (const r of rows) {
+		const coords = parseLineStringWkt(r.wkt);
+		if (coords.length >= 2) ways.push({ osmId: Number(r.osm_id), name: r.name, subtype: r.subtype, coords });
+	}
+	return ways;
 }

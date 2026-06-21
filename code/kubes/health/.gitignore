@@ -29,3 +29,8 @@ tests/fixtures/focusplaces/
 # by the route-aware decoder acceptance test. Real London coords —
 # local only. Captured by capture-route-graph-fixture.js.
 tests/fixtures/route-graphs/
+
+# Road-match fixtures: a real day frozen with its raw fixes, classified
+# road-vehicle segments, and the OSM drivable-road geometry around them.
+# Real coords / journeys — local only. Captured by capture-roadmatch-fixture.js.
+tests/fixtures/roadmatch/

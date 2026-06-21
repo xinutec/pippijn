@@ -36,6 +36,13 @@ export interface EnrichedSegment extends TrackSegment {
 	displayTz?: string; // IANA tz to render the segment's timestamps in (frontend uses this instead of browser tz)
 	biometrics?: BiometricEnrichment;
 	snappedPath?: SnappedPoint[]; // derived: this train segment drawn on the OSM rail track — see annotateSnappedPaths
+	/** Derived: this road-vehicle leg (driving / bus / cycling) snapped onto
+	 *  the OSM street network so the map draws it on the road instead of the
+	 *  raw GPS zigzag through buildings. Attached by `annotateRoadMatches`
+	 *  (#261); `undefined` when the leg could not be confidently matched, in
+	 *  which case the map falls back to the raw track. Each point carries an
+	 *  interpolated timestamp like `snappedPath`. */
+	matchedPath?: SnappedPoint[];
 	/** Fraction of the moving segment's sampled points whose nearest
 	 *  drivable road is closer than any rail-only way (a sample with a
 	 *  road but no rail in range counts as road-nearest — there is no

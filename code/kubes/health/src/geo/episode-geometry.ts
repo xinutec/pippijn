@@ -69,6 +69,11 @@ const STATION_STITCH_MIN_M = 100;
 
 const MOVING_MODES: ReadonlySet<DayStateMode> = new Set(["walking", "cycling", "driving", "bus", "plane"]);
 
+/** Road-vehicle modes eligible for road map-matching (`kind:"matched"`).
+ *  Walking (often off-carriageway pavement) and plane are excluded — the
+ *  matcher routes only over drivable ways. See `annotateRoadMatches`. */
+const ROAD_MATCH_MODES: ReadonlySet<string> = new Set(["driving", "bus", "cycling"]);
+
 /**
  * Resolve a display geometry for every `DayState`, in order. Sequence-
  * aware: the `unknown` connector reads the previous resolved episode and
@@ -135,6 +140,18 @@ function resolveEpisode(
 	}
 
 	if (MOVING_MODES.has(mode)) {
+		// Road map-matching (#261): a road-vehicle leg (driving / bus /
+		// cycling) whose covering segment carries a `matchedPath` draws on the
+		// OSM streets instead of the raw GPS — clipped to the state window. The
+		// raw track scattered off the carriageway and cut corners through
+		// buildings; the matched path follows the road. Falls through to raw
+		// when unmatched (sparse leg, off-network, or fixtures predating #261).
+		const roadSeg = covering.find((s) => (s.matchedPath?.length ?? 0) >= 2 && ROAD_MATCH_MODES.has(effectiveMode(s)));
+		const matched = roadSeg?.matchedPath
+			?.filter((mp) => mp.ts >= state.startTs && mp.ts <= state.endTs)
+			.map((mp) => ({ lat: mp.lat, lon: mp.lon }));
+		if (matched && matched.length >= 2) return { ...base, kind: "matched", points: matched };
+
 		// Speed-plausibility filter THEN geometric spike rejection. The
 		// filter drops a faster neighbour's fixes that bled across the
 		// boundary (e.g. a decelerating train's tail landing inside the

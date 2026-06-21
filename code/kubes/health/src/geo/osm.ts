@@ -25,8 +25,9 @@ import type { TransportMode } from "./segments.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
-import { ensureCovered, queryLines, queryPoints } from "./osm-local.js";
+import { ensureCovered, queryDrivableRoads, queryLines, queryPoints } from "./osm-local.js";
 import { USER_AGENT } from "./osm-overpass.js";
+import type { OsmRoadWay } from "./road-match.js";
 import { rankVenues, type StayShape, VENUE_RANK_FLOOR_NATS, type VenuePriors } from "./venue-prior.js";
 
 /**
@@ -979,6 +980,19 @@ export async function nearbyWays(lat: number, lon: number, radiusM = 50): Promis
 	for (const f of aerowayPoints)
 		ways.push({ type: "aeroway", subtype: f.subtype ?? "", name: f.name ?? undefined, distanceM: f.distance_m });
 	return ways;
+}
+
+/**
+ * Drivable street geometry within `radiusM` of a point — the full
+ * `OsmRoadWay` polylines the road map-matcher (`road-match.ts`) routes a
+ * driving / bus leg onto. Ensures the local mirror covers the area (one
+ * Overpass fetch on a cold miss, indexed SQL otherwise), then reads the
+ * geometry. Unlike `nearbyWays`, which returns only distances, this carries
+ * the ordered coordinates the matcher needs.
+ */
+export async function drivableRoads(lat: number, lon: number, radiusM = 600): Promise<OsmRoadWay[]> {
+	await ensureCovered(lat, lon, radiusM, "highway");
+	return queryDrivableRoads(lat, lon, radiusM);
 }
 
 /**

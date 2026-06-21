@@ -31,6 +31,7 @@
 import type { Station } from "./line-stations.js";
 import type { NearbyLandmark, NearbyStation, NearbyTransitStop, NearbyWay, NominatimResult } from "./osm.js";
 import type { OsmAdapter } from "./osm-adapter.js";
+import type { OsmRoadWay } from "./road-match.js";
 
 /** Captured (args → result) pairs for one classification-pipeline run.
  *
@@ -55,6 +56,11 @@ export interface OsmTrace {
 	/** Keyed by line name. Optional: absent in fixtures captured before
 	 *  task #222; missing SECTION = no data, missing KEY = uncaptured. */
 	stationsOnLine?: Record<string, Station[]>;
+	/** Drivable road geometry for road map-matching (#261). Optional: absent
+	 *  in fixtures captured before #261 — missing SECTION = no road data (the
+	 *  matcher falls back to the raw track, so old goldens are unchanged),
+	 *  missing KEY in a present section = the usual uncaptured-query error. */
+	drivableRoads?: Record<string, OsmRoadWay[]>;
 }
 
 /** Build an empty trace. */
@@ -67,6 +73,7 @@ export function emptyOsmTrace(): OsmTrace {
 		reverseGeocode: {},
 		nearbyTransitStops: {},
 		stationsOnLine: {},
+		drivableRoads: {},
 	};
 }
 
@@ -122,6 +129,13 @@ export class RecordingOsmAdapter implements OsmAdapter {
 		const result = await this.inner.stationsOnLine(lineName);
 		if (!this.trace.stationsOnLine) this.trace.stationsOnLine = {};
 		this.trace.stationsOnLine[lineName] = result;
+		return result;
+	}
+
+	async drivableRoads(lat: number, lon: number, radiusM?: number): Promise<OsmRoadWay[]> {
+		const result = await this.inner.drivableRoads(lat, lon, radiusM);
+		if (!this.trace.drivableRoads) this.trace.drivableRoads = {};
+		this.trace.drivableRoads[key3(lat, lon, radiusM)] = result;
 		return result;
 	}
 }
