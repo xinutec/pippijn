@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { matchRoadSegment, projectPointToSegment, type RoadGeometry } from "../src/geo/road-match.js";
+import { fractionOffRoad, matchRoadSegment, projectPointToSegment, type RoadGeometry } from "../src/geo/road-match.js";
 
 /** An L of two streets meeting at a shared corner:
  *  - "Barn Rise"  runs W→E along lat 51.5600, lon -0.2900 → -0.2800
@@ -92,6 +92,26 @@ describe("projectPointToSegment", () => {
 		const r = projectPointToSegment({ lat: 51.56, lon: -0.3 }, a, b);
 		expect(r.t).toBe(0);
 		expect(Math.abs(r.lon - -0.29)).toBeLessThan(1e-9);
+	});
+});
+
+describe("fractionOffRoad (confidence gate)", () => {
+	it("is near zero when the fixes already hug a road, high when they don't", () => {
+		// Fixes within a few metres of Barn Rise (lat 51.5600).
+		const onRoad = track([
+			[51.5601, -0.2895],
+			[51.5599, -0.288],
+			[51.5602, -0.286],
+		]);
+		expect(fractionOffRoad(onRoad, L_NETWORK, 25)).toBe(0);
+
+		// Fixes ~150 m north of any road in the L network.
+		const offRoad = track([
+			[51.5615, -0.2895],
+			[51.5615, -0.288],
+			[51.5615, -0.286],
+		]);
+		expect(fractionOffRoad(offRoad, L_NETWORK, 25)).toBe(1);
 	});
 });
 

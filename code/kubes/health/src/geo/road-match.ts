@@ -258,6 +258,36 @@ export function projectPointToSegment(p: Pt, a: Pt, b: Pt): { lat: number; lon: 
 	return { lat, lon, t, distM };
 }
 
+/**
+ * Fraction of `fixes` whose nearest road in `geo` is further than
+ * `thresholdM`. The confidence-gate signal for `annotateRoadMatches`: a low
+ * value means the raw GPS already hugs the road network, so map-matching it
+ * risks nudging it onto a parallel road for no gain; a high value means the
+ * raw track is genuinely off-road ("through the buildings") and benefits from
+ * snapping. Pure; O(fixes × road segments), fine for a single leg.
+ */
+export function fractionOffRoad(fixes: readonly RoadFix[], geo: RoadGeometry, thresholdM: number): number {
+	if (fixes.length === 0) return 0;
+	let off = 0;
+	for (const f of fixes) {
+		let best = Number.POSITIVE_INFINITY;
+		for (const w of geo.ways) {
+			for (let i = 1; i < w.coords.length; i++) {
+				const d = projectPointToSegment(
+					f,
+					{ lat: w.coords[i - 1][0], lon: w.coords[i - 1][1] },
+					{ lat: w.coords[i][0], lon: w.coords[i][1] },
+				).distM;
+				if (d < best) best = d;
+				if (best <= thresholdM) break;
+			}
+			if (best <= thresholdM) break;
+		}
+		if (best > thresholdM) off++;
+	}
+	return off / fixes.length;
+}
+
 /** Drivable highway subtypes — duplicated from `rail-road-proximity.ts`'s
  *  `DRIVABLE_HIGHWAY_SUBTYPES` deliberately to keep this module
  *  dependency-free and self-contained; the caller filters with the shared

@@ -21,7 +21,7 @@ import { rejectSpikes } from "./episode-geometry.js";
 import type { FilteredPoint } from "./kalman.js";
 import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
-import { matchRoadSegment, type RoadFix } from "./road-match.js";
+import { fractionOffRoad, matchRoadSegment, type RoadFix } from "./road-match.js";
 import { effectiveMode, samplesInWindow } from "./segment-util.js";
 
 /** Effective modes drawn as a raw road polyline today — the legs this pass
@@ -35,6 +35,16 @@ const MIN_LEG_FIXES = 4;
 /** Slack (m) added to a leg's fix-cloud radius when reading its street
  *  network, so the roads just past the leg's extent are included. */
 const ROAD_QUERY_SLACK_M = 150;
+
+/** Confidence gate. Map-matching only helps when the raw GPS is genuinely off
+ *  the road network (the "through the buildings" case). When the raw track
+ *  already hugs roads, snapping it can only nudge the line onto a *parallel*
+ *  road and make good data worse (observed: a leg with raw fixes ≤8 m from
+ *  roads got moved up to 60 m onto the wrong road). So a leg is map-matched
+ *  only when at least {@link MIN_OFFROAD_FRACTION} of its fixes are more than
+ *  {@link NEEDS_MATCH_M} from any road; otherwise the raw track is drawn. */
+const NEEDS_MATCH_M = 25;
+const MIN_OFFROAD_FRACTION = 0.3;
 
 function metersBetween(aLat: number, aLon: number, bLat: number, bLon: number): number {
 	const dLat = (bLat - aLat) * 111_320;
@@ -99,6 +109,15 @@ export async function annotateRoadMatches(
 		}
 
 		const fixes: RoadFix[] = clean.map((p) => ({ lat: p.lat, lon: p.lon, ts: p.ts }));
+
+		// Confidence gate: only map-match when the raw GPS is genuinely off the
+		// roads. If it already hugs them, the raw track is the faithful one —
+		// matching would risk snapping it onto a parallel road.
+		if (fractionOffRoad(fixes, { ways }, NEEDS_MATCH_M) < MIN_OFFROAD_FRACTION) {
+			out.push(seg);
+			continue;
+		}
+
 		const result = matchRoadSegment(fixes, { ways });
 		out.push(result ? { ...seg, matchedPath: result.path } : seg);
 	}
