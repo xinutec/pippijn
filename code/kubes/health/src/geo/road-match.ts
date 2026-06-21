@@ -149,6 +149,15 @@ const CORRIDOR_NEAR_M = 25;
 const CORRIDOR_FAR_M = 80;
 const CORRIDOR_MAX_PENALTY = 40;
 
+/** Road-continuity (turn) penalty, in nats, applied to a Viterbi transition
+ *  whose two fixes snap to differently-named roads. A genuine turn pays it
+ *  once; a lone GPS fix that jumps onto a side street and back pays it twice
+ *  (in and out), so a single scattered fix can no longer drag the route off
+ *  the road its neighbours are on. Sized to outweigh the emission gain of a
+ *  ~40 m-off lone fix (~5–9 nats over two switches) without blocking a real
+ *  turn (one switch, demanded by far-off fixes). */
+const ROAD_SWITCH_PENALTY = 5;
+
 /** Douglas-Peucker tolerance (m) for simplifying the final matched polyline.
  *  The route emits every OSM way vertex, so it zig-zags across junction
  *  geometry even while staying within metres of the track; simplifying at
@@ -241,6 +250,10 @@ interface RoadSegment {
 	u: number; // graph vertex id of coords[i-1]
 	v: number; // graph vertex id of coords[i]
 	lengthM: number;
+	/** Name of the OSM way this segment belongs to — the road-continuity
+	 *  prior compares consecutive fixes' road names (a road keeps its name
+	 *  across its many OSM ways; a turn onto a side street changes it). */
+	wayName: string | null;
 }
 
 interface RoadGraph {
@@ -291,7 +304,7 @@ function buildRoadGraph(ways: readonly OsmRoadWay[], corridor: TrackCorridor): R
 				// `lengthM` is the raw metric length (candidate offsets + the
 				// physical route length reported to the transition model).
 				addEdge(prev, id, corridor.edgeWeight(prevLat, prevLon, lat, lon));
-				segments.push({ u: prev, v: id, lengthM: metersBetween(prevLat, prevLon, lat, lon) });
+				segments.push({ u: prev, v: id, lengthM: metersBetween(prevLat, prevLon, lat, lon), wayName: way.name });
 			}
 			prev = id;
 			prevLat = lat;
@@ -706,7 +719,13 @@ export function matchRoadSegment(
 				rrow.push(route);
 				if (route === null) continue;
 				const trans = -Math.abs(route.distM - gpsStep) / BETA;
-				const s = score[t - 1][i] + trans + emission(cur.cands[j].distM);
+				// Road-continuity prior: discourage the matched road changing
+				// name between consecutive fixes, so a lone scattered fix can't
+				// pull the route onto a side street and back.
+				const wa = prev.cands[i].seg.wayName;
+				const wb = cur.cands[j].seg.wayName;
+				const switchPen = wa && wb && wa !== wb ? ROAD_SWITCH_PENALTY : 0;
+				const s = score[t - 1][i] + trans - switchPen + emission(cur.cands[j].distM);
 				if (s > bestScore) {
 					bestScore = s;
 					bestPrev = i;
