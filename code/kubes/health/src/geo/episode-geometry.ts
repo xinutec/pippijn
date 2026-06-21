@@ -170,15 +170,18 @@ function resolveEpisode(
 			.map((mp) => ({ lat: mp.lat, lon: mp.lon, ts: mp.ts }));
 		if (matched && matched.length >= 2) return { ...base, kind: "matched", points: matched };
 
-		// Unmatched road-vehicle leg (driving / bus / cycling): draw the RAW
-		// GPS fixes, not the Kalman-smoothed `points`. Measured (position eval,
-		// #265 Phase 1): on these legs the Kalman coasts on a noisy low-speed
-		// velocity and swings the line up to ~75 m off the reliable GPS, while
-		// the raw fixes sit within ~5 m of where the phone actually was — the
-		// road-blind smoother makes good data worse here. (Walking / plane keep
-		// the smoothed `points`; rawFixes absent — e.g. legacy callers, tests —
-		// also keeps the smoothed path.) rejectSpikes drops lone teleports.
-		if (rawFixes && ROAD_MATCH_MODES.has(mode)) {
+		// Unmatched moving leg (walking / cycling / driving / bus / plane):
+		// draw the RAW GPS fixes, not the Kalman-smoothed `points`. Measured
+		// (position eval, #265 Phase 1): the road-blind smoother makes good data
+		// worse two ways. On a road leg it coasts on a noisy low-speed velocity
+		// and swings the line up to ~75 m off the reliable GPS; on a walk it
+		// both pulls a point off the path AND *truncates* — its point count
+		// trails the raw fixes, so the line stops short of the leg's end and the
+		// map bridges the gap with a straight chord through buildings. The raw
+		// fixes sit within a few metres of where the phone actually was and run
+		// the full length of the leg. (rawFixes absent — legacy callers, tests
+		// — keeps the smoothed path.) rejectSpikes drops lone teleports.
+		if (rawFixes) {
 			const rawWin = rejectSpikes(samplesInWindow(rawFixes, state));
 			if (rawWin.length >= 2) {
 				return { ...base, kind: "raw", points: rawWin.map((p) => ({ lat: p.lat, lon: p.lon, ts: p.ts })) };
