@@ -136,9 +136,69 @@ const MAX_LEN_SLACK_M = 200;
  *  — bail rather than match a sparse subset. */
 const MAX_ROADLESS_FRACTION = 0.4;
 
+/** Corridor penalty (the rail-snap fix `road-match` originally shipped
+ *  without). An edge within {@link CORRIDOR_NEAR_M} of the GPS track the
+ *  leg actually traced routes unpenalised; beyond {@link CORRIDOR_FAR_M} it
+ *  carries the full {@link CORRIDOR_MAX_PENALTY} multiplier; it ramps
+ *  linearly between. This is what stops the router shortcutting down a side
+ *  street the GPS never approached — a plain shortest-distance route happily
+ *  invents such a detour because no term pulls it back onto the track. NEAR
+ *  is sized to absorb urban GPS error; FAR is the "this road is clearly off
+ *  the driven corridor" bar. */
+const CORRIDOR_NEAR_M = 25;
+const CORRIDOR_FAR_M = 80;
+const CORRIDOR_MAX_PENALTY = 40;
+
+/** Douglas-Peucker tolerance (m) for simplifying the final matched polyline.
+ *  The route emits every OSM way vertex, so it zig-zags across junction
+ *  geometry even while staying within metres of the track; simplifying at
+ *  this tolerance drops that visual noise while preserving real corners
+ *  (which deviate far more than this from a straight chord). */
+const SIMPLIFY_TOLERANCE_M = 12;
+
 interface Pt {
 	lat: number;
 	lon: number;
+}
+
+/**
+ * The GPS track the leg actually traced — the ordered fixes as a polyline.
+ * Used to penalise routing that strays from where the phone really was:
+ * `distTo` is the perpendicular distance from a point to the nearest track
+ * segment, `penalty` ramps that into the Dijkstra edge-weight multiplier.
+ *
+ * The track (not the individual fix points) is the corridor on purpose: a
+ * through-road threaded by fixes 100-400 m apart stays within a few tens of
+ * metres of the straight segments joining them, while a branching side
+ * street leaves that line — so distance-to-track discriminates them even
+ * when the fixes are sparse, which distance-to-nearest-fix would not.
+ */
+class TrackCorridor {
+	private readonly pts: Pt[];
+	constructor(fixes: ReadonlyArray<{ lat: number; lon: number }>) {
+		this.pts = fixes.map((f) => ({ lat: f.lat, lon: f.lon }));
+	}
+	distTo(lat: number, lon: number): number {
+		if (this.pts.length === 0) return 0;
+		if (this.pts.length === 1) return metersBetween(lat, lon, this.pts[0].lat, this.pts[0].lon);
+		let best = Number.POSITIVE_INFINITY;
+		for (let i = 1; i < this.pts.length; i++) {
+			const d = projectPointToSegment({ lat, lon }, this.pts[i - 1], this.pts[i]).distM;
+			if (d < best) best = d;
+		}
+		return best;
+	}
+	penalty(distM: number): number {
+		if (distM <= CORRIDOR_NEAR_M) return 1;
+		if (distM >= CORRIDOR_FAR_M) return CORRIDOR_MAX_PENALTY;
+		return 1 + (CORRIDOR_MAX_PENALTY - 1) * ((distM - CORRIDOR_NEAR_M) / (CORRIDOR_FAR_M - CORRIDOR_NEAR_M));
+	}
+	/** Penalised weight of a graph edge: its metric length times the
+	 *  corridor penalty at its midpoint. Dijkstra minimises this. */
+	edgeWeight(aLat: number, aLon: number, bLat: number, bLon: number): number {
+		const len = metersBetween(aLat, aLon, bLat, bLon);
+		return len * this.penalty(this.distTo((aLat + bLat) / 2, (aLon + bLon) / 2));
+	}
 }
 
 /** Equirectangular metres between two lat/lon points — accurate enough at
@@ -197,7 +257,7 @@ interface RoadGraph {
  * edges are consecutive node pairs within a way plus gap-bridge edges
  * between nearby vertices of different ways.
  */
-function buildRoadGraph(ways: readonly OsmRoadWay[]): RoadGraph {
+function buildRoadGraph(ways: readonly OsmRoadWay[], corridor: TrackCorridor): RoadGraph {
 	const vertices: Pt[] = [];
 	const adj: Array<Array<{ to: number; w: number }>> = [];
 	const segments: RoadSegment[] = [];
@@ -227,9 +287,11 @@ function buildRoadGraph(ways: readonly OsmRoadWay[]): RoadGraph {
 		for (const [lat, lon] of way.coords) {
 			const id = vertexId(lat, lon);
 			if (prev >= 0 && id !== prev) {
-				const w = metersBetween(prevLat, prevLon, lat, lon);
-				addEdge(prev, id, w);
-				segments.push({ u: prev, v: id, lengthM: w });
+				// Edge weight is corridor-penalised (routing cost); the segment's
+				// `lengthM` is the raw metric length (candidate offsets + the
+				// physical route length reported to the transition model).
+				addEdge(prev, id, corridor.edgeWeight(prevLat, prevLon, lat, lon));
+				segments.push({ u: prev, v: id, lengthM: metersBetween(prevLat, prevLon, lat, lon) });
 			}
 			prev = id;
 			prevLat = lat;
@@ -237,14 +299,14 @@ function buildRoadGraph(ways: readonly OsmRoadWay[]): RoadGraph {
 		}
 	}
 
-	bridgeGaps(vertices, adj);
+	bridgeGaps(vertices, adj, corridor);
 	return { vertices, adj, segments };
 }
 
 /** Add edges between vertices of different ways within {@link GAP_BRIDGE_M}
  *  that do not share an OSM node. Candidate pairs come from a coarse grid
  *  hash so this stays linear in vertex count. Mirrors rail-snap. */
-function bridgeGaps(vertices: Pt[], adj: Array<Array<{ to: number; w: number }>>): void {
+function bridgeGaps(vertices: Pt[], adj: Array<Array<{ to: number; w: number }>>, corridor: TrackCorridor): void {
 	if (vertices.length === 0) return;
 	const cellLat = GAP_BRIDGE_M / 111_320;
 	const midLat = vertices[0].lat;
@@ -269,8 +331,9 @@ function bridgeGaps(vertices: Pt[], adj: Array<Array<{ to: number; w: number }>>
 					const gap = metersBetween(v.lat, v.lon, vertices[j].lat, vertices[j].lon);
 					if (gap > GAP_BRIDGE_M) continue;
 					if (adj[i].some((e) => e.to === j)) continue;
-					adj[i].push({ to: j, w: gap });
-					adj[j].push({ to: i, w: gap });
+					const w = corridor.edgeWeight(v.lat, v.lon, vertices[j].lat, vertices[j].lon);
+					adj[i].push({ to: j, w });
+					adj[j].push({ to: i, w });
 				}
 			}
 		}
@@ -468,7 +531,14 @@ function routeBetween(
 		};
 	}
 
-	let best: { distM: number; verts: Pt[] } | null = null;
+	// Choose the endpoint combination by penalised routing COST (so the route
+	// hugs the GPS corridor), but report the physical metric length — the
+	// transition model compares it to the straight-line GPS step, which is
+	// metric. `weighted` mixes the penalised Dijkstra distance with metric
+	// on-segment offsets; the offsets are short partials on the candidates'
+	// own segments (sat on the GPS track, penalty ≈ 1), so the approximation
+	// is immaterial to which combination wins.
+	let best: { weighted: number; verts: Pt[] } | null = null;
 	const aEnds: Array<{ vid: number; offset: number }> = [
 		{ vid: a.seg.u, offset: a.t * a.seg.lengthM },
 		{ vid: a.seg.v, offset: (1 - a.t) * a.seg.lengthM },
@@ -482,8 +552,8 @@ function routeBetween(
 		for (const be of bEnds) {
 			const mid = dist[be.vid];
 			if (!Number.isFinite(mid)) continue;
-			const total = ae.offset + mid + be.offset;
-			if (best && total >= best.distM) continue;
+			const weighted = ae.offset + mid + be.offset;
+			if (best && weighted >= best.weighted) continue;
 			// Reconstruct the vertex path ae.vid → be.vid.
 			const idPath: number[] = [];
 			for (let v = be.vid; v !== -1; v = prev[v]) idPath.push(v);
@@ -492,10 +562,10 @@ function routeBetween(
 			const verts: Pt[] = [{ lat: a.lat, lon: a.lon }];
 			for (const vid of idPath) verts.push(graph.vertices[vid]);
 			verts.push({ lat: b.lat, lon: b.lon });
-			best = { distM: total, verts: dedupeConsecutive(verts) };
+			best = { weighted, verts: dedupeConsecutive(verts) };
 		}
 	}
-	return best;
+	return best ? { distM: pathLength(best.verts), verts: best.verts } : null;
 }
 
 /** Drop consecutive near-duplicate vertices (a projection that lands on a
@@ -507,6 +577,44 @@ function dedupeConsecutive(pts: readonly Pt[]): Pt[] {
 		if (last && metersBetween(last.lat, last.lon, p.lat, p.lon) < 0.5) continue;
 		out.push(p);
 	}
+	return out;
+}
+
+/**
+ * Douglas-Peucker simplification of a timestamped polyline: drop vertices
+ * within {@link SIMPLIFY_TOLERANCE_M} of the line joining the retained
+ * neighbours. Endpoints are always kept. Removes the junction zig-zag the
+ * raw route emits (every OSM vertex) while preserving real corners, which
+ * deviate far more than the tolerance from a straight chord. Retained
+ * vertices keep their interpolated timestamps, so the result stays
+ * monotonic and window-anchored.
+ */
+function simplifyPath(pts: readonly MatchedPoint[], toleranceM: number): MatchedPoint[] {
+	if (pts.length <= 2) return [...pts];
+	const keep = new Uint8Array(pts.length);
+	keep[0] = 1;
+	keep[pts.length - 1] = 1;
+	const stack: Array<[number, number]> = [[0, pts.length - 1]];
+	while (stack.length > 0) {
+		const seg = stack.pop();
+		if (seg === undefined) break;
+		const [a, b] = seg;
+		let maxd = -1;
+		let idx = -1;
+		for (let i = a + 1; i < b; i++) {
+			const d = projectPointToSegment(pts[i], pts[a], pts[b]).distM;
+			if (d > maxd) {
+				maxd = d;
+				idx = i;
+			}
+		}
+		if (maxd > toleranceM && idx > 0) {
+			keep[idx] = 1;
+			stack.push([a, idx], [idx, b]);
+		}
+	}
+	const out: MatchedPoint[] = [];
+	for (let i = 0; i < pts.length; i++) if (keep[i]) out.push(pts[i]);
 	return out;
 }
 
@@ -534,7 +642,11 @@ export function matchRoadSegment(
 	if (fixes.length < MIN_FIXES) return null;
 	const radiusM = opts.matchRadiusM ?? DEFAULT_MATCH_RADIUS_M;
 
-	const graph = buildRoadGraph(geo.ways);
+	// The GPS track is the routing corridor: edges are penalised by distance
+	// from it, so the route follows the road the phone traced rather than the
+	// geometrically-shortest path through any side street.
+	const corridor = new TrackCorridor(fixes);
+	const graph = buildRoadGraph(geo.ways, corridor);
 	if (graph.segments.length === 0) return null;
 
 	const index = new SegmentIndex(graph.vertices, graph.segments, radiusM, fixes[0].lat);
@@ -557,7 +669,13 @@ export function matchRoadSegment(
 		const d = metersBetween(obs[i - 1].fix.lat, obs[i - 1].fix.lon, obs[i].fix.lat, obs[i].fix.lon);
 		if (d > maxStep) maxStep = d;
 	}
-	const cache = new RouteCache(graph, maxStep * DETOUR_FACTOR + DETOUR_SLACK_M);
+	// Dijkstra runs on corridor-PENALISED edge weights, so its accumulated
+	// distance is up to CORRIDOR_MAX_PENALTY× the metric distance. Scale the
+	// early-termination radius by that factor so a legitimate corridor route
+	// is never cut for being "too long" in weighted units; implausible
+	// detours are still rejected by the penalty itself and the final
+	// length guard.
+	const cache = new RouteCache(graph, (maxStep * DETOUR_FACTOR + DETOUR_SLACK_M) * CORRIDOR_MAX_PENALTY);
 
 	// Viterbi. Score in log space; emission = −½(dist/σ)²,
 	// transition = −|routeDist − gpsStep|/β (− detour penalty implicit in the
@@ -635,12 +753,13 @@ export function matchRoadSegment(
 		appendInterpolated(out, route.verts, obs[t - 1].fix.ts, obs[t].fix.ts);
 	}
 
-	const matched = out.map((p) => ({ lat: p.lat, lon: p.lon }));
-	if (matched.length < 2) return null;
+	const simplified = simplifyPath(out, SIMPLIFY_TOLERANCE_M);
+	if (simplified.length < 2) return null;
+	const matched = simplified.map((p) => ({ lat: p.lat, lon: p.lon }));
 	const rawLen = pathLength(fixes.map((f) => ({ lat: f.lat, lon: f.lon })));
 	if (pathLength(matched) > rawLen * MAX_LEN_FACTOR + MAX_LEN_SLACK_M) return null;
 
-	return { path: out };
+	return { path: simplified };
 }
 
 /** Gaussian emission log-likelihood for a snap distance. */

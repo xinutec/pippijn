@@ -139,6 +139,50 @@ describe("matchRoadSegment", () => {
 		}
 	});
 
+	it("follows the GPS-traced road over a geometric shortcut, and simplifies junction noise", () => {
+		// Two roads join the same ends: "Bend" curves north, "Shortcut" runs
+		// straight (shorter). The GPS traced the Bend. A plain shortest-path
+		// matcher would be tempted by the Shortcut; the corridor penalty keeps
+		// the route on the road the GPS actually drove.
+		const network: RoadGeometry = {
+			ways: [
+				{
+					osmId: 10,
+					name: "Bend",
+					subtype: "tertiary",
+					coords: [
+						[51.5, 0.0],
+						[51.5016, 0.005],
+						[51.5, 0.01],
+					],
+				},
+				{
+					osmId: 11,
+					name: "Shortcut",
+					subtype: "residential",
+					coords: [
+						[51.5, 0.0],
+						[51.5, 0.01],
+					],
+				},
+			],
+		};
+		const fixes = track([
+			[51.5002, 0.0008],
+			[51.501, 0.0028],
+			[51.5016, 0.005],
+			[51.501, 0.0072],
+			[51.5002, 0.0092],
+		]);
+		const result = matchRoadSegment(fixes, network);
+		expect(result).not.toBeNull();
+		if (!result) return;
+		// Followed the Bend: some vertex sits well north of the Shortcut line.
+		expect(result.path.some((p) => p.lat > 51.5012)).toBe(true);
+		// Simplified: not one vertex per OSM node along the curve.
+		expect(result.path.length).toBeLessThanOrEqual(fixes.length + 2);
+	});
+
 	it("returns null for too few fixes to map-match", () => {
 		const fixes = [
 			{ lat: 51.56, lon: -0.289, ts: 1 },
