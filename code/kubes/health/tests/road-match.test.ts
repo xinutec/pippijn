@@ -183,6 +183,47 @@ describe("matchRoadSegment", () => {
 		expect(result.path.length).toBeLessThanOrEqual(fixes.length + 2);
 	});
 
+	it("does not duck into a dead-end cul-de-sac and back (routing spur)", () => {
+		// "Main Road" runs W→E; "Dead End" is a cul-de-sac hanging off its
+		// midpoint. The GPS drove straight along Main Road — no fix up the
+		// cul-de-sac — so the path must not detour into it and back.
+		const network: RoadGeometry = {
+			ways: [
+				{
+					osmId: 20,
+					name: "Main Road",
+					subtype: "residential",
+					coords: [
+						[51.5, 0.0],
+						[51.5, 0.004],
+						[51.5, 0.008],
+					],
+				},
+				{
+					osmId: 21,
+					name: "Dead End",
+					subtype: "service",
+					coords: [
+						[51.5, 0.004],
+						[51.5012, 0.004],
+					],
+				},
+			],
+		};
+		const fixes = track([
+			[51.5001, 0.0006],
+			[51.4999, 0.0021],
+			[51.5002, 0.0039],
+			[51.4999, 0.0058],
+			[51.5001, 0.0074],
+		]);
+		const result = matchRoadSegment(fixes, network);
+		expect(result).not.toBeNull();
+		if (!result) return;
+		// No vertex sits up the cul-de-sac (well north of Main Road).
+		expect(result.path.every((p) => p.lat < 51.5006)).toBe(true);
+	});
+
 	it("returns null for too few fixes to map-match", () => {
 		const fixes = [
 			{ lat: 51.56, lon: -0.289, ts: 1 },

@@ -158,6 +158,19 @@ const CORRIDOR_MAX_PENALTY = 40;
  *  turn (one switch, demanded by far-off fixes). */
 const ROAD_SWITCH_PENALTY = 5;
 
+/** A dead-end "spur" — the matched path leaving a point and returning to
+ *  within this distance of it — is collapsed away. It is the signature of a
+ *  routing artifact: the Viterbi route ducked into a cul-de-sac or short
+ *  side way and came straight back to the same junction, with no GPS fix out
+ *  there to justify it (the corridor/turn penalties can't catch it because
+ *  it is the *route geometry* between two on-road candidates, not a candidate
+ *  snap). A real journey doesn't leave a road and rejoin it at the identical
+ *  point. */
+const SPUR_RETURN_M = 25;
+/** Only collapse spurs up to this many vertices long — a short out-and-back,
+ *  not a genuine block-sized loop a driver might really make. */
+const SPUR_MAX_SPAN_VERTS = 4;
+
 /** Douglas-Peucker tolerance (m) for simplifying the final matched polyline.
  *  The route emits every OSM way vertex, so it zig-zags across junction
  *  geometry even while staying within metres of the track; simplifying at
@@ -631,6 +644,31 @@ function simplifyPath(pts: readonly MatchedPoint[], toleranceM: number): Matched
 	return out;
 }
 
+/**
+ * Remove dead-end out-and-back spurs: a vertex `i` from which the path
+ * departs and, within {@link SPUR_MAX_SPAN_VERTS} steps, returns to within
+ * {@link SPUR_RETURN_M} of `v[i]`. The excursion (and the near-duplicate
+ * return vertex) is dropped, leaving `v[i]` joined straight to what followed.
+ * This is the cul-de-sac / wrong-turn-and-back routing artifact the corridor
+ * and turn penalties cannot see, because it lives in the routed geometry
+ * between two legitimately on-road candidates, not in a candidate snap.
+ * Retained vertices keep their timestamps, so the result stays monotonic.
+ */
+function removeSpurs(pts: readonly MatchedPoint[], returnM: number, maxSpan: number): MatchedPoint[] {
+	const out = [...pts];
+	for (let i = 0; i < out.length - 2; i++) {
+		for (let j = Math.min(i + maxSpan, out.length - 1); j >= i + 2; j--) {
+			if (metersBetween(out[i].lat, out[i].lon, out[j].lat, out[j].lon) <= returnM) {
+				// Drop the excursion v[i+1..j] (keep v[i]); the return vertex is a
+				// near-duplicate of v[i], so it goes too.
+				out.splice(i + 1, j - i);
+				break;
+			}
+		}
+	}
+	return out;
+}
+
 /** Polyline length in metres. */
 function pathLength(pts: readonly Pt[]): number {
 	let total = 0;
@@ -772,13 +810,13 @@ export function matchRoadSegment(
 		appendInterpolated(out, route.verts, obs[t - 1].fix.ts, obs[t].fix.ts);
 	}
 
-	const simplified = simplifyPath(out, SIMPLIFY_TOLERANCE_M);
-	if (simplified.length < 2) return null;
-	const matched = simplified.map((p) => ({ lat: p.lat, lon: p.lon }));
+	const cleaned = removeSpurs(simplifyPath(out, SIMPLIFY_TOLERANCE_M), SPUR_RETURN_M, SPUR_MAX_SPAN_VERTS);
+	if (cleaned.length < 2) return null;
+	const matched = cleaned.map((p) => ({ lat: p.lat, lon: p.lon }));
 	const rawLen = pathLength(fixes.map((f) => ({ lat: f.lat, lon: f.lon })));
 	if (pathLength(matched) > rawLen * MAX_LEN_FACTOR + MAX_LEN_SLACK_M) return null;
 
-	return { path: simplified };
+	return { path: cleaned };
 }
 
 /** Gaussian emission log-likelihood for a snap distance. */
