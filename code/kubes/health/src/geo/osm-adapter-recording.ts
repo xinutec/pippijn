@@ -61,6 +61,11 @@ export interface OsmTrace {
 	 *  matcher falls back to the raw track, so old goldens are unchanged),
 	 *  missing KEY in a present section = the usual uncaptured-query error. */
 	drivableRoads?: Record<string, OsmRoadWay[]>;
+	/** Walkable way geometry for the pedestrian smoother. Optional: absent in
+	 *  fixtures captured before it — missing SECTION = no walkable data (the
+	 *  smoother runs without the soft map factor, so old goldens are unchanged),
+	 *  missing KEY in a present section = the usual uncaptured-query error. */
+	walkableRoads?: Record<string, OsmRoadWay[]>;
 }
 
 /** Build an empty trace. */
@@ -74,6 +79,7 @@ export function emptyOsmTrace(): OsmTrace {
 		nearbyTransitStops: {},
 		stationsOnLine: {},
 		drivableRoads: {},
+		walkableRoads: {},
 	};
 }
 
@@ -136,6 +142,13 @@ export class RecordingOsmAdapter implements OsmAdapter {
 		const result = await this.inner.drivableRoads(lat, lon, radiusM);
 		if (!this.trace.drivableRoads) this.trace.drivableRoads = {};
 		this.trace.drivableRoads[key3(lat, lon, radiusM)] = result;
+		return result;
+	}
+
+	async walkableRoads(lat: number, lon: number, radiusM?: number): Promise<OsmRoadWay[]> {
+		const result = await this.inner.walkableRoads(lat, lon, radiusM);
+		if (!this.trace.walkableRoads) this.trace.walkableRoads = {};
+		this.trace.walkableRoads[key3(lat, lon, radiusM)] = result;
 		return result;
 	}
 }

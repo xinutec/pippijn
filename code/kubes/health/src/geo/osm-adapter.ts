@@ -42,6 +42,7 @@ import {
 	nearbyTransitStops,
 	nearbyWays,
 	reverseGeocode,
+	walkableRoads,
 } from "./osm.js";
 import type { OsmRoadWay } from "./road-match.js";
 
@@ -63,6 +64,9 @@ export interface OsmAdapter {
 	stationsOnLine(lineName: string): Promise<Station[]>;
 	/** Drivable street geometry near a point for road map-matching (#261). */
 	drivableRoads(lat: number, lon: number, radiusM?: number): Promise<OsmRoadWay[]>;
+	/** Walkable way geometry near a point — the soft surface prior for the
+	 *  pedestrian trajectory smoother. */
+	walkableRoads(lat: number, lon: number, radiusM?: number): Promise<OsmRoadWay[]>;
 }
 
 /** Production adapter: delegate to the existing top-level functions
@@ -78,4 +82,5 @@ export const dbOsmAdapter: OsmAdapter = {
 	nearbyTransitStops,
 	stationsOnLine,
 	drivableRoads,
+	walkableRoads,
 };

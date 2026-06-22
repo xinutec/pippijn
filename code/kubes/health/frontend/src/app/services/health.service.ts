@@ -126,8 +126,8 @@ export interface EpisodeGeometry {
   startTs: number;
   endTs: number;
   mode: DayState["mode"];
-  kind: "snapped" | "raw" | "anchor" | "tentative" | "matched";
-  points: { lat: number; lon: number; ts?: number }[];
+  kind: "snapped" | "raw" | "anchor" | "tentative" | "matched" | "smoothed";
+  points: { lat: number; lon: number; ts?: number; sigmaM?: number }[];
   /** Stay label for an `anchor` episode — drives the marker popup. */
   place?: string;
 }

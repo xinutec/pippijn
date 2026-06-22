@@ -46,6 +46,7 @@ export interface MockOsmAdapterOptions {
 	nearbyTransitStops?: Stub<[number, number, number | undefined], NearbyTransitStop[]>;
 	stationsOnLine?: Stub<[string], Station[]>;
 	drivableRoads?: Stub<[number, number, number | undefined], OsmRoadWay[]>;
+	walkableRoads?: Stub<[number, number, number | undefined], OsmRoadWay[]>;
 }
 
 export interface MockOsmAdapter extends OsmAdapter {
@@ -58,6 +59,7 @@ export interface MockOsmAdapter extends OsmAdapter {
 		nearbyTransitStops: Array<RecordedCall<[number, number, number | undefined]>>;
 		stationsOnLine: Array<RecordedCall<[string]>>;
 		drivableRoads: Array<RecordedCall<[number, number, number | undefined]>>;
+		walkableRoads: Array<RecordedCall<[number, number, number | undefined]>>;
 	};
 }
 
@@ -75,6 +77,7 @@ export function mockOsmAdapter(options: MockOsmAdapterOptions = {}): MockOsmAdap
 		nearbyTransitStops: [],
 		stationsOnLine: [],
 		drivableRoads: [],
+		walkableRoads: [],
 	};
 	return {
 		calls,
@@ -109,6 +112,10 @@ export function mockOsmAdapter(options: MockOsmAdapterOptions = {}): MockOsmAdap
 		async drivableRoads(lat, lon, radiusM) {
 			calls.drivableRoads.push({ args: [lat, lon, radiusM] });
 			return options.drivableRoads?.(lat, lon, radiusM) ?? [];
+		},
+		async walkableRoads(lat, lon, radiusM) {
+			calls.walkableRoads.push({ args: [lat, lon, radiusM] });
+			return options.walkableRoads?.(lat, lon, radiusM) ?? [];
 		},
 	};
 }

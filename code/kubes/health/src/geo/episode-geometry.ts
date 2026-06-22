@@ -32,7 +32,7 @@ import { centroidOf, effectiveMode, samplesInWindow } from "./segment-util.js";
  *  `raw`/`matched`, dashed for `snapped`/`tentative`, a dot for
  *  `anchor`. No `confidence` field: the only upstream confidence is
  *  classification confidence, which is not geometry trust. */
-export type EpisodeKind = "snapped" | "raw" | "anchor" | "tentative" | "matched";
+export type EpisodeKind = "snapped" | "raw" | "anchor" | "tentative" | "matched" | "smoothed";
 
 /** One episode's display geometry, 1:1 with a `DayState`. Self-describing
  *  (carries its own `startTs`/`endTs`/`mode`) so the map renders it
@@ -169,6 +169,17 @@ function resolveEpisode(
 			?.filter((mp) => mp.ts >= state.startTs && mp.ts <= state.endTs)
 			.map((mp) => ({ lat: mp.lat, lon: mp.lon, ts: mp.ts }));
 		if (matched && matched.length >= 2) return { ...base, kind: "matched", points: matched };
+
+		// Pedestrian trajectory smoother: a walking leg whose covering segment
+		// carries a `smoothedPath` (robust GPS + pedometer + anchors + soft map —
+		// the pedestrian-smoother proposal) draws that physically-precise line
+		// instead of the raw GPS zigzag. Clipped to the state window. Falls
+		// through to raw when absent (too few fixes, or fixtures predating it).
+		const walkSeg = covering.find((s) => (s.smoothedPath?.length ?? 0) >= 2 && effectiveMode(s) === "walking");
+		const smoothed = walkSeg?.smoothedPath
+			?.filter((sp) => sp.ts >= state.startTs && sp.ts <= state.endTs)
+			.map((sp) => ({ lat: sp.lat, lon: sp.lon, ts: sp.ts }));
+		if (smoothed && smoothed.length >= 2) return { ...base, kind: "smoothed", points: smoothed };
 
 		// Unmatched moving leg (walking / cycling / driving / bus / plane):
 		// draw the RAW GPS fixes, not the Kalman-smoothed `points`. Measured

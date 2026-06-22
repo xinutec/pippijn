@@ -98,5 +98,6 @@ function stubOsmAdapter(): OsmAdapter {
 		nearbyTransitStops: unreached,
 		stationsOnLine: unreached,
 		drivableRoads: unreached,
+		walkableRoads: unreached,
 	};
 }

@@ -922,3 +922,54 @@ export async function queryDrivableRoads(lat: number, lon: number, radiusM: numb
 	}
 	return ways;
 }
+
+/** Highway subtypes a person on foot can plausibly be on — the soft surface
+ *  prior for the pedestrian trajectory smoother. Pedestrian-only ways
+ *  (footway/path/pedestrian/steps/cycleway/bridleway) PLUS the minor roads
+ *  people walk along on the pavement (living_street/residential/service/
+ *  unclassified/track). Fast roads (motorway…primary) are excluded. */
+const WALKABLE_ROAD_SUBTYPES = [
+	"footway",
+	"path",
+	"pedestrian",
+	"steps",
+	"cycleway",
+	"bridleway",
+	"living_street",
+	"residential",
+	"service",
+	"unclassified",
+	"track",
+];
+
+/**
+ * Read the walkable way geometry around a point from the local OSM mirror —
+ * the soft surface prior the pedestrian smoother (`pedestrian-smooth.ts`)
+ * nudges a foot leg toward (gently, and only when nearby; see the openness
+ * gate). Mirrors {@link queryDrivableRoads} exactly with the walkable subtype
+ * set: same local MBR query, no network.
+ */
+export async function queryWalkableRoads(lat: number, lon: number, radiusM: number): Promise<OsmRoadWay[]> {
+	const dLat = (radiusM + ROAD_CORRIDOR_MARGIN_M) / 111_320;
+	const dLon = (radiusM + ROAD_CORRIDOR_MARGIN_M) / (111_320 * Math.cos((lat * Math.PI) / 180));
+	const bbox: CorridorBbox = { minLat: lat - dLat, maxLat: lat + dLat, minLon: lon - dLon, maxLon: lon + dLon };
+	const poly = bboxPolygonWkt(bbox);
+
+	const rows = (
+		await sql<{ osm_id: bigint; name: string | null; subtype: string | null; wkt: string }>`
+			SELECT osm_id, name, subtype, ST_AsText(geom) AS wkt
+			FROM osm_lines
+			WHERE feature_type = 'highway'
+			  AND subtype IN (${sql.join(WALKABLE_ROAD_SUBTYPES)})
+			  AND MBRIntersects(geom, ST_GeomFromText(${poly}, 4326))
+			LIMIT 20000
+		`.execute(db())
+	).rows;
+
+	const ways: OsmRoadWay[] = [];
+	for (const r of rows) {
+		const coords = parseLineStringWkt(r.wkt);
+		if (coords.length >= 2) ways.push({ osmId: Number(r.osm_id), name: r.name, subtype: r.subtype, coords });
+	}
+	return ways;
+}

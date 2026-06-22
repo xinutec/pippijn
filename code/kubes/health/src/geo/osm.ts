@@ -25,7 +25,7 @@ import type { TransportMode } from "./segments.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
-import { ensureCovered, queryDrivableRoads, queryLines, queryPoints } from "./osm-local.js";
+import { ensureCovered, queryDrivableRoads, queryLines, queryPoints, queryWalkableRoads } from "./osm-local.js";
 import { USER_AGENT } from "./osm-overpass.js";
 import type { OsmRoadWay } from "./road-match.js";
 import { rankVenues, type StayShape, VENUE_RANK_FLOOR_NATS, type VenuePriors } from "./venue-prior.js";
@@ -993,6 +993,18 @@ export async function nearbyWays(lat: number, lon: number, radiusM = 50): Promis
 export async function drivableRoads(lat: number, lon: number, radiusM = 600): Promise<OsmRoadWay[]> {
 	await ensureCovered(lat, lon, radiusM, "highway");
 	return queryDrivableRoads(lat, lon, radiusM);
+}
+
+/**
+ * Walkable way geometry within `radiusM` of a point — the soft surface prior
+ * the pedestrian smoother (`pedestrian-smooth.ts`) nudges a foot leg toward.
+ * Same shape as {@link drivableRoads} with the walkable subtype set (footways/
+ * paths/pedestrian + minor roads people walk along). Ensures coverage, reads
+ * the local mirror.
+ */
+export async function walkableRoads(lat: number, lon: number, radiusM = 600): Promise<OsmRoadWay[]> {
+	await ensureCovered(lat, lon, radiusM, "highway");
+	return queryWalkableRoads(lat, lon, radiusM);
 }
 
 /**

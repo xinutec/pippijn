@@ -43,6 +43,13 @@ export interface EnrichedSegment extends TrackSegment {
 	 *  which case the map falls back to the raw track. Each point carries an
 	 *  interpolated timestamp like `snappedPath`. */
 	matchedPath?: SnappedPoint[];
+	/** Derived: this WALKING leg as a physically-precise MAP trajectory — the
+	 *  raw GPS de-jittered by the pedestrian smoother (`pedestrian-smooth.ts`,
+	 *  robust GPS + pedometer distance + anchors + soft map). Each point carries
+	 *  an interpolated `ts` and a posterior `sigmaM` (honest per-point
+	 *  uncertainty). Attached by `annotateWalkSmoothing`; `undefined` when the
+	 *  leg is too short to smooth, in which case the map draws the raw track. */
+	smoothedPath?: Array<{ lat: number; lon: number; ts: number; sigmaM: number }>;
 	/** Fraction of the moving segment's sampled points whose nearest
 	 *  drivable road is closer than any rail-only way (a sample with a
 	 *  road but no rail in range counts as road-nearest — there is no

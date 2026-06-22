@@ -112,4 +112,19 @@ export class FixtureOsmAdapter implements OsmAdapter {
 		}
 		return result;
 	}
+
+	async walkableRoads(lat: number, lon: number, radiusM?: number): Promise<OsmRoadWay[]> {
+		// Fixtures captured before the pedestrian smoother have no walkable
+		// section — replay as "no walkable data" so the smoother runs without the
+		// soft map factor and old goldens are unchanged (geometry is display-only
+		// regardless; states never depend on it). Present section, missing key =
+		// the normal uncaptured-query error.
+		const section = this.trace.walkableRoads;
+		if (section === undefined) return [];
+		const result = section[key3(lat, lon, radiusM)];
+		if (result === undefined) {
+			throw new Error(`FixtureOsmAdapter: uncaptured walkableRoads(${lat}, ${lon}, ${radiusM}) — re-capture required`);
+		}
+		return result;
+	}
 }

@@ -32,6 +32,7 @@ function throwingOsmAdapter(): OsmAdapter {
 		nearbyTransitStops: boom,
 		stationsOnLine: boom,
 		drivableRoads: boom,
+		walkableRoads: boom,
 	};
 }
 

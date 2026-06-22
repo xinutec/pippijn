@@ -69,6 +69,7 @@ import {
 	consolidateJitterStays,
 	mergeAdjacentStays,
 } from "./passes/stays.js";
+import { annotateWalkSmoothing } from "./pedestrian-smooth-annotate.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proximity.js";
@@ -1244,6 +1245,18 @@ export async function computeVelocityFromInputs(
 		{
 			name: "roadMatch",
 			run: (segs) => annotateRoadMatches(segs, points, inputs.osm),
+		},
+
+		// Pedestrian trajectory smoother: a walking leg's raw GPS zigzags (slow-
+		// walk velocity is noise) and jumps on the odd 150-230 m fix. This runs
+		// the MAP smoother (robust GPS + pedometer distance + endpoint anchors +
+		// gait smoothness + soft walkable-surface prior) over each walk and
+		// attaches `smoothedPath`. Fed the raw, accuracy-bearing displayFixes
+		// (not the Kalman points, which dropped accuracy) + the per-minute steps.
+		// Purely additive — display geometry only; states unchanged.
+		{
+			name: "walkSmooth",
+			run: (segs) => annotateWalkSmoothing(segs, displayFixes, points, steps, inputs.osm),
 		},
 
 		// Per-segment displayTz: the IANA tz the frontend should use to render
