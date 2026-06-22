@@ -123,6 +123,33 @@ golden-safe at each step (states never change; only drawn geometry does).
   the renderer; convergence/​robustness tests; (optional, deferred) particle
   smoother for which-footway association.
 
+## Known gap — buildings are impassable, but the smoother can't see them (next)
+
+Observed 2026-06-22: a smoothed home↔Wembley-Park-station walk renders **through
+building footprints** near the station. Root cause: the openness model
+(`OPENNESS_RADIUS_M`, `pedestrian-smooth.ts`) treats *>35 m from any walkable way*
+as "open ground — free to roam, no map pull." That conflates a **park** (genuinely
+free, the case we wanted) with the **inside of a building** (impassable). The
+smoother has no building data — `WalkableGeo` carries only `ways`; `openZones` is
+defined but never populated (`pedestrian-smooth-annotate.ts:131` sets `ways` only),
+and `OsmAdapter` exposes no building footprints. So there is no data-free fix: any
+tweak that pulls the line out of buildings also drags real park/forest walks onto
+paths.
+
+The correct fix needs the smoother to *know where buildings (and open areas) are*:
+1. New OSM channel — `buildingsNear()` (+ optionally open-area polygons to populate
+   `openZones`), threaded through `OsmAdapter` / `dbOsmAdapter` from the `osm_lines`
+   mirror (verify buildings are mirrored first).
+2. A repulsion term — drive the surface prior to ≈0 inside building polygons so a
+   vertex is pushed onto the nearest pavement, while keeping it free in real
+   open zones.
+3. **Re-capture the golden corpus** — a new OSM query makes every deterministic
+   replay throw "uncaptured query" until each blessed day is re-pulled
+   (`npm run capture-golden`). This is the main cost; do it deliberately, not
+   rushed.
+Display-quality only — classification/places/journey are unaffected, so this is
+safe to schedule rather than hotfix.
+
 ## Relationship to other work
 
 - `2026-06-map-constrained-positioning.md` — sibling; drives = hard road rail,
