@@ -35,6 +35,11 @@ export interface FilteredPoint {
 	lon: number;
 	speed_kmh: number;
 	bearing: number; // degrees, 0 = north, 90 = east
+	/** The source fix's reported GPS accuracy (m), carried through so the
+	 *  downstream decoder can weight a fix by its uncertainty instead of a hard
+	 *  upstream keep/drop (robust-evidence decoder, #257). Optional: absent on
+	 *  points built by callers/tests that don't supply it. */
+	accuracy?: number | null;
 }
 
 /**
@@ -133,7 +138,16 @@ const MAX_CONSECUTIVE_REJECTS = 3;
 export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 	if (points.length === 0) return [];
 	if (points.length === 1) {
-		return [{ ts: points[0].ts, lat: points[0].lat, lon: points[0].lon, speed_kmh: 0, bearing: 0 }];
+		return [
+			{
+				ts: points[0].ts,
+				lat: points[0].lat,
+				lon: points[0].lon,
+				speed_kmh: 0,
+				bearing: 0,
+				accuracy: points[0].accuracy,
+			},
+		];
 	}
 
 	// Default accuracy if not provided
@@ -161,7 +175,14 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 	};
 
 	const result: FilteredPoint[] = [
-		{ ts: points[0].ts, lat: points[0].lat, lon: points[0].lon, speed_kmh: 0, bearing: 0 },
+		{
+			ts: points[0].ts,
+			lat: points[0].lat,
+			lon: points[0].lon,
+			speed_kmh: 0,
+			bearing: 0,
+			accuracy: points[0].accuracy,
+		},
 	];
 
 	// Count of consecutive measurements gated out by innovation testing.
@@ -237,7 +258,14 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 			stateLat = { x: p.lat, v: vLatPerSec, px: posVarLat, pv: velVarLat, pxv: 0 };
 			stateLon = { x: p.lon, v: vLonPerSec, px: posVarLon, pv: velVarLon, pxv: 0 };
 
-			result.push({ ts: p.ts, lat: p.lat, lon: p.lon, speed_kmh: initialSpeed, bearing: initialBearing });
+			result.push({
+				ts: p.ts,
+				lat: p.lat,
+				lon: p.lon,
+				speed_kmh: initialSpeed,
+				bearing: initialBearing,
+				accuracy: p.accuracy,
+			});
 			continue;
 		}
 
@@ -298,6 +326,7 @@ export function filterGpsTrack(points: GpsPoint[]): FilteredPoint[] {
 			lon: stateLon.x,
 			speed_kmh: Math.round(speedKmh * 10) / 10,
 			bearing: Math.round(bearing),
+			accuracy: p.accuracy,
 		});
 	}
 
