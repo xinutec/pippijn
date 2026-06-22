@@ -123,32 +123,69 @@ golden-safe at each step (states never change; only drawn geometry does).
   the renderer; convergence/​robustness tests; (optional, deferred) particle
   smoother for which-footway association.
 
-## Known gap — buildings are impassable, but the smoother can't see them (next)
+## Next phase — a real walkable-surface field (replaces the openness proxy)
 
-Observed 2026-06-22: a smoothed home↔Wembley-Park-station walk renders **through
-building footprints** near the station. Root cause: the openness model
-(`OPENNESS_RADIUS_M`, `pedestrian-smooth.ts`) treats *>35 m from any walkable way*
-as "open ground — free to roam, no map pull." That conflates a **park** (genuinely
-free, the case we wanted) with the **inside of a building** (impassable). The
-smoother has no building data — `WalkableGeo` carries only `ways`; `openZones` is
-defined but never populated (`pedestrian-smooth-annotate.ts:131` sets `ways` only),
-and `OsmAdapter` exposes no building footprints. So there is no data-free fix: any
-tweak that pulls the line out of buildings also drags real park/forest walks onto
-paths.
+**Status:** designed, not started (2026-06-22). The single most valuable upgrade
+to this layer, and the right thing to build rather than patching one symptom.
 
-The correct fix needs the smoother to *know where buildings (and open areas) are*:
-1. New OSM channel — `buildingsNear()` (+ optionally open-area polygons to populate
-   `openZones`), threaded through `OsmAdapter` / `dbOsmAdapter` from the `osm_lines`
-   mirror (verify buildings are mirrored first).
-2. A repulsion term — drive the surface prior to ≈0 inside building polygons so a
-   vertex is pushed onto the nearest pavement, while keeping it free in real
-   open zones.
-3. **Re-capture the golden corpus** — a new OSM query makes every deterministic
+### Why — the map term is a one-bit proxy
+
+Today the smoother's entire knowledge of "the map" is one bit: *is a walkable way
+within `OPENNESS_RADIUS_M` (35 m)?* Within it, a soft pull toward the nearest way;
+beyond it, "open ground — free, no pull." That distance-gate is a hand-tuned proxy
+standing in for a real **walkable-surface likelihood**, and it conflates the two
+things that are *far from a path*: a **park** (genuinely free — the case we wanted)
+and the **inside of a building** (impassable). That conflation is why a smoothed
+home↔Wembley-Park-station walk renders **through building footprints** (observed
+2026-06-22). There is no data-free fix — any tweak that pulls the line out of
+buildings also drags real park/forest walks onto paths, because the model cannot
+tell them apart.
+
+### What — replace the gate with a surface likelihood `S(x)`
+
+Give the smoother a continuous **walkable-surface field** `S(x)` and derive the map
+term from it (vertex pushed *out of* low-`S`, free within high-`S`), retiring
+`OPENNESS_RADIUS_M`:
+
+- **High** on pavements / footways / paths (today's `ways`, but as a likelihood
+  with a transverse falloff, not a hard pull) — biases to the right side of a
+  street.
+- **High** inside genuine open walkable zones — parks, plazas, pedestrian areas,
+  car parks — finally *populating* `openZones` (defined in `WalkableGeo` but never
+  set; `pedestrian-smooth-annotate.ts:131` writes only `ways`).
+- **≈0 (impassable)** inside **buildings**, water, fenced/private land.
+- **Mild neutral** prior on unmapped ground, so coverage gaps don't break it.
+
+Then "free in a park, blocked by a building, biased to the pavement on a street"
+all fall out of *one* likelihood instead of a radius constant. The buildings bug is
+the **first slice** of this, not a separate task.
+
+### How
+
+1. **New OSM channels** — `buildingsNear()` (impassable footprints) and
+   open-area polygons (`leisure=park`, `landuse=*`, `amenity=parking`,
+   `highway=pedestrian` areas) to populate `openZones` — threaded through
+   `OsmAdapter` / `dbOsmAdapter` from the `osm_lines` / `osm_points` mirror (verify
+   they're mirrored; else extend the mirror query).
+2. **Surface-field emission** — replace the distance-gate map term in
+   `pedestrian-smooth.ts` with one derived from `S(x)`; keep PDR + anchors +
+   robust-GPS + smoothness unchanged.
+3. **Re-capture the golden corpus** — new OSM queries make every deterministic
    replay throw "uncaptured query" until each blessed day is re-pulled
-   (`npm run capture-golden`). This is the main cost; do it deliberately, not
-   rushed.
-Display-quality only — classification/places/journey are unaffected, so this is
-safe to schedule rather than hotfix.
+   (`npm run capture-golden`). This is the main cost; do it deliberately. The
+   2026-06-22 home walk is the natural real-data fixture for the building case.
+4. **Tune + measure** against `walk-score` and the captured walks; display-only,
+   so golden *states* are unaffected — the gate is the geometry eval, not
+   `normalizeStates`.
+
+### Architectural note
+
+This is the **pedestrian arm of `#265` map-constrained positioning** — `S(x)` is
+the walking counterpart of driving's hard road network. Longer-term (the
+journey-worldline model), the on-map walk position should *feed back* into place /
+mode rather than staying a display-only post-pass; building `S(x)` is the
+substrate for that. Deferred within this phase: footway-network *association* (the
+Rao-Blackwellised which-pavement particle smoother) for dense-street precision.
 
 ## Relationship to other work
 
