@@ -56,6 +56,18 @@ describe("matchBusRoute", () => {
 		expect(matchBusRoute(ride(r, 1, 4), [])).toBeNull();
 	});
 
+	it("discounts the bus hypothesis by speed — a fast leg on the same geometry isn't a bus", () => {
+		// Identical fully-corroborated forward ride geometry; only the leg's
+		// speed differs. Bus-pace and unspecified speed match; a 62 km/h leg
+		// (the Euston Square→St Pancras Tube-hop chord that paralleled route 390)
+		// has too low a bus-speed plausibility to clear the score, so it's left
+		// unmatched — weighted evidence, not a hard veto.
+		const r = linearRoute("38", 6, 1);
+		expect(matchBusRoute({ ...ride(r, 1, 4), speedKmh: 18 }, [r])?.routeRef).toBe("38");
+		expect(matchBusRoute({ ...ride(r, 1, 4), speedKmh: undefined }, [r])?.routeRef).toBe("38");
+		expect(matchBusRoute({ ...ride(r, 1, 4), speedKmh: 62 }, [r])).toBeNull();
+	});
+
 	it("matches a forward ride whose trace passes the intermediate stops", () => {
 		const r = linearRoute("38", 6, 1);
 		const m = matchBusRoute(ride(r, 1, 4), [r]);

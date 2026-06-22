@@ -70,6 +70,12 @@ export interface VehicleLegEndpoints {
 	board: { lat: number; lon: number };
 	alight: { lat: number; lon: number };
 	trace: readonly { lat: number; lon: number }[];
+	/** The leg's representative speed (km/h), used as soft probabilistic
+	 *  evidence: a bus is *unlikely* to average much above urban bus pace, so a
+	 *  fast leg discounts the bus hypothesis — but never vetoes it (a strongly
+	 *  corroborated leg can still win). Omitted ⇒ neutral (no speed evidence),
+	 *  so geometry-only callers/tests are unaffected. */
+	speedKmh?: number;
 }
 
 /** A successful match: the named route plus the boarded/alighted stops
@@ -105,11 +111,32 @@ export const BUS_STOP_ANCHOR_M = 120;
  *  as the anchor radius. */
 export const BUS_STOP_PASS_M = 120;
 
-/** Fraction of a candidate span's intermediate stops the trace must pass
- *  for the route to be corroborated. A real bus passes ~all of them; a taxi
- *  that anchors the endpoints but takes a different road between them passes
- *  few. Below this, the leg stays `driving`. */
+/** Minimum BUS-EVIDENCE SCORE for a candidate to be named a bus. The score is
+ *  `intermediate-stop coverage × speed-plausibility` — corroboration weighted by
+ *  how bus-like the leg's speed is. With no speed supplied the speed factor is 1,
+ *  so this is exactly the old coverage threshold (a real bus passes ~all its
+ *  intermediate stops; a taxi on a different road passes few). With speed, a fast
+ *  leg's low plausibility pulls the score under the bar even on good geometry —
+ *  weighted evidence, not a veto. */
 export const BUS_MIN_INTERMEDIATE_COVERAGE = 0.6;
+
+/** Speed (km/h) at which a leg is equally likely bus / not-bus — the midpoint of
+ *  the plausibility logistic. Above typical urban bus pace (~15–25), below
+ *  clearly-not-a-bus. */
+const BUS_SPEED_MID_KMH = 38;
+/** Logistic width (km/h): how sharply bus-plausibility falls as speed rises past
+ *  the midpoint. Wide enough that a slightly-fast well-corroborated bus survives;
+ *  narrow enough that a 50+ km/h leg's plausibility collapses. */
+const BUS_SPEED_SCALE_KMH = 6;
+
+/** P(speed | bus) as a soft plausibility in (0, 1]: ~1 at bus pace, decaying
+ *  smoothly toward 0 as speed climbs — a logistic, never a hard cutoff. Neutral
+ *  (1) when no speed is supplied. A London bus averages ~15–25 km/h (dwells +
+ *  traffic), so e.g. 62 km/h → ~0.003: the leg is almost certainly not a bus. */
+function busSpeedPlausibility(speedKmh: number | undefined): number {
+	if (speedKmh === undefined) return 1;
+	return 1 / (1 + Math.exp((speedKmh - BUS_SPEED_MID_KMH) / BUS_SPEED_SCALE_KMH));
+}
 
 export interface MatchOptions {
 	/** Override the stop-anchor radius (metres). */
@@ -145,18 +172,18 @@ function pointToSegmentMeters(
 	return Math.hypot(px - cx, py - cy);
 }
 
-/** True iff the trace corroborates a ride past `intermediates` (the stops
- *  strictly between board and alight). A span with no intermediate stops
- *  cannot be corroborated and is rejected — two anchored endpoints alone are
- *  the taxi-as-bus failure this guard exists to stop. */
-function traceCorroborates(
+/** Fraction of `intermediates` (the stops strictly between board and alight)
+ *  the trace passes within `passM`. 0 when there are no intermediate stops (a
+ *  two-stop span has nothing to corroborate — the taxi-as-bus failure) or the
+ *  trace is degenerate. A real bus passes ~all of them; a taxi on a different
+ *  road, few. */
+function traceCoverage(
 	trace: readonly { lat: number; lon: number }[],
 	intermediates: readonly BusStop[],
 	passM: number,
-	minCoverage: number,
-): boolean {
-	if (intermediates.length === 0) return false;
-	if (trace.length < 2) return false;
+): number {
+	if (intermediates.length === 0) return 0;
+	if (trace.length < 2) return 0;
 	let passed = 0;
 	for (const stop of intermediates) {
 		let nearest = Number.POSITIVE_INFINITY;
@@ -166,7 +193,7 @@ function traceCorroborates(
 		}
 		if (nearest <= passM) passed++;
 	}
-	return passed / intermediates.length >= minCoverage;
+	return passed / intermediates.length;
 }
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -216,7 +243,8 @@ export function matchBusRoute(
 ): BusRouteMatch | null {
 	const anchorM = opts?.anchorM ?? BUS_STOP_ANCHOR_M;
 	const stopPassM = opts?.stopPassM ?? BUS_STOP_PASS_M;
-	const minCoverage = opts?.minCoverage ?? BUS_MIN_INTERMEDIATE_COVERAGE;
+	const minScore = opts?.minCoverage ?? BUS_MIN_INTERMEDIATE_COVERAGE;
+	const speedPlausibility = busSpeedPlausibility(leg.speedKmh);
 	let best: BusRouteMatch | null = null;
 	for (const route of routes) {
 		const boardCands = anchorsNear(leg.board, route, anchorM);
@@ -227,12 +255,16 @@ export function matchBusRoute(
 		for (const board of boardCands) {
 			for (const alight of alightCands) {
 				if (alight.idx <= board.idx) continue; // direction + non-zero span
-				// Corroborate: the trace must pass the stops between board and
-				// alight. Rejects a taxi that anchors two of a route's stops but
-				// drove a different road (and a 2-stop span, which has nothing to
-				// corroborate). Stops measured against the trace, not vice versa.
+				// Bus evidence = intermediate-stop coverage × speed-plausibility.
+				// Coverage rejects a taxi that anchors two of a route's stops but
+				// drove a different road (and a 2-stop span, nothing to
+				// corroborate). Speed-plausibility discounts a leg too fast to be a
+				// bus — weighted, so strong corroboration can still carry a
+				// slightly-fast leg, but a 60 km/h chord can't be a bus however
+				// well its straight line happens to parallel the route.
 				const intermediates = route.stops.slice(board.idx + 1, alight.idx);
-				if (!traceCorroborates(leg.trace, intermediates, stopPassM, minCoverage)) continue;
+				const score = traceCoverage(leg.trace, intermediates, stopPassM) * speedPlausibility;
+				if (score < minScore) continue;
 				const total = board.distM + alight.distM;
 				if (bestPair === null || total < bestPair.total) bestPair = { board, alight, total };
 			}
@@ -274,6 +306,8 @@ export interface BusRouteAnnotatable {
 	refinedMode?: TransportMode;
 	vehicleKind?: "bus";
 	wayName?: string;
+	/** Leg average speed (km/h) — soft speed evidence for the bus hypothesis. */
+	avgSpeed?: number;
 }
 
 type TsFix = { ts: number; lat: number; lon: number };
@@ -310,7 +344,7 @@ export function annotateBusRoutes<T extends BusRouteAnnotatable>(
 		}
 		const board = legFixes[0];
 		const alight = legFixes[legFixes.length - 1];
-		const match = matchBusRoute({ board, alight, trace: legFixes }, routes, opts);
+		const match = matchBusRoute({ board, alight, trace: legFixes, speedKmh: seg.avgSpeed }, routes, opts);
 		if (match === null) {
 			out.push(seg);
 			continue;
