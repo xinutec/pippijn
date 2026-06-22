@@ -41,6 +41,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseGroundTruth } from "../eval/ground-truth.js";
 import { classifyDay, parsePipelineState } from "../eval/truth-check.js";
+import { checkWorldlineFeasibility } from "../eval/worldline-feasibility.js";
 import { computeVelocityFromInputs } from "../geo/velocity.js";
 import { type CapturedDay, inputsFromFixture, parseCapturedDay } from "./fixture-day.js";
 import { diffStates, normalizeStates } from "./state-diff.js";
@@ -133,6 +134,11 @@ if (files.length === 0) {
 let regressions = 0;
 let blessed = 0;
 let checked = 0;
+// Worldline-feasibility baseline (Phase 0 of journey-worldline): count
+// physically-impossible outputs across the corpus. Informational for now —
+// the regression baseline the migration drives to zero.
+let infeasibleDays = 0;
+let totalViolations = 0;
 
 for (const file of files) {
 	const full = path.join(DAYS_DIR, file);
@@ -185,6 +191,16 @@ for (const file of files) {
 	// Provenance-aware truth report (informational, on top of the diff).
 	const truth = await truthReport(captured.meta.date, captured.meta.tz, states as StateWindow[]);
 	if (truth) console.log(truth);
+
+	// Worldline-feasibility report (informational): physically-impossible
+	// outputs the cascade emitted on this day's timeline.
+	const violations = checkWorldlineFeasibility(states);
+	if (violations.length > 0) {
+		infeasibleDays++;
+		totalViolations += violations.length;
+		console.log(`    ⚠ feasibility: ${violations.length} physically-impossible leg(s)`);
+		for (const v of violations) console.log(`      ✗ ${v.kind}: ${v.detail}`);
+	}
 }
 
 if (bless) {
@@ -196,4 +212,15 @@ console.log(
 	`\n${checked - regressions}/${checked} fixture(s) match baseline` +
 		(regressions > 0 ? `, ${regressions} regressed.` : "."),
 );
-process.exit(regressions > 0 ? 1 : 0);
+// Worldline feasibility is a hard gate: the corpus baseline is zero
+// impossible legs (every blessed day is physically consistent), so any
+// regression into impossibility is a failure, not a tolerated diff. This is
+// independent of the snapshot diff — a change can keep the blessed states
+// byte-identical and still introduce an impossibility on a non-blessed path,
+// but on the corpus this guards the invariant directly.
+console.log(
+	totalViolations > 0
+		? `worldline-feasibility: FAIL — ${totalViolations} impossible leg(s) across ${infeasibleDays}/${checked} day(s).`
+		: `worldline-feasibility: all ${checked} day(s) physically consistent.`,
+);
+process.exit(regressions > 0 || totalViolations > 0 ? 1 : 0);
