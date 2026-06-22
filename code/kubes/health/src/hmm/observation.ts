@@ -37,7 +37,7 @@ export interface Observation {
 	ts: number;
 	/** GPS aggregate for this minute, or `null` when no fix landed
 	 *  inside the minute. */
-	gps: { lat: number; lon: number; speedKmh: number; accuracyM?: number | null } | null;
+	gps: { lat: number; lon: number; speedKmh: number } | null;
 	/** Mean HR (bpm) over samples in the minute. Null when no HR
 	 *  samples landed in the minute. */
 	hr: number | null;
@@ -204,7 +204,6 @@ export function buildObservationTensor(input: ObservationTensorInput): Observati
 		const { hour, dayOfWeek } = localCtx(ts, tz);
 
 		const gpsRows = gpsBuckets[m];
-		const accs = gpsRows.map((p) => p.accuracy).filter((a): a is number => a != null);
 		const gps =
 			gpsRows.length === 0
 				? null
@@ -212,12 +211,6 @@ export function buildObservationTensor(input: ObservationTensorInput): Observati
 						lat: median(gpsRows.map((p) => p.lat)),
 						lon: median(gpsRows.map((p) => p.lon)),
 						speedKmh: mean(gpsRows.map((p) => p.speed_kmh)),
-						// Per-minute GPS uncertainty (m): the median reported accuracy of
-						// the minute's fixes. Carried for the robust-evidence decoder
-						// (#257) so the emission can weight a fix by its uncertainty
-						// instead of a hard upstream keep/drop. Null when no fix in the
-						// minute reported accuracy (older inputs/fixtures).
-						accuracyM: accs.length > 0 ? median(accs) : null,
 					};
 
 		// Per-minute rail/road proximity, looked up by this minute's ts.
