@@ -21,7 +21,7 @@ import { rejectSpikes } from "./episode-geometry.js";
 import type { FilteredPoint } from "./kalman.js";
 import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
-import { fractionOffRoad, matchRoadSegment, type RoadFix } from "./road-match.js";
+import { matchImprovesDisplay, matchRoadSegment, type RoadFix } from "./road-match.js";
 import { effectiveMode, samplesInWindow } from "./segment-util.js";
 
 /** Effective modes drawn as a raw road polyline today — the legs this pass
@@ -36,15 +36,18 @@ const MIN_LEG_FIXES = 4;
  *  network, so the roads just past the leg's extent are included. */
 const ROAD_QUERY_SLACK_M = 150;
 
-/** Confidence gate. Map-matching only helps when the raw GPS is genuinely off
- *  the road network (the "through the buildings" case). When the raw track
- *  already hugs roads, snapping it can only nudge the line onto a *parallel*
- *  road and make good data worse (observed: a leg with raw fixes ≤8 m from
- *  roads got moved up to 60 m onto the wrong road). So a leg is map-matched
- *  only when at least {@link MIN_OFFROAD_FRACTION} of its fixes are more than
- *  {@link NEEDS_MATCH_M} from any road; otherwise the raw track is drawn. */
+/** Confidence gate, judged on the DRAWN LINE not the fix vertices. Map-matching
+ *  only helps when the raw drawn track strays off-road — but the stray is in the
+ *  CHORDS between fixes, not the fixes themselves: a sparse leg can have every
+ *  fix sitting on a road while the straight lines between them cut ~40 m across
+ *  the blocks (observed 2026-06-21: both home drives, fix-off-road 8–14 m but
+ *  chord-off-road 37–40 m). The old fix-fraction gate scored 0 there and skipped
+ *  matching. {@link matchImprovesDisplay} measures the chords instead, and keeps
+ *  the original protection — it accepts the match only when it follows roads
+ *  better AND stays within {@link MATCH_MAX_STRAY_M} of every fix, so a snap onto
+ *  a far parallel road (the failure the old gate guarded against) is rejected. */
 const NEEDS_MATCH_M = 25;
-const MIN_OFFROAD_FRACTION = 0.3;
+const MATCH_MAX_STRAY_M = 40;
 
 function metersBetween(aLat: number, aLon: number, bLat: number, bLon: number): number {
 	const dLat = (bLat - aLat) * 111_320;
@@ -110,16 +113,22 @@ export async function annotateRoadMatches(
 
 		const fixes: RoadFix[] = clean.map((p) => ({ lat: p.lat, lon: p.lon, ts: p.ts }));
 
-		// Confidence gate: only map-match when the raw GPS is genuinely off the
-		// roads. If it already hugs them, the raw track is the faithful one —
-		// matching would risk snapping it onto a parallel road.
-		if (fractionOffRoad(fixes, { ways }, NEEDS_MATCH_M) < MIN_OFFROAD_FRACTION) {
+		// Match first, then decide on the DRAWN line: use the matched path only
+		// when the raw chords stray off-road, the match follows the road better,
+		// and it stays faithful to where the GPS was (no parallel-road snap).
+		const result = matchRoadSegment(fixes, { ways });
+		if (!result) {
 			out.push(seg);
 			continue;
 		}
-
-		const result = matchRoadSegment(fixes, { ways });
-		out.push(result ? { ...seg, matchedPath: result.path } : seg);
+		const decision = matchImprovesDisplay(fixes, result.path, { ways }, NEEDS_MATCH_M, MATCH_MAX_STRAY_M);
+		if (process.env.ROAD_MATCH_DEBUG === "1") {
+			const t = (ts: number): string => new Date(ts * 1000).toISOString().slice(11, 16);
+			console.error(
+				`[road-match] ${t(seg.startTs)}-${t(seg.endTs)} use=${decision.use} rawOff=${decision.rawOffRoadM.toFixed(0)} matchedOff=${decision.matchedOffRoadM.toFixed(0)} stray=${decision.strayM.toFixed(0)} (needs>${NEEDS_MATCH_M}, stray≤${MATCH_MAX_STRAY_M})`,
+			);
+		}
+		out.push(decision.use ? { ...seg, matchedPath: result.path } : seg);
 	}
 	return out;
 }

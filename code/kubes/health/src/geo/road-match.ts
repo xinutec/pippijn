@@ -288,6 +288,119 @@ export function fractionOffRoad(fixes: readonly RoadFix[], geo: RoadGeometry, th
 	return off / fixes.length;
 }
 
+/** Nearest distance (m) from a point to any road in `geo`. */
+function nearestRoadDist(p: Pt, geo: RoadGeometry): number {
+	let best = Number.POSITIVE_INFINITY;
+	for (const w of geo.ways) {
+		for (let i = 1; i < w.coords.length; i++) {
+			const d = projectPointToSegment(
+				p,
+				{ lat: w.coords[i - 1][0], lon: w.coords[i - 1][1] },
+				{ lat: w.coords[i][0], lon: w.coords[i][1] },
+			).distM;
+			if (d < best) best = d;
+		}
+	}
+	return best;
+}
+
+/**
+ * Maximum off-road distance of a *drawn polyline* — sampling not just the
+ * vertices but points every `stepM` along each chord. This is the signal
+ * {@link fractionOffRoad} misses: when sparse fixes each sit on a road but
+ * the straight line *between* them cuts across a block, every vertex scores
+ * on-road while the rendered line runs through buildings. The map draws the
+ * chords, so the chords are what we must measure. Pure.
+ */
+export function maxPolylineOffRoad(path: readonly Pt[], geo: RoadGeometry, stepM = 15): number {
+	if (path.length === 0 || geo.ways.length === 0) return 0;
+	let worst = 0;
+	const consider = (p: Pt): void => {
+		const d = nearestRoadDist(p, geo);
+		if (d > worst) worst = d;
+	};
+	for (let i = 0; i < path.length; i++) {
+		consider(path[i]);
+		if (i + 1 < path.length) {
+			const a = path[i];
+			const b = path[i + 1];
+			const chord = metersBetween(a.lat, a.lon, b.lat, b.lon);
+			const n = Math.floor(chord / stepM);
+			for (let k = 1; k < n; k++) {
+				consider({ lat: a.lat + ((b.lat - a.lat) * k) / n, lon: a.lon + ((b.lon - a.lon) * k) / n });
+			}
+		}
+	}
+	return worst;
+}
+
+/** Distance (m) from a single point to the nearest segment of `path`. */
+function pointDistToPolyline(p: Pt, path: readonly Pt[]): number {
+	if (path.length === 0) return Number.POSITIVE_INFINITY;
+	if (path.length === 1) return metersBetween(p.lat, p.lon, path[0].lat, path[0].lon);
+	let best = Number.POSITIVE_INFINITY;
+	for (let i = 1; i < path.length; i++) best = Math.min(best, projectPointToSegment(p, path[i - 1], path[i]).distM);
+	return best;
+}
+
+/** How far a candidate matched path strays from where the GPS actually was,
+ *  as the `q`-quantile (0–1) of the fixes' distances to the path — NOT the max.
+ *  Map-matching exists to override outlier fixes, so the single worst fix is
+ *  the wrong measure: a lone bad fix sits far from a perfectly good path. A
+ *  *systematic* error — a snap onto a parallel road — pushes most fixes off,
+ *  which a high quantile (p85) catches while ignoring one or two outliers. Pure. */
+export function quantilePointDistToPolyline(pts: readonly Pt[], path: readonly Pt[], q: number): number {
+	if (pts.length === 0 || path.length === 0) return 0;
+	const dists = pts.map((p) => pointDistToPolyline(p, path)).sort((a, b) => a - b);
+	return dists[Math.min(dists.length - 1, Math.floor(dists.length * q))];
+}
+
+/** Decision returned by {@link matchImprovesDisplay}, with the metrics that
+ *  drove it (so callers can log why a leg was / wasn't snapped). */
+export interface DisplayMatchDecision {
+	use: boolean;
+	rawOffRoadM: number;
+	matchedOffRoadM: number;
+	strayM: number;
+}
+
+/**
+ * Whether to draw the road-matched path instead of the raw fixes, judged on
+ * the *drawn line* rather than the fix vertices.
+ *
+ * Use the match when all three hold:
+ *   1. the raw drawn line genuinely strays off-road — its worst chord excursion
+ *      exceeds `needsMatchM` (so a leg whose raw line already hugs the road is
+ *      left alone, no risk of nudging it onto a parallel street);
+ *   2. the matched line follows the road better than the raw line did; and
+ *   3. the match stays faithful to where the GPS was — its {@link STRAY_QUANTILE}
+ *      of fix-to-path distances is within `maxStrayM` (guards the parallel-road
+ *      snap that motivated the old fix-fraction gate, while tolerating the lone
+ *      outlier fix that map-matching is meant to override).
+ *
+ * This replaces the fix-vertex `fractionOffRoad` gate, which scored 0 — and so
+ * skipped matching — on sparse legs whose on-road fixes are joined by chords
+ * cutting 40 m through buildings. Pure.
+ */
+/** Quantile of fix-to-path distances used for the faithfulness check —
+ *  high enough to catch a systematic parallel-road snap (most fixes off),
+ *  below 1 so one or two outlier fixes don't veto an otherwise-good match. */
+const STRAY_QUANTILE = 0.85;
+
+export function matchImprovesDisplay(
+	fixes: readonly Pt[],
+	matchedPath: readonly Pt[],
+	geo: RoadGeometry,
+	needsMatchM: number,
+	maxStrayM: number,
+): DisplayMatchDecision {
+	const rawOffRoadM = maxPolylineOffRoad(fixes, geo);
+	const matchedOffRoadM = maxPolylineOffRoad(matchedPath, geo);
+	const strayM = quantilePointDistToPolyline(fixes, matchedPath, STRAY_QUANTILE);
+	const use = rawOffRoadM > needsMatchM && matchedOffRoadM < rawOffRoadM && strayM <= maxStrayM;
+	return { use, rawOffRoadM, matchedOffRoadM, strayM };
+}
+
 /** Drivable highway subtypes — duplicated from `rail-road-proximity.ts`'s
  *  `DRIVABLE_HIGHWAY_SUBTYPES` deliberately to keep this module
  *  dependency-free and self-contained; the caller filters with the shared
