@@ -1,6 +1,9 @@
 # Pedestrian trajectory smoother — a physically-precise walk estimate
 
-Status: accepted, in implementation (2026-06-22)
+Status: shipped (display layer) 2026-06-22 — Phases 0–4 implemented; measured on
+the 2026-06-21 Varley walks (step-distance error 110%→5% and 105%→6%; the
+near-stationary potter leg is gated out to raw). The discrete which-footway
+particle smoother (Phase 4 tail) remains deferred.
 Relationship: the walking counterpart of
 `2026-06-map-constrained-positioning.md`. That doc constrains *driving* to
 the 1-D road network (a hard rail). Walking needs the opposite stance — a
