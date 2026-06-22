@@ -165,6 +165,68 @@ describe("enumerateTrainCandidates — synthetic", () => {
 		expect(jub?.alightStationName).toBe("Green Park");
 	});
 
+	it("emits a candidate for a single-minute one-stop hop with a genuine station-to-station displacement", () => {
+		// The reacquisition signature of a one-stop underground hop: the
+		// user walks at Wembley, a single train-speed GPS fix lands near
+		// the next station, then they walk again at that station. The
+		// train-tagged run is ONE minute long — below the 2-minute window
+		// floor — but the bracketing fixes (Wembley → Finchley, ~1 km in
+		// 2 min) show a real station-to-station displacement at train
+		// speed. This must still produce the (Wembley → Finchley) hop.
+		const graph = buildScenarioGraph();
+		const t0 = 1_700_000_000;
+		const observations: Observation[] = [];
+		// 0..4 walking at Wembley.
+		for (let i = 0; i < 5; i++) {
+			observations.push(obs({ ts: t0 + i * 60, gps: { lat: WEMBLEY.lat, lon: WEMBLEY.lon, speedKmh: 4 } }));
+		}
+		// 5 a single train-speed fix at the next station (reacquisition).
+		observations.push(obs({ ts: t0 + 5 * 60, gps: { lat: FINCHLEY.lat, lon: FINCHLEY.lon, speedKmh: 60 } }));
+		// 6..10 walking at Finchley.
+		for (let i = 6; i < 11; i++) {
+			observations.push(obs({ ts: t0 + i * 60, gps: { lat: FINCHLEY.lat, lon: FINCHLEY.lon, speedKmh: 4 } }));
+		}
+
+		const result = enumerateTrainCandidates({
+			observations,
+			routeGraph: graph,
+			knownLines: ["Metropolitan Line", "Jubilee Line"],
+		});
+
+		// Wembley → Finchley is on the shared Met+Jub track, so both lines
+		// are valid candidates for the hop.
+		const hop = result.filter((c) => c.boardStationName === "Wembley Park" && c.alightStationName === "Finchley Road");
+		expect(hop.length).toBeGreaterThanOrEqual(1);
+		const lines = new Set(hop.map((c) => c.line));
+		expect(lines).toContain("Jubilee Line");
+	});
+
+	it("does NOT emit a candidate for a lone fast GPS fix with no net station-to-station displacement (jitter)", () => {
+		// A single noisy train-speed fix while the user stays put at
+		// Wembley: the surrounding observed fixes bracket ~zero net
+		// displacement, so this is GPS jitter, not a hop. No window, no
+		// candidate.
+		const graph = buildScenarioGraph();
+		const t0 = 1_700_000_000;
+		const observations: Observation[] = [];
+		for (let i = 0; i < 5; i++) {
+			observations.push(obs({ ts: t0 + i * 60, gps: { lat: WEMBLEY.lat, lon: WEMBLEY.lon, speedKmh: 4 } }));
+		}
+		// 5 a lone fast fix that jumps toward Finchley...
+		observations.push(obs({ ts: t0 + 5 * 60, gps: { lat: FINCHLEY.lat, lon: FINCHLEY.lon, speedKmh: 60 } }));
+		// ...but 6.. the user is right back at Wembley — net displacement
+		// across the bracket is zero.
+		for (let i = 6; i < 11; i++) {
+			observations.push(obs({ ts: t0 + i * 60, gps: { lat: WEMBLEY.lat, lon: WEMBLEY.lon, speedKmh: 4 } }));
+		}
+		const result = enumerateTrainCandidates({
+			observations,
+			routeGraph: graph,
+			knownLines: ["Metropolitan Line", "Jubilee Line"],
+		});
+		expect(result).toEqual([]);
+	});
+
 	it("rejects (board, line, alight) where board and alight are the SAME station", () => {
 		// Degenerate: the user 'rides' one stop but the GPS context is
 		// the same station at both ends. Not a candidate.

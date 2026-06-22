@@ -53,8 +53,12 @@ export interface HsmmInput<State, Obs> {
 	emissionLogProb: (state: State, obs: Obs) => number;
 	/** `log P_d(d | state)` — duration prior for a segment of state
 	 *  with length d minutes. Should be very low (e.g. -10) for
-	 *  physically impossible short durations. */
-	durationLogProb: (state: State, durationMinutes: number) => number;
+	 *  physically impossible short durations. `segEndIndex` is the
+	 *  observation index of the segment's last minute, so the prior
+	 *  can condition on position-specific evidence (e.g. a
+	 *  generator-vouched train window relaxing the short-duration
+	 *  floor). Callbacks that don't need it may ignore it. */
+	durationLogProb: (state: State, durationMinutes: number, segEndIndex: number) => number;
 	/** Optional initial-state log-prob at t=0. Default uniform 0. */
 	initialLogProb?: (state: State) => number;
 	/** Optional per-segment-entry log-prior, applied at t=0 and at
@@ -129,7 +133,9 @@ export function hsmmViterbi<State, Obs>(input: HsmmInput<State, Obs>): State[] {
 			for (let tau = 1; tau <= MAX_D; tau++) {
 				const score = prev[idx(sp, tau)];
 				if (score === Number.NEGATIVE_INFINITY) continue;
-				const dlp = durationLogProb(states[sp], tau);
+				// This segment of `sp` (length tau) ends at t-1 — it's being
+				// closed so a new segment can begin at t.
+				const dlp = durationLogProb(states[sp], tau, t - 1);
 				if (dlp === Number.NEGATIVE_INFINITY) continue;
 				const total = score + dlp;
 				if (total > bestScore) {
@@ -194,7 +200,8 @@ export function hsmmViterbi<State, Obs>(input: HsmmInput<State, Obs>): State[] {
 		for (let tau = 1; tau <= MAX_D; tau++) {
 			const score = prev[idx(s, tau)];
 			if (score === Number.NEGATIVE_INFINITY) continue;
-			const dlp = durationLogProb(states[s], tau);
+			// Final segment closes at the last observation, T-1.
+			const dlp = durationLogProb(states[s], tau, T - 1);
 			if (dlp === Number.NEGATIVE_INFINITY) continue;
 			const total = score + dlp;
 			if (total > bestFinalScore) {

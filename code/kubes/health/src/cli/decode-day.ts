@@ -112,6 +112,7 @@ async function decodeAndPersist(
 	placeNearLine: Set<string>,
 	routeGraph: RouteGraph,
 	osm: OsmAdapter,
+	dry: boolean,
 ): Promise<{ segmentCount: number; minuteCount: number; durationMs: number }> {
 	const t0 = Date.now();
 	const velResult = await computeVelocity(config, userId, date, tz);
@@ -143,7 +144,18 @@ async function decodeAndPersist(
 		continuityContext,
 		proximityByMinute,
 	});
-	await saveDecode(kyselyDb(), userId, date, segments);
+	if (dry) {
+		const fmt = (ts: number): string =>
+			new Date(ts * 1000).toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
+		console.error(`# DRY RUN ${date} — ${segments.length} segments (not persisted):`);
+		for (const s of segments) {
+			const line = s.lineName ? ` @ ${s.lineName}` : "";
+			const place = s.placeId !== null ? ` place=${s.placeId}` : "";
+			console.error(`    ${fmt(s.startTs)}-${fmt(s.endTs)}  ${s.mode}${line}${place}`);
+		}
+	} else {
+		await saveDecode(kyselyDb(), userId, date, segments);
+	}
 	// Per-minute count is purely diagnostic. Segments tile the day's
 	// observed minutes contiguously (each `endTs` = last minute + 60),
 	// so total minutes = Σ (endTs − startTs) / 60.
@@ -159,6 +171,10 @@ interface CliArgs {
 	userId: string;
 	tz: string;
 	dates: string[];
+	/** Decode and print the segments without writing `decoded_days`.
+	 *  For inspecting a decode against prod data without mutating the
+	 *  cache. */
+	dry: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -167,12 +183,14 @@ function parseArgs(): CliArgs {
 	let tz = "Europe/London";
 	let days = 1;
 	let explicitDate: string | null = null;
+	let dry = false;
 	for (let i = 0; i < args.length; i++) {
 		const a = args[i];
 		if (a === "--user") userId = args[++i] ?? userId;
 		else if (a === "--tz") tz = args[++i] ?? tz;
 		else if (a === "--days") days = Number(args[++i] ?? days) || days;
 		else if (a === "--date") explicitDate = args[++i] ?? null;
+		else if (a === "--dry" || a === "--dry-run") dry = true;
 	}
 	let dates: string[];
 	if (explicitDate) {
@@ -186,11 +204,11 @@ function parseArgs(): CliArgs {
 			dates.push(date.toISOString().slice(0, 10));
 		}
 	}
-	return { userId, tz, dates };
+	return { userId, tz, dates, dry };
 }
 
 async function main(): Promise<void> {
-	const { userId, tz, dates } = parseArgs();
+	const { userId, tz, dates, dry } = parseArgs();
 	initPool(config.db);
 	await withConnection(migrate);
 
@@ -214,7 +232,7 @@ async function main(): Promise<void> {
 
 	for (const date of dates) {
 		try {
-			const result = await decodeAndPersist(userId, date, tz, places, placeNearLine, routeGraph, dbOsmAdapter);
+			const result = await decodeAndPersist(userId, date, tz, places, placeNearLine, routeGraph, dbOsmAdapter, dry);
 			console.log(
 				`  ${date}: ${result.segmentCount} segments / ${result.minuteCount} minutes in ${result.durationMs}ms`,
 			);

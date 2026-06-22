@@ -19,7 +19,7 @@
 import type { HrPoint, SleepStageRecord, StepPoint } from "../geo/biometrics.js";
 import type { FilteredPoint } from "../geo/kalman.js";
 import type { RouteGraph } from "../geo/route-graph.js";
-import { DEFAULT_MIN_DURATION_BY_MODE, type GammaFit, logDurationProb } from "./duration-dist.js";
+import { DEFAULT_MIN_DURATION_BY_MODE, type GammaFit } from "./duration-dist.js";
 import { buildEmissionFn } from "./emissions.js";
 import { buildEntryPrior } from "./entry-prior.js";
 import type { ContinuityContext } from "./factors/presence-continuity.js";
@@ -34,6 +34,7 @@ import { groupStatesIntoSegments, type HmmSegment } from "./persist.js";
 import { buildRouteRailEvidence } from "./route-rail-evidence.js";
 import { buildStateSpace, type FocusPlaceRef, type State } from "./state-space.js";
 import { buildTrainGeneratorPrior } from "./train-generator-prior.js";
+import { buildDurationLogProb } from "./train-hop-duration.js";
 import { buildTransitionMatrix } from "./transitions.js";
 
 /** Tube lines the decoder models as named `train @ line` states. Fixed
@@ -161,6 +162,18 @@ export function decodeHsmm(inputs: HsmmInputs): HmmSegment[] {
 	const entryLogProb = (state: State, obs: Observation): number =>
 		baseEntryLogProb(state, obs) + trainGen.entry(state, obs);
 
+	// Duration prior with the one-stop-hop relaxation: a generator-vouched
+	// sub-floor train segment (GPS-occluded underground hop) escapes the
+	// 2-minute movement floor. See `train-hop-duration.ts`. Multi-minute
+	// trains and every other mode are unaffected — the golden corpus is
+	// unchanged.
+	const durationLogProb = buildDurationLogProb({
+		fits: BASELINE_DURATION_FITS,
+		minByMode: DEFAULT_MIN_DURATION_BY_MODE,
+		tsAt: (i) => tensor[i]?.ts,
+		isTrainCovered: trainGen.isCovered,
+	});
+
 	const hmmStates = hsmmViterbi({
 		observations: tensor,
 		states,
@@ -168,8 +181,7 @@ export function decodeHsmm(inputs: HsmmInputs): HmmSegment[] {
 		emissionLogProb: emission,
 		initialLogProb,
 		entryLogProb,
-		durationLogProb: (state, d) =>
-			logDurationProb(d, state.mode, BASELINE_DURATION_FITS[state.mode], DEFAULT_MIN_DURATION_BY_MODE[state.mode]),
+		durationLogProb,
 	});
 	const timestamps = tensor.map((o) => o.ts);
 	return groupStatesIntoSegments(hmmStates, timestamps);

@@ -58,6 +58,15 @@ const V_TRAIN_PEAK_KMH = 25;
 const V_TRAIN_AVG_KMH = 12;
 /** Minimum window length in minutes to consider a train segment. */
 const MIN_WINDOW_MIN = 2;
+/** A train-tagged run shorter than `MIN_WINDOW_MIN` is normally GPS
+ *  jitter — but a one-stop underground hop is a single-minute event:
+ *  a fix at the boarding platform, one train-speed reacquisition near
+ *  the alighting platform, then walking. It surfaces below the floor.
+ *  We rescue such a sub-floor run only when the fixes bracketing it
+ *  show a genuine station-to-station displacement at train speed — the
+ *  reacquisition signature — distinguishing a real hop from a lone
+ *  jittery reading that returns to where it started. */
+const STATION_HOP_MIN_DISPLACEMENT_M = 400;
 /** Maximum window length in minutes. */
 const MAX_WINDOW_MIN = 90;
 /** Radius (m) within which the GPS context at the window boundary
@@ -199,6 +208,43 @@ function gpsContextAt(observations: readonly Observation[], t: number): { lat: n
 	return null;
 }
 
+/** The fix observed (or bracketing) just outside a window edge.
+ *  Looks for the last/first GPS-observed minute strictly before
+ *  `start` / after `end`; falls back to the prev/next-fix bookends
+ *  recorded on the boundary minutes. Returns null when none exist. */
+function boundaryFix(
+	observations: readonly Observation[],
+	idx: number,
+	dir: -1 | 1,
+): { lat: number; lon: number; ts: number } | null {
+	for (let t = idx; t >= 0 && t < observations.length; t += dir) {
+		const g = observations[t].gps;
+		if (g !== null) return { lat: g.lat, lon: g.lon, ts: observations[t].ts };
+	}
+	// No observed fix on that side — use the bookend recorded on the
+	// edge minute (set by callers for GPS-null underground runs).
+	const edge = observations[Math.max(0, Math.min(observations.length - 1, idx))];
+	const book = dir === -1 ? edge.prevGpsFix : edge.nextGpsFix;
+	return book === null ? null : { lat: book.lat, lon: book.lon, ts: book.ts };
+}
+
+/** Whether a sub-floor train-tagged run `[start, end]` carries the
+ *  reacquisition signature of a one-stop hop: the fixes bracketing it
+ *  show a genuine station-to-station displacement
+ *  (≥ STATION_HOP_MIN_DISPLACEMENT_M) covered at train speed
+ *  (≥ V_TRAIN_AVG_KMH). A lone jittery fast fix that returns to its
+ *  origin has near-zero net displacement and fails this. */
+function bracketedStationHop(observations: readonly Observation[], start: number, end: number): boolean {
+	const before = boundaryFix(observations, start - 1, -1);
+	const after = boundaryFix(observations, end + 1, 1);
+	if (before === null || after === null) return false;
+	const distM = haversineMeters(before.lat, before.lon, after.lat, after.lon);
+	if (distM < STATION_HOP_MIN_DISPLACEMENT_M) return false;
+	const hrs = (after.ts - before.ts) / 3600;
+	const implicitKmh = distM / 1000 / Math.max(hrs, 1 / 3600);
+	return implicitKmh >= V_TRAIN_AVG_KMH;
+}
+
 /** Identify contiguous time windows where the user is likely on a
  *  train. Two pathways:
  *
@@ -271,7 +317,12 @@ function findTrainWindows(observations: readonly Observation[]): { start: number
 		let end = j - 1;
 		while (start <= end && tag[start] === "unknown") start++;
 		while (end >= start && tag[end] === "unknown") end--;
-		if (start <= end && end - start + 1 >= MIN_WINDOW_MIN) {
+		// A run at/above the floor qualifies on its own; a shorter run
+		// qualifies only with the station-to-station reacquisition
+		// signature (a one-stop underground hop is a single minute).
+		const longEnough = end - start + 1 >= MIN_WINDOW_MIN;
+		const isStationHop = !longEnough && bracketedStationHop(observations, start, end);
+		if (start <= end && (longEnough || isStationHop)) {
 			// Verify the window meets train-velocity threshold by
 			// either observed speed OR implied displacement.
 			let peak = 0;
