@@ -230,3 +230,57 @@ describe("applyHsmmPlaceOverride", () => {
 		expect(segments[0].place).toBe(originalPlace);
 	});
 });
+
+// King's Cross office vs Home (Wembley) — ~13 km apart. The British
+// Library café sits ~400 m from the office: a legitimate nearby refinement.
+const KX = { lat: 51.533, lon: -0.126 };
+const HOME_WEMBLEY = { lat: 51.5628, lon: -0.278 };
+const PLACES_GEO = new Map<number, { displayName: string | null; lat?: number | null; lon?: number | null }>([
+	[1, { displayName: "Home", lat: HOME_WEMBLEY.lat, lon: HOME_WEMBLEY.lon }],
+	[10, { displayName: "Work", lat: KX.lat, lon: KX.lon }],
+	[11, { displayName: "British Library Café", lat: 51.5298, lon: -0.1276 }],
+]);
+
+function stationaryGeo(
+	startMin: number,
+	endMin: number,
+	place: string | null,
+	lat: number,
+	lon: number,
+): EnrichedSegment {
+	const s = stationary(startMin, endMin, place) as EnrichedSegment & { centroidLat: number; centroidLon: number };
+	s.centroidLat = lat;
+	s.centroidLon = lon;
+	return s;
+}
+
+describe("applyHsmmPlaceOverride — doorstep-consistency gate (#244)", () => {
+	it("refuses an override whose place is geographically inconsistent with the stay's own GPS", () => {
+		// 2026-06-22: a 6.8h office stay at King's Cross, GPS-present at both
+		// ends but dark for ~4.5h in the middle. The decoder fills the dark
+		// interior with the Home prior; the majority-overlap override would
+		// teleport the whole stay ~13 km to Home. The stay's own GPS centroid
+		// pins it to King's Cross — refuse, keep the pipeline's place.
+		const seg = stationaryGeo(0, 408, "Work", KX.lat, KX.lon);
+		const hmm = [hsmm(0, 408, "stationary", 1)]; // dominant = Home (Wembley)
+		const out = applyHsmmPlaceOverride([seg], hmm, PLACES_GEO);
+		expect(out[0].place).toBe("Work");
+	});
+
+	it("still applies a nearby override — a real refinement, not a teleport", () => {
+		const seg = stationaryGeo(0, 60, "Work", KX.lat, KX.lon);
+		const hmm = [hsmm(0, 60, "stationary", 11)]; // ~400 m away
+		const out = applyHsmmPlaceOverride([seg], hmm, PLACES_GEO);
+		expect(out[0].place).toBe("British Library Café");
+	});
+
+	it("does not gate when the stay has no GPS centroid — a truly dark stay anchors via the prior", () => {
+		// A fully GPS-null stay (overnight, no fixes) has no centroid to
+		// contradict; the continuity / visit-frequency prior legitimately
+		// assigns the place. The gate must not fire without a centroid.
+		const seg = stationary(0, 60, "Work"); // no centroidLat/Lon
+		const hmm = [hsmm(0, 60, "stationary", 1)]; // Home
+		const out = applyHsmmPlaceOverride([seg], hmm, PLACES_GEO);
+		expect(out[0].place).toBe("Home");
+	});
+});

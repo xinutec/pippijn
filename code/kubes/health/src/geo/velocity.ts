@@ -1311,9 +1311,11 @@ export async function computeVelocityFromInputs(
 			name: "hsmmOverride",
 			run: (segs) => {
 				if (!hmmDecode) return segs;
-				const placeLookup = new Map<number, { displayName: string | null }>();
+				const placeLookup = new Map<number, { displayName: string | null; lat: number; lon: number }>();
 				for (const p of knownPlaces) {
-					if (typeof p.id === "number") placeLookup.set(p.id, { displayName: p.displayName });
+					if (typeof p.id === "number") {
+						placeLookup.set(p.id, { displayName: p.displayName, lat: p.centroidLat, lon: p.centroidLon });
+					}
 				}
 				return applyHsmmPlaceOverride(segs, hmmDecode, placeLookup);
 			},

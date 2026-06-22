@@ -30,11 +30,28 @@
  */
 
 import type { EnrichedSegment } from "../geo/enriched-segment.js";
+import { haversineMeters } from "../geo/place-snap.js";
 import type { HmmSegment } from "./persist.js";
 
 export interface PlaceLookup {
 	displayName: string | null;
+	/** Focus-place centroid. Used by the doorstep-consistency gate to
+	 *  reject a geometrically-implausible override (a stay's place must be
+	 *  near the stay's own GPS). Optional — when absent the gate can't
+	 *  judge and the override proceeds. */
+	lat?: number | null;
+	lon?: number | null;
 }
+
+/** A stay's place must be near the stay's own observed location. A focus
+ *  place whose centroid is further than this from the segment's GPS
+ *  centroid is not a *refinement* of the place name — it's a teleport (the
+ *  decoder filling a GPS-dark stay interior with a visit-frequency prior,
+ *  then winning the segment by majority overlap). Refuse it and keep the
+ *  pipeline's geometry-anchored place. Anchors the venue to the good-GPS
+ *  doorstep rather than the gap-filled interior (#244). 1.5 km matches the
+ *  presence-continuity contradiction radius. */
+const MAX_PLACE_OVERRIDE_DISTANCE_M = 1500;
 
 /** Apply HSMM-derived place overrides to pipeline segments.
  *
@@ -96,6 +113,23 @@ function maybeOverridePlace(
 	if (GENERIC_BUCKET_LABELS.has(place.displayName)) return seg;
 
 	if (place.displayName === seg.place) return seg;
+
+	// Doorstep-consistency gate (#244): the stay's own GPS centroid pins
+	// where it physically was. If the HSMM's place is implausibly far from
+	// it, the override is a teleport (the decoder filled a GPS-dark interior
+	// with the Home/visit-frequency prior and won by overlap), not a
+	// refinement — keep the pipeline's geometry-anchored place. Skipped when
+	// the stay has no centroid (a truly GPS-dark stay legitimately anchors
+	// via the prior).
+	if (
+		seg.centroidLat !== undefined &&
+		seg.centroidLon !== undefined &&
+		place.lat != null &&
+		place.lon != null &&
+		haversineMeters(seg.centroidLat, seg.centroidLon, place.lat, place.lon) > MAX_PLACE_OVERRIDE_DISTANCE_M
+	) {
+		return seg;
+	}
 
 	return { ...seg, place: place.displayName };
 }
