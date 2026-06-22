@@ -119,18 +119,36 @@ describe("reconcileAdjacentRailLegs", () => {
 		expect(ways(reconcileAdjacentRailLegs(segs))).toEqual(["Wembley Park → Baker Street", "Baker Street → Green Park"]);
 	});
 
-	it("skips when the rewrite would make a same-station run", () => {
-		// Leg A alights Baker Street and leg B also alights Baker Street —
-		// rewriting B's boarding to Baker Street yields a degenerate
-		// Baker Street → Baker Street. Leave B alone.
+	it("absorbs leg B as a phantom re-arrival when both legs alight at the same station", () => {
+		// Leg A alights Baker Street and leg B *also* alights Baker Street,
+		// boarding elsewhere with no travel between. You already arrived at
+		// Baker Street via leg A — you cannot ride to it again. Leg B is a
+		// phantom (typically a coarse-fix underground reconstruction
+		// duplicating leg A's tail), so it is absorbed into leg A rather than
+		// left as an impossible "ride to a station you already reached".
 		const segs = [
-			seg("train", 0, 10, { wayName: "Wembley Park → Baker Street" }),
-			seg("train", 10, 19, { wayName: "St. John's Wood → Baker Street" }),
+			seg("train", 0, 10, { wayName: "Wembley Park → Baker Street", pointCount: 12 }),
+			seg("train", 10, 19, { wayName: "St. John's Wood → Baker Street", pointCount: 3 }),
 		];
-		expect(ways(reconcileAdjacentRailLegs(segs))).toEqual([
-			"Wembley Park → Baker Street",
-			"St. John's Wood → Baker Street",
-		]);
+		const out = reconcileAdjacentRailLegs(segs);
+		expect(ways(out)).toEqual(["Wembley Park → Baker Street"]);
+		// Leg A swallows leg B's window and fix count.
+		expect(out[0].endTs).toBe(19 * 60);
+		expect(out[0].pointCount).toBe(15);
+	});
+
+	it("absorbs the 2026-06-22 phantom: one Met ride emitted as two legs both alighting at Euston Square", () => {
+		// The real bug. The 16-minute Wembley Park → Euston Square ride, plus a
+		// 4-minute coarse-fix reconstruction that re-arrives at Euston Square
+		// boarding mid-route at Baker Street. The reconstruction is absorbed;
+		// one physically-coherent ride remains.
+		const segs = [
+			seg("train", 0, 16, { wayName: "Wembley Park → Euston Square · Metropolitan Line" }),
+			seg("train", 16, 20, {
+				wayName: "Baker Street → Euston Square · Circle, Hammersmith & City and Metropolitan Lines",
+			}),
+		];
+		expect(ways(reconcileAdjacentRailLegs(segs))).toEqual(["Wembley Park → Euston Square · Metropolitan Line"]);
 	});
 
 	it("does not mutate the input segments", () => {

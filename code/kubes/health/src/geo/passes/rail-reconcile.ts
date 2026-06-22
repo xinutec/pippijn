@@ -97,29 +97,46 @@ export function parseRailWayName(wayName: string | undefined): { board: string; 
  * boarding/alighting stations independently, so a leg reconstructed
  * from coarse underground fixes can land its boarding on a station the
  * previous leg already passed — a sequence that reads as travelling
- * backward. This pass enforces the constraint: where leg A's alighting
- * and leg B's boarding disagree, leg B is rewritten to board where
- * leg A alighted. Leg A's alighting is the trusted value — it is
- * established first, in time order, and a continuing journey picks up
- * from there.
+ * backward. This pass enforces the constraint in time order, taking
+ * leg A's alighting as the trusted value (established first):
  *
- * Only the station label is corrected; the split time and line name
- * are left as the upstream passes resolved them.
+ *   - **Distinct alights** (A → S, B's-board → T, T ≠ S): leg B
+ *     continues the journey, so it is rewritten to board where leg A
+ *     alighted (S → T). Only the station label changes; split time and
+ *     line name are left as resolved.
+ *   - **Same alight** (A → S, B's-board → S): leg B claims a ride to a
+ *     station you have *already reached* via leg A, with no travel
+ *     between — physically impossible, and the boarding cannot be
+ *     rewritten without collapsing B to a degenerate "S → S". Leg B is
+ *     a phantom re-arrival (typically a coarse-fix reconstruction
+ *     duplicating leg A's tail), so it is **absorbed** into leg A. This
+ *     is the case the worldline-feasibility checker (`src/eval`) guards;
+ *     before this branch existed it left the impossibility standing
+ *     (the 2026-06-22 bug).
  */
 export function reconcileAdjacentRailLegs(segments: EnrichedSegment[]): EnrichedSegment[] {
-	const out = segments.map((s) => ({ ...s }));
-	for (let i = 1; i < out.length; i++) {
-		const a = out[i - 1];
-		const b = out[i];
-		if (effectiveMode(a) !== "train" || effectiveMode(b) !== "train") continue;
-		const aRail = parseRailWayName(a.wayName);
-		const bRail = parseRailWayName(b.wayName);
-		if (aRail === null || bRail === null) continue;
-		if (aRail.alight === bRail.board) continue;
-		// Rewriting B's boarding to A's alighting would collapse leg B to
-		// a single station — skip rather than emit a degenerate "X → X".
-		if (aRail.alight === bRail.alight) continue;
-		b.wayName = `${aRail.alight}${RAIL_STATION_SEP}${bRail.alight}${bRail.line ? `${RAIL_LINE_SEP}${bRail.line}` : ""}`;
+	const out: EnrichedSegment[] = [];
+	for (const seg of segments) {
+		const b = { ...seg };
+		const a = out.length > 0 ? out[out.length - 1] : undefined;
+		if (a !== undefined && effectiveMode(a) === "train" && effectiveMode(b) === "train") {
+			const aRail = parseRailWayName(a.wayName);
+			const bRail = parseRailWayName(b.wayName);
+			if (aRail !== null && bRail !== null && aRail.alight !== bRail.board) {
+				if (aRail.alight === bRail.alight) {
+					// Phantom re-arrival — absorb leg B into the trusted,
+					// established-first leg A rather than leave the impossibility.
+					a.endTs = Math.max(a.endTs, b.endTs);
+					a.pointCount += b.pointCount;
+					a.maxSpeed = Math.max(a.maxSpeed, b.maxSpeed);
+					if (a.snappedPath === undefined && b.snappedPath !== undefined) a.snappedPath = b.snappedPath;
+					continue; // drop B; it is leg A's arrival, not a new ride
+				}
+				// Distinct alights: leg B picks the journey up from S.
+				b.wayName = `${aRail.alight}${RAIL_STATION_SEP}${bRail.alight}${bRail.line ? `${RAIL_LINE_SEP}${bRail.line}` : ""}`;
+			}
+		}
+		out.push(b);
 	}
 	return out;
 }
