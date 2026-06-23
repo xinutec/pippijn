@@ -160,16 +160,21 @@ function projectXY(p: Vec, a: Vec, b: Vec): Vec {
 	return { x: a.x + t * abx, y: a.y + t * aby };
 }
 
-/** Nearest point on the walkable network to `p` (local frame), or null if the
- *  network is empty. Used as the (fixed-within-iteration) map target. */
-function nearestWalkable(p: Vec, ways: WalkableGeo["ways"], frame: ReturnType<typeof makeFrame>): Vec | null {
+/** A polyline / closed ring already projected into the local metric frame. The
+ *  smoother projects every map geometry ONCE up front (rings are fixed; only the
+ *  moving vertices change per iteration) instead of re-projecting each ring point
+ *  on every distance / containment test — the dominant cost over 400 iterations
+ *  in a dense city (≈1000 building footprints). */
+type PolyXY = ReadonlyArray<Vec>;
+
+/** Nearest point on the walkable network to `p`, or null if the network is
+ *  empty. Operates on pre-projected polylines (see {@link PolyXY}). */
+function nearestWalkableXY(p: Vec, ways: ReadonlyArray<PolyXY>): Vec | null {
 	let best: Vec | null = null;
 	let bestD = Number.POSITIVE_INFINITY;
 	for (const w of ways) {
-		for (let i = 1; i < w.coords.length; i++) {
-			const a = frame.toXY(w.coords[i - 1][0], w.coords[i - 1][1]);
-			const b = frame.toXY(w.coords[i][0], w.coords[i][1]);
-			const q = projectXY(p, a, b);
+		for (let i = 1; i < w.length; i++) {
+			const q = projectXY(p, w[i - 1], w[i]);
 			const d = Math.hypot(p.x - q.x, p.y - q.y);
 			if (d < bestD) {
 				bestD = d;
@@ -180,29 +185,21 @@ function nearestWalkable(p: Vec, ways: WalkableGeo["ways"], frame: ReturnType<ty
 	return best;
 }
 
-/** Ray-cast point-in-polygon for a single lat/lon ring in the local frame. */
-function pointInRing(p: Vec, ring: ReadonlyArray<LatLon>, frame: ReturnType<typeof makeFrame>): boolean {
+/** Ray-cast point-in-polygon for a single pre-projected ring. */
+function pointInRingXY(p: Vec, ring: PolyXY): boolean {
 	let inside = false;
 	for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-		const pi = frame.toXY(ring[i].lat, ring[i].lon);
-		const pj = frame.toXY(ring[j].lat, ring[j].lon);
+		const pi = ring[i];
+		const pj = ring[j];
 		const intersect = pi.y > p.y !== pj.y > p.y && p.x < ((pj.x - pi.x) * (p.y - pi.y)) / (pj.y - pi.y) + pi.x;
 		if (intersect) inside = !inside;
 	}
 	return inside;
 }
 
-/** Whether a local-frame point lies inside any open zone (free to roam). */
-function inOpenZone(p: Vec, zones: WalkableGeo["openZones"], frame: ReturnType<typeof makeFrame>): boolean {
-	if (!zones) return false;
-	for (const ring of zones) if (pointInRing(p, ring, frame)) return true;
-	return false;
-}
-
-/** Whether a local-frame point lies inside any building footprint (impassable). */
-function inBuilding(p: Vec, buildings: WalkableGeo["buildings"], frame: ReturnType<typeof makeFrame>): boolean {
-	if (!buildings) return false;
-	for (const ring of buildings) if (pointInRing(p, ring, frame)) return true;
+/** Whether `p` lies inside any of the pre-projected rings (open zone / building). */
+function inAnyRingXY(p: Vec, rings: ReadonlyArray<PolyXY>): boolean {
+	for (const ring of rings) if (pointInRingXY(p, ring)) return true;
 	return false;
 }
 
@@ -235,6 +232,63 @@ export function smoothPedestrianTrajectory(fixes: readonly PedFix[], opts: Smoot
 
 	const anchorA = opts.anchorStart ? frame.toXY(opts.anchorStart.lat, opts.anchorStart.lon) : null;
 	const anchorB = opts.anchorEnd ? frame.toXY(opts.anchorEnd.lat, opts.anchorEnd.lon) : null;
+
+	// Pre-project + prune the map geometry ONCE. Every vertex stays within the
+	// hull of {fixes, anchors} (GPS + anchors + smoothness + inward map pull never
+	// push it out); geometry whose bbox lies more than the map's reach beyond that
+	// hull can neither pull a vertex (distance > OPENNESS_RADIUS_M) nor contain one,
+	// so dropping it is result-preserving — and it cuts the per-iteration cost from
+	// O(all city footprints) to O(the walk's immediate block). MARGIN ≥
+	// OPENNESS_RADIUS_M keeps any way a vertex could feel.
+	const MARGIN_M = OPENNESS_RADIUS_M + 40;
+	let minX = Number.POSITIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	let maxX = Number.NEGATIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	const grow = (v: Vec): void => {
+		if (v.x < minX) minX = v.x;
+		if (v.x > maxX) maxX = v.x;
+		if (v.y < minY) minY = v.y;
+		if (v.y > maxY) maxY = v.y;
+	};
+	for (const v of z) grow(v);
+	if (anchorA) grow(anchorA);
+	if (anchorB) grow(anchorB);
+	const boxMinX = minX - MARGIN_M;
+	const boxMinY = minY - MARGIN_M;
+	const boxMaxX = maxX + MARGIN_M;
+	const boxMaxY = maxY + MARGIN_M;
+	/** Does a pre-projected ring/polyline's bbox overlap the search box? */
+	const bboxHits = (poly: PolyXY): boolean => {
+		let aMinX = Number.POSITIVE_INFINITY;
+		let aMinY = Number.POSITIVE_INFINITY;
+		let aMaxX = Number.NEGATIVE_INFINITY;
+		let aMaxY = Number.NEGATIVE_INFINITY;
+		for (const v of poly) {
+			if (v.x < aMinX) aMinX = v.x;
+			if (v.x > aMaxX) aMaxX = v.x;
+			if (v.y < aMinY) aMinY = v.y;
+			if (v.y > aMaxY) aMaxY = v.y;
+		}
+		return !(aMaxX < boxMinX || aMinX > boxMaxX || aMaxY < boxMinY || aMinY > boxMaxY);
+	};
+	const project = (ring: ReadonlyArray<LatLon>): Vec[] => ring.map((pt) => frame.toXY(pt.lat, pt.lon));
+
+	const waysXY: PolyXY[] = [];
+	const buildingsXY: PolyXY[] = [];
+	const openZonesXY: PolyXY[] = [];
+	if (opts.walkable) {
+		for (const w of opts.walkable.ways) {
+			const poly = w.coords.map((c) => frame.toXY(c[0], c[1]));
+			if (bboxHits(poly)) waysXY.push(poly);
+		}
+		for (const ring of opts.walkable.buildings ?? []) {
+			const poly = project(ring);
+			if (bboxHits(poly)) buildingsXY.push(poly);
+		}
+		for (const ring of opts.walkable.openZones ?? []) openZonesXY.push(project(ring));
+	}
+	const hasMap = waysXY.length > 0;
 
 	// Initialise at the raw fixes (clamped to anchors where given).
 	const p: Vec[] = z.map((v) => ({ ...v }));
@@ -310,19 +364,19 @@ export function smoothPedestrianTrajectory(fixes: readonly PedFix[], opts: Smoot
 		// zone (park/plaza polygon), and the distance gate — beyond
 		// OPENNESS_RADIUS_M from any path you're in open ground and free, so the
 		// map says nothing.
-		if (opts.walkable && opts.walkable.ways.length > 0) {
+		if (hasMap) {
 			for (let i = 0; i < n; i++) {
-				const q = nearestWalkable(p[i], opts.walkable.ways, frame);
+				const q = nearestWalkableXY(p[i], waysXY);
 				if (!q) continue;
 				// Impassable: inside a building, a strong pull onto the nearest
 				// walkable surface — overrides the openness gate (you cannot be
 				// inside a building, however far it is from a path).
-				if (inBuilding(p[i], opts.walkable.buildings, frame)) {
+				if (inAnyRingXY(p[i], buildingsXY)) {
 					gx[i] += 2 * W_BUILDING * (p[i].x - q.x);
 					gy[i] += 2 * W_BUILDING * (p[i].y - q.y);
 					continue;
 				}
-				if (inOpenZone(p[i], opts.walkable.openZones, frame)) continue; // free here
+				if (inAnyRingXY(p[i], openZonesXY)) continue; // free here
 				const dist = Math.hypot(p[i].x - q.x, p[i].y - q.y);
 				if (dist > OPENNESS_RADIUS_M) continue; // open ground — no pull
 				gx[i] += 2 * W_MAP * (p[i].x - q.x);
@@ -362,11 +416,11 @@ export function smoothPedestrianTrajectory(fixes: readonly PedFix[], opts: Smoot
 		const wGps = r <= HUBER_DELTA ? 1 : HUBER_DELTA / r;
 		let info = wGps * invSig2[i];
 		if ((i === 0 && anchorA) || (i === n - 1 && anchorB)) info += W_ANCHOR;
-		if (opts.walkable && opts.walkable.ways.length > 0) {
-			if (inBuilding(v, opts.walkable.buildings, frame)) {
+		if (hasMap) {
+			if (inAnyRingXY(v, buildingsXY)) {
 				info += W_BUILDING;
-			} else if (!inOpenZone(v, opts.walkable.openZones, frame)) {
-				const q = nearestWalkable(v, opts.walkable.ways, frame);
+			} else if (!inAnyRingXY(v, openZonesXY)) {
+				const q = nearestWalkableXY(v, waysXY);
 				if (q && Math.hypot(v.x - q.x, v.y - q.y) <= OPENNESS_RADIUS_M) info += W_MAP;
 			}
 		}
