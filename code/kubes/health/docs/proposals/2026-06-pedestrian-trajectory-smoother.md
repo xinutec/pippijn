@@ -125,8 +125,21 @@ golden-safe at each step (states never change; only drawn geometry does).
 
 ## Next phase — a real walkable-surface field (replaces the openness proxy)
 
-**Status:** designed, not started (2026-06-22). The single most valuable upgrade
-to this layer, and the right thing to build rather than patching one symptom.
+**Status:** building footprints shipped (2026-06-23); open-area polygons + the
+continuous `S(x)` field remain. The building slice — the symptom the user
+reported — is done and measured: on the 2026-06-22 commute, smoothed-walk
+vertices falling inside building footprints drop **16 → 6** over the day (worst
+walk clears fully; `npm run build && node dist/cli/score-building-avoidance.js
+2026-06-22 pippijn`). The residual is unmapped London pavement — no escape
+target — not weak repulsion. Two pieces made it work beyond the raw spring:
+(1) a **pre-project + bbox-prune** of the map geometry so the smoother stays
+fast in a dense city (`walkSmooth` 38.8s → 2.0s for the day); (2) **discounting a
+GPS fix that itself lands inside a building** (`GPS_IN_BUILDING_TRUST=0.1`) — the
+spring alone only edge-hugs because robust-GPS re-anchors the vertex on the bad
+indoor fix; weighting that fix down (not vetoing it) lets the line reach the
+pavement. Still to do: populate `openZones` from open-area polygons, then fold
+ways + buildings + zones into one continuous likelihood and retire
+`OPENNESS_RADIUS_M`.
 
 ### Why — the map term is a one-bit proxy
 
@@ -151,32 +164,34 @@ term from it (vertex pushed *out of* low-`S`, free within high-`S`), retiring
   with a transverse falloff, not a hard pull) — biases to the right side of a
   street.
 - **High** inside genuine open walkable zones — parks, plazas, pedestrian areas,
-  car parks — finally *populating* `openZones` (defined in `WalkableGeo` but never
-  set; `pedestrian-smooth-annotate.ts:131` writes only `ways`).
-- **≈0 (impassable)** inside **buildings**, water, fenced/private land.
+  car parks — *populating* `openZones` (defined in `WalkableGeo`; still unset —
+  `pedestrian-smooth-annotate.ts` now writes `ways` + `buildings`, not zones).
+- **≈0 (impassable)** inside **buildings** — *done* (a vertex inside a footprint
+  is repelled onto the nearest way + its in-building GPS fix is discounted);
+  water / fenced / private land still to add.
 - **Mild neutral** prior on unmapped ground, so coverage gaps don't break it.
 
 Then "free in a park, blocked by a building, biased to the pavement on a street"
-all fall out of *one* likelihood instead of a radius constant. The buildings bug is
-the **first slice** of this, not a separate task.
+all fall out of *one* likelihood instead of a radius constant. The buildings bug
+was the **first slice** of this — now shipped.
 
 ### How
 
-1. **New OSM channels** — `buildingsNear()` (impassable footprints) and
-   open-area polygons (`leisure=park`, `landuse=*`, `amenity=parking`,
-   `highway=pedestrian` areas) to populate `openZones` — threaded through
-   `OsmAdapter` / `dbOsmAdapter` from the `osm_lines` / `osm_points` mirror (verify
-   they're mirrored; else extend the mirror query).
-2. **Surface-field emission** — replace the distance-gate map term in
-   `pedestrian-smooth.ts` with one derived from `S(x)`; keep PDR + anchors +
-   robust-GPS + smoothness unchanged.
-3. **Re-capture the golden corpus** — new OSM queries make every deterministic
-   replay throw "uncaptured query" until each blessed day is re-pulled
-   (`npm run capture-golden`). This is the main cost; do it deliberately. The
-   2026-06-22 home walk is the natural real-data fixture for the building case.
-4. **Tune + measure** against `walk-score` and the captured walks; display-only,
-   so golden *states* are unaffected — the gate is the geometry eval, not
-   `normalizeStates`.
+1. **New OSM channels** — `buildingsNear()` (impassable footprints) — *done*:
+   plain `building=*` ways bucket under a `building` feature_type, fetched in a
+   tight box, threaded through `OsmAdapter` / db+recording+fixture adapters. Open-
+   area polygons (`leisure=park`, `landuse=*`, `amenity=parking`,
+   `highway=pedestrian` areas) for `openZones` — *still to do*.
+2. **Surface-field emission** — *partial*: the building term is a repulsion
+   spring + GPS-trust discount inside `pedestrian-smooth.ts`, still gated by
+   `OPENNESS_RADIUS_M` for the soft way-pull. Folding ways + buildings + zones
+   into one continuous `S(x)` and retiring the radius constant remains.
+3. **Re-capture the golden corpus** — only the building anchor (2026-06-22) was
+   re-captured; the field is display-only, so the other days replay
+   `buildingsNear → []` and stay byte-identical (no forced re-pull). Prod fetches
+   buildings on demand per request (tight box, mirror-cached).
+4. **Tune + measure** — *done* for buildings via `score-building-avoidance`
+   (16→6 on 06-22); display-only, golden *states* unaffected.
 
 ### Architectural note
 
