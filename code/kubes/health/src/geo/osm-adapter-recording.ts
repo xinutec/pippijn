@@ -31,6 +31,7 @@
 import type { Station } from "./line-stations.js";
 import type { NearbyLandmark, NearbyStation, NearbyTransitStop, NearbyWay, NominatimResult } from "./osm.js";
 import type { OsmAdapter } from "./osm-adapter.js";
+import type { BuildingFootprint } from "./osm-local.js";
 import type { OsmRoadWay } from "./road-match.js";
 
 /** Captured (args → result) pairs for one classification-pipeline run.
@@ -66,6 +67,11 @@ export interface OsmTrace {
 	 *  smoother runs without the soft map factor, so old goldens are unchanged),
 	 *  missing KEY in a present section = the usual uncaptured-query error. */
 	walkableRoads?: Record<string, OsmRoadWay[]>;
+	/** Building footprints for the pedestrian smoother's walkable-surface field.
+	 *  Optional: absent in fixtures captured before it — missing SECTION = no
+	 *  building data (the smoother runs without the impassability term, so old
+	 *  goldens are unchanged), missing KEY in a present section = uncaptured. */
+	buildingsNear?: Record<string, BuildingFootprint[]>;
 }
 
 /** Build an empty trace. */
@@ -80,6 +86,7 @@ export function emptyOsmTrace(): OsmTrace {
 		stationsOnLine: {},
 		drivableRoads: {},
 		walkableRoads: {},
+		buildingsNear: {},
 	};
 }
 
@@ -149,6 +156,13 @@ export class RecordingOsmAdapter implements OsmAdapter {
 		const result = await this.inner.walkableRoads(lat, lon, radiusM);
 		if (!this.trace.walkableRoads) this.trace.walkableRoads = {};
 		this.trace.walkableRoads[key3(lat, lon, radiusM)] = result;
+		return result;
+	}
+
+	async buildingsNear(lat: number, lon: number, radiusM?: number): Promise<BuildingFootprint[]> {
+		const result = await this.inner.buildingsNear(lat, lon, radiusM);
+		if (!this.trace.buildingsNear) this.trace.buildingsNear = {};
+		this.trace.buildingsNear[key3(lat, lon, radiusM)] = result;
 		return result;
 	}
 }

@@ -25,7 +25,15 @@ import type { TransportMode } from "./segments.js";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 
-import { ensureCovered, queryDrivableRoads, queryLines, queryPoints, queryWalkableRoads } from "./osm-local.js";
+import {
+	type BuildingFootprint,
+	ensureCovered,
+	queryBuildingsNear,
+	queryDrivableRoads,
+	queryLines,
+	queryPoints,
+	queryWalkableRoads,
+} from "./osm-local.js";
 import { USER_AGENT } from "./osm-overpass.js";
 import type { OsmRoadWay } from "./road-match.js";
 import { rankVenues, type StayShape, VENUE_RANK_FLOOR_NATS, type VenuePriors } from "./venue-prior.js";
@@ -1005,6 +1013,18 @@ export async function drivableRoads(lat: number, lon: number, radiusM = 600): Pr
 export async function walkableRoads(lat: number, lon: number, radiusM = 600): Promise<OsmRoadWay[]> {
 	await ensureCovered(lat, lon, radiusM, "highway");
 	return queryWalkableRoads(lat, lon, radiusM);
+}
+
+/**
+ * Building footprints near a point — impassable polygons the pedestrian
+ * smoother pushes a foot leg *out of* (the walkable-surface field's "≈0 inside
+ * a building" term). Ensures a tight building-coverage box (see
+ * `BOX_HALF_WIDTH_BY_FEATURE` in osm-local — deliberately small, buildings are
+ * dense and we only need the immediate block), then reads the local mirror.
+ */
+export async function nearbyBuildings(lat: number, lon: number, radiusM = 150): Promise<BuildingFootprint[]> {
+	await ensureCovered(lat, lon, radiusM, "building");
+	return queryBuildingsNear(lat, lon, radiusM);
 }
 
 /**

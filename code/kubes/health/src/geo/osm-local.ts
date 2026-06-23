@@ -136,6 +136,18 @@ export function fetchBboxAround(
 	};
 }
 
+/** Default coverage-box half-width (5 km → 10 km box). */
+const DEFAULT_BOX_HALF_WIDTH_M = 5000;
+/** Per-feature_type coverage-box half-width overrides. `building` uses a tight
+ *  box: building density is huge in a city, so a 10 km box would pull millions
+ *  of footprints — a volume bomb (cf. #255). Buildings are only needed in the
+ *  immediate vicinity of a walk, so a small box keeps the mirror bounded; the
+ *  cost is more frequent re-fetches as the user moves, which is fine because
+ *  buildings are fetched only around walk legs, not every segment. */
+const BOX_HALF_WIDTH_BY_FEATURE: Record<string, number> = {
+	building: 500,
+};
+
 /** A parsed OSM feature ready to be inserted into `osm_features`. */
 export interface ParsedFeature {
 	osm_id: number;
@@ -171,7 +183,11 @@ const FEATURE_TYPE_RULES: Array<{ tag: string; featureType: string }> = [
 	{ tag: "shop", featureType: "landmark" },
 	{ tag: "tourism", featureType: "landmark" },
 	{ tag: "leisure", featureType: "landmark" },
-	{ tag: "building", featureType: "landmark" },
+	// A plain building (no amenity/shop/… already matched above) buckets under
+	// its own `building` feature_type: the pedestrian smoother's impassable-
+	// surface layer. A building that's *also* a venue (e.g. a shop) was already
+	// caught by an earlier rule and kept as a landmark.
+	{ tag: "building", featureType: "building" },
 ];
 
 /** Highway-tagged NODES that are transit/road furniture, not roads —
@@ -266,6 +282,11 @@ export function buildOverpassQuery(
 			'way["tourism"]',
 			'way["leisure"]',
 		],
+		// Building footprints — impassable polygons for the pedestrian smoother.
+		// Fetched only in a TIGHT box (see BOX_HALF_WIDTH_BY_FEATURE) because
+		// building density is enormous in a city; a 10 km box would be a volume
+		// bomb (cf. #255).
+		building: ['way["building"]'],
 	};
 	const filters = filterFor[featureType];
 	if (!filters) throw new Error(`No Overpass filter defined for feature_type=${featureType}`);
@@ -541,7 +562,7 @@ export async function ensureCovered(lat: number, lon: number, radiusM: number, f
 		return;
 	}
 
-	const bbox = fetchBboxAround(lat, lon);
+	const bbox = fetchBboxAround(lat, lon, BOX_HALF_WIDTH_BY_FEATURE[featureType] ?? DEFAULT_BOX_HALF_WIDTH_M);
 
 	// Dedup: key includes the bbox so distant lookups in the same
 	// featureType don't block each other. The bbox is determined by
@@ -972,4 +993,41 @@ export async function queryWalkableRoads(lat: number, lon: number, radiusM: numb
 		if (coords.length >= 2) ways.push({ osmId: Number(r.osm_id), name: r.name, subtype: r.subtype, coords });
 	}
 	return ways;
+}
+
+/** A building footprint as a closed lat/lon ring. */
+export type BuildingFootprint = Array<{ lat: number; lon: number }>;
+
+/** Query-bbox margin (m) around a building lookup. Small — buildings only
+ *  matter right next to the walk. */
+const BUILDING_QUERY_MARGIN_M = 100;
+
+/**
+ * Building footprint rings within `radiusM` of a point — the impassable-surface
+ * layer for the pedestrian smoother. Buildings are closed OSM ways, stored as
+ * LINESTRING outlines in `osm_lines` under `feature_type = 'building'`. A ring
+ * with fewer than 3 points isn't a polygon and is dropped.
+ */
+export async function queryBuildingsNear(lat: number, lon: number, radiusM: number): Promise<BuildingFootprint[]> {
+	const dLat = (radiusM + BUILDING_QUERY_MARGIN_M) / 111_320;
+	const dLon = (radiusM + BUILDING_QUERY_MARGIN_M) / (111_320 * Math.cos((lat * Math.PI) / 180));
+	const bbox: CorridorBbox = { minLat: lat - dLat, maxLat: lat + dLat, minLon: lon - dLon, maxLon: lon + dLon };
+	const poly = bboxPolygonWkt(bbox);
+
+	const rows = (
+		await sql<{ wkt: string }>`
+			SELECT ST_AsText(geom) AS wkt
+			FROM osm_lines
+			WHERE feature_type = 'building'
+			  AND MBRIntersects(geom, ST_GeomFromText(${poly}, 4326))
+			LIMIT 20000
+		`.execute(db())
+	).rows;
+
+	const rings: BuildingFootprint[] = [];
+	for (const r of rows) {
+		const coords = parseLineStringWkt(r.wkt);
+		if (coords.length >= 3) rings.push(coords.map(([la, lo]) => ({ lat: la, lon: lo })));
+	}
+	return rings;
 }

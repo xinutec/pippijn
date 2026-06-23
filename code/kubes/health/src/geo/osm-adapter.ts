@@ -37,6 +37,7 @@ import {
 	type NearbyTransitStop,
 	type NearbyWay,
 	type NominatimResult,
+	nearbyBuildings,
 	nearbyLandmarks,
 	nearbyStations,
 	nearbyTransitStops,
@@ -44,6 +45,7 @@ import {
 	reverseGeocode,
 	walkableRoads,
 } from "./osm.js";
+import type { BuildingFootprint } from "./osm-local.js";
 import type { OsmRoadWay } from "./road-match.js";
 
 /** The OSM + Nominatim lookups the classification pipeline reads.
@@ -67,6 +69,9 @@ export interface OsmAdapter {
 	/** Walkable way geometry near a point — the soft surface prior for the
 	 *  pedestrian trajectory smoother. */
 	walkableRoads(lat: number, lon: number, radiusM?: number): Promise<OsmRoadWay[]>;
+	/** Building footprints near a point — impassable polygons the pedestrian
+	 *  smoother pushes a foot leg out of (walkable-surface field). */
+	buildingsNear(lat: number, lon: number, radiusM?: number): Promise<BuildingFootprint[]>;
 }
 
 /** Production adapter: delegate to the existing top-level functions
@@ -83,4 +88,5 @@ export const dbOsmAdapter: OsmAdapter = {
 	stationsOnLine,
 	drivableRoads,
 	walkableRoads,
+	buildingsNear: nearbyBuildings,
 };

@@ -25,6 +25,7 @@ import type {
 	NominatimResult,
 } from "../../src/geo/osm.js";
 import type { OsmAdapter } from "../../src/geo/osm-adapter.js";
+import type { BuildingFootprint } from "../../src/geo/osm-local.js";
 import type { OsmRoadWay } from "../../src/geo/road-match.js";
 
 /** A recorded invocation of an adapter primitive. */
@@ -47,6 +48,7 @@ export interface MockOsmAdapterOptions {
 	stationsOnLine?: Stub<[string], Station[]>;
 	drivableRoads?: Stub<[number, number, number | undefined], OsmRoadWay[]>;
 	walkableRoads?: Stub<[number, number, number | undefined], OsmRoadWay[]>;
+	buildingsNear?: Stub<[number, number, number | undefined], BuildingFootprint[]>;
 }
 
 export interface MockOsmAdapter extends OsmAdapter {
@@ -60,6 +62,7 @@ export interface MockOsmAdapter extends OsmAdapter {
 		stationsOnLine: Array<RecordedCall<[string]>>;
 		drivableRoads: Array<RecordedCall<[number, number, number | undefined]>>;
 		walkableRoads: Array<RecordedCall<[number, number, number | undefined]>>;
+		buildingsNear: Array<RecordedCall<[number, number, number | undefined]>>;
 	};
 }
 
@@ -78,6 +81,7 @@ export function mockOsmAdapter(options: MockOsmAdapterOptions = {}): MockOsmAdap
 		stationsOnLine: [],
 		drivableRoads: [],
 		walkableRoads: [],
+		buildingsNear: [],
 	};
 	return {
 		calls,
@@ -116,6 +120,10 @@ export function mockOsmAdapter(options: MockOsmAdapterOptions = {}): MockOsmAdap
 		async walkableRoads(lat, lon, radiusM) {
 			calls.walkableRoads.push({ args: [lat, lon, radiusM] });
 			return options.walkableRoads?.(lat, lon, radiusM) ?? [];
+		},
+		async buildingsNear(lat, lon, radiusM) {
+			calls.buildingsNear.push({ args: [lat, lon, radiusM] });
+			return options.buildingsNear?.(lat, lon, radiusM) ?? [];
 		},
 	};
 }

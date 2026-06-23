@@ -128,7 +128,11 @@ export async function annotateWalkSmoothing(
 		}
 		const radiusM = Math.round(maxDist + WALK_QUERY_SLACK_M);
 		const ways = await osm.walkableRoads(cLat, cLon, radiusM);
-		const walkable: WalkableGeo | null = ways.length > 0 ? { ways } : null;
+		// Impassable footprints for the walkable-surface field — the term that
+		// pushes the line *out of* a building (distinct from "no path nearby",
+		// which the openness gate would otherwise call free open ground).
+		const buildings = await osm.buildingsNear(cLat, cLon, radiusM);
+		const walkable: WalkableGeo | null = ways.length > 0 || buildings.length > 0 ? { ways, buildings } : null;
 
 		// Anchor each end to the most reliable of the walk's OWN boundary fixes
 		// (inWin is already speed-filtered, so a fast neighbour-leg fix can't be

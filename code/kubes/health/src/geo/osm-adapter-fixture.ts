@@ -20,6 +20,7 @@ import type { Station } from "./line-stations.js";
 import type { NearbyLandmark, NearbyStation, NearbyTransitStop, NearbyWay, NominatimResult } from "./osm.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import type { OsmTrace } from "./osm-adapter-recording.js";
+import type { BuildingFootprint } from "./osm-local.js";
 import type { OsmRoadWay } from "./road-match.js";
 
 function key3(lat: number, lon: number, third: number | undefined): string {
@@ -124,6 +125,21 @@ export class FixtureOsmAdapter implements OsmAdapter {
 		const result = section[key3(lat, lon, radiusM)];
 		if (result === undefined) {
 			throw new Error(`FixtureOsmAdapter: uncaptured walkableRoads(${lat}, ${lon}, ${radiusM}) — re-capture required`);
+		}
+		return result;
+	}
+
+	async buildingsNear(lat: number, lon: number, radiusM?: number): Promise<BuildingFootprint[]> {
+		// Fixtures captured before the walkable-surface field have no building
+		// section — replay as "no building data" so the smoother runs without the
+		// impassability term and old goldens are unchanged (geometry is display-only
+		// regardless; states never depend on it). Present section, missing key =
+		// the normal uncaptured-query error.
+		const section = this.trace.buildingsNear;
+		if (section === undefined) return [];
+		const result = section[key3(lat, lon, radiusM)];
+		if (result === undefined) {
+			throw new Error(`FixtureOsmAdapter: uncaptured buildingsNear(${lat}, ${lon}, ${radiusM}) — re-capture required`);
 		}
 		return result;
 	}

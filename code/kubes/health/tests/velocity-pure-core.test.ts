@@ -33,6 +33,7 @@ function throwingOsmAdapter(): OsmAdapter {
 		stationsOnLine: boom,
 		drivableRoads: boom,
 		walkableRoads: boom,
+		buildingsNear: boom,
 	};
 }
 
