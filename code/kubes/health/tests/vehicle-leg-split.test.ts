@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
 import type { TrackSegment } from "../src/geo/segments.js";
-import { splitWalksOnVehicleLeg } from "../src/geo/stay-split.js";
+import { holdInterchangeDwell, splitWalksOnVehicleLeg } from "../src/geo/stay-split.js";
 
 // Synthetic, abstract scenarios — no real journey data. Movement is in
 // latitude only; ~111,195 m per degree, so `at(m)` places a fix m metres
@@ -191,5 +191,35 @@ describe("splitWalksOnVehicleLeg", () => {
 		const pts = Array.from({ length: 6 }, (_, i) => fix(i * 60, at((i * 1668) / 5), 25));
 		const out = splitWalksOnVehicleLeg([drive], pts);
 		expect(out).toEqual([drive]);
+	});
+});
+
+describe("holdInterchangeDwell", () => {
+	it("demotes a no-translation walk between two train legs to a platform wait", () => {
+		// The Finchley Road case: a 2-min "walk" bracketed by two tube legs whose
+		// fixes never leave a ~25 m cluster — GPS jitter, not a walk. → stationary.
+		const segs = [train(-60, -10, "A → Finchley Road"), walk(0, 120), train(200, 400, "Finchley Road → B")];
+		const pts = [fix(0, at(0), 1), fix(40, at(12), 1), fix(80, at(-6), 1), fix(120, at(8), 1)];
+		const out = holdInterchangeDwell(segs, pts);
+		expect((out[1] as { refinedMode?: string }).refinedMode).toBe("stationary");
+	});
+
+	it("keeps a genuine cross-platform interchange walk as walking", () => {
+		// The Baker Street case: bracketed by two tube legs, but the fixes span
+		// ~110 m — a real walk between platforms. Stays walking.
+		const segs = [train(-60, -10, "A → Baker Street"), walk(0, 300), train(400, 600, "Baker Street → B")];
+		const pts = [fix(0, at(0), 4), fix(100, at(40), 4), fix(200, at(80), 4), fix(300, at(110), 4)];
+		const out = holdInterchangeDwell(segs, pts);
+		expect((out[1] as { refinedMode?: string }).refinedMode).toBeUndefined();
+		expect(out[1].mode).toBe("walking");
+	});
+
+	it("leaves a no-translation walk NOT bracketed by trains alone", () => {
+		// Same tight cluster, but no train on one side — not an interchange, so the
+		// pass keeps out of it (a genuine brief pause mid-walk is not its business).
+		const segs = [walk(0, 120), train(200, 400, "X → Y")];
+		const pts = [fix(0, at(0), 1), fix(60, at(10), 1), fix(120, at(-5), 1)];
+		const out = holdInterchangeDwell(segs, pts);
+		expect((out[0] as { refinedMode?: string }).refinedMode).toBeUndefined();
 	});
 });

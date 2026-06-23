@@ -78,6 +78,7 @@ import { effectiveMode, samplesInWindow } from "./segment-util.js";
 import type { TransportMode } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints, isStationaryIncoherent } from "./segments.js";
 import {
+	holdInterchangeDwell,
 	reassignWalkTailToVehicle,
 	splitStaysOnEvidence,
 	splitWalksOnEvidence,
@@ -1204,6 +1205,17 @@ export async function computeVelocityFromInputs(
 		{
 			name: "walkVehicleHandoff",
 			run: (segs) => reassignWalkTailToVehicle(segs, points),
+		},
+
+		// Interchange dwell: a "walking" leg between two train legs whose fixes
+		// never leave a ~60 m cluster did not translate — it is a platform wait
+		// the GPS jitter scored as a slow walk (the Finchley Road 2026-06-23
+		// case), not a walk. Demote it to stationary. Runs after vehicleSplit,
+		// which creates these short shoulders by carving a surfaced tube leg out
+		// of an interchange walk. See holdInterchangeDwell.
+		{
+			name: "interchangeDwell",
+			run: (segs) => holdInterchangeDwell(segs, points),
 		},
 
 		// Rail-snap: attach the precomputed rail-track geometry to each

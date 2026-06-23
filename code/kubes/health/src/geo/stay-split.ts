@@ -503,6 +503,58 @@ const VEHICLE_LEG_MIN_REMAINDER_S = 60;
  *  falls below this. The rail-vs-road discriminator for the train-sandwich
  *  recovery — strict, so we never fabricate a tube leg over a real drive. */
 const TUBE_LEG_MIN_STRAIGHTNESS = 0.9;
+/** Max span (m) a walking interchange shoulder may cover and still be read as a
+ *  platform WAIT rather than a real walk between platforms. Below it the fixes
+ *  sit in one cluster — you didn't translate, you waited (the Finchley Road
+ *  2026-06-23 case: a 0-step ~28 m jitter cluster the segmenter defaulted to
+ *  "walking"). Above it the leg genuinely moved (e.g. ~110 m across Baker Street
+ *  between platforms) and stays a walk. */
+const INTERCHANGE_DWELL_MAX_SPAN_M = 60;
+
+/**
+ * Hold a phantom interchange "walk" as a stationary wait.
+ *
+ * A `walking` segment bracketed by a train leg on BOTH sides is an Underground
+ * interchange. If its GPS fixes never spread beyond INTERCHANGE_DWELL_MAX_SPAN_M
+ * the body did not translate — it is a platform wait the segmenter scored as a
+ * slow walk because urban GPS jittered around one spot (the Finchley Road
+ * 2026-06-23 case: ~28 m cluster, 0 pedometer steps, labelled "walking" only
+ * because it was neither fast enough for a vehicle nor a long clean stationary
+ * cluster). Demote it to stationary so the timeline reads "waited on the
+ * platform", not "walked". A shoulder that genuinely moved between platforms
+ * (Baker Street, ~110 m) clears the span and keeps its walk.
+ *
+ * Runs after the vehicle-leg split, which is what creates these short shoulders
+ * by carving a surfaced tube leg out of the middle of an interchange walk.
+ * Keys off GPS extent alone — freshness-immune, unlike a step-count gate, and
+ * physically decisive (no translation ⇒ no journey leg). Pure.
+ */
+export function holdInterchangeDwell<T extends TrackSegment & { refinedMode?: TransportMode; refinedReason?: string }>(
+	segments: readonly T[],
+	points: readonly FilteredPoint[],
+): T[] {
+	return segments.map((seg, i) => {
+		if (effectiveMode(seg) !== "walking") return seg;
+		const prev = segments[i - 1];
+		const next = segments[i + 1];
+		if (!prev || !next || effectiveMode(prev) !== "train" || effectiveMode(next) !== "train") return seg;
+		const fixes = samplesInWindow(points, seg);
+		if (fixes.length < 2) return seg;
+		let span = 0;
+		for (let a = 0; a < fixes.length; a++) {
+			for (let b = a + 1; b < fixes.length; b++) {
+				span = Math.max(span, haversineMeters(fixes[a].lat, fixes[a].lon, fixes[b].lat, fixes[b].lon));
+			}
+		}
+		if (span >= INTERCHANGE_DWELL_MAX_SPAN_M) return seg;
+		const reason = `interchange platform wait — fixes span ${Math.round(span)} m between two train legs, no translation (GPS jitter scored as a walk)`;
+		return {
+			...seg,
+			refinedMode: "stationary",
+			refinedReason: seg.refinedReason ? `${seg.refinedReason}; ${reason}` : reason,
+		};
+	});
+}
 
 /**
  * Split each `walking` segment that hides a vehicle leg into
