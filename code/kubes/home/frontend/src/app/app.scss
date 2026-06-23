@@ -118,6 +118,7 @@
 	align-items: center;
 	padding: 1.75rem;
 	border-radius: 28px;
+	overflow: clip; /* keep the AQI badge (and its glow) inside the rounded card */
 	background: linear-gradient(
 		135deg,
 		var(--mat-sys-primary-container),
@@ -188,7 +189,8 @@
 	border-radius: 24px;
 	color: #fff;
 	background: var(--band-color);
-	box-shadow: 0 6px 20px -8px var(--band-color);
+	/* small, contained lift — a larger glow bled past the hero card's edge */
+	box-shadow: 0 2px 8px -2px var(--band-color);
 }
 
 .aqi-badge.aqi-na {
