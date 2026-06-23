@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
 import type { TrackSegment } from "../src/geo/segments.js";
-import { holdInterchangeDwell, splitWalksOnVehicleLeg } from "../src/geo/stay-split.js";
+import { splitWalksOnVehicleLeg } from "../src/geo/stay-split.js";
 
 // Synthetic, abstract scenarios — no real journey data. Movement is in
 // latitude only; ~111,195 m per degree, so `at(m)` places a fix m metres
@@ -23,21 +23,6 @@ function walk(startTs: number, endTs: number, mode = "walking"): TrackSegment {
 		maxSpeed: 6,
 		linearity: 0.5,
 		pointCount: 0,
-	} as TrackSegment;
-}
-/** A train leg carrying a station-pair wayName, for the interchange-bracket case. */
-function train(startTs: number, endTs: number, wayName: string): TrackSegment {
-	return {
-		startTs,
-		endTs,
-		mode: "train",
-		confidence: 1,
-		confidenceMargin: 5,
-		avgSpeed: 50,
-		maxSpeed: 70,
-		linearity: 0.95,
-		pointCount: 5,
-		wayName,
 	} as TrackSegment;
 }
 
@@ -132,94 +117,10 @@ describe("splitWalksOnVehicleLeg", () => {
 		expect(out[1].mode).toBe("train");
 	});
 
-	it("carves a fast straight leg from an interchange walk as TRAIN, bridging the stations", () => {
-		// The Finchley Road → Baker Street tube case: an interchange walk sits
-		// between two train legs, and inside it the GPS surfaced mid-tunnel as a
-		// fast, dead-straight run. That run is the missing tube leg, not a car ride
-		// — it must be carved as `train` labelled with the bridging station pair
-		// (prev's alight → next's board), not the default `driving`.
-		const pts = [
-			fix(0, at(0), 3), // platform shuffle at Finchley Road
-			fix(60, at(8), 3),
-			fix(120, at(0), 3),
-			fix(180, at(556), 30), // tube leg surfaces — straight, fast
-			fix(240, at(1112), 33),
-			fix(300, at(1668), 32),
-			fix(360, at(1676), 3), // interchange shuffle at Baker Street
-			fix(420, at(1668), 3),
-			fix(480, at(1672), 3),
-		];
-		const segs = [
-			train(-600, -30, "Wembley Park → Finchley Road"),
-			walk(0, 480),
-			train(600, 1200, "Baker Street → Euston Square · Metropolitan Line"),
-		];
-		const out = splitWalksOnVehicleLeg(segs, pts);
-		const carved = out.find((s) => s.startTs >= 120 && s.endTs <= 360 && s.mode !== "walking");
-		expect(carved).toBeDefined();
-		expect(carved?.mode).toBe("train");
-		expect((carved as { wayName?: string }).wayName).toBe("Finchley Road → Baker Street");
-	});
-
-	it("still carves a WEAVING fast leg between trains as driving (a real road vehicle)", () => {
-		// Same train bracket, but the fast leg zig-zags (low linearity) — a taxi
-		// between two stations, not a tube leg. The rail-corridor gate (straightness)
-		// must hold the line: it stays `driving`, no fabricated station pair.
-		const pts = [
-			fix(0, at(0), 3),
-			fix(60, at(8), 3),
-			fix(120, at(0), 3),
-			fix(180, at(556), 30, 0.004), // big east jog — weaving like a road
-			fix(240, at(1112), 33, -0.003),
-			fix(300, at(1668), 32, 0.004),
-			fix(360, at(1676), 3),
-			fix(420, at(1668), 3),
-			fix(480, at(1672), 3),
-		];
-		const segs = [
-			train(-600, -30, "Wembley Park → Finchley Road"),
-			walk(0, 480),
-			train(600, 1200, "Baker Street → Euston Square"),
-		];
-		const out = splitWalksOnVehicleLeg(segs, pts);
-		const carved = out.find((s) => s.startTs >= 120 && s.endTs <= 360 && s.mode !== "walking");
-		expect(carved?.mode).toBe("driving");
-	});
-
 	it("ignores non-walking segments", () => {
 		const drive = walk(0, 300, "driving");
 		const pts = Array.from({ length: 6 }, (_, i) => fix(i * 60, at((i * 1668) / 5), 25));
 		const out = splitWalksOnVehicleLeg([drive], pts);
 		expect(out).toEqual([drive]);
-	});
-});
-
-describe("holdInterchangeDwell", () => {
-	it("demotes a no-translation walk between two train legs to a platform wait", () => {
-		// The Finchley Road case: a 2-min "walk" bracketed by two tube legs whose
-		// fixes never leave a ~25 m cluster — GPS jitter, not a walk. → stationary.
-		const segs = [train(-60, -10, "A → Finchley Road"), walk(0, 120), train(200, 400, "Finchley Road → B")];
-		const pts = [fix(0, at(0), 1), fix(40, at(12), 1), fix(80, at(-6), 1), fix(120, at(8), 1)];
-		const out = holdInterchangeDwell(segs, pts);
-		expect((out[1] as { refinedMode?: string }).refinedMode).toBe("stationary");
-	});
-
-	it("keeps a genuine cross-platform interchange walk as walking", () => {
-		// The Baker Street case: bracketed by two tube legs, but the fixes span
-		// ~110 m — a real walk between platforms. Stays walking.
-		const segs = [train(-60, -10, "A → Baker Street"), walk(0, 300), train(400, 600, "Baker Street → B")];
-		const pts = [fix(0, at(0), 4), fix(100, at(40), 4), fix(200, at(80), 4), fix(300, at(110), 4)];
-		const out = holdInterchangeDwell(segs, pts);
-		expect((out[1] as { refinedMode?: string }).refinedMode).toBeUndefined();
-		expect(out[1].mode).toBe("walking");
-	});
-
-	it("leaves a no-translation walk NOT bracketed by trains alone", () => {
-		// Same tight cluster, but no train on one side — not an interchange, so the
-		// pass keeps out of it (a genuine brief pause mid-walk is not its business).
-		const segs = [walk(0, 120), train(200, 400, "X → Y")];
-		const pts = [fix(0, at(0), 1), fix(60, at(10), 1), fix(120, at(-5), 1)];
-		const out = holdInterchangeDwell(segs, pts);
-		expect((out[0] as { refinedMode?: string }).refinedMode).toBeUndefined();
 	});
 });

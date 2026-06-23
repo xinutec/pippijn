@@ -58,6 +58,7 @@ import {
 } from "./passes/rail-absorbers.js";
 import {
 	annotateSnappedPaths,
+	assembleRailJourney,
 	mergeAdjacentSameRouteTrains,
 	reconcileAdjacentRailLegs,
 } from "./passes/rail-reconcile.js";
@@ -78,7 +79,6 @@ import { effectiveMode, samplesInWindow } from "./segment-util.js";
 import type { TransportMode } from "./segments.js";
 import { classifySegments, enforcePhysicalConstraints, isStationaryIncoherent } from "./segments.js";
 import {
-	holdInterchangeDwell,
 	reassignWalkTailToVehicle,
 	splitStaysOnEvidence,
 	splitWalksOnEvidence,
@@ -1207,15 +1207,19 @@ export async function computeVelocityFromInputs(
 			run: (segs) => reassignWalkTailToVehicle(segs, points),
 		},
 
-		// Interchange dwell: a "walking" leg between two train legs whose fixes
-		// never leave a ~60 m cluster did not translate — it is a platform wait
-		// the GPS jitter scored as a slow walk (the Finchley Road 2026-06-23
-		// case), not a walk. Demote it to stationary. Runs after vehicleSplit,
-		// which creates these short shoulders by carving a surfaced tube leg out
-		// of an interchange walk. See holdInterchangeDwell.
+		// Rail-journey assembly: when GPS surfaces mid-tunnel, one continuous
+		// Underground ride is shattered into several train legs plus short
+		// slivers (platform jitter mis-scored walking/stationary, or a mis-moded
+		// vehicle leg from the surfaced fixes). If a SINGLE rail line serves
+		// every station the run's legs touch, it was one ride on that line —
+		// collapse it to one leg, absorbing the slivers. The line topology, not a
+		// GPS heuristic, decides; a genuine multi-line interchange (no single
+		// serving line) is left intact. Runs after vehicleSplit so a surfaced
+		// mis-moded middle is present to absorb, before railSnap so the merged
+		// leg is snapped. The 2026-06-23 Wembley Park→Euston Square fix.
 		{
-			name: "interchangeDwell",
-			run: (segs) => holdInterchangeDwell(segs, points),
+			name: "railJourney",
+			run: (segs) => assembleRailJourney(segs, points, inputs.osm),
 		},
 
 		// Rail-snap: attach the precomputed rail-track geometry to each

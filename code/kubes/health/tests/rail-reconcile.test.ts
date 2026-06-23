@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { parseRailWayName, reconcileAdjacentRailLegs } from "../src/geo/passes/rail-reconcile.js";
+import { assembleRailJourney, parseRailWayName, reconcileAdjacentRailLegs } from "../src/geo/passes/rail-reconcile.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
 
 /** Build an EnrichedSegment; times given in whole minutes for clarity. */
@@ -158,5 +158,105 @@ describe("reconcileAdjacentRailLegs", () => {
 		];
 		reconcileAdjacentRailLegs(segs);
 		expect(segs[1].wayName).toBe("St. John's Wood → Green Park");
+	});
+});
+
+describe("assembleRailJourney", () => {
+	/** Minimal OsmAdapter slice: `linesAtPoint` is routed by the leg centroid's
+	 *  integer latitude (a test tag), `stationsOnLine` from a name→stations map. */
+	function osmStub(
+		linesByLatTag: Record<number, string[]>,
+		stationsByLine: Record<string, string[]>,
+	): {
+		linesAtPoint: (lat: number, lon: number, r?: number) => Promise<Set<string>>;
+		stationsOnLine: (l: string) => Promise<{ name: string; lat: number; lon: number }[]>;
+	} {
+		return {
+			linesAtPoint: async (lat) => new Set(linesByLatTag[Math.round(lat)] ?? []),
+			stationsOnLine: async (line) => (stationsByLine[line] ?? []).map((name) => ({ name, lat: 0, lon: 0 })),
+		};
+	}
+
+	const MET = ["Wembley Park", "Finchley Road", "Baker Street", "Euston Square"];
+
+	it("collapses a one-line ride fragmented into 3 train legs + slivers into one leg", async () => {
+		// Wembley Park → Euston Square on the Metropolitan line, shattered by the
+		// GPS surfacing mid-tunnel into three train legs with interchange slivers.
+		const segs = [
+			seg("train", 0, 10, { wayName: "Wembley Park → Finchley Road", centroidLat: 1, centroidLon: 0 }),
+			seg("walking", 10, 12, { centroidLat: 1, centroidLon: 0 }),
+			seg("train", 12, 17, { wayName: "Finchley Road → Baker Street", centroidLat: 1, centroidLon: 0 }),
+			seg("walking", 17, 22, { centroidLat: 1, centroidLon: 0 }),
+			seg("train", 22, 33, { wayName: "Baker Street → Euston Square", centroidLat: 1, centroidLon: 0 }),
+		];
+		const osm = osmStub({ 1: ["Metropolitan Line"] }, { "Metropolitan Line": MET });
+		const out = await assembleRailJourney([...segs], [], osm);
+		const trains = out.filter((s) => s.mode === "train");
+		expect(trains).toHaveLength(1);
+		expect(trains[0].wayName).toBe("Wembley Park → Euston Square · Metropolitan Line");
+		expect(trains[0].startTs).toBe(0);
+		expect(trains[0].endTs).toBe(33 * 60);
+	});
+
+	it("absorbs a mis-moded non-train middle (driving) into the one-line ride", async () => {
+		// Without the tube-leg-recovery patch the surfaced middle is `driving`; the
+		// topology (all four stations on one line) still recovers one tube ride.
+		const segs = [
+			seg("train", 0, 10, { wayName: "Wembley Park → Finchley Road", centroidLat: 1, centroidLon: 0 }),
+			seg("walking", 10, 12, { centroidLat: 1, centroidLon: 0 }),
+			seg("driving", 12, 17, { centroidLat: 1, centroidLon: 0 }),
+			seg("walking", 17, 22, { centroidLat: 1, centroidLon: 0 }),
+			seg("train", 22, 33, { wayName: "Baker Street → Euston Square", centroidLat: 1, centroidLon: 0 }),
+		];
+		const osm = osmStub({ 1: ["Metropolitan Line"] }, { "Metropolitan Line": MET });
+		const out = await assembleRailJourney([...segs], [], osm);
+		const trains = out.filter((s) => s.mode === "train" || s.refinedMode === "train");
+		expect(trains).toHaveLength(1);
+		expect(trains[0].wayName).toBe("Wembley Park → Euston Square · Metropolitan Line");
+	});
+
+	it("does NOT merge a real line-change interchange (no single line serves all stations)", async () => {
+		// Victoria → King's Cross (Victoria line), change, King's Cross → Euston
+		// Square (Met). No single line serves {Victoria, King's Cross, Euston Sq}.
+		const segs = [
+			seg("train", 0, 10, { wayName: "Victoria → King's Cross · Victoria Line", centroidLat: 1, centroidLon: 0 }),
+			seg("walking", 10, 14, { centroidLat: 2, centroidLon: 0 }),
+			seg("train", 14, 20, {
+				wayName: "King's Cross → Euston Square · Metropolitan Line",
+				centroidLat: 2,
+				centroidLon: 0,
+			}),
+		];
+		const osm = osmStub(
+			{ 1: ["Victoria Line"], 2: ["Metropolitan Line"] },
+			{ "Victoria Line": ["Victoria", "King's Cross"], "Metropolitan Line": ["King's Cross", "Euston Square"] },
+		);
+		const out = await assembleRailJourney([...segs], [], osm);
+		expect(out.filter((s) => s.mode === "train")).toHaveLength(2);
+	});
+
+	it("does NOT merge across a long stop (a real stopover, not a surfacing sliver)", async () => {
+		const segs = [
+			seg("train", 0, 10, { wayName: "Wembley Park → Finchley Road", centroidLat: 1, centroidLon: 0 }),
+			seg("stationary", 10, 40, { centroidLat: 1, centroidLon: 0 }), // 30-min stop — got off
+			seg("train", 40, 50, { wayName: "Finchley Road → Baker Street", centroidLat: 1, centroidLon: 0 }),
+		];
+		const osm = osmStub({ 1: ["Metropolitan Line"] }, { "Metropolitan Line": MET });
+		const out = await assembleRailJourney([...segs], [], osm);
+		expect(out.filter((s) => s.mode === "train")).toHaveLength(2);
+	});
+
+	it("leaves a single train leg untouched", async () => {
+		const segs = [
+			seg("train", 0, 20, {
+				wayName: "Wembley Park → Euston Square · Metropolitan Line",
+				centroidLat: 1,
+				centroidLon: 0,
+			}),
+		];
+		const osm = osmStub({ 1: ["Metropolitan Line"] }, { "Metropolitan Line": MET });
+		const out = await assembleRailJourney([...segs], [], osm);
+		expect(out).toHaveLength(1);
+		expect(out[0].wayName).toBe("Wembley Park → Euston Square · Metropolitan Line");
 	});
 });

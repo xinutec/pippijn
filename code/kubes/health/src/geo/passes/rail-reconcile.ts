@@ -8,8 +8,9 @@
  */
 
 import type { EnrichedSegment } from "../enriched-segment.js";
+import type { FilteredPoint } from "../kalman.js";
 import { interpolateTimes } from "../rail-snap.js";
-import { effectiveMode } from "../segment-util.js";
+import { effectiveMode, samplesInWindow } from "../segment-util.js";
 import { MOVING_MERGE_MAX_GAP_S } from "./moving.js";
 
 /** The boarding→alighting station pair at the core of a train wayName
@@ -137,6 +138,199 @@ export function reconcileAdjacentRailLegs(segments: EnrichedSegment[]): Enriched
 			}
 		}
 		out.push(b);
+	}
+	return out;
+}
+
+/** Max duration of a NON-train segment that may sit between two train legs of
+ *  one continuous ride and still be absorbed into it — a GPS-surfacing sliver,
+ *  a brief platform interchange, or a mis-moded fragment. A longer gap means the
+ *  rider actually got off (a real stopover), so the run is two journeys. */
+const RAIL_JOURNEY_SLIVER_MAX_S = 10 * 60;
+/** Radius (m) for the line lookup at a train leg's fix centroid. Generous: an
+ *  underground-reconstructed leg's surfaced fixes can sit a few hundred metres
+ *  off the line, and the per-line station-membership check is the real gate, so
+ *  a loose radius only widens the (membership-filtered) candidate set. */
+const RAIL_JOURNEY_LINES_RADIUS_M = 800;
+
+/** Representative location of a train leg for the line lookup: the centroid of
+ *  its GPS fixes (the leg carries no centroid field — those are attached to
+ *  stays only), falling back to a segment centroid if one is present (tests). */
+function legLocation(seg: EnrichedSegment, points: readonly FilteredPoint[]): { lat: number; lon: number } | null {
+	const fixes = samplesInWindow(points, seg);
+	if (fixes.length > 0) {
+		let sLat = 0;
+		let sLon = 0;
+		for (const f of fixes) {
+			sLat += f.lat;
+			sLon += f.lon;
+		}
+		return { lat: sLat / fixes.length, lon: sLon / fixes.length };
+	}
+	if (seg.centroidLat !== undefined && seg.centroidLon !== undefined) {
+		return { lat: seg.centroidLat, lon: seg.centroidLon };
+	}
+	return null;
+}
+
+/** The `OsmAdapter` slice the rail-journey assembler reads. Both calls are
+ *  captured in the golden OSM trace, so the pass stays deterministic on replay. */
+type RailJourneyOsm = {
+	linesAtPoint(lat: number, lon: number, radiusM?: number): Promise<Set<string>>;
+	stationsOnLine(lineName: string): Promise<ReadonlyArray<{ name: string }>>;
+};
+
+/** A station-pair-labelled train leg (the only kind the assembler reasons over). */
+function isStationPairTrain(seg: EnrichedSegment | undefined): seg is EnrichedSegment {
+	return seg !== undefined && effectiveMode(seg) === "train" && parseRailWayName(seg.wayName) !== null;
+}
+
+/**
+ * Find a single rail line that serves EVERY station the run's train legs touch,
+ * or null. Candidates are the lines named on the legs plus the UNION of lines
+ * passing near each leg centroid — a union, not an intersection, because an
+ * underground-reconstructed leg has a coarse centroid that can miss its own line
+ * within the lookup radius, but a clean above-ground leg in the same run still
+ * contributes the through-line. Each candidate is then confirmed by full station
+ * membership via `stationsOnLine` (memoised), so the looser candidate set cannot
+ * cause a wrong merge: only a line that genuinely serves *all* the run's stations
+ * passes. A returned line means one continuous ride on it is consistent with
+ * every leg; null means the legs span more than one line — a genuine interchange
+ * — so the run is left intact.
+ */
+async function findThroughLine(
+	trains: EnrichedSegment[],
+	stations: ReadonlySet<string>,
+	points: readonly FilteredPoint[],
+	osm: RailJourneyOsm,
+	stationsOnLineMemo: Map<string, Set<string>>,
+): Promise<string | null> {
+	const tried = new Set<string>();
+	const want = [...stations];
+	const serves = async (line: string): Promise<boolean> => {
+		if (tried.has(line)) return false;
+		tried.add(line);
+		let onLine = stationsOnLineMemo.get(line);
+		if (onLine === undefined) {
+			onLine = new Set((await osm.stationsOnLine(line)).map((s) => s.name));
+			stationsOnLineMemo.set(line, onLine);
+		}
+		return want.every((s) => onLine.has(s));
+	};
+	// Cheapest candidates first: a line a leg already names costs no OSM call.
+	for (const t of trains) {
+		const line = parseRailWayName(t.wayName)?.line;
+		if (line && (await serves(line))) return line;
+	}
+	// Fall back to the lines passing near each leg, lazily — stop at the first
+	// leg whose neighbourhood yields a serving line (a clean above-ground leg
+	// finds the through-line, so the coarse underground legs are never queried).
+	for (const t of trains) {
+		const loc = legLocation(t, points);
+		if (loc === null) continue;
+		for (const line of await osm.linesAtPoint(loc.lat, loc.lon, RAIL_JOURNEY_LINES_RADIUS_M)) {
+			if (await serves(line)) return line;
+		}
+	}
+	return null;
+}
+
+/**
+ * Assemble fragmented single-line rail journeys into one ride.
+ *
+ * When the GPS surfaces mid-tunnel, one continuous Underground ride is shattered
+ * into several `train` segments separated by short slivers — platform jitter
+ * mis-scored as walking/stationary, or even a mis-moded vehicle leg from the
+ * surfaced fixes. The heuristic merges below only coalesce legs with an
+ * *identical* station pair, so a `Wembley Park → Finchley Road`,
+ * `Finchley Road → Baker Street`, `Baker Street → Euston Square` chain survives
+ * as three legs plus phantom interchanges, when it was one Metropolitan-line
+ * ride the whole way (the 2026-06-23 case).
+ *
+ * For a maximal run of station-pair train legs separated only by short slivers,
+ * if a SINGLE rail line serves every station the legs touch, the run is one ride
+ * on that line: collapse it to one `train` segment `first.board → last.alight ·
+ * line`, absorbing the slivers. When no single line serves them all the run is a
+ * genuine multi-line interchange and the legs are left intact — the line
+ * topology, not a GPS heuristic, draws that distinction. Pure given the
+ * `OsmAdapter` (both lookups captured for golden determinism).
+ */
+export async function assembleRailJourney(
+	segments: EnrichedSegment[],
+	points: readonly FilteredPoint[],
+	osm: RailJourneyOsm,
+): Promise<EnrichedSegment[]> {
+	const out: EnrichedSegment[] = [];
+	const stationsOnLineMemo = new Map<string, Set<string>>();
+	let i = 0;
+	while (i < segments.length) {
+		if (!isStationPairTrain(segments[i])) {
+			out.push(segments[i]);
+			i++;
+			continue;
+		}
+		// Extend a maximal run: train legs plus short intervening slivers. A sliver
+		// is only inside the run if another train leg follows it — a trailing
+		// sliver is not part of the ride. `lastTrain` tracks the run's final leg.
+		let lastTrain = i;
+		let k = i + 1;
+		while (k < segments.length) {
+			if (isStationPairTrain(segments[k])) {
+				lastTrain = k;
+				k++;
+				continue;
+			}
+			if (segments[k].endTs - segments[k].startTs < RAIL_JOURNEY_SLIVER_MAX_S) {
+				k++;
+				continue;
+			}
+			break;
+		}
+		if (lastTrain === i) {
+			out.push(segments[i]);
+			i++;
+			continue;
+		}
+		const trains = segments.slice(i, lastTrain + 1).filter(isStationPairTrain);
+		const stations = new Set<string>();
+		for (const t of trains) {
+			const r = parseRailWayName(t.wayName);
+			if (r) {
+				stations.add(r.board);
+				stations.add(r.alight);
+			}
+		}
+		const line = await findThroughLine(trains, stations, points, osm, stationsOnLineMemo);
+		const first = parseRailWayName(segments[i].wayName);
+		const last = parseRailWayName(segments[lastTrain].wayName);
+		if (line === null || first === null || last === null) {
+			out.push(segments[i]);
+			i++;
+			continue;
+		}
+		// Collapse [i..lastTrain] into one train leg over the whole ride; the
+		// intervening slivers are absorbed (their time is covered by the leg).
+		// snappedPath is left for the later rail-snap pass to attach from the
+		// merged route key.
+		let pointCount = 0;
+		let maxSpeed = 0;
+		for (let m = i; m <= lastTrain; m++) {
+			pointCount += segments[m].pointCount;
+			maxSpeed = Math.max(maxSpeed, segments[m].maxSpeed);
+		}
+		const reason = `rail-journey assembly: ${lastTrain - i + 1} fragments on ${line} (GPS surfaced mid-ride) merged into one continuous ride`;
+		out.push({
+			...segments[i],
+			mode: "train",
+			refinedMode: "train",
+			endTs: segments[lastTrain].endTs,
+			wayName: `${first.board} → ${last.alight} · ${line}`,
+			snappedPath: undefined,
+			pointCount,
+			maxSpeed,
+			refinedReason: segments[i].refinedReason ? `${segments[i].refinedReason}; ${reason}` : reason,
+		});
+		i = lastTrain + 1;
 	}
 	return out;
 }
