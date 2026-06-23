@@ -23,6 +23,15 @@ app.get("/health", (c) => c.json({ ok: true }));
 // JSON API: token-gated /api/ingest, public /api/latest + /api/measurements.
 app.route("/api", apiRoutes(config.ingestToken));
 
+// SPA caching: HTML must always revalidate so a new deploy is picked up on a
+// normal reload; fingerprinted assets are immutable. (API responses untouched.)
+app.use("/*", async (c, next) => {
+	await next();
+	if (c.req.path.startsWith("/api")) return;
+	const hashed = /-[A-Za-z0-9]{8,}\.(?:js|css|woff2?)$/.test(c.req.path);
+	c.header("Cache-Control", hashed ? "public, max-age=31536000, immutable" : "no-cache");
+});
+
 // Built Angular app, with SPA fallback to index.html for client-side routes.
 app.use("/*", serveStatic({ root: "./public" }));
 app.get("/*", serveStatic({ path: "./public/index.html" }));
