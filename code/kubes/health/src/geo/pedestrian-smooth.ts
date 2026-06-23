@@ -101,10 +101,21 @@ const W_ANCHOR = 6;
 const W_MAP = 0.25;
 /** Building repulsion. Strong — a vertex inside a building footprint is firmly
  *  pulled onto the nearest walkable way, overriding the openness gate. You can
- *  walk freely in a park but not through a wall. Well above W_MAP so the line
- *  reliably exits the building, but finite so a genuine indoor fix isn't
- *  impossibly penalised. */
-const W_BUILDING = 1.5;
+ *  walk freely in a park but not through a wall. Tuned on the 2026-06-22 commute
+ *  (`score-building-avoidance`): at 6 the in-building vertex count over the day's
+ *  walks drops 16→6 and the worst walk clears fully; raising it to 10 buys
+ *  nothing more (the residual is unmapped-pavement, not weak repulsion). Paired
+ *  with the GPS-trust discount below — the spring alone only edge-hugs. */
+const W_BUILDING = 6;
+/** How much to trust a GPS fix that itself lands inside a building footprint.
+ *  A fix inside an impassable building is almost always indoor multipath /
+ *  assisted-GPS error — the surface field says P(actually here) ≈ 0 — so its
+ *  likelihood is discounted to this fraction. Without it the robust-GPS term
+ *  re-anchors the vertex on the bad fix every iteration and fights the building
+ *  spring to a draw at the wall; discounting it lets smoothness + anchors + the
+ *  spring carry the line out onto the pavement. Weighted, not vetoed: a fix that
+ *  really was inside (you were indoors) still contributes, just weakly. */
+const GPS_IN_BUILDING_TRUST = 0.1;
 /** The map only speaks when a walkable way is within this far. Beyond it you're
  *  in open ground (a park, a forest, a car park) where the user is "free to walk
  *  anywhere" — so the map exerts no pull at all. This is the openness model:
@@ -290,6 +301,12 @@ export function smoothPedestrianTrajectory(fixes: readonly PedFix[], opts: Smoot
 	}
 	const hasMap = waysXY.length > 0;
 
+	// A GPS fix sitting inside a building is low-confidence (indoor multipath); its
+	// likelihood is discounted so the vertex is free to move onto the pavement
+	// rather than being re-pinned on the bad fix each iteration. Precomputed once
+	// (the z are fixed) using the pruned building set.
+	const gpsTrust = z.map((v) => (buildingsXY.length > 0 && inAnyRingXY(v, buildingsXY) ? GPS_IN_BUILDING_TRUST : 1));
+
 	// Initialise at the raw fixes (clamped to anchors where given).
 	const p: Vec[] = z.map((v) => ({ ...v }));
 	if (anchorA) p[0] = { ...anchorA };
@@ -317,7 +334,7 @@ export function smoothPedestrianTrajectory(fixes: readonly PedFix[], opts: Smoot
 			const rx = p[i].x - z[i].x;
 			const ry = p[i].y - z[i].y;
 			const r = Math.hypot(rx, ry) / sig[i];
-			const w = r <= HUBER_DELTA ? 1 : HUBER_DELTA / r; // Huber
+			const w = (r <= HUBER_DELTA ? 1 : HUBER_DELTA / r) * gpsTrust[i]; // Huber × surface trust
 			gx[i] += 2 * w * invSig2[i] * rx;
 			gy[i] += 2 * w * invSig2[i] * ry;
 		}
@@ -413,7 +430,7 @@ export function smoothPedestrianTrajectory(fixes: readonly PedFix[], opts: Smoot
 		const rx = v.x - z[i].x;
 		const ry = v.y - z[i].y;
 		const r = Math.hypot(rx, ry) / sig[i];
-		const wGps = r <= HUBER_DELTA ? 1 : HUBER_DELTA / r;
+		const wGps = (r <= HUBER_DELTA ? 1 : HUBER_DELTA / r) * gpsTrust[i];
 		let info = wGps * invSig2[i];
 		if ((i === 0 && anchorA) || (i === n - 1 && anchorB)) info += W_ANCHOR;
 		if (hasMap) {

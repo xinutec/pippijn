@@ -265,4 +265,43 @@ describe("smoothPedestrianTrajectory", () => {
 		// the path.
 		expect(north(withB?.path[3] as { lat: number })).toBeLessThan(38);
 	});
+
+	it("discounts a GPS fix inside a building so the vertex leaves it entirely", () => {
+		// Same systematically-offset-into-a-building walk, but check ALL interior
+		// vertices clear the footprint — not just settle on its edge. The
+		// in-building fixes are low-trust (indoor multipath), so robust-GPS no
+		// longer re-pins them at the wall; smoothness + the spring carry the whole
+		// line out. Each vertex's reported σ should also widen (we inferred it).
+		const ways = [
+			{
+				osmId: 1,
+				name: "Foot Path",
+				subtype: "footway",
+				coords: [
+					[dLat(0), dLon(0)],
+					[dLat(0), dLon(120)],
+				] as [number, number][],
+			},
+		];
+		const building = [
+			{ lat: dLat(38), lon: dLon(-20) },
+			{ lat: dLat(38), lon: dLon(140) },
+			{ lat: dLat(70), lon: dLon(140) },
+			{ lat: dLat(70), lon: dLon(-20) },
+		];
+		const fixes = [
+			fix(0, 45, 0, 10),
+			fix(15, 46, 20, 10),
+			fix(30, 44, 40, 10),
+			fix(45, 45, 60, 10),
+			fix(60, 46, 80, 10),
+			fix(75, 44, 100, 10),
+			fix(90, 45, 120, 10),
+		];
+		const north = (pt: { lat: number }): number => (pt.lat - ORIGIN) * 111_320;
+		const r = smoothPedestrianTrajectory(fixes, { walkable: { ways, buildings: [building] } });
+		// Every vertex is south of the building's north=38 edge — the line is fully
+		// out, not edge-hugging (the weak spring alone left vertices at the wall).
+		for (const v of r?.path ?? []) expect(north(v)).toBeLessThan(38);
+	});
 });
