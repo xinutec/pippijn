@@ -1,0 +1,342 @@
+:host {
+	display: block;
+	min-height: 100%;
+}
+
+.topbar {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	height: 64px;
+	padding: 0 1rem;
+	background: var(--mat-sys-surface);
+	color: var(--mat-sys-on-surface);
+	border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.brand {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+}
+
+.brand-icon {
+	color: var(--mat-sys-primary);
+	font-size: 30px;
+	width: 30px;
+	height: 30px;
+}
+
+.brand-text {
+	display: flex;
+	flex-direction: column;
+	line-height: 1.05;
+}
+
+.brand-title {
+	font: var(--mat-sys-title-large);
+	font-weight: 600;
+}
+
+.brand-sub {
+	font: var(--mat-sys-label-small);
+	color: var(--mat-sys-on-surface-variant);
+}
+
+.spacer {
+	flex: 1;
+}
+
+.top-progress {
+	position: sticky;
+	top: 64px;
+	z-index: 9;
+}
+
+.page {
+	max-width: 1080px;
+	margin: 0 auto;
+	padding: 1.5rem 1.25rem 3rem;
+	display: flex;
+	flex-direction: column;
+	gap: 1.5rem;
+}
+
+/* Banner ------------------------------------------------------------ */
+.banner {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	padding: 0.75rem 1rem;
+	border-radius: 14px;
+	font: var(--mat-sys-body-medium);
+}
+
+.banner-error {
+	background: var(--mat-sys-error-container);
+	color: var(--mat-sys-on-error-container);
+}
+
+/* Empty state ------------------------------------------------------- */
+.empty-state {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+	gap: 0.5rem;
+	padding: 4rem 1rem;
+	color: var(--mat-sys-on-surface-variant);
+}
+
+.empty-icon {
+	font-size: 56px;
+	width: 56px;
+	height: 56px;
+	color: var(--mat-sys-primary);
+	opacity: 0.7;
+}
+
+.empty-state h2 {
+	font: var(--mat-sys-headline-small);
+	color: var(--mat-sys-on-surface);
+	margin: 0.5rem 0 0;
+}
+
+.empty-state p {
+	margin: 0;
+	max-width: 28rem;
+}
+
+/* Hero -------------------------------------------------------------- */
+.hero {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 1.25rem;
+	align-items: center;
+	padding: 1.75rem;
+	border-radius: 28px;
+	background: linear-gradient(
+		135deg,
+		var(--mat-sys-primary-container),
+		var(--mat-sys-surface-container)
+	);
+	border: 1px solid var(--mat-sys-outline-variant);
+}
+
+.hero-climate {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.temp-block {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.25rem;
+	color: var(--mat-sys-on-primary-container);
+}
+
+.temp-value {
+	font-size: clamp(3.25rem, 12vw, 5rem);
+	font-weight: 300;
+	line-height: 0.95;
+	letter-spacing: -0.02em;
+}
+
+.temp-unit {
+	font-size: 1.75rem;
+	font-weight: 400;
+	margin-top: 0.4rem;
+	opacity: 0.8;
+}
+
+.climate-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1rem;
+	color: var(--mat-sys-on-primary-container);
+}
+
+.humidity,
+.updated {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+	font: var(--mat-sys-body-medium);
+}
+
+.humidity mat-icon,
+.updated mat-icon {
+	font-size: 19px;
+	width: 19px;
+	height: 19px;
+	opacity: 0.85;
+}
+
+/* AQI badge --------------------------------------------------------- */
+.aqi-badge {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 0.15rem;
+	min-width: 148px;
+	padding: 1.1rem 1.25rem;
+	border-radius: 24px;
+	color: #fff;
+	background: var(--band-color);
+	box-shadow: 0 6px 20px -8px var(--band-color);
+}
+
+.aqi-badge.aqi-na {
+	color: var(--mat-sys-on-surface-variant);
+	background: var(--mat-sys-surface-container-high);
+	box-shadow: none;
+}
+
+.aqi-label {
+	font: var(--mat-sys-label-medium);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	opacity: 0.9;
+}
+
+.aqi-number {
+	font-size: 3rem;
+	font-weight: 600;
+	line-height: 1;
+}
+
+.aqi-band {
+	font: var(--mat-sys-label-large);
+	text-align: center;
+	max-width: 11rem;
+}
+
+/* Metric cards ------------------------------------------------------ */
+.metric-grid {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 1rem;
+}
+
+.metric-card {
+	border-radius: 20px !important;
+	padding: 1rem 1.1rem !important;
+}
+
+.metric-top {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+	margin-bottom: 0.4rem;
+}
+
+.metric-icon {
+	font-size: 20px;
+	width: 20px;
+	height: 20px;
+}
+
+.metric-icon.co2 {
+	color: var(--chart-co2);
+}
+.metric-icon.pm {
+	color: var(--chart-pm);
+}
+.metric-icon.voc {
+	color: var(--chart-humidity);
+}
+
+.metric-name {
+	font: var(--mat-sys-label-large);
+	color: var(--mat-sys-on-surface-variant);
+}
+
+.metric-value {
+	font-size: 2rem;
+	font-weight: 500;
+	color: var(--mat-sys-on-surface);
+}
+
+.metric-unit {
+	font-size: 0.95rem;
+	font-weight: 400;
+	color: var(--mat-sys-on-surface-variant);
+	margin-left: 0.2rem;
+}
+
+.metric-na {
+	font-size: 1.25rem;
+	color: var(--mat-sys-on-surface-variant);
+}
+
+/* Range selector ---------------------------------------------------- */
+.range-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	flex-wrap: wrap;
+}
+
+.section-title {
+	font: var(--mat-sys-title-large);
+	margin: 0;
+}
+
+.range-toggle {
+	border-radius: 999px !important;
+}
+
+/* Charts ------------------------------------------------------------ */
+.chart-grid {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 1rem;
+}
+
+.chart-grid app-trend-chart {
+	min-height: 260px;
+}
+
+/* Footer ------------------------------------------------------------ */
+.page-foot {
+	text-align: center;
+	color: var(--mat-sys-on-surface-variant);
+	font: var(--mat-sys-label-medium);
+	padding-top: 0.5rem;
+}
+
+/* Responsive -------------------------------------------------------- */
+@media (max-width: 860px) {
+	.metric-grid {
+		grid-template-columns: repeat(2, 1fr);
+	}
+	.chart-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
+@media (max-width: 560px) {
+	.hero {
+		grid-template-columns: 1fr;
+		justify-items: start;
+		padding: 1.25rem;
+	}
+	.aqi-badge {
+		width: 100%;
+		flex-direction: row;
+		justify-content: space-between;
+		min-width: 0;
+	}
+	.aqi-number {
+		font-size: 2.25rem;
+	}
+	.metric-grid {
+		grid-template-columns: 1fr 1fr;
+	}
+}

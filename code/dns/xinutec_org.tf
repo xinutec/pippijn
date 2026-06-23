@@ -142,3 +142,14 @@ resource "cloudflare_dns_record" "org_health" {
   ttl     = 3600
   proxied = false
 }
+
+# --- Home environment dashboard (IQAir AirVisual Pro) ---
+
+resource "cloudflare_dns_record" "org_home" {
+  zone_id = local.xinutec_org_id
+  type    = "CNAME"
+  name    = "home"
+  content = "isis.xinutec.org"
+  ttl     = 3600
+  proxied = false
+}

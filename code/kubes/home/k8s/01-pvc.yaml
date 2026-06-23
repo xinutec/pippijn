@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: home-db-pvc
+  namespace: home
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # Environmental readings are tiny (one small row every few minutes);
+      # 5Gi is generous headroom for years of history.
+      storage: 5Gi

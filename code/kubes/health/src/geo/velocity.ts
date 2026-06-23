@@ -54,6 +54,7 @@ import {
 	absorbBoardingPlatform,
 	absorbDriveStops,
 	absorbInterchanges,
+	anchorTrainBoardingToWalkedStation,
 	relabelWalkingInterchanges,
 } from "./passes/rail-absorbers.js";
 import {
@@ -1217,6 +1218,23 @@ export async function computeVelocityFromInputs(
 		// serving line) is left intact. Runs after vehicleSplit so a surfaced
 		// mis-moded middle is present to absorb, before railSnap so the merged
 		// leg is snapped. The 2026-06-23 Wembley Park→Euston Square fix.
+		// Re-anchor an underground train's boarding to the station the preceding
+		// walk actually reached. When GPS surfaces a stop or two into a tunnel,
+		// the reconstruction boards the train at the first snappable fix (a
+		// station or two past the real boarding) and the walk keeps the stranded
+		// first hop — so the walk line bleeds on to the next station (the
+		// 2026-06-23 UCLH → Euston Square walk that drew on to Great Portland
+		// Street, boarding read "Baker Street"). Runs before railJourney so the
+		// corrected boarding feeds the journey merge. See
+		// anchorTrainBoardingToWalkedStation.
+		{
+			name: "boardingAnchor",
+			run: (segs) =>
+				anchorTrainBoardingToWalkedStation(segs, points, (lat, lon) =>
+					inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+				),
+		},
+
 		{
 			name: "railJourney",
 			run: (segs) => assembleRailJourney(segs, points, inputs.osm),

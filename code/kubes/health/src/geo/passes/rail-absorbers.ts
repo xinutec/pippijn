@@ -11,6 +11,7 @@ import type { EnrichedSegment } from "../enriched-segment.js";
 import type { FilteredPoint } from "../kalman.js";
 import { type NearbyStation, pickBestStation } from "../osm.js";
 import { dbOsmAdapter } from "../osm-adapter.js";
+import { haversineMeters } from "../place-snap.js";
 import { effectiveMode, samplesInWindowExclusiveEnd } from "../segment-util.js";
 import { parseRailWayName } from "./rail-reconcile.js";
 import { RAIL_RUN_STATION_RADIUS_M } from "./rail-runs.js";
@@ -253,4 +254,94 @@ export function relabelWalkingInterchanges(segments: EnrichedSegment[]): Enriche
 			refinedReason: `walking interchange at ${station}${lineChange}`,
 		};
 	});
+}
+
+/** Min step speed (km/h) for a walk-tail fix to count as the boarding hop into
+ *  the tunnel — the train pulling out of the real boarding station — rather than
+ *  a walking step. Well above any walk/run pace. */
+const BOARDING_HOP_MIN_KMH = 15;
+/** The fast tail must cover at least this (m) end-to-end to be a real
+ *  inter-station hop the underground reconstruction stranded in the walk — not a
+ *  few metres of acceleration as the doors close, which belongs in the walk. */
+const BOARDING_HOP_MIN_DIST_M = 250;
+
+/**
+ * Re-anchor an underground train's boarding to the station the preceding walk
+ * delivered the rider to, reclaiming the first inter-station hop the
+ * reconstruction stranded in the walk.
+ *
+ * When the GPS first surfaces a stop or two into a tunnel, `annotateUnderground-
+ * Runs` anchors the train's boarding to the first fix it can snap to the rail
+ * line — which can be one or two stations past where the rider actually boarded.
+ * The walk before it then keeps a fast "tail": the GPS of the train pulling out
+ * of the real boarding station toward the first surfaced one. So the drawn walk
+ * line bleeds hundreds of metres on to the next station (the 2026-06-23 UCLH →
+ * Euston Square case, where the walk drew on to Great Portland Street, and the
+ * boarding read "Baker Street" — two stops past Euston Square).
+ *
+ * If the walk before a train ends in a vehicle-paced tail covering a real
+ * inter-station distance, and the fix just before that tail sits at a rail
+ * station, that station is the true boarding: extend the train back to it (so it
+ * reclaims the hop), trim the walk to it, and rewrite the train's boarding. The
+ * fix is anchored to the station the walk's own fixes reach — strictly better
+ * evidence than a fix a stop or two down the line. Pure given the station lookup.
+ */
+export async function anchorTrainBoardingToWalkedStation(
+	segments: EnrichedSegment[],
+	points: FilteredPoint[],
+	stationsLookup: (lat: number, lon: number) => Promise<NearbyStation[]> = (lat, lon) =>
+		dbOsmAdapter.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+): Promise<EnrichedSegment[]> {
+	const out = segments.map((s) => ({ ...s }));
+	for (let k = 1; k < out.length; k++) {
+		const train = out[k];
+		if (effectiveMode(train) !== "train") continue;
+		const rail = parseRailWayName(train.wayName);
+		if (rail === null) continue;
+		const walk = out[k - 1];
+		if (effectiveMode(walk) !== "walking") continue;
+		const fixes = samplesInWindowExclusiveEnd(points, walk);
+		if (fixes.length < 4) continue;
+
+		// The boarding hop: the FIRST big, fast step — the train pulling out of
+		// the real boarding station toward the first station the GPS surfaced at.
+		// (Not the last fast fix: the surfaced fix often settles into a slow one
+		// as the train decelerates into the next station, so a from-the-end scan
+		// would miss it.)
+		let split = -1;
+		for (let i = 1; i < fixes.length; i++) {
+			const dt = fixes[i].ts - fixes[i - 1].ts;
+			const stepM = haversineMeters(fixes[i - 1].lat, fixes[i - 1].lon, fixes[i].lat, fixes[i].lon);
+			const stepKmh = dt > 0 ? (stepM / dt) * 3.6 : 0;
+			if (stepM >= BOARDING_HOP_MIN_DIST_M && stepKmh >= BOARDING_HOP_MIN_KMH) {
+				split = i;
+				break;
+			}
+		}
+		if (split < 1) continue; // no boarding hop
+		const boardFix = fixes[split - 1];
+		// Guard against a lone GPS spike that returns: the walk must actually END
+		// away from the boarding fix (a real relocation onto the tube), not bounce
+		// back to the cluster.
+		const tailDist = haversineMeters(
+			boardFix.lat,
+			boardFix.lon,
+			fixes[fixes.length - 1].lat,
+			fixes[fixes.length - 1].lon,
+		);
+		if (tailDist < BOARDING_HOP_MIN_DIST_M) continue;
+
+		const station = pickBestStation(await stationsLookup(boardFix.lat, boardFix.lon));
+		if (!station || station.name === rail.board) continue;
+
+		const reason = `boarding re-anchored to ${station.name} (walk's terminal station) — reclaimed a ${Math.round(tailDist)} m hop the underground reconstruction had left in the walk (was boarding ${rail.board})`;
+		out[k - 1] = { ...walk, endTs: boardFix.ts };
+		out[k] = {
+			...train,
+			startTs: boardFix.ts,
+			wayName: `${station.name} → ${rail.alight}${rail.line ? ` · ${rail.line}` : ""}`,
+			refinedReason: train.refinedReason ? `${train.refinedReason}; ${reason}` : reason,
+		};
+	}
+	return out;
 }

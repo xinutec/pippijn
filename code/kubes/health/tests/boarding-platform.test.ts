@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 import type { FilteredPoint } from "../src/geo/kalman.js";
 import type { NearbyStation } from "../src/geo/osm.js";
-import { absorbBoardingPlatform } from "../src/geo/passes/rail-absorbers.js";
+import { absorbBoardingPlatform, anchorTrainBoardingToWalkedStation } from "../src/geo/passes/rail-absorbers.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
 
 const LAT_DEG_PER_M = 1 / 111_000;
@@ -32,6 +32,7 @@ function metres(lat1: number, lon1: number, lat2: number, lon2: number): number 
 const STATIONS = [
 	{ name: "Alpha", north: 0, east: 0 },
 	{ name: "Beta", north: 3000, east: 0 },
+	{ name: "Gamma", north: 6000, east: 0 },
 ];
 
 const stationsLookup = async (lat: number, lon: number): Promise<NearbyStation[]> =>
@@ -127,5 +128,78 @@ describe("absorbBoardingPlatform", () => {
 		const result = await absorbBoardingPlatform(segments, points, stationsLookup);
 		expect(result).toHaveLength(2);
 		expect(result[0].mode).toBe("walking");
+	});
+});
+
+describe("anchorTrainBoardingToWalkedStation", () => {
+	/** A walk ending in a tight cluster at Alpha, then a fast inter-station hop
+	 *  north (the train pulling out of Alpha toward the next station) — the GPS
+	 *  the underground reconstruction stranded in the walk. */
+	function walkWithBoardingHop(): FilteredPoint[] {
+		const out: FilteredPoint[] = [];
+		for (let ts = 0; ts <= 240; ts += 60) out.push({ ...at(0, 0), ts, speed_kmh: 3, bearing: 0 }); // at Alpha
+		out.push({ ...at(600, 0), ts: 300, speed_kmh: 35, bearing: 0 }); // 600 m N in 60 s = 36 km/h
+		out.push({ ...at(1200, 0), ts: 360, speed_kmh: 38, bearing: 0 }); // 1200 m N
+		return out;
+	}
+
+	it("re-anchors the boarding to the walked-to station and reclaims the hop", async () => {
+		const segments = [
+			seg({ startTs: 0, endTs: 360, mode: "walking" }),
+			seg({ startTs: 420, endTs: 900, mode: "train", wayName: "Beta → Gamma · Line 1" }),
+		];
+		const result = await anchorTrainBoardingToWalkedStation(segments, walkWithBoardingHop(), stationsLookup);
+		expect(result).toHaveLength(2);
+		// Boarding rewritten to Alpha (where the walk's cluster sat), line kept.
+		expect(result[1].wayName).toBe("Alpha → Gamma · Line 1");
+		// Train extended back to the boarding fix (240); walk trimmed to it.
+		expect(result[1].startTs).toBe(240);
+		expect(result[0].endTs).toBe(240);
+		expect(result[0].mode).toBe("walking");
+	});
+
+	it("finds the hop even when the surfaced fix settles into a slow one (the real shape)", async () => {
+		// The 2026-06-23 pattern: cluster at Alpha, one fast hop to a far point,
+		// then a SLOW fix as the train decelerates into the next station. A
+		// from-the-end scan misses the hop; the first big+fast step must catch it.
+		const fixes: FilteredPoint[] = [];
+		for (let ts = 0; ts <= 240; ts += 60) fixes.push({ ...at(0, 0), ts, speed_kmh: 3, bearing: 0 }); // at Alpha
+		fixes.push({ ...at(1000, 0), ts: 300, speed_kmh: 38, bearing: 0 }); // 1000 m hop
+		fixes.push({ ...at(1020, 0), ts: 360, speed_kmh: 2, bearing: 0 }); // settles (slow) at the far end
+		const segments = [
+			seg({ startTs: 0, endTs: 360, mode: "walking" }),
+			seg({ startTs: 420, endTs: 900, mode: "train", wayName: "Beta → Gamma · Line 1" }),
+		];
+		const result = await anchorTrainBoardingToWalkedStation(segments, fixes, stationsLookup);
+		expect(result[1].wayName).toBe("Alpha → Gamma · Line 1");
+		expect(result[1].startTs).toBe(240);
+		expect(result[0].endTs).toBe(240);
+	});
+
+	it("leaves a plain walk→train (no fast tail) untouched", async () => {
+		const segments = [
+			seg({ startTs: 0, endTs: 360, mode: "walking" }),
+			seg({ startTs: 420, endTs: 900, mode: "train", wayName: "Alpha → Gamma · Line 1" }),
+		];
+		const slowWalk = [...Array(7)].map((_, i) => ({ ...at(0, i * 10), ts: i * 60, speed_kmh: 3, bearing: 0 }));
+		const result = await anchorTrainBoardingToWalkedStation(segments, slowWalk, stationsLookup);
+		expect(result[1].wayName).toBe("Alpha → Gamma · Line 1");
+		expect(result[1].startTs).toBe(420);
+		expect(result[0].endTs).toBe(360);
+	});
+
+	it("leaves it untouched when the fix before the hop is not at a station", async () => {
+		// Same fast tail, but the pre-hop cluster sits 2 km east — no station within range.
+		const far: FilteredPoint[] = [];
+		for (let ts = 0; ts <= 240; ts += 60) far.push({ ...at(0, 2000), ts, speed_kmh: 3, bearing: 0 });
+		far.push({ ...at(600, 2000), ts: 300, speed_kmh: 35, bearing: 0 });
+		far.push({ ...at(1200, 2000), ts: 360, speed_kmh: 38, bearing: 0 });
+		const segments = [
+			seg({ startTs: 0, endTs: 360, mode: "walking" }),
+			seg({ startTs: 420, endTs: 900, mode: "train", wayName: "Beta → Gamma · Line 1" }),
+		];
+		const result = await anchorTrainBoardingToWalkedStation(segments, far, stationsLookup);
+		expect(result[1].wayName).toBe("Beta → Gamma · Line 1");
+		expect(result[1].startTs).toBe(420);
 	});
 });

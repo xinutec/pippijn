@@ -1,0 +1,45 @@
+// Angular Material 3 theming via the modern `mat.theme()` Sass API.
+// A calm teal primary suits a home air-quality dashboard; light + dark are
+// both emitted and switched by `color-scheme` (driven by ThemeService).
+@use '@angular/material' as mat;
+
+html {
+	height: 100%;
+	color-scheme: light dark;
+
+	@include mat.theme(
+		(
+			color: (
+				primary: mat.$green-palette,
+				tertiary: mat.$cyan-palette,
+			),
+			typography: Roboto,
+			density: 0,
+		)
+	);
+}
+
+body {
+	margin: 0;
+	height: 100%;
+	background-color: var(--mat-sys-surface);
+	color: var(--mat-sys-on-surface);
+	font: var(--mat-sys-body-medium);
+	-webkit-font-smoothing: antialiased;
+}
+
+// App-level palette tokens used by charts and the AQI badge.
+:root {
+	// US-AQI band colours (EPA scale).
+	--aqi-good: #2e9e5b;
+	--aqi-moderate: #d6b400;
+	--aqi-usg: #e8830c;
+	--aqi-unhealthy: #d93434;
+	--aqi-very-unhealthy: #8e44ad;
+	--aqi-hazardous: #7e0023;
+
+	// Chart accents (the temperature chart uses --mat-sys-primary directly).
+	--chart-co2: #ef6c00;
+	--chart-humidity: #2f80ed;
+	--chart-pm: #8e44ad;
+}

@@ -1,0 +1,53 @@
+:host {
+	display: block;
+	height: 100%;
+}
+
+.trend-card {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	box-sizing: border-box;
+	padding: 1rem 1.1rem 0.9rem;
+	border-radius: 20px;
+	background: var(--mat-sys-surface-container);
+	border: 1px solid var(--mat-sys-outline-variant);
+}
+
+.trend-head {
+	display: flex;
+	align-items: baseline;
+	gap: 0.5rem;
+	margin-bottom: 0.4rem;
+}
+
+.trend-title {
+	font: var(--mat-sys-title-medium);
+	color: var(--mat-sys-on-surface);
+}
+
+.trend-unit {
+	font: var(--mat-sys-label-medium);
+	color: var(--mat-sys-on-surface-variant);
+}
+
+.trend-canvas-wrap {
+	position: relative;
+	flex: 1;
+	min-height: 200px;
+}
+
+canvas {
+	width: 100% !important;
+	height: 100% !important;
+}
+
+.trend-empty {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	place-items: center;
+	color: var(--mat-sys-on-surface-variant);
+	font: var(--mat-sys-body-medium);
+	pointer-events: none;
+}

@@ -1,0 +1,14 @@
+<div class="trend-card">
+	<div class="trend-head">
+		<span class="trend-title">{{ title() }}</span>
+		@if (unit()) {
+			<span class="trend-unit">{{ unit() }}</span>
+		}
+	</div>
+	<div class="trend-canvas-wrap">
+		<canvas #canvas aria-label="{{ title() }} chart"></canvas>
+		@if (!hasData()) {
+			<div class="trend-empty">No data for this range</div>
+		}
+	</div>
+</div>

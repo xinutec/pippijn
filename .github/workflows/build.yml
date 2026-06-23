@@ -53,3 +53,30 @@ jobs:
     secrets:
       username: ${{ secrets.DOCKERHUB_USERNAME }}
       password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  # Home environment dashboard (IQAir AirVisual Pro). Same gate as health:
+  # the image only builds if typecheck + Biome/eslint + backend/frontend
+  # tests pass. Node 24 (newer than health's 22).
+  home-verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: code/kubes/home
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm ci --prefix frontend
+      - run: npm run verify
+
+  home:
+    needs: home-verify
+    uses: xinutec/pippijn/.github/workflows/docker.yml@main
+    with:
+      path: code/kubes/home
+      image: home
+    secrets:
+      username: ${{ secrets.DOCKERHUB_USERNAME }}
+      password: ${{ secrets.DOCKERHUB_PASSWORD }}

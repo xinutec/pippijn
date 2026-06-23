@@ -1,0 +1,185 @@
+<mat-toolbar class="topbar">
+	<div class="brand">
+		<mat-icon class="brand-icon">eco</mat-icon>
+		<div class="brand-text">
+			<span class="brand-title">Home</span>
+			<span class="brand-sub">Indoor air &amp; climate</span>
+		</div>
+	</div>
+	<span class="spacer"></span>
+	<button
+		matIconButton
+		type="button"
+		[matTooltip]="themeLabel()"
+		aria-label="Toggle colour theme"
+		(click)="toggleTheme()"
+	>
+		<mat-icon>{{ themeIcon() }}</mat-icon>
+	</button>
+</mat-toolbar>
+
+@if (historyLoading()) {
+	<mat-progress-bar class="top-progress" mode="indeterminate" />
+}
+
+<main class="page">
+	@if (latestError() && !latest()) {
+		<div class="banner banner-error">
+			<mat-icon>cloud_off</mat-icon>
+			<span>{{ latestError() }}</span>
+		</div>
+	}
+
+	@if (isEmpty()) {
+		<section class="empty-state">
+			<mat-icon class="empty-icon">sensors</mat-icon>
+			<h2>Waiting for the first reading…</h2>
+			<p>The sensor hasn't reported any data yet. This page updates automatically.</p>
+		</section>
+	} @else {
+		<!-- HERO: current conditions -->
+		<section class="hero">
+			<div class="hero-climate">
+				<div class="temp-block">
+					<span class="temp-value">
+						{{ latest()?.temp_c != null ? (latest()!.temp_c | number: '1.1-1') : '—' }}
+					</span>
+					<span class="temp-unit">°C</span>
+				</div>
+				<div class="climate-meta">
+					<div class="humidity">
+						<mat-icon>water_drop</mat-icon>
+						<span>
+							{{ latest()?.humidity != null ? (latest()!.humidity | number: '1.0-0') : '—' }}%
+							humidity
+						</span>
+					</div>
+					<div class="updated">
+						<mat-icon>schedule</mat-icon>
+						<span>Updated {{ latest()?.ts | relativeTime }}</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- AQI badge / gauge -->
+			<div
+				class="aqi-badge"
+				[class.aqi-na]="!band()"
+				[style.--band-color]="band() ? 'var(' + band()!.cssVar + ')' : 'var(--mat-sys-outline)'"
+			>
+				<span class="aqi-label">US AQI</span>
+				<span class="aqi-number">
+					{{ latest()?.aqi_us != null && latest()!.aqi_us! >= 0 ? latest()!.aqi_us : '—' }}
+				</span>
+				<span class="aqi-band">{{ band()?.label ?? 'No reading' }}</span>
+			</div>
+		</section>
+
+		<!-- Metric cards -->
+		<section class="metric-grid">
+			<mat-card class="metric-card" appearance="outlined">
+				<div class="metric-top">
+					<mat-icon class="metric-icon co2">co2</mat-icon>
+					<span class="metric-name">CO₂</span>
+				</div>
+				<div class="metric-value">
+					{{ latest()?.co2_ppm != null ? (latest()!.co2_ppm | number: '1.0-0') : '—' }}
+					<span class="metric-unit">ppm</span>
+				</div>
+			</mat-card>
+
+			<mat-card class="metric-card" appearance="outlined">
+				<div class="metric-top">
+					<mat-icon class="metric-icon pm">grain</mat-icon>
+					<span class="metric-name">PM2.5</span>
+				</div>
+				<div class="metric-value">
+					{{ latest()?.pm25 != null ? (latest()!.pm25 | number: '1.0-1') : '—' }}
+					<span class="metric-unit">µg/m³</span>
+				</div>
+			</mat-card>
+
+			<mat-card class="metric-card" appearance="outlined">
+				<div class="metric-top">
+					<mat-icon class="metric-icon pm">blur_on</mat-icon>
+					<span class="metric-name">PM10</span>
+				</div>
+				<div class="metric-value">
+					{{ latest()?.pm10 != null ? (latest()!.pm10 | number: '1.0-1') : '—' }}
+					<span class="metric-unit">µg/m³</span>
+				</div>
+			</mat-card>
+
+			<mat-card class="metric-card" appearance="outlined">
+				<div class="metric-top">
+					<mat-icon class="metric-icon voc">science</mat-icon>
+					<span class="metric-name">VOC</span>
+				</div>
+				<div class="metric-value">
+					@if (voc() != null) {
+						{{ voc() | number: '1.0-0' }}<span class="metric-unit">ppb</span>
+					} @else {
+						<span class="metric-na">n/a</span>
+					}
+				</div>
+			</mat-card>
+		</section>
+
+		<!-- Range selector -->
+		<section class="range-row">
+			<h3 class="section-title">Trends</h3>
+			<mat-button-toggle-group
+				class="range-toggle"
+				[value]="range()"
+				hideSingleSelectionIndicator
+				aria-label="History range"
+			>
+				@for (r of ranges; track r.key) {
+					<mat-button-toggle [value]="r.key" (click)="onRange(r.key)">
+						{{ r.key }}
+					</mat-button-toggle>
+				}
+			</mat-button-toggle-group>
+		</section>
+
+		<!-- Charts -->
+		<section class="chart-grid">
+			<app-trend-chart
+				title="Temperature"
+				unit="°C"
+				accent="var(--mat-sys-primary)"
+				[decimals]="1"
+				[spanMs]="spanMs()"
+				[points]="tempPoints()"
+			/>
+			<app-trend-chart
+				title="CO₂"
+				unit="ppm"
+				accent="var(--chart-co2)"
+				[decimals]="0"
+				[spanMs]="spanMs()"
+				[points]="co2Points()"
+			/>
+			<app-trend-chart
+				title="Humidity"
+				unit="%"
+				accent="var(--chart-humidity)"
+				[decimals]="0"
+				[spanMs]="spanMs()"
+				[points]="humidityPoints()"
+			/>
+			<app-trend-chart
+				title="PM2.5"
+				unit="µg/m³"
+				accent="var(--chart-pm)"
+				[decimals]="1"
+				[spanMs]="spanMs()"
+				[points]="pm25Points()"
+			/>
+		</section>
+	}
+
+	<footer class="page-foot">
+		<span>Live data from an IQAir AirVisual Pro · refreshes every 60s</span>
+	</footer>
+</main>
