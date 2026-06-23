@@ -42,7 +42,8 @@
 
 import type { HrPoint, StepPoint } from "./biometrics.js";
 import type { FilteredPoint } from "./kalman.js";
-import { samplesInWindow } from "./segment-util.js";
+import { parseRailWayName } from "./passes/rail-reconcile.js";
+import { effectiveMode, samplesInWindow } from "./segment-util.js";
 import type { TrackSegment, TransportMode } from "./segments.js";
 
 export interface SplitContext {
@@ -495,6 +496,13 @@ const VEHICLE_LEG_PEAK_KMH = 20;
 /** A residual walk shorter than this on either side of the leg isn't
  *  worth emitting as its own row — fold it into the ride instead. */
 const VEHICLE_LEG_MIN_REMAINDER_S = 60;
+/** Straightness (net displacement ÷ path length) above which a carved leg
+ *  bracketed by two train legs is read as a tube leg whose GPS surfaced
+ *  mid-tunnel, not a road vehicle. A rail leg runs dead straight between
+ *  stations; a taxi between the same two stations weaves through streets and
+ *  falls below this. The rail-vs-road discriminator for the train-sandwich
+ *  recovery — strict, so we never fabricate a tube leg over a real drive. */
+const TUBE_LEG_MIN_STRAIGHTNESS = 0.9;
 
 /**
  * Split each `walking` segment that hides a vehicle leg into
@@ -502,6 +510,40 @@ const VEHICLE_LEG_MIN_REMAINDER_S = 60;
  * later bus-vs-car pass (#247) and OSM road naming refine it. Walks with
  * no qualifying ride pass through untouched. Pure.
  */
+/**
+ * Train-sandwich recovery: when the walk a vehicle leg was carved from is an
+ * interchange between two train legs (a train on each side) and the carved run
+ * is dead straight, it is the *continuing* tube leg whose GPS surfaced
+ * mid-tunnel — not a car ride (the Finchley Road → Baker Street 2026-06-23
+ * case). Return the bridging station pair `"<prev alight> → <next board>"` to
+ * relabel the leg `train`; return undefined to leave it `driving`.
+ *
+ * Straightness (net displacement ÷ path length) is the rail-vs-road gate: a
+ * rail leg runs straight between stations, a taxi between the same two weaves
+ * through streets and falls below the floor. Only fires when both stations are
+ * known, so no line is fabricated — just the station pair we can prove.
+ */
+function recoverTubeLegPair<T extends TrackSegment>(
+	fixes: readonly FilteredPoint[],
+	a: number,
+	b: number,
+	netDist: number,
+	prevSeg: T | undefined,
+	nextSeg: T | undefined,
+): string | undefined {
+	let pathLen = 0;
+	for (let k = a + 1; k <= b; k++) {
+		pathLen += haversineMeters(fixes[k - 1].lat, fixes[k - 1].lon, fixes[k].lat, fixes[k].lon);
+	}
+	const straightness = pathLen > 0 ? netDist / pathLen : 0;
+	if (straightness < TUBE_LEG_MIN_STRAIGHTNESS) return undefined;
+	const isTrainSeg = (s: T | undefined): boolean => s !== undefined && effectiveMode(s) === "train";
+	const prev = isTrainSeg(prevSeg) ? parseRailWayName((prevSeg as { wayName?: string }).wayName) : null;
+	const next = isTrainSeg(nextSeg) ? parseRailWayName((nextSeg as { wayName?: string }).wayName) : null;
+	if (prev === null || next === null || prev.alight === next.board) return undefined;
+	return `${prev.alight} → ${next.board}`;
+}
+
 export function splitWalksOnVehicleLeg<T extends TrackSegment>(
 	segments: readonly T[],
 	points: readonly FilteredPoint[],
@@ -608,10 +650,11 @@ export function splitWalksOnVehicleLeg<T extends TrackSegment>(
 		// name, place, walking refinedMode) — OSM enrichment already ran, so
 		// this leg stays an un-named `driving` for the bus-vs-car pass (#247)
 		// and the day-state layer to render.
+		const tubeWay = recoverTubeLegPair(fixes, a, b, netDist, segments[i - 1], segments[i + 1]);
 		const drivePart = { ...seg } as T & { refinedMode?: TransportMode; wayName?: string; place?: string };
-		drivePart.mode = "driving";
-		drivePart.refinedMode = undefined;
-		drivePart.wayName = undefined;
+		drivePart.mode = tubeWay ? "train" : "driving";
+		drivePart.refinedMode = tubeWay ? "train" : undefined;
+		drivePart.wayName = tubeWay;
 		drivePart.place = undefined;
 		drivePart.startTs = driveStart;
 		drivePart.endTs = driveEnd;
@@ -619,7 +662,9 @@ export function splitWalksOnVehicleLeg<T extends TrackSegment>(
 		drivePart.maxSpeed = Math.round(peak * 10) / 10;
 		drivePart.linearity = 1;
 		drivePart.pointCount = countIn(driveStart, driveEnd);
-		drivePart.refinedReason = `vehicle-leg split: ${Math.round(netDist)} m net progress in ${Math.round(dur / 60)} min (peak ${Math.round(peak)} km/h) inside a walking segment — a ride, not a walk`;
+		drivePart.refinedReason = tubeWay
+			? `tube-leg recovery: ${Math.round(netDist)} m dead-straight run inside an interchange walk between two train legs (Underground surfaced mid-tunnel, not a ride)`
+			: `vehicle-leg split: ${Math.round(netDist)} m net progress in ${Math.round(dur / 60)} min (peak ${Math.round(peak)} km/h) inside a walking segment — a ride, not a walk`;
 		if (driveStart > seg.startTs) out.push({ ...seg, endTs: driveStart, pointCount: countIn(seg.startTs, driveStart) });
 		out.push(drivePart);
 		if (driveEnd < seg.endTs) out.push({ ...seg, startTs: driveEnd, pointCount: countIn(driveEnd, seg.endTs) });
