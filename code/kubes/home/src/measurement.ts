@@ -18,3 +18,11 @@ export const MeasurementInput = z.object({
 });
 
 export type MeasurementInput = z.infer<typeof MeasurementInput>;
+
+// Bulk ingest (the backfill importer): an array of readings in one request.
+// Capped so a single request stays well within MariaDB's max_allowed_packet.
+export const MeasurementBatch = z.object({
+	measurements: z.array(MeasurementInput).min(1).max(5000),
+});
+
+export type MeasurementBatch = z.infer<typeof MeasurementBatch>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MeasurementInput } from "../src/measurement.js";
+import { MeasurementBatch, MeasurementInput } from "../src/measurement.js";
 
 describe("MeasurementInput", () => {
 	it("accepts a full AirVisual reading", () => {
@@ -34,5 +34,27 @@ describe("MeasurementInput", () => {
 
 	it("rejects a malformed timestamp", () => {
 		expect(MeasurementInput.safeParse({ ts: "yesterday" }).success).toBe(false);
+	});
+});
+
+describe("MeasurementBatch", () => {
+	it("accepts an array of readings", () => {
+		const r = MeasurementBatch.safeParse({
+			measurements: [{ temp_c: 20 }, { temp_c: 21, humidity: 50 }],
+		});
+		expect(r.success).toBe(true);
+	});
+
+	it("rejects an empty array", () => {
+		expect(MeasurementBatch.safeParse({ measurements: [] }).success).toBe(false);
+	});
+
+	it("rejects more than 5000 readings", () => {
+		const many = Array.from({ length: 5001 }, () => ({ temp_c: 20 }));
+		expect(MeasurementBatch.safeParse({ measurements: many }).success).toBe(false);
+	});
+
+	it("rejects a bad reading inside the array", () => {
+		expect(MeasurementBatch.safeParse({ measurements: [{ humidity: 250 }] }).success).toBe(false);
 	});
 });

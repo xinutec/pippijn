@@ -1,37 +1,61 @@
 import { Hono } from "hono";
 import { db } from "../db/pool.js";
-import { MeasurementInput } from "../measurement.js";
+import { MeasurementBatch, MeasurementInput } from "../measurement.js";
+
+function sensorValues(m: MeasurementInput) {
+	return {
+		temp_c: m.temp_c ?? null,
+		humidity: m.humidity ?? null,
+		co2_ppm: m.co2_ppm ?? null,
+		pm01: m.pm01 ?? null,
+		pm25: m.pm25 ?? null,
+		pm10: m.pm10 ?? null,
+		aqi_us: m.aqi_us ?? null,
+		voc_ppb: m.voc_ppb ?? null,
+	};
+}
+
+function toRow(m: MeasurementInput) {
+	return { device: m.device, ts: m.ts ? new Date(m.ts) : new Date(), ...sensorValues(m) };
+}
 
 export function apiRoutes(ingestToken: string): Hono {
 	const api = new Hono();
 
-	// Token-gated write: the Mac poller POSTs readings here.
+	const authed = (auth: string | undefined) => auth === `Bearer ${ingestToken}`;
+
+	// Token-gated write: the Mac poller POSTs one reading here.
 	api.post("/ingest", async (c) => {
-		if (c.req.header("Authorization") !== `Bearer ${ingestToken}`) {
+		if (!authed(c.req.header("Authorization"))) {
 			return c.json({ error: "unauthorized" }, 401);
 		}
-		const body = await c.req.json().catch(() => null);
-		const parsed = MeasurementInput.safeParse(body);
+		const parsed = MeasurementInput.safeParse(await c.req.json().catch(() => null));
 		if (!parsed.success) {
 			return c.json({ error: "invalid payload", detail: parsed.error.flatten() }, 400);
 		}
 		const m = parsed.data;
-		const values = {
-			temp_c: m.temp_c ?? null,
-			humidity: m.humidity ?? null,
-			co2_ppm: m.co2_ppm ?? null,
-			pm01: m.pm01 ?? null,
-			pm25: m.pm25 ?? null,
-			pm10: m.pm10 ?? null,
-			aqi_us: m.aqi_us ?? null,
-			voc_ppb: m.voc_ppb ?? null,
-		};
 		await db()
 			.insertInto("measurement")
-			.values({ device: m.device, ts: m.ts ? new Date(m.ts) : new Date(), ...values })
-			.onDuplicateKeyUpdate(values)
+			.values(toRow(m))
+			.onDuplicateKeyUpdate(sensorValues(m))
 			.execute();
 		return c.json({ ok: true });
+	});
+
+	// Token-gated bulk write: the backfill importer POSTs arrays of readings.
+	// INSERT IGNORE — historical rows are immutable, so an existing (device, ts)
+	// key is skipped, making re-runs idempotent.
+	api.post("/ingest/batch", async (c) => {
+		if (!authed(c.req.header("Authorization"))) {
+			return c.json({ error: "unauthorized" }, 401);
+		}
+		const parsed = MeasurementBatch.safeParse(await c.req.json().catch(() => null));
+		if (!parsed.success) {
+			return c.json({ error: "invalid payload", detail: parsed.error.flatten() }, 400);
+		}
+		const rows = parsed.data.measurements.map(toRow);
+		await db().insertInto("measurement").ignore().values(rows).execute();
+		return c.json({ ok: true, received: rows.length });
 	});
 
 	// Public read: the most recent reading.
