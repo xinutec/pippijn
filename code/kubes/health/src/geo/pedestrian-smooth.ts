@@ -59,6 +59,10 @@ export interface WalkableGeo {
 	ways: RoadGeometry["ways"];
 	/** Polygons (lat/lon rings) of open walkable area — park, plaza, forest. */
 	openZones?: ReadonlyArray<ReadonlyArray<LatLon>>;
+	/** Impassable polygons (lat/lon rings) — building footprints. A vertex
+	 *  inside one is firmly pushed onto the nearest walkable way: you cannot be
+	 *  inside a building, regardless of the openness gate. */
+	buildings?: ReadonlyArray<ReadonlyArray<LatLon>>;
 }
 
 export interface SmoothOpts {
@@ -95,6 +99,12 @@ const W_STEP = 1.4;
 const W_ANCHOR = 6;
 /** Soft map pull, full strength (a lone corridor). Small vs GPS+PDR. */
 const W_MAP = 0.25;
+/** Building repulsion. Strong — a vertex inside a building footprint is firmly
+ *  pulled onto the nearest walkable way, overriding the openness gate. You can
+ *  walk freely in a park but not through a wall. Well above W_MAP so the line
+ *  reliably exits the building, but finite so a genuine indoor fix isn't
+ *  impossibly penalised. */
+const W_BUILDING = 1.5;
 /** The map only speaks when a walkable way is within this far. Beyond it you're
  *  in open ground (a park, a forest, a car park) where the user is "free to walk
  *  anywhere" — so the map exerts no pull at all. This is the openness model:
@@ -170,19 +180,29 @@ function nearestWalkable(p: Vec, ways: WalkableGeo["ways"], frame: ReturnType<ty
 	return best;
 }
 
-/** Whether a local-frame point lies inside any open zone (ray-cast). */
+/** Ray-cast point-in-polygon for a single lat/lon ring in the local frame. */
+function pointInRing(p: Vec, ring: ReadonlyArray<LatLon>, frame: ReturnType<typeof makeFrame>): boolean {
+	let inside = false;
+	for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+		const pi = frame.toXY(ring[i].lat, ring[i].lon);
+		const pj = frame.toXY(ring[j].lat, ring[j].lon);
+		const intersect = pi.y > p.y !== pj.y > p.y && p.x < ((pj.x - pi.x) * (p.y - pi.y)) / (pj.y - pi.y) + pi.x;
+		if (intersect) inside = !inside;
+	}
+	return inside;
+}
+
+/** Whether a local-frame point lies inside any open zone (free to roam). */
 function inOpenZone(p: Vec, zones: WalkableGeo["openZones"], frame: ReturnType<typeof makeFrame>): boolean {
 	if (!zones) return false;
-	for (const ring of zones) {
-		let inside = false;
-		for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-			const pi = frame.toXY(ring[i].lat, ring[i].lon);
-			const pj = frame.toXY(ring[j].lat, ring[j].lon);
-			const intersect = pi.y > p.y !== pj.y > p.y && p.x < ((pj.x - pi.x) * (p.y - pi.y)) / (pj.y - pi.y) + pi.x;
-			if (intersect) inside = !inside;
-		}
-		if (inside) return true;
-	}
+	for (const ring of zones) if (pointInRing(p, ring, frame)) return true;
+	return false;
+}
+
+/** Whether a local-frame point lies inside any building footprint (impassable). */
+function inBuilding(p: Vec, buildings: WalkableGeo["buildings"], frame: ReturnType<typeof makeFrame>): boolean {
+	if (!buildings) return false;
+	for (const ring of buildings) if (pointInRing(p, ring, frame)) return true;
 	return false;
 }
 
@@ -292,9 +312,17 @@ export function smoothPedestrianTrajectory(fixes: readonly PedFix[], opts: Smoot
 		// map says nothing.
 		if (opts.walkable && opts.walkable.ways.length > 0) {
 			for (let i = 0; i < n; i++) {
-				if (inOpenZone(p[i], opts.walkable.openZones, frame)) continue; // free here
 				const q = nearestWalkable(p[i], opts.walkable.ways, frame);
 				if (!q) continue;
+				// Impassable: inside a building, a strong pull onto the nearest
+				// walkable surface — overrides the openness gate (you cannot be
+				// inside a building, however far it is from a path).
+				if (inBuilding(p[i], opts.walkable.buildings, frame)) {
+					gx[i] += 2 * W_BUILDING * (p[i].x - q.x);
+					gy[i] += 2 * W_BUILDING * (p[i].y - q.y);
+					continue;
+				}
+				if (inOpenZone(p[i], opts.walkable.openZones, frame)) continue; // free here
 				const dist = Math.hypot(p[i].x - q.x, p[i].y - q.y);
 				if (dist > OPENNESS_RADIUS_M) continue; // open ground — no pull
 				gx[i] += 2 * W_MAP * (p[i].x - q.x);
@@ -334,9 +362,13 @@ export function smoothPedestrianTrajectory(fixes: readonly PedFix[], opts: Smoot
 		const wGps = r <= HUBER_DELTA ? 1 : HUBER_DELTA / r;
 		let info = wGps * invSig2[i];
 		if ((i === 0 && anchorA) || (i === n - 1 && anchorB)) info += W_ANCHOR;
-		if (opts.walkable && opts.walkable.ways.length > 0 && !inOpenZone(v, opts.walkable.openZones, frame)) {
-			const q = nearestWalkable(v, opts.walkable.ways, frame);
-			if (q && Math.hypot(v.x - q.x, v.y - q.y) <= OPENNESS_RADIUS_M) info += W_MAP;
+		if (opts.walkable && opts.walkable.ways.length > 0) {
+			if (inBuilding(v, opts.walkable.buildings, frame)) {
+				info += W_BUILDING;
+			} else if (!inOpenZone(v, opts.walkable.openZones, frame)) {
+				const q = nearestWalkable(v, opts.walkable.ways, frame);
+				if (q && Math.hypot(v.x - q.x, v.y - q.y) <= OPENNESS_RADIUS_M) info += W_MAP;
+			}
 		}
 		const sigmaM = Math.min(MAX_SIGMA_M, 1 / Math.sqrt(Math.max(info, 1 / (MAX_SIGMA_M * MAX_SIGMA_M))));
 		return { ...frame.toLatLon(v), ts: sorted[i].ts, sigmaM: Math.round(sigmaM * 10) / 10 };

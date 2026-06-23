@@ -219,4 +219,50 @@ describe("smoothPedestrianTrajectory", () => {
 			).toBeLessThan(0.5);
 		}
 	});
+
+	it("pushes a walk out of a building footprint onto the nearest path", () => {
+		// A footway runs east along north=0. The GPS drifts ~50 m north into a
+		// building block — a *believed* excursion (three consecutive fixes), not a
+		// lone outlier — and beyond the 35 m openness radius, so the plain map term
+		// treats it as "free open ground" and leaves the line inside the building.
+		// The building term must push those vertices back onto the path.
+		const ways = [
+			{
+				osmId: 1,
+				name: "Foot Path",
+				subtype: "footway",
+				coords: [
+					[dLat(0), dLon(0)],
+					[dLat(0), dLon(120)],
+				] as [number, number][],
+			},
+		];
+		// A building block set back from the path (north 38–70), wider than the
+		// walk. The GPS is *consistently* offset ~45 m north into it — a straight,
+		// PDR-compatible track, so PDR/smoothness don't pull it back, and at >35 m
+		// the openness gate calls it "free". Only the building term can act.
+		const building = [
+			{ lat: dLat(38), lon: dLon(-20) },
+			{ lat: dLat(38), lon: dLon(140) },
+			{ lat: dLat(70), lon: dLon(140) },
+			{ lat: dLat(70), lon: dLon(-20) },
+		];
+		const fixes = [
+			fix(0, 45, 0, 10),
+			fix(15, 46, 20, 10),
+			fix(30, 44, 40, 10),
+			fix(45, 45, 60, 10),
+			fix(60, 46, 80, 10),
+			fix(75, 44, 100, 10),
+			fix(90, 45, 120, 10),
+		];
+		const north = (pt: { lat: number }): number => (pt.lat - ORIGIN) * 111_320;
+		const withB = smoothPedestrianTrajectory(fixes, { walkable: { ways, buildings: [building] } });
+		const noB = smoothPedestrianTrajectory(fixes, { walkable: { ways } });
+		// Without the building term, the straight offset walk stays in the building.
+		expect(north(noB?.path[3] as { lat: number })).toBeGreaterThan(40);
+		// With it, the line is pushed out of the building (north < 38 edge), toward
+		// the path.
+		expect(north(withB?.path[3] as { lat: number })).toBeLessThan(38);
+	});
 });
