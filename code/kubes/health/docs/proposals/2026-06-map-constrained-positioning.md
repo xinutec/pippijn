@@ -31,13 +31,10 @@ The motivating case, 2026-06-21, fully traced against both the live API and
 the Nextcloud PhoneTrack raw page:
 
 - A single Owntracks fix at `12:43:23` near home reported **±80 m accuracy**
-  (altitude 95 m) — by far the worst of the drive; its neighbours are
-  ±7–15 m.
-- **NC draws the raw coordinate** as recorded: `51.566181, −0.278725`, on
-  Barn Rise (the road actually driven).
-- **The health map draws the Kalman-smoothed coordinate**:
-  `51.566050, −0.279866` — **80 m west**, off the road, toward the Newland
-  Court cul-de-sac.
+  — by far the worst of the drive; its neighbours are ±7–15 m.
+- **NC draws the raw coordinate** as recorded: on the road actually driven.
+- **The health map draws the Kalman-smoothed coordinate**: **80 m west**, off
+  the road, toward a parallel cul-de-sac.
 
 The Kalman *does* read the accuracy field (measurement noise from `accuracy`,
 plus an innovation gate). It still moved the point 80 m the wrong way, because
@@ -70,7 +67,7 @@ what that proposal did for *mode*).
 | **Motion prior (transition)** | Continuity + bounded kinematics *per mode*; on an edge you move 1-D along it; no jump to a parallel street except through a junction. | `road-match`'s on-road-distance ≈ GPS-step transition is exactly this (Newson-Krumm). Kalman's adaptive process noise is the free-space version. |
 | **Robust emission (per fix)** | `P(GPS | true position)` as a **heavy-tailed** law (Huber / Student-t) scaled by accuracy. A wild ±80 m outlier gets near-zero weight *automatically* — no hard threshold. Evaluated against map-constrained hypotheses, so an off-road fix reads as "noisy fix", never "drove off-road". | `road-match`'s Gaussian snap emission — needs the heavy tail + the per-fix consistency gate below. |
 | **Map prior** | Probability mass on the right layer for the current mode: drivable roads when driving, rails when on a train, pavements/anywhere when walking, a building when stationary. | `rail-road-proximity` subtype sets; the route graph's feature types. |
-| **Personal / route prior** | The killer term for a single user: a *learned* distribution over **your** edge usage. You approach home up Barn Rise hundreds of times; a junk fix can't move that. | `rail-snap`'s fix-cloud corridor is a crude per-leg version; `magnetic-focus-places` is the place-level analogue. Generalise to a persistent prior over the whole graph. |
+| **Personal / route prior** | The killer term for a single user: a *learned* distribution over **your** edge usage. You approach home up the same road hundreds of times; a junk fix can't move that. | `rail-snap`'s fix-cloud corridor is a crude per-leg version; `magnetic-focus-places` is the place-level analogue. Generalise to a persistent prior over the whole graph. |
 | **Mode coupling** | Mode selects the map layer + kinematics; position evidence feeds back into mode. Jointly consistent. | The HSMM decoder already owns mode (`decoder-roadmap.md`); this is the missing position half of the same joint model (`decoder-roadmap.md`). |
 
 ### Inference
@@ -92,8 +89,8 @@ speculative.
 ### Why it fixes the motivating case
 
 At `12:43:23` the emission probability of *being at the off-road point* is tiny
-(map prior says "on Barn Rise"), and the heavy tail caps the outlier's pull — so
-the estimate **stays on Barn Rise**, matching reality and NC. No Kalman swing,
+(the map prior says "on the road"), and the heavy tail caps the outlier's pull —
+so the estimate **stays on the road**, matching reality and NC. No Kalman swing,
 no accuracy cutoff, no cosmetic snap-then-gate.
 
 ## Staged migration
