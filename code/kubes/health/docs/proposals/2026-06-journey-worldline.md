@@ -310,5 +310,5 @@ output* and is compared before it takes authority.
 Proposed. Supersedes nothing yet; it is the **integration target** that
 `2026-05-constraint-first-decoder`, `2026-05-joint-sequence-model`,
 `2026-06-map-constrained-positioning`, and `2026-06-decoder-owns-mode` (#257) all
-point at. When Phase 3 takes authority, those move to `archive/` with a pointer
-here, and the shipped result is summarized in `docs/design/`.
+point at. When Phase 3 takes authority, those move to the README's **Settled**
+table with a pointer here, and the shipped result is summarized in `docs/design/`.

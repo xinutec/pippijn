@@ -5,14 +5,17 @@ to architecture or pipeline that's worth thinking through before
 writing code.
 
 When a proposal lands in code (becomes "shipped" rather than
-"proposed"): either summarise the relevant outcomes into
-`docs/design/` and delete the proposal, or move the proposal to
-`archive/` and link to the design doc that describes the shipped
-result. Pick one — don't leave a "this happened" proposal cluttering
-this directory.
+"proposed"), is superseded, or is paused: update its `status`
+frontmatter and move its row from the **Active** table to the
+**Settled** table below. The file stays in `proposals/` — these docs
+are densely cross-referenced (active proposals cite the shipped
+foundations and the superseded experiments by path), so a separate
+`archive/` directory only breaks links. Categorise in the README, not
+the filesystem.
 
-When a proposal is superseded or paused: move it to `archive/` with
-the `status` frontmatter updated.
+If a shipped proposal's outcome is better captured as a `docs/design/`
+doc, summarise it there and delete the proposal — but only when it has
+no inbound references left.
 
 ## Active
 
@@ -33,21 +36,22 @@ the `status` frontmatter updated.
 | `2026-06-deterministic-fixtures.md` | design (revised) | Deterministic, zero-DB fixtures for the classification pipeline via an adapter pattern over unbounded sources (OSM, Fitbit, PhoneTrack); the `npm run golden` replay harness |
 | `2026-06-google-health-migration.md` | deferred | Fitbit Web API → Google Health API migration ahead of the Sep 2026 sunset (#260). Unrelated to the decoder line of work |
 
-## Archived (`archive/`)
+## Settled
 
-Settled work — shipped, superseded, paused, or parked. Kept for the record; not active design.
+Shipped, superseded, paused, or parked. Kept in place for the record
+(and still cited by the active proposals above); not active design.
 
 | File | Status | Topic |
 |---|---|---|
-| `archive/2026-06-pedestrian-trajectory-smoother.md` | shipped | The walking arm of map-constrained positioning — a MAP factor-graph smoother (robust GPS + pedometer + endpoint anchors + soft walkable-surface prior), display-only. Measured 2026-06-21: step-error 110%→5% |
-| `archive/2026-05-conflated-place-clusters.md` | shipped | Disambiguate co-located places using time-of-day profiles; distance-aware landmark priority; confidence gate |
-| `archive/2026-05-honest-gaps.md` | shipped | Emit `unknown` for unobserved time + trajectory-segmented `findStays` |
-| `archive/2026-05-hsmm-physical-constraints.md` | shipped | HSMM Viterbi + per-state duration distributions + sleep-coherence + HR continuity. Reused as the constraint-first decoder's scorer |
-| `archive/2026-05-joint-sequence-model.md` | shipped (Phases 0a-1.7) | MVP HMM bridge from factor scorer to per-day decoder. Architectural successor: `2026-05-constraint-first-decoder.md` |
-| `archive/2026-05-utc-three-tier.md` | shipped | Three-tier `ts`/`ts_utc`/`tz_source` schema for Fitbit intraday |
-| `archive/2026-05-weighted-place-accumulation.md` | paused (reverted) | Focus-place centroid weighting + multi-signal naming. All phases implemented and **fully reverted** — kept as the investigation record |
-| `archive/2026-05-route-aware-decoder.md` | superseded | Promoted state from `mode` to `(mode, route, position)` via inner edge-Viterbi; Phase 1 proper regressed mode 0.6 pp. Superseded by `2026-05-constraint-first-decoder.md` |
-| `archive/2026-06-tunnel-transit-coherence.md` | on-hold — do not implement as written | Stop the decoder fragmenting GPS-dark underground rides. STATUS (2026-06-13): premise undercut by adversarial review; pending re-measure on re-captured fixtures |
+| `2026-06-pedestrian-trajectory-smoother.md` | shipped | The walking arm of map-constrained positioning — a MAP factor-graph smoother (robust GPS + pedometer + endpoint anchors + soft walkable-surface prior), display-only. Measured 2026-06-21: step-error 110%→5% |
+| `2026-05-conflated-place-clusters.md` | shipped | Disambiguate co-located places using time-of-day profiles; distance-aware landmark priority; confidence gate |
+| `2026-05-honest-gaps.md` | shipped | Emit `unknown` for unobserved time + trajectory-segmented `findStays` |
+| `2026-05-hsmm-physical-constraints.md` | shipped | HSMM Viterbi + per-state duration distributions + sleep-coherence + HR continuity. Reused as the constraint-first decoder's scorer |
+| `2026-05-joint-sequence-model.md` | shipped (Phases 0a-1.7) | MVP HMM bridge from factor scorer to per-day decoder. Architectural successor: `2026-05-constraint-first-decoder.md` |
+| `2026-05-utc-three-tier.md` | shipped | Three-tier `ts`/`ts_utc`/`tz_source` schema for Fitbit intraday |
+| `2026-05-weighted-place-accumulation.md` | paused (reverted) | Focus-place centroid weighting + multi-signal naming. All phases implemented and **fully reverted** — kept as the investigation record |
+| `2026-05-route-aware-decoder.md` | superseded | Promoted state from `mode` to `(mode, route, position)` via inner edge-Viterbi; Phase 1 proper regressed mode 0.6 pp. Superseded by `2026-05-constraint-first-decoder.md` |
+| `2026-06-tunnel-transit-coherence.md` | on-hold — do not implement as written | Stop the decoder fragmenting GPS-dark underground rides. STATUS (2026-06-13): premise undercut by adversarial review; pending re-measure on re-captured fixtures |
 
 **Read `docs/design/probabilistic-principles.md` before adding new
 factors, tuning parameters, or proposing alternatives.** That
