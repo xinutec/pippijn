@@ -1,6 +1,6 @@
 ---
 created: 2026-06-22
-updated: 2026-06-22
+updated: 2026-06-24
 status: proposed
 references:
   - ../design/probabilistic-principles.md
@@ -54,6 +54,55 @@ spans two legs lives in the *gap between* stages, where no single check looks �
 and we patch it reactively (#175, #176, #181, #234 are each one impossibility
 someone noticed). Coverage is therefore a patchwork: we forbid the failure modes
 we have seen, and the next stage-interaction produces the next one.
+
+### A second instance: place continuity, not just rail (2026-06-24)
+
+The same disease, on the *place* axis rather than the *journey* axis — proof
+the worldline principle has to cover stays and sleep, not only train legs.
+Output for 2026-06-24:
+
+```
+23:24–07:17  sleeping  @ University College Hospital   (central London, 51.52,-0.13)
+08:48–09:03  walking   on Barn Rise                    (Wembley,        51.57,-0.28)
+```
+
+Asleep at UCLH at 07:17, then walking on Barn Rise — **10 km away** — at
+08:48, with no travel between. A teleport. The mechanism is the *same shape*
+as the 06-22 rail bug, in a different pass: `derivePlaceForSleep`
+(`src/sleep/load.ts`) resolves the sleep location by nearest *stationary*
+label **in time**, and `continue`s past every moving segment — so it never
+looks at the Barn Rise walk's GPS, which *pins* the wake-up position to
+Wembley. It discards the hardest available evidence and there is no
+position-continuity gate to reject the result (`worldline-feasibility.ts`
+checks only `rail-discontinuity` / `degenerate-train-leg` — mode continuity,
+not position). A residential-preference patch was tried and **reverted**: it
+forced Home over the nearer hospital, which then broke the 2026-05-25 /
+06-02 *inpatient* nights (where the next move genuinely *was* at the
+hospital). That failure is the lesson — the right answer is not "prefer
+Home", it is "sleep position must be continuous with the bracketing GPS",
+which keeps Home on 06-24 and the hospital on the inpatient nights for the
+same structural reason. The worldline invariant (Phase 0 below) must extend
+to: **a stay/sleep place must be reachable from the adjacent observed
+position.**
+
+### Measured 2026-06-24 — why the cutover is gated, not flipped
+
+Fresh numbers that set the migration's no-regression bar. `npm run
+score-decoder` (real `decodeHsmm` vs ground truth) vs `--source pipeline`:
+per-minute **mode** decoder 76.7% > pipeline 70.6%; **line** decoder ~50%
+≪ pipeline 98%; journey **trips** decoder 48% < pipeline 52%. The two
+models are each better at a *different* dimension, so neither can be crowned
+wholesale — and both wholesale swaps tried this session *measured to
+regress* against the golden truth layer (baseline 15 unmet / 4 cleared):
+flipping `USE_FACTOR_SCORER=1` cost **+15** confirmed-truth regressions; a
+symmetric decoder train-*demotion* cost **+4** (the decoder's train recall
+is too low — its silence is not evidence against a train). Phase 3's cutover
+must therefore close the decoder's *line* gap first (feed the pipeline's
+98%-accurate line attribution in as an emission), and every phase carries the
+hard bar: golden truth clears ≥ regressions, impossibility count = 0. A new
+instrument shipped this session for exactly this gate:
+`tests/classification-snapshot.test.ts` — a committed synthetic CI net
+pinning per-segment `(mode, wayName)` under both flag states.
 
 The prior art already named this ceiling. `2026-05-joint-sequence-model.md`:
 "a class of bugs cannot be fixed by tightening any individual pass… the principled
@@ -220,10 +269,13 @@ output* and is compared before it takes authority.
 ## Acceptance & invariants
 
 - **Hard invariant (CI / golden):** zero physically-impossible worldlines across the
-  corpus — no teleport between consecutive states; every train leg boards where the
-  previous train leg alighted; every train leg is a graph-connected
-  `(board, line, alight)` triple. This is an *assertion on the output*, cheap, and
-  independent of the model — keep it even before Phase 3 (it is Phase 0).
+  corpus — no teleport between consecutive states (**including a stay/sleep place
+  vs the adjacent observed GPS** — the 2026-06-24 UCLH→Barn Rise jump); every train
+  leg boards where the previous train leg alighted; every train leg is a
+  graph-connected `(board, line, alight)` triple. This is an *assertion on the
+  output*, cheap, and independent of the model — keep it even before Phase 3 (it is
+  Phase 0). It extends `worldline-feasibility.ts`, which today checks rail continuity
+  only, with a `position-teleport` kind.
 - **No regression:** mode / place / line scores on the blessed days hold or improve,
   judged against ground-truth narratives, not pipeline output
   (`2026-06-golden-osm-drift`).
