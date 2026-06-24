@@ -135,3 +135,49 @@ describe("derivePlaceForSleep", () => {
 		expect(derivePlaceForSleep(window, segs)).toBe("Home"); // overlap wins
 	});
 });
+
+describe("derivePlaceForSleep — residential preference for the sleep place", () => {
+	// You sleep at a residence, not a hospital. The 2026-06-24 regression:
+	// woke at home, walked STRAIGHT out (no stationary Home segment near the
+	// wake-up), so the first place you sat still all day was the hospital at
+	// 09:29 (a 2h gap). A residential Home stay later in the day (5h gap)
+	// must still win the sleep label over the nearer non-residential
+	// hospital. Window times mirror that day: wake at 07:00, hospital 09:00,
+	// home 12:00.
+	const wake = 7 * 3600;
+	const window = { startTs: -3600, endTs: wake };
+	const hospital = stationary(9 * 3600, 11 * 3600, "University College Hospital"); // gap 2h
+	const home = stationary(12 * 3600, 12 * 3600 + 1800, "Home"); // gap 5h
+
+	it("WITHOUT residential info, keeps the old nearest-gap behaviour (the bug)", () => {
+		expect(derivePlaceForSleep(window, [hospital, home])).toBe("University College Hospital");
+	});
+
+	it("prefers the farther residential place over the nearer non-residential one", () => {
+		expect(derivePlaceForSleep(window, [hospital, home], new Set(["Home"]))).toBe("Home");
+	});
+
+	it("anchors a residential place even beyond the 6h non-residential cap (got home in the afternoon)", () => {
+		// Home stay 8h after wake — outside the 6h cap that bounds a
+		// non-residential fallback, but a residence still anchors sleep.
+		const lateHome = stationary(15 * 3600, 15 * 3600 + 1800, "Home"); // gap 8h
+		expect(derivePlaceForSleep(window, [hospital, lateHome], new Set(["Home"]))).toBe("Home");
+	});
+
+	it("falls back to the nearest non-residential place when no residence is in range (genuine hotel/inpatient night)", () => {
+		// No residential candidate → the hospital legitimately wins (you
+		// really did sleep there).
+		expect(derivePlaceForSleep(window, [hospital], new Set(["Home"]))).toBe("University College Hospital");
+	});
+
+	it("does not anchor a residence that is more than 12h from the window", () => {
+		const farHome = stationary(20 * 3600, 20 * 3600 + 1800, "Home"); // gap 13h
+		expect(derivePlaceForSleep(window, [hospital, farHome], new Set(["Home"]))).toBe("University College Hospital");
+	});
+
+	it("breaks ties between two residences by proximity", () => {
+		const partner = stationary(10 * 3600, 11 * 3600, "Partner's"); // gap 3h
+		const homeLate = stationary(14 * 3600, 15 * 3600, "Home"); // gap 7h
+		expect(derivePlaceForSleep(window, [partner, homeLate], new Set(["Home", "Partner's"]))).toBe("Partner's");
+	});
+});

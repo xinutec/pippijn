@@ -1449,7 +1449,15 @@ export async function computeVelocityFromInputs(
 		...resolvedSleepStays.map(synthesizeStayCandidateSegment),
 	];
 	const rawSleep = inputs.sleepWindows;
-	const sleepWindows = enrichSleepWindows(rawSleep, sleepPlaceCandidates);
+	// Residential places (the user sleeps there for ≥ RESIDENCE_SLEEP_THRESHOLD_H
+	// total hours) anchor the sleep label over a nearer non-residential stop —
+	// you slept at home, not at the hospital you visited first that morning.
+	const residentialPlaceNames = new Set(
+		knownPlaces
+			.filter((p) => p.displayName !== null && p.sleepHours >= RESIDENCE_SLEEP_THRESHOLD_H)
+			.map((p) => p.displayName as string),
+	);
+	const sleepWindows = enrichSleepWindows(rawSleep, sleepPlaceCandidates, residentialPlaceNames);
 	const states = timeSync("dayStates", () => segmentsToDayStates(withBiometrics, sleepWindows));
 
 	// No observed data at all for the day. Rather than show a blank

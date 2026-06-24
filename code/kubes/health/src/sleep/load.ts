@@ -42,39 +42,70 @@ export interface RawSleepWindow {
  *  want to paint sleep onto an unrelated place. */
 const PLACE_FALLBACK_MAX_GAP_SEC = 6 * 3600;
 
+/** A residential place (one the user actually sleeps at) anchors the sleep
+ *  label even hours from the window — you slept where you live, regardless
+ *  of how much activity happened between waking and getting home. A
+ *  non-residential place needs the tighter `PLACE_FALLBACK_MAX_GAP_SEC`
+ *  cap so a random daytime stop isn't painted as the night. 12h spans a
+ *  normal day's out-and-back without reaching the opposite sleep window. */
+const RESIDENTIAL_FALLBACK_MAX_GAP_SEC = 12 * 3600;
+
 /** Pick the place attribute of a stationary segment to represent
- *  where the sleep happened. Picks the segment with the smallest
- *  time gap to the window — gap=0 for an overlap (the common
- *  morning case where the wake-up endpoint lands inside today's
- *  first stationary segment); positive for the fallback case
- *  where the first fix arrives hours after wake-up.
+ *  where the sleep happened.
+ *
+ *  A RESIDENTIAL place (one in `residentialPlaces` — a focus place the
+ *  user sleeps at, e.g. Home) always wins over a non-residential one: you
+ *  sleep at a residence, not at a hospital or café. Within the same
+ *  residential/non-residential tier the smallest time gap to the window
+ *  wins — gap=0 for an overlap (the common morning case where the wake-up
+ *  endpoint lands inside today's first stationary segment); positive for
+ *  the fallback case where the first fix arrives hours after wake-up.
+ *
+ *  This is the fix for the "walked straight out of home" day (2026-06-24):
+ *  with no stationary Home segment near the wake-up (the morning starts
+ *  with a *walk* out of the door) and no overnight GPS, the nearest
+ *  stationary place was the hospital. A residential Home stay later in the
+ *  day must still anchor the night.
+ *
+ *  Residential candidates get the more generous
+ *  `RESIDENTIAL_FALLBACK_MAX_GAP_SEC`; non-residential keep the tight
+ *  `PLACE_FALLBACK_MAX_GAP_SEC`.
  *
  *  Returns null when:
  *    - the sleep occurred entirely inside moving segments
- *      (overnight train) AND no stationary segment lies within
- *      `PLACE_FALLBACK_MAX_GAP_SEC` of either window edge, or
+ *      (overnight train) AND no stationary segment lies within range
+ *      of either window edge, or
  *    - no in-range stationary segment has a place tag.
  *
  *  Pure function — the segments pipeline produces the candidates;
- *  this helper only consults them. */
+ *  this helper only consults them. `residentialPlaces` defaults to empty,
+ *  in which case every candidate is non-residential and the behaviour is
+ *  pure nearest-gap (the pre-fix contract). */
 export function derivePlaceForSleep(
 	window: { startTs: number; endTs: number },
 	segments: readonly EnrichedSegment[],
+	residentialPlaces: ReadonlySet<string> = EMPTY_RESIDENTIAL,
 ): string | null {
-	let best: { place: string; gap: number } | null = null;
+	let best: { place: string; gap: number; residential: boolean } | null = null;
 	for (const s of segments) {
 		if ((s.refinedMode ?? s.mode) !== "stationary") continue;
 		if (s.place === undefined) continue;
-		// gap=0 when the segment overlaps the window; positive
-		// otherwise. Math.max with 0 collapses both before-window and
-		// after-window cases.
+		// gap=0 when the segment overlaps the window; positive otherwise,
+		// collapsing both before-window and after-window cases.
 		const gap =
 			s.startTs > window.endTs ? s.startTs - window.endTs : window.startTs > s.endTs ? window.startTs - s.endTs : 0;
-		if (gap > PLACE_FALLBACK_MAX_GAP_SEC) continue;
-		if (!best || gap < best.gap) best = { place: s.place, gap };
+		const residential = residentialPlaces.has(s.place);
+		const cap = residential ? RESIDENTIAL_FALLBACK_MAX_GAP_SEC : PLACE_FALLBACK_MAX_GAP_SEC;
+		if (gap > cap) continue;
+		// A residential candidate always beats a non-residential one; within
+		// the same tier, the smaller gap wins.
+		const better = !best || (residential && !best.residential) || (residential === best.residential && gap < best.gap);
+		if (better) best = { place: s.place, gap, residential };
 	}
 	return best?.place ?? null;
 }
+
+const EMPTY_RESIDENTIAL: ReadonlySet<string> = new Set();
 
 /**
  * Fetch the two main sleep records that touch `date` for `userId`:
@@ -121,16 +152,20 @@ export async function loadDaySleepWindows(userId: string, date: string): Promise
 }
 
 /** Enrich raw sleep windows with `place` from segments and produce
- *  the full `SleepWindow` shape the day-state converter expects. */
+ *  the full `SleepWindow` shape the day-state converter expects.
+ *  `residentialPlaces` (display names of focus places the user sleeps at)
+ *  lets a residence anchor the sleep label over a nearer non-residential
+ *  stop — see {@link derivePlaceForSleep}. */
 export function enrichSleepWindows(
 	raw: readonly RawSleepWindow[],
 	segments: readonly EnrichedSegment[],
+	residentialPlaces: ReadonlySet<string> = EMPTY_RESIDENTIAL,
 ): SleepWindow[] {
 	return raw.map((w) => ({
 		startTs: w.startTs,
 		endTs: w.endTs,
 		tz: w.tz,
 		minutesAsleep: w.minutesAsleep,
-		place: derivePlaceForSleep(w, segments),
+		place: derivePlaceForSleep(w, segments, residentialPlaces),
 	}));
 }
