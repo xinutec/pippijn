@@ -35,6 +35,12 @@ the `status` frontmatter updated.
 | `2026-05-hsmm-physical-constraints.md` | shipped | HSMM Viterbi + per-state duration distributions + sleep-coherence + HR continuity. The constraint-first decoder reuses this as its scorer |
 | `2026-05-joint-sequence-model.md` | shipped (Phases 0a-1.7) | MVP HMM bridge from factor scorer to per-day decoder. Architectural successor is `2026-05-constraint-first-decoder.md` |
 | `2026-05-route-aware-decoder.md` | superseded | Promoted state from `mode` to `(mode, route, position)` via inner edge-Viterbi. Phases 0, 1A, 1A++, 1B, and Phase 1 proper all shipped; Phase 1 proper regressed mode by 0.6 pp on the eval. Successor: `2026-05-constraint-first-decoder.md` |
+| `2026-06-decoder-owns-mode.md` | design | Make the joint probabilistic decoder — not the heuristic refinement stack — own MODE in the timeline, retiring the cascade's mode passes. The mode arm of the journey-worldline integration target (#257) |
+| `2026-06-truth-engine.md` | design | The measurement foundation: a multi-sensor, physically-grounded, honest day decoder + the eval apparatus (journey-level scorer, bus-scorable mode, confidence calibration) that every other phase's "no-regression" gate rests on. A bespoke decoder for one life, not a general classifier (#250) |
+| `2026-06-phase1-train-softprior.md` | design | Phase 1 of decoder-owns-mode: wire the train generator as a soft per-segment prior (revised after adversarial review — soft, not a hard candidate filter that drops real rides) |
+| `2026-06-tunnel-transit-coherence.md` | on-hold — do not implement as written | Stop the decoder fragmenting GPS-dark underground rides. STATUS (2026-06-13): premise undercut by adversarial review; pending re-measure on re-captured fixtures |
+| `2026-06-deterministic-fixtures.md` | design (revised) | Deterministic, zero-DB fixtures for the classification pipeline via an adapter pattern over unbounded sources (OSM, Fitbit, PhoneTrack); the `npm run golden` replay harness |
+| `2026-06-google-health-migration.md` | deferred | Fitbit Web API → Google Health API migration ahead of the Sep 2026 sunset (#260). Unrelated to the decoder line of work |
 
 **Read `docs/design/probabilistic-principles.md` before adding new
 factors, tuning parameters, or proposing alternatives.** That
