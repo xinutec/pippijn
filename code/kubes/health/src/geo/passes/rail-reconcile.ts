@@ -147,6 +147,15 @@ export function reconcileAdjacentRailLegs(segments: EnrichedSegment[]): Enriched
  *  a brief platform interchange, or a mis-moded fragment. A longer gap means the
  *  rider actually got off (a real stopover), so the run is two journeys. */
 const RAIL_JOURNEY_SLIVER_MAX_S = 10 * 60;
+/** A longer intervening segment is still part of the ride if it carries a
+ *  motorised peak — the underground GPS surfaced at tube speed, so the segment
+ *  is a mis-moded tunnel leg, not a real street walk/stop. The bound sits above
+ *  the cycling ceiling (CYCLING_MAX_SPEED_KMH = 35), so a genuine walk between
+ *  two separate rides (which peaks at walking pace, even with a lone GPS spike)
+ *  is never absorbed — that case must break the run (2026-06-24 Wembley Park →
+ *  Euston Square, where the Finchley Rd → Baker St tunnel surfaced as a 13-min
+ *  "walk" peaking at tube speed). The single-through-line gate still applies. */
+const RAIL_JOURNEY_TRANSIT_PEAK_KMH = 40;
 /** Radius (m) for the line lookup at a train leg's fix centroid. Generous: an
  *  underground-reconstructed leg's surfaced fixes can sit a few hundred metres
  *  off the line, and the per-line station-membership check is the real gate, so
@@ -281,6 +290,12 @@ export async function assembleRailJourney(
 				continue;
 			}
 			if (segments[k].endTs - segments[k].startTs < RAIL_JOURNEY_SLIVER_MAX_S) {
+				k++;
+				continue;
+			}
+			// A longer middle is still inside the ride when it is mis-moded tunnel
+			// transit (a motorised peak), not a real walk/stop the rider got off for.
+			if (segments[k].maxSpeed >= RAIL_JOURNEY_TRANSIT_PEAK_KMH) {
 				k++;
 				continue;
 			}

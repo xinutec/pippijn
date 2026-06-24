@@ -202,4 +202,25 @@ describe("anchorTrainBoardingToWalkedStation", () => {
 		expect(result[1].wayName).toBe("Beta → Gamma · Line 1");
 		expect(result[1].startTs).toBe(420);
 	});
+
+	it("leaves a train→sliver-walk→train ride untouched (reconstruction artifact, not a walk-to-station)", async () => {
+		// 2026-06-24 Wembley Park → Euston Square: one Metropolitan-line ride the
+		// underground reconstruction shattered into two train legs with a sliver
+		// "walk" between. The walk is bracketed by trains, so its boarding hop is
+		// the SAME ride continuing. Re-anchoring leg 2 to a station scanned from the
+		// sliver (here: the walk's Alpha cluster) invents a rail-discontinuity —
+		// leg 1 alighted Beta, so a leg-2 board at Alpha has no travel between.
+		// Continuity is owned by reconcileAdjacentRailLegs / assembleRailJourney;
+		// this pass must not fire when a train precedes the walk.
+		const segments = [
+			seg({ startTs: -540, endTs: 0, mode: "train", wayName: "Zeta → Beta · Line 1" }),
+			seg({ startTs: 0, endTs: 360, mode: "walking" }),
+			seg({ startTs: 420, endTs: 900, mode: "train", wayName: "Gamma → Delta · Line 1" }),
+		];
+		const result = await anchorTrainBoardingToWalkedStation(segments, walkWithBoardingHop(), stationsLookup);
+		expect(result).toHaveLength(3);
+		expect(result[2].wayName).toBe("Gamma → Delta · Line 1");
+		expect(result[2].startTs).toBe(420);
+		expect(result[1].endTs).toBe(360);
+	});
 });

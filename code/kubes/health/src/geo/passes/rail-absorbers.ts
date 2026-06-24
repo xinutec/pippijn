@@ -300,6 +300,15 @@ export async function anchorTrainBoardingToWalkedStation(
 		if (rail === null) continue;
 		const walk = out[k - 1];
 		if (effectiveMode(walk) !== "walking") continue;
+		// Continuity guard (2026-06-24 Wembley Park → Euston Square): when the walk
+		// is bracketed by a preceding train (train → sliver-walk → train), it is an
+		// underground-reconstruction artifact, not a walk-to-station. Its "boarding
+		// hop" is the SAME ride continuing, so re-anchoring this leg's boarding to a
+		// station scanned from the sliver invents a rail-discontinuity (board != the
+		// previous leg's alighting, with no travel between) — which also defeats
+		// assembleRailJourney's single-line merge downstream. Boarding continuity
+		// here is owned by reconcileAdjacentRailLegs / assembleRailJourney.
+		if (k >= 2 && effectiveMode(out[k - 2]) === "train") continue;
 		const fixes = samplesInWindowExclusiveEnd(points, walk);
 		if (fixes.length < 4) continue;
 

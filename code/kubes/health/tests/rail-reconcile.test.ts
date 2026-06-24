@@ -246,6 +246,39 @@ describe("assembleRailJourney", () => {
 		expect(out.filter((s) => s.mode === "train")).toHaveLength(2);
 	});
 
+	it("absorbs a long mis-moded transit middle (motorised peak) into the one-line ride", async () => {
+		// 2026-06-24 Wembley Park → Euston Square: the Finchley Rd → Baker St tunnel
+		// surfaced as a 13-min "walking" segment — over the 10-min sliver cap, so the
+		// duration rule alone leaves the ride fragmented. But its peak is tube speed
+		// (84 km/h), not a street walk. The single through-line serving all four
+		// stations recovers one ride; the motorised peak is what tells a mis-moded
+		// tunnel apart from a genuine walk between two separate rides.
+		const segs = [
+			seg("train", 0, 10, { wayName: "Wembley Park → Finchley Road", centroidLat: 1, centroidLon: 0 }),
+			seg("walking", 10, 23, { centroidLat: 1, centroidLon: 0, maxSpeed: 84 }),
+			seg("train", 23, 28, { wayName: "Baker Street → Euston Square", centroidLat: 1, centroidLon: 0 }),
+		];
+		const osm = osmStub({ 1: ["Metropolitan Line"] }, { "Metropolitan Line": MET });
+		const out = await assembleRailJourney([...segs], [], osm);
+		const trains = out.filter((s) => s.mode === "train");
+		expect(trains).toHaveLength(1);
+		expect(trains[0].wayName).toBe("Wembley Park → Euston Square · Metropolitan Line");
+	});
+
+	it("does NOT absorb a long walking-pace middle (a real walk between two separate rides)", async () => {
+		// Same shape, but the 13-min middle peaks at walking pace — the rider got off,
+		// walked on the street between two same-line stations, and boarded again. Two
+		// distinct rides; the run must break despite a single line serving all stations.
+		const segs = [
+			seg("train", 0, 10, { wayName: "Wembley Park → Finchley Road", centroidLat: 1, centroidLon: 0 }),
+			seg("walking", 10, 23, { centroidLat: 1, centroidLon: 0, maxSpeed: 8 }),
+			seg("train", 23, 28, { wayName: "Baker Street → Euston Square", centroidLat: 1, centroidLon: 0 }),
+		];
+		const osm = osmStub({ 1: ["Metropolitan Line"] }, { "Metropolitan Line": MET });
+		const out = await assembleRailJourney([...segs], [], osm);
+		expect(out.filter((s) => s.mode === "train")).toHaveLength(2);
+	});
+
 	it("leaves a single train leg untouched", async () => {
 		const segs = [
 			seg("train", 0, 20, {
