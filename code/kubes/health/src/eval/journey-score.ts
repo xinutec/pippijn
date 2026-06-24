@@ -1,6 +1,6 @@
 /**
  * Journey-level scorer — the cutover gate the decoder-owns-mode program
- * depends on (`docs/proposals/2026-06-truth-engine.md`, measurement phase).
+ * depends on (`docs/proposals/decoder-roadmap.md`, measurement phase).
  *
  * `score-day.ts` scores per minute: it is brittle to a few minutes of
  * boundary misalignment (a train leg the decoder places at 15:35–15:38

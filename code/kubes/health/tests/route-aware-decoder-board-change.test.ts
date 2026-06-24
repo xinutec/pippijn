@@ -157,7 +157,7 @@ function buildMinuteTensor(points: readonly DayFixturePoint[], start: number, en
 const routeAwareFixtures = dayFx !== null && graph !== null ? { fx: dayFx, g: graph } : null;
 describeWithFixture("route-aware decoder — 2026-05-22 Met/Jubilee board change", routeAwareFixtures, ({ fx, g }) => {
 	// Predates the constraint-first decoder
-	// (`docs/proposals/2026-05-constraint-first-decoder.md`). With
+	// (`docs/proposals/decoder-roadmap.md`). With
 	// the train-candidate generator now hard-rejecting any train
 	// segment that doesn't match a generator window, the inner-
 	// Viterbi's ability to find a Met-only path on real OSM data

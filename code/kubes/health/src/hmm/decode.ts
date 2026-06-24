@@ -144,7 +144,7 @@ export function decodeHsmm(inputs: HsmmInputs): HmmSegment[] {
 	});
 	const baseEmission = buildEmissionFn({ placeCoords, continuityContext: inputs.continuityContext });
 	const geometricFn = buildGeometricFeasibility({ placeCoords });
-	// Train-generator soft prior (Phase 1, `2026-06-phase1-train-softprior.md`):
+	// Train-generator soft prior (Phase 1, `decoder-roadmap.md`):
 	// structural `(board, line, alight)` candidates become a per-segment entry
 	// prior over `train @ L`, and `isCovered` gates the per-minute line factors
 	// off where the generator is authoritative (no double-count).

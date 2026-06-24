@@ -363,7 +363,7 @@ export function buildRouteGraph(rawLines: readonly RawOsmLine[], rawPoints: read
 	// gets attached to a way endpoint. The candidate generator
 	// applies a wider GENEROUS hard cutoff (250 m) downstream and
 	// lets the scorer weigh distance softly. See
-	// `docs/proposals/2026-05-constraint-first-decoder.md` on
+	// `docs/proposals/decoder-roadmap.md` on
 	// generator/scorer radii.
 	const STATION_MERGE_RADIUS_M = 150;
 	for (const p of rawPoints) {

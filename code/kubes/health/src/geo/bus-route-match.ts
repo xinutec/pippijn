@@ -1,6 +1,6 @@
 /**
  * Stop-anchored bus-route matcher — the algorithmic heart of C-bus
- * (`docs/proposals/2026-06-decoder-owns-mode.md`, Phase 2).
+ * (`docs/proposals/decoder-roadmap.md`, Phase 2).
  *
  * Today's `bus-evidence.ts` (#247) tells a bus from a taxi by *where it
  * stops*, but it cannot NAME the route. This module does: given a road-

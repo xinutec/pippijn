@@ -6,11 +6,8 @@ references:
   - ../design/probabilistic-principles.md
   - ../design/episode-geometry.md
   - ../design/rail-snap.md
-  - 2026-05-constraint-first-decoder.md
+  - decoder-roadmap.md
   - 2026-05-joint-sequence-model.md
-  - 2026-05-physical-plausibility.md
-  - 2026-06-decoder-owns-mode.md
-  - 2026-06-truth-engine.md
   - 2026-06-magnetic-focus-places.md
 ---
 
@@ -63,7 +60,7 @@ most probable trajectory *on the map* that explains all the evidence?** The
 map and the motion model are priors; GPS is one noisy sensor. Everything
 becomes a term in a single probabilistic model — consistent with
 `probabilistic-principles.md` and the generator/scorer architecture of
-`2026-05-constraint-first-decoder.md` (this is the *positioning* analogue of
+`decoder-roadmap.md` (this is the *positioning* analogue of
 what that proposal did for *mode*).
 
 ### Model
@@ -75,7 +72,7 @@ what that proposal did for *mode*).
 | **Robust emission (per fix)** | `P(GPS | true position)` as a **heavy-tailed** law (Huber / Student-t) scaled by accuracy. A wild ±80 m outlier gets near-zero weight *automatically* — no hard threshold. Evaluated against map-constrained hypotheses, so an off-road fix reads as "noisy fix", never "drove off-road". | `road-match`'s Gaussian snap emission — needs the heavy tail + the per-fix consistency gate below. |
 | **Map prior** | Probability mass on the right layer for the current mode: drivable roads when driving, rails when on a train, pavements/anywhere when walking, a building when stationary. | `rail-road-proximity` subtype sets; the route graph's feature types. |
 | **Personal / route prior** | The killer term for a single user: a *learned* distribution over **your** edge usage. You approach home up Barn Rise hundreds of times; a junk fix can't move that. | `rail-snap`'s fix-cloud corridor is a crude per-leg version; `magnetic-focus-places` is the place-level analogue. Generalise to a persistent prior over the whole graph. |
-| **Mode coupling** | Mode selects the map layer + kinematics; position evidence feeds back into mode. Jointly consistent. | The HSMM decoder already owns mode (`2026-06-decoder-owns-mode.md`); this is the missing position half of the same joint model (`2026-05-joint-sequence-model.md`). |
+| **Mode coupling** | Mode selects the map layer + kinematics; position evidence feeds back into mode. Jointly consistent. | The HSMM decoder already owns mode (`decoder-roadmap.md`); this is the missing position half of the same joint model (`2026-05-joint-sequence-model.md`). |
 
 ### Inference
 
@@ -108,7 +105,7 @@ stays frozen until a phase deliberately changes classification, at which point w
 re-bless against ground truth (never against pipeline output).
 
 - **Phase 0 — position ground truth + eval harness.** Extend the truth-engine
-  (`2026-06-truth-engine.md`) and golden ground-truth from narratives to
+  (`decoder-roadmap.md`) and golden ground-truth from narratives to
   *coordinates*: for a handful of blessed days, the road actually travelled per
   leg. Metric: median + p90 cross-track error of the drawn line vs the true road,
   and a "stayed on the right road" rate. Without this we cannot tell better from
@@ -136,7 +133,7 @@ re-bless against ground truth (never against pipeline output).
 
 ## Honesty bar (non-negotiable)
 
-Per `2026-05-physical-plausibility.md`: the estimator emits **calibrated
+Per `decoder-roadmap.md`: the estimator emits **calibrated
 uncertainty** and falls back to drawing the **raw track** (or `unknown`) when the
 evidence is genuinely ambiguous — never invents lane-level precision it doesn't
 have. The 2026-06-21 confidence gate ("draw raw when the GPS already hugs the

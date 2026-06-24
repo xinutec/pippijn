@@ -1,6 +1,6 @@
 /**
  * Train-generator soft prior — Phase 1 of `docs/proposals/
- * 2026-06-decoder-owns-mode.md` (see also `2026-06-phase1-train-softprior.md`).
+ * decoder-roadmap.md` (see also `decoder-roadmap.md`).
  *
  * Turns the structural `(board, line, alight)` candidates from
  * `enumerateTrainCandidates` into a **per-segment entry prior** over

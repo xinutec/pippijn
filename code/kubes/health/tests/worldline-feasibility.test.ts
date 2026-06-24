@@ -1,7 +1,7 @@
 /**
  * Worldline-feasibility invariants (`src/eval/worldline-feasibility.ts`).
  *
- * Phase 0 of `docs/proposals/2026-06-journey-worldline.md`: a
+ * Phase 0 of `docs/proposals/decoder-roadmap.md`: a
  * model-independent assertion on the *output* timeline that catches
  * physically-impossible journeys the cascade can emit. These are facts a
  * real worldline cannot violate, checked regardless of how the timeline was

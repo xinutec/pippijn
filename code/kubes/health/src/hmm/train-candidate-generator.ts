@@ -1,7 +1,7 @@
 /**
  * Train (board, line, alight) candidate generator — Phase 1 of the
  * constraint-first decoder
- * (`docs/proposals/2026-05-constraint-first-decoder.md`).
+ * (`docs/proposals/decoder-roadmap.md`).
  *
  * Hard generator: produces only physically valid `train @ L`
  * segments. A candidate `(start, end, line, board, alight)` is

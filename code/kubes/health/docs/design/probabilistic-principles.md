@@ -39,7 +39,7 @@ three layers:
    composition layer wraps consecutive minutes that belong to
    the same logical event into a single segment for UI and eval.
    See
-   [`../proposals/2026-06-tube-journey-segment.md`](../proposals/2026-06-tube-journey-segment.md).
+   [`../proposals/decoder-roadmap.md`](../proposals/decoder-roadmap.md).
 
 The earlier framing of this document — "every constraint is a
 probability, no hard constraints" — was incomplete. It correctly
@@ -50,7 +50,7 @@ real). It incorrectly conflated *unlikely-but-possible* with
 doesn't exist on Met). Soft-penalty modelling of genuine
 physical impossibilities was the architectural mistake the
 per-minute factor stack made; the constraint-first decoder
-(`docs/proposals/2026-05-constraint-first-decoder.md`) corrects
+(`docs/proposals/decoder-roadmap.md`) corrects
 it.
 
 The classification pipeline isn't a sequence of `if/else`
@@ -218,7 +218,7 @@ top-1 agreement.
 
 These are the hard generator constraints — properties a
 candidate state sequence must satisfy to be in the search space
-at all. See `docs/proposals/2026-05-constraint-first-decoder.md`
+at all. See `docs/proposals/decoder-roadmap.md`
 for the architectural justification.
 
 | Constraint | Applies to | Status |
@@ -291,7 +291,7 @@ Inference modes:
 Generator constraints (filter the candidate space):
 
 - **C1 through C5** as listed above. Phase 1 of
-  `2026-05-constraint-first-decoder.md` starts on C1.
+  `decoder-roadmap.md` starts on C1.
 - **Cycling needs HR + cadence support**. A `cycling` candidate
   with HR < 90 and cadence ~0 across the segment is not
   physically a cycling candidate. (Task #139 is the soft-factor

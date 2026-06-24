@@ -1,7 +1,7 @@
 /**
  * Per-minute mode-class lock — physical-fact filter for the
  * constraint-first decoder
- * (`docs/proposals/2026-05-constraint-first-decoder.md`).
+ * (`docs/proposals/decoder-roadmap.md`).
  *
  * Three locks, all derived from sustained signal aggregated across
  * a window so single-minute noise can't flip the verdict:

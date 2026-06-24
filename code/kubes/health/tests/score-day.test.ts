@@ -4,7 +4,7 @@ import { type DecoderMinute, scoreDay } from "../src/eval/score-day.js";
 
 /**
  * Scorer coverage for road-vehicle modes — measurement-foundation phase of
- * `docs/proposals/2026-06-truth-engine.md`.
+ * `docs/proposals/decoder-roadmap.md`.
  *
  * `bus` is a `GroundTruthMode` (the user rides the 38) but was NOT a
  * `DecoderMode`, so a blessed `bus` row could never match any decoder

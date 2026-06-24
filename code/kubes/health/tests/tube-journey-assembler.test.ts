@@ -1,6 +1,6 @@
 /**
  * Tube-journey assembler — Phase B of
- * `docs/proposals/2026-06-tube-journey-segment.md`.
+ * `docs/proposals/decoder-roadmap.md`.
  *
  * Composes the per-minute decoded state list + train-candidate
  * generator output + route graph into tube-journey segments. A

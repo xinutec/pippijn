@@ -1,6 +1,6 @@
 /**
  * Worldline-feasibility invariants — Phase 0 of
- * `docs/proposals/2026-06-journey-worldline.md`.
+ * `docs/proposals/decoder-roadmap.md`.
  *
  * A model-independent assertion on the *output* timeline: a real worldline is
  * one continuous path through space-time, so some outputs are simply

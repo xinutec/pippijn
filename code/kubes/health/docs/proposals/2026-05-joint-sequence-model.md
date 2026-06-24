@@ -1,12 +1,12 @@
 ---
 created: 2026-05-24
 updated: 2026-05-31
-status: shipped (Phases 0a-1.7); architectural successor 2026-05-constraint-first-decoder.md
+status: shipped (Phases 0a-1.7); architectural successor decoder-roadmap.md
 references:
   - ../archive/2025-model-hmm.md
-  - 2026-05-physical-plausibility.md
+  - decoder-roadmap.md
   - 2026-05-scored-classification.md
-  - 2026-05-constraint-first-decoder.md
+  - decoder-roadmap.md
 ---
 
 # Joint sequence model — bridging the factor scorer to a per-day decoder
@@ -20,7 +20,7 @@ references:
 > 0/6 — the joint-sequence approach reached the per-minute
 > factor library's structural ceiling. The architectural
 > successor that addresses the line-score ceiling is
-> [`2026-05-constraint-first-decoder.md`](./2026-05-constraint-first-decoder.md),
+> [`decoder-roadmap.md`](./decoder-roadmap.md),
 > which replaces the per-minute filtering approach with a
 > generator/scorer split. The HSMM Viterbi shell built here is
 > reused by the constraint-first decoder as the scorer over the

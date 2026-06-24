@@ -1,9 +1,9 @@
 ---
 created: 2026-05-24
 updated: 2026-05-31
-status: shipped; architectural successor 2026-05-constraint-first-decoder.md
+status: shipped; architectural successor decoder-roadmap.md
 references:
-  - 2026-05-constraint-first-decoder.md
+  - decoder-roadmap.md
   - 2026-05-joint-sequence-model.md
 ---
 
@@ -18,7 +18,7 @@ references:
 > constraints as factors in a joint MAP score" — is the right
 > direction; the framing of "more factors" turns out to be the
 > wrong implementation. See
-> [`2026-05-constraint-first-decoder.md`](./2026-05-constraint-first-decoder.md)
+> [`decoder-roadmap.md`](./decoder-roadmap.md)
 > for the generator/scorer split that makes the same physical
 > constraints structural rather than soft.
 

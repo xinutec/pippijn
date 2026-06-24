@@ -5,7 +5,7 @@ status: design
 references:
   - 2026-05-conflated-place-clusters.md
   - 2026-05-weighted-place-accumulation.md
-  - 2026-05-physical-plausibility.md
+  - decoder-roadmap.md
 ---
 
 # Magnetic focus_places — attribution as a stateful pull, not a per-segment pick

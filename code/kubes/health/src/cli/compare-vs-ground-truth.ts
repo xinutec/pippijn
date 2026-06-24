@@ -121,7 +121,7 @@ interface CliArgs {
 	/** When set with `--source route-aware`, also runs the
 	 *  tube-journey assembler over the decoded states and prints
 	 *  the resulting journeys per day. Phase A of
-	 *  `docs/proposals/2026-06-tube-journey-segment.md`. */
+	 *  `docs/proposals/decoder-roadmap.md`. */
 	journey: boolean;
 }
 

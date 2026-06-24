@@ -1,5 +1,5 @@
 /**
- * Phase 1 of `docs/proposals/2026-05-constraint-first-decoder.md`:
+ * Phase 1 of `docs/proposals/decoder-roadmap.md`:
  * train (board, line, alight) candidate generator.
  *
  * A `train @ L` segment is a valid candidate iff:

@@ -6,7 +6,7 @@ references:
   - 2026-06-magnetic-focus-places.md
   - 2026-05-conflated-place-clusters.md
   - 2026-05-weighted-place-accumulation.md
-  - 2026-05-physical-plausibility.md
+  - decoder-roadmap.md
   - 2026-05-joint-sequence-model.md
   - 2026-05-hsmm-physical-constraints.md
 ---
@@ -62,7 +62,7 @@ This is **not** a post-processing pass. The earlier draft of this
 doc proposed exactly that — and `probabilistic-principles.md`
 Rule 4 forbids it ("plumbed into the `Observation` shape, weighted
 by a calibrated `P(signal | state)` factor… does not become a
-post-processing pass"). `2026-05-physical-plausibility.md` carries
+post-processing pass"). `decoder-roadmap.md` carries
 the same warning at its banner: hard rules belong *upstream of*
 scoring, not downstream as a layer-2 post-pass that rewrites
 violations.

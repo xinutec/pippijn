@@ -2,10 +2,10 @@
 created: 2026-05-29
 updated: 2026-05-31
 status: superseded
-supersededBy: 2026-05-constraint-first-decoder.md
+supersededBy: decoder-roadmap.md
 references:
   - ../design/probabilistic-principles.md
-  - 2026-05-constraint-first-decoder.md
+  - decoder-roadmap.md
   - 2026-05-joint-sequence-model.md
   - 2026-05-hmm-learned-emissions.md
   - 2026-05-hsmm-physical-constraints.md
@@ -13,7 +13,7 @@ references:
 
 # Route-aware decoder — promoting state from `mode` to `(mode, route, position)`
 
-> **Superseded by [`2026-05-constraint-first-decoder.md`](./2026-05-constraint-first-decoder.md)**.
+> **Superseded by [`decoder-roadmap.md`](./decoder-roadmap.md)**.
 >
 > Phases 0, 1A (route-rail-evidence), 1A++ (connectivity check),
 > 1B (line-proximity-factor), and Phase 1 proper (inner-Viterbi

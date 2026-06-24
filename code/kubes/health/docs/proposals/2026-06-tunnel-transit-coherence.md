@@ -3,8 +3,8 @@ created: 2026-06-13
 updated: 2026-06-13
 status: on-hold — premise undercut; pending re-measure on re-captured fixtures
 references:
-  - 2026-06-truth-engine.md
-  - 2026-06-phase1-train-softprior.md
+  - decoder-roadmap.md
+  - decoder-roadmap.md
   - 2026-05-route-aware-decoder.md
   - 2026-06-decoder-baseline (memory)
 ---

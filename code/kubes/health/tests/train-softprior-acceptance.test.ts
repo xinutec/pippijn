@@ -9,7 +9,7 @@ import type { HmmSegment } from "../src/hmm/persist.js";
 
 /**
  * Real-data acceptance for the Phase 1 train-generator soft prior
- * (`docs/proposals/2026-06-phase1-train-softprior.md`).
+ * (`docs/proposals/decoder-roadmap.md`).
  *
  * Replays the captured 2026-05-22 fixture through the *real* `decodeHsmm`
  * (the code path the prior was wired into) with NO database, then scores
