@@ -1,7 +1,7 @@
 ---
 created: 2026-05-24
 updated: 2026-05-24
-status: design
+status: shipped
 ---
 
 # Honest gaps — multi-modal clustering + `unknown` for unobserved time
