@@ -42,36 +42,71 @@ export interface RawSleepWindow {
  *  want to paint sleep onto an unrelated place. */
 const PLACE_FALLBACK_MAX_GAP_SEC = 6 * 3600;
 
-/** Pick the place attribute of a stationary segment to represent
- *  where the sleep happened. Picks the segment with the smallest
- *  time gap to the window — gap=0 for an overlap (the common
- *  morning case where the wake-up endpoint lands inside today's
- *  first stationary segment); positive for the fallback case
- *  where the first fix arrives hours after wake-up.
+/** Which side of the sleep window a candidate stay sits on, relative to
+ *  the act of sleeping. A stay that overlaps the window is the strongest
+ *  evidence (you were there as sleep began or ended). */
+type SleepSide = "overlap" | "bedtime" | "wake";
+
+/** Tier priority: smaller wins. The ordering encodes the causal model of
+ *  sleep below — overlap is direct evidence, the bedtime side is where you
+ *  lay down, the wake side is only where you were found afterwards. */
+const SIDE_RANK: Record<SleepSide, number> = { overlap: 0, bedtime: 1, wake: 2 };
+
+/**
+ * Pick the place attribute of a stationary segment to represent where the
+ * sleep happened.
  *
- *  Returns null when:
- *    - the sleep occurred entirely inside moving segments
- *      (overnight train) AND no stationary segment lies within
- *      `PLACE_FALLBACK_MAX_GAP_SEC` of either window edge, or
- *    - no in-range stationary segment has a place tag.
+ * The causal model: **you fall asleep where you are at bedtime, and you do
+ * not relocate while asleep** — so the sleep location is anchored at sleep
+ * *onset* (the bedtime side), and the wake side only confirms it. A stay is
+ * ranked first by which side of the window it sits on:
  *
- *  Pure function — the segments pipeline produces the candidates;
- *  this helper only consults them. */
+ *   - `overlap` — the stay spans into the window; you were there as sleep
+ *     began or ended. Strongest (covers the inpatient case: the hospital
+ *     admission stay that runs up to and through bedtime).
+ *   - `bedtime` — the stay ends before sleep onset; that is where you lay
+ *     down.
+ *   - `wake` — the stay starts after wake. Weakest: on a "walked straight
+ *     out of home" morning (2026-06-24), the first stationary place after
+ *     waking is where you went *to* (a hospital you visited), not where you
+ *     slept. A bedtime-side home — even one farther in *time* — must beat it.
+ *
+ * Within a side, the smallest time gap wins. This replaces the old pure
+ * nearest-gap rule, which grabbed the wake-side hospital over a bedtime-side
+ * home simply because the hospital was nearer in time. It is *continuity*,
+ * not a residential bias: the same rule keeps the inpatient nights at the
+ * hospital (their bedtime side IS the hospital) without ever preferring a
+ * residence by type.
+ *
+ * Returns null when no in-range stationary segment carries a place (the
+ * sleep was entirely inside moving segments, or no candidate has a place).
+ * Pure — the segments pipeline produces the candidates; this only consults
+ * them.
+ */
 export function derivePlaceForSleep(
 	window: { startTs: number; endTs: number },
 	segments: readonly EnrichedSegment[],
 ): string | null {
-	let best: { place: string; gap: number } | null = null;
+	let best: { place: string; side: SleepSide; gap: number } | null = null;
 	for (const s of segments) {
 		if ((s.refinedMode ?? s.mode) !== "stationary") continue;
 		if (s.place === undefined) continue;
-		// gap=0 when the segment overlaps the window; positive
-		// otherwise. Math.max with 0 collapses both before-window and
-		// after-window cases.
-		const gap =
-			s.startTs > window.endTs ? s.startTs - window.endTs : window.startTs > s.endTs ? window.startTs - s.endTs : 0;
+		let side: SleepSide;
+		let gap: number;
+		if (s.startTs > window.endTs) {
+			side = "wake"; // starts after wake
+			gap = s.startTs - window.endTs;
+		} else if (window.startTs > s.endTs) {
+			side = "bedtime"; // ends before sleep onset
+			gap = window.startTs - s.endTs;
+		} else {
+			side = "overlap";
+			gap = 0;
+		}
 		if (gap > PLACE_FALLBACK_MAX_GAP_SEC) continue;
-		if (!best || gap < best.gap) best = { place: s.place, gap };
+		const better =
+			!best || SIDE_RANK[side] < SIDE_RANK[best.side] || (SIDE_RANK[side] === SIDE_RANK[best.side] && gap < best.gap);
+		if (better) best = { place: s.place, side, gap };
 	}
 	return best?.place ?? null;
 }

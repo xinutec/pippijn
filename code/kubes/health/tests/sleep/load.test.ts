@@ -135,3 +135,45 @@ describe("derivePlaceForSleep", () => {
 		expect(derivePlaceForSleep(window, segs)).toBe("Home"); // overlap wins
 	});
 });
+
+describe("derivePlaceForSleep — bedtime side beats wake side (sleep-onset anchor)", () => {
+	// You fall asleep where you are at bedtime and don't relocate while
+	// asleep, so the sleep place is anchored on the bedtime side; the wake
+	// side is only confirmation. These pin the 2026-06-24 regression and the
+	// inpatient counter-case so neither can silently break the other.
+
+	const H = 3600;
+	// Sleep 23:24 → 07:17 the next morning, expressed in seconds from an
+	// arbitrary midnight (the previous evening, so the window straddles it).
+	const window = { startTs: -36 * 60, endTs: 7 * H + 17 * 60 };
+
+	it("2026-06-24: a bedtime-side home beats a wake-side hospital that is NEARER in time", () => {
+		// Home stay ends 20:01 the evening before → 3h23m before sleep onset.
+		// Hospital stay starts 09:29 → 2h12m after wake (nearer), because the
+		// user walked straight out of home (no morning Home sit). Bedtime wins.
+		const home = stationary(-8 * H, -(3 * H + 23 * 60), "Home"); // ends well before onset
+		const hospital = stationary(9 * H + 29 * 60, 11 * H + 30 * 60, "University College Hospital");
+		expect(derivePlaceForSleep(window, [hospital, home])).toBe("Home");
+	});
+
+	it("inpatient: a stay overlapping sleep onset (hospital) beats a wake-side home", () => {
+		// 2026-05-25 shape: admitted in the evening, the hospital stay runs up
+		// to and through bedtime (overlaps the window); a Home stay only
+		// appears the next day (wake side). The overlap (where you actually lay
+		// down) wins — the inpatient night stays at the hospital.
+		const hospital = stationary(-5 * H, 30 * 60, "Cleveland Clinic London"); // overlaps onset
+		const home = stationary(12 * H, 13 * H, "Home"); // wake side, next day
+		expect(derivePlaceForSleep(window, [hospital, home])).toBe("Cleveland Clinic London");
+	});
+
+	it("still uses the wake side when it is the only evidence", () => {
+		const home = stationary(9 * H, 11 * H, "Home"); // wake side, sole candidate
+		expect(derivePlaceForSleep(window, [home])).toBe("Home");
+	});
+
+	it("a nearer bedtime stay beats a farther bedtime stay (within-side tie-break)", () => {
+		const dinner = stationary(-9 * H, -8 * H, "Restaurant"); // farther before onset
+		const home = stationary(-2 * H, -30 * 60, "Home"); // nearer before onset
+		expect(derivePlaceForSleep(window, [dinner, home])).toBe("Home");
+	});
+});
