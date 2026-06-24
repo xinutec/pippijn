@@ -5,7 +5,7 @@
  *
  * Also tags `tz_source = 'legacy'` so a future recompute CLI can
  * target historical rows for re-resolution if better tz inference
- * lands. See `docs/proposals/2026-05-utc-three-tier.md`.
+ * lands. See `docs/design/timezone.md`.
  *
  * Idempotent. Pure SQL — no PhoneTrack / Nextcloud / Fitbit calls.
  * Safe to re-run. Stops when no rows remain to update.

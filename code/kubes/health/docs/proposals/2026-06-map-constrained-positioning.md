@@ -7,7 +7,6 @@ references:
   - ../design/episode-geometry.md
   - ../design/rail-snap.md
   - decoder-roadmap.md
-  - 2026-05-joint-sequence-model.md
   - 2026-06-magnetic-focus-places.md
 ---
 
@@ -72,7 +71,7 @@ what that proposal did for *mode*).
 | **Robust emission (per fix)** | `P(GPS | true position)` as a **heavy-tailed** law (Huber / Student-t) scaled by accuracy. A wild ±80 m outlier gets near-zero weight *automatically* — no hard threshold. Evaluated against map-constrained hypotheses, so an off-road fix reads as "noisy fix", never "drove off-road". | `road-match`'s Gaussian snap emission — needs the heavy tail + the per-fix consistency gate below. |
 | **Map prior** | Probability mass on the right layer for the current mode: drivable roads when driving, rails when on a train, pavements/anywhere when walking, a building when stationary. | `rail-road-proximity` subtype sets; the route graph's feature types. |
 | **Personal / route prior** | The killer term for a single user: a *learned* distribution over **your** edge usage. You approach home up Barn Rise hundreds of times; a junk fix can't move that. | `rail-snap`'s fix-cloud corridor is a crude per-leg version; `magnetic-focus-places` is the place-level analogue. Generalise to a persistent prior over the whole graph. |
-| **Mode coupling** | Mode selects the map layer + kinematics; position evidence feeds back into mode. Jointly consistent. | The HSMM decoder already owns mode (`decoder-roadmap.md`); this is the missing position half of the same joint model (`2026-05-joint-sequence-model.md`). |
+| **Mode coupling** | Mode selects the map layer + kinematics; position evidence feeds back into mode. Jointly consistent. | The HSMM decoder already owns mode (`decoder-roadmap.md`); this is the missing position half of the same joint model (`decoder-roadmap.md`). |
 
 ### Inference
 
@@ -122,7 +121,7 @@ re-bless against ground truth (never against pipeline output).
   in; ambiguous parallel-road cases resolve toward what you actually drive.
 - **Phase 3 — couple mode + position.** One joint model with the HSMM: the layer
   prior and kinematics follow the decoded mode, and the position likelihood feeds
-  back into the mode decode (closes `2026-05-joint-sequence-model.md` /
+  back into the mode decode (closes `decoder-roadmap.md` /
   `#257`).
 - **Phase 4 — stationary as a place-polygon prior.** Model a stay as "inside this
   building", so a smeared indoor stay resolves to the footprint, not a centroid
@@ -160,7 +159,7 @@ road") is the v0 of this and must survive as the principled fallback.
 - Subsumes the #261 road-match confidence gate as Phase 1's continuous map prior.
 - Phase 4 is the positioning half of `#244` (anchor a poor-GPS stay to its
   doorstep).
-- Phase 3 is the positioning half of `#257` / `2026-05-joint-sequence-model.md`.
+- Phase 3 is the positioning half of `#257` / `decoder-roadmap.md`.
 - The Kalman (`kalman.ts`) is **not deleted** — it remains a reasonable free-space
   pre-smoother / fallback where no map layer applies (open water, aircraft, areas
   with no OSM coverage). It stops being the thing that *positions you on the

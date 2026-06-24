@@ -1,7 +1,7 @@
 /**
  * CLI: measure whether the smoothed walking lines on a captured golden day
  * stay OUT of building footprints — the verdict for the walkable-surface field
- * (`docs/proposals/2026-06-pedestrian-trajectory-smoother.md`, "real
+ * (`docs/design/episode-geometry.md`, "real
  * walkable-surface field").
  *
  * Replays a deterministic fixture twice — once with the captured building

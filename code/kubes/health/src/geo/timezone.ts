@@ -160,7 +160,7 @@ export function fitbitTsToUnix(s: string | Date, tz?: string): number {
  * Returns null when tz is null (no inference signal at write time) or
  * when the wall-clock string is malformed.
  *
- * See `docs/proposals/2026-05-utc-three-tier.md` for the three-tier
+ * See `docs/design/timezone.md` for the three-tier
  * storage contract.
  */
 export function wallClockToUtcString(wallClock: string | Date, tz: string | null): string | null {

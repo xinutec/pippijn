@@ -115,7 +115,7 @@ export function utcDatetimeStrToSeconds(s: string | Date): number {
 /**
  * Load Fitbit HR + sleep stages for a UTC time window. Filters directly on
  * the derived `ts_utc` columns populated by sync/backfill (see
- * `docs/proposals/2026-05-utc-three-tier.md`); no per-row tz lookup or
+ * `docs/design/timezone.md`); no per-row tz lookup or
  * wall-clock-string padding required. Returns empty arrays gracefully when
  * the user wasn't wearing their Fitbit.
  *

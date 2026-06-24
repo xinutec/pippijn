@@ -1,6 +1,6 @@
 /**
  * Walk-level eval — the measurement foundation (Phase 0) of
- * `docs/proposals/2026-06-pedestrian-trajectory-smoother.md`.
+ * `docs/design/episode-geometry.md`.
  *
  * Scores a drawn walking line against signals that need no hand-labelled
  * truth, capturing the failures the smoother must fix:

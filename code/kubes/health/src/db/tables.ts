@@ -48,7 +48,7 @@ export interface HeartRateIntradayTable {
 	ts: string; // DATETIME as string — verbatim Fitbit wall-clock, immutable source of truth
 	bpm: number;
 	tz: string | null; // IANA tz the wall-clock was recorded in; see TIMEZONE.md
-	ts_utc: string | null; // Derived UTC DATETIME; see docs/proposals/2026-05-utc-three-tier.md
+	ts_utc: string | null; // Derived UTC DATETIME; see docs/design/timezone.md
 	tz_source: string | null; // Provenance: phonetrack | home_tz | manual | legacy | NULL
 }
 
@@ -93,7 +93,7 @@ export interface SleepTable {
 	minutes_wake: number | null;
 	is_main_sleep: boolean | null;
 	tz: string | null; // IANA tz of start_time/end_time wall-clocks; see docs/design/timezone.md
-	start_time_utc: string | null; // Derived UTC DATETIME; see docs/proposals/2026-05-utc-three-tier.md
+	start_time_utc: string | null; // Derived UTC DATETIME; see docs/design/timezone.md
 	end_time_utc: string | null;
 	tz_source: string | null;
 }

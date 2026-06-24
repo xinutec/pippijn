@@ -1,6 +1,6 @@
 /**
  * CLI: score the drawn walking lines on a captured day — Phase 0 of
- * `docs/proposals/2026-06-pedestrian-trajectory-smoother.md`.
+ * `docs/design/episode-geometry.md`.
  *
  * Runs the real pipeline and scores each walking episode's drawn geometry
  * (`walk-score.ts`): tortuosity, step-distance error (vs the pedometer), and

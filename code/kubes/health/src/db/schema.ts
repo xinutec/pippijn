@@ -451,7 +451,7 @@ const MIGRATIONS: readonly string[] = [
 	// columns: `ts_utc` (DATETIME interpreted by convention as UTC,
 	// derived from `ts` + `tz`) and `tz_source` (provenance tag —
 	// 'phonetrack' / 'home_tz' / 'manual' / 'legacy' / NULL).
-	// See `docs/proposals/2026-05-utc-three-tier.md`.
+	// See `docs/design/timezone.md`.
 	// Columns only; the `(user_id, ts_utc)` index is deferred until
 	// after the Phase B backfill populates `ts_utc` for historical
 	// rows (building an index over a half-empty column is wasted

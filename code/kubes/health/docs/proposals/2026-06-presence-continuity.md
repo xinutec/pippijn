@@ -1,14 +1,12 @@
 ---
 created: 2026-06-03
 updated: 2026-06-03
-status: design
+status: partly shipped (Phases 1, 3; Phase 4 pending)
 references:
   - 2026-06-magnetic-focus-places.md
-  - 2026-05-conflated-place-clusters.md
-  - 2026-05-weighted-place-accumulation.md
+  - ../design/overview.md
   - decoder-roadmap.md
-  - 2026-05-joint-sequence-model.md
-  - 2026-05-hsmm-physical-constraints.md
+  - ../design/probabilistic-principles.md
 ---
 
 # Cross-day presence continuity — established stays persist across
@@ -134,12 +132,12 @@ framework was built for — no new architecture, no Rule 4 violation.
     #189 wins for sleep windows, continuation fills only the gap
     between them.
 
-- **`2026-05-conflated-place-clusters.md` (shipped Phase 1).** Adds
+- **`../design/overview.md` (shipped Phase 1).** Adds
   time-of-day discrimination to focus_place attribution. Orthogonal
   to this proposal: the within-day spatial pick is unchanged; this
   adds a temporal-presence layer.
 
-- **`2026-05-weighted-place-accumulation.md` (paused, fully
+- **`../design/overview.md` (paused, fully
   reverted).** Burned on reported-accuracy-as-weight, dwell mining
   from a censored stays table, and an incremental accumulator
   losing reproducibility. This proposal honours all three
@@ -148,9 +146,9 @@ framework was built for — no new architecture, no Rule 4 violation.
   a bounded raw-history window rebuilt nightly — same pattern as
   focus_places, not an incremental accumulator.
 
-- **`2026-05-joint-sequence-model.md` + `2026-05-hsmm-physical-
-  constraints.md` (shipped).** This proposal extends the existing
-  HSMM's state-space and emission factors. The HSMM is the right
+- **`decoder-roadmap.md` + the shipped HSMM
+  (`../design/probabilistic-principles.md`).** This proposal extends the
+  existing HSMM's state-space and emission factors. The HSMM is the right
   home for the mechanism per Rule 4; no new sequence model is
   introduced.
 
@@ -195,7 +193,7 @@ function of (raw fixes, focus_places snapshot, current code).
 
 "Decoded minutes" means: the HSMM's per-minute output sequence —
 which already exists today as the `decoded_days.states` JSON
-(shipped via `2026-05-hsmm-physical-constraints.md`). The
+(shipped via `../design/probabilistic-principles.md`). The
 `presence_log` is a roll-up of that, not a new decoding pass.
 
 ### 2. State-space extension: continuation candidate

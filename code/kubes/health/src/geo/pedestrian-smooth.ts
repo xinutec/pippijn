@@ -1,7 +1,7 @@
 /**
  * Pedestrian trajectory smoother — a physically-precise walk estimate.
  *
- * The walking arm of `docs/proposals/2026-06-pedestrian-trajectory-smoother.md`
+ * The walking arm of `docs/design/episode-geometry.md`
  * (sibling of the driving map-constrained positioning work). A slow walk is the
  * hardest leg to draw: per-fix GPS velocity is buried in noise, so the raw fixes
  * zigzag (measured tortuosity 2.7×) and a few 150–230 m accuracy fixes cause big

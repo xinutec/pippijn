@@ -1,10 +1,9 @@
 ---
 created: 2026-06-02
 updated: 2026-06-02
-status: design
+status: shipped (Phase 3 — magnet on unmined locations — deferred)
 references:
-  - 2026-05-conflated-place-clusters.md
-  - 2026-05-weighted-place-accumulation.md
+  - ../design/overview.md
   - decoder-roadmap.md
 ---
 
@@ -69,7 +68,7 @@ focus_places bias the candidate-selection step itself.
 
 ## Relation to prior work
 
-- **`2026-05-weighted-place-accumulation.md` (paused, fully
+- **`../design/overview.md` (paused, fully
   reverted).** That proposal aimed to *improve* focus_place centroid
   accuracy through accuracy-weighting raw fixes. It burned on a
   reported-GPS-accuracy signal that lies and on `P(dwell | kind)`
@@ -80,7 +79,7 @@ focus_places bias the candidate-selection step itself.
   do not retry accuracy-weighting, do not retry dwell-from-focus_places
   mining.
 
-- **`2026-05-conflated-place-clusters.md` (shipped Phase 1).** Adds
+- **`../design/overview.md` (shipped Phase 1).** Adds
   time-of-day profiles to focus_places, splits clusters on time-of-day,
   uses time-of-day match in `pickBestPlace`, distance-aware type
   priority in `pickBestLandmark`. The time-of-day signal handles café +

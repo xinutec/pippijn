@@ -2,7 +2,7 @@
  * Route graph: OSM ways + nodes as a queryable graph data structure.
  *
  * Phase 0 of the route-aware decoder proposal
- * (`docs/proposals/2026-05-route-aware-decoder.md`). This module is
+ * (`docs/design/probabilistic-principles.md`). This module is
  * the foundation that Phase 1 (route-aware train states) builds on.
  *
  * The graph turns the raw `osm_lines` + `osm_points` tables into:

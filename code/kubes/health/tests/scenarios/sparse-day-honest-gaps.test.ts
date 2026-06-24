@@ -1,6 +1,6 @@
 /**
  * Honest-gaps scenario tests. The algorithmic targets of
- * `docs/proposals/2026-05-honest-gaps.md`:
+ * `docs/design/probabilistic-principles.md`:
  *
  * - Trajectory-segmented `findStays`: time-ordered proximity
  *   clustering so a day with multiple distinct stops doesn't get

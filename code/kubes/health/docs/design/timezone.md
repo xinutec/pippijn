@@ -244,50 +244,60 @@ MariaDB 11.8 supports `VALUES()` in `ON DUPLICATE KEY UPDATE` — verified
 in `k8s/02-db.yaml` and used throughout the existing sync modules
 (`fitbit/sync/devices.ts`, `spo2.ts`, `hrv.ts`, `body.ts`, `sleep.ts`).
 
+## Storage: the three-tier model
+
+Each wall-clock Fitbit table (`heart_rate_intraday`, `steps_intraday`,
+`sleep_stages`, `sleep`) carries three tiers, so the read path never has to
+re-derive a timezone per row:
+
+1. **`ts` — source.** The verbatim Fitbit wall-clock string. Immutable; never
+   reinterpreted. This is the ground truth a future fix can always recompute
+   from.
+2. **`ts_utc` (DATETIME) — derived.** The instant `ts` denotes, stored UTC by
+   convention. Populated at sync time (and by the one-shot backfill CLI) from
+   `ts` + the effective tz; `NULL` only for legacy rows the backfill hasn't
+   reached. A secondary index `(user_id, ts_utc)` drives the range scan.
+3. **`tz` / `tz_source` — provenance.** The tz used to derive `ts_utc` and
+   where it came from (`phonetrack` / `home_tz` / `request`), so a wrong
+   derivation is auditable and re-backfillable without touching `ts`.
+
+This is "persist algorithmic outputs, but keep the inputs" applied to time:
+`ts_utc` is the cached output, `ts` is the recompute source.
+
 ## Read path
 
-`loadBiometrics` in `src/geo/velocity.ts` selects `tz` alongside the
-wall-clock column.
-
-For `steps_intraday` and `sleep_stages` (non-aggregated queries):
-straightforwardly `SELECT ts, ..., tz`.
-
-For `heart_rate_intraday` (per-minute aggregate at `velocity.ts:53`):
-the existing query groups by `DATE_FORMAT(ts, '%Y-%m-%d %H:%i')`.
-Selecting an un-grouped `tz` is invalid under `ONLY_FULL_GROUP_BY`.
-Use `MAX(tz)` in the SELECT — Kysely-flavoured, match the existing
-`MIN(ts)` style:
+`loadBiometrics` in `src/geo/velocity.ts` range-filters directly on `ts_utc`
+against the `(user_id, ts_utc)` index — no per-row conversion in the hot path:
 
 ```ts
-.select([
-    sql<Date>`DATE_FORMAT(MIN(ts), '%Y-%m-%d %H:%i:00')`.as("ts"),
-    sql<number>`ROUND(AVG(bpm))`.as("bpm"),
-    sql<string | null>`MAX(tz)`.as("tz"),
-])
+.select([sql<string>`DATE_FORMAT(MIN(ts_utc), '%Y-%m-%d %H:%i:00')`.as("ts_utc"), ...])
+.where("ts_utc", ">=", startUtcDt)
+.where("ts_utc", "<", endUtcDt)
 ```
 
-`MAX` of a VARCHAR is lexicographic but it's "some value from the
-bucket" semantically. A 1-minute bucket spanning two distinct tz
-values is an essentially-impossible edge case (a manual watch-tz
-change at that exact minute boundary). Document it as an accepted
-ambiguity.
+The velocity API's `tz` parameter drives `dateBoundsUtc` for the day-range
+endpoints; it no longer affects per-row Fitbit interpretation. The old model
+(select `tz` per row, then `fitbitTsToUnix(ts, effectiveTz)` and a ±1-day date
+pad to absorb the conversion) is gone from the hot path.
 
-Per row, the effective tz used by `fitbitTsToUnix`:
+### Legacy fallback (`ts_utc IS NULL`)
+
+A small fallback covers rows the backfill hasn't populated. There the
+effective tz is still resolved per row and fed to `fitbitTsToUnix`:
 
 ```ts
 const effectiveTz = row.tz ?? user.home_tz ?? requestTz;
 ```
 
-- `row.tz` is the value set at sync time (or by backfill CLI).
-- `user.home_tz` is the residence tz, loaded once per request from
+- `row.tz` — set at sync time (or by backfill CLI).
+- `user.home_tz` — residence tz, loaded once per request from
   `sync_state.home_tz`. Stable per user.
-- `requestTz` is the velocity API's `tz` query parameter — last-resort
-  fallback for the case where neither row.tz nor home_tz exists (new
-  account, no PhoneTrack history, no `Home` cluster identified).
+- `requestTz` — the velocity API's `tz` query parameter; last resort when
+  neither `row.tz` nor `home_tz` exists (new account, no PhoneTrack history,
+  no `Home` cluster identified).
 
-The velocity API's `tz` parameter continues to drive `dateBoundsUtc`
-for the day-range calculation. It just no longer affects per-row
-Fitbit interpretation.
+This fallback is the same chain that derives `ts_utc` at write time, so a
+straggler row reads identically whether or not its `ts_utc` is populated yet.
 
 ## `home_tz` derivation
 

@@ -1,6 +1,6 @@
 /**
  * Inner Viterbi over per-line edge subgraph — Phase 1 of the
- * route-aware decoder (`docs/proposals/2026-05-route-aware-decoder.md`).
+ * route-aware decoder (`docs/design/probabilistic-principles.md`).
  *
  * Given a window of observations and a line L, decode the
  * maximum-likelihood edge sequence on L's subgraph that:

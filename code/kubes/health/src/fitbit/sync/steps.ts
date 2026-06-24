@@ -17,7 +17,7 @@ export interface StepsApiResponse {
  * Returns tuples shaped for `conn.batch(INSERT INTO steps_intraday ...)` so
  * the caller doesn't have to massage the shape. The trailing slots are
  * the IANA tz the wall-clock was recorded in (see TIMEZONE.md) and the
- * derived UTC DATETIME (see docs/proposals/2026-05-utc-three-tier.md);
+ * derived UTC DATETIME (see docs/design/timezone.md);
  * `ts_utc` is null when `tz` is null.
  */
 export function parseStepsDataset(

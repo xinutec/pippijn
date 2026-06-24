@@ -262,15 +262,23 @@ Three caches sit in front of the slow parts. Each is a *cache*, not a
 source of truth — wiping any of them is safe; the next request rebuilds.
 
 - **`focus_places`** (per-user) — clusters of overnight + frequent
-  presence, computed offline by `refresh-focus-places.ts`. Used by
-  `place-snap` to pull noisy GPS to a stable centroid, and by
+  presence, computed offline by `refresh-focus-places.ts` (full
+  DELETE+recompute over a rolling window; **median** stay centroids).
+  Used by `place-snap` to pull noisy GPS to a stable centroid, and by
   velocity to short-circuit OSM lookups for Home/Work. Carries an
   `hour_profile` (24-bucket dwell-by-hour-of-day histogram) plus
   visit counts and total dwell, so a stay at a co-located
   residence + café is routed to whichever fits the stay's time-of-
-  day — superseding the earlier sleep/awake binary. See
-  `2026-05-conflated-place-clusters.md` (shipped) and
-  `2026-06-magnetic-focus-places.md` (design).
+  day — superseding the earlier sleep/awake binary. Co-located clusters
+  are split (`splitCluster`) on a time-of-day circle, gated by
+  bimodality + multi-day substantiality + spatial distinctness, so a
+  café and an evening residence ~45 m apart don't fuse. The magnetic
+  pull from established places is in `2026-06-magnetic-focus-places.md`.
+  Two **don'ts**, learned by reverting them: do not weight centroids by
+  reported GPS accuracy (it lies; a non-robust weighted mean dragged a
+  home onto a neighbouring monument), and do not mine `P(dwell|kind)`
+  from `focus_places` (the ≥10-min stay floor censors short visits, so
+  the distribution comes out flat).
 - **`osm_cache`** (global) — keyed Overpass/Nominatim query → response.
   Stores both successful results and a sentinel `{_err, _at}` for
   failures, with a TTL so transient 429s and timeouts don't stick.
@@ -335,11 +343,13 @@ under `src/hmm/`. The two coexist:
   produces per-day decodes cached in `decoded_days`, and surfaces
   posterior marginals exposing model uncertainty.
 
-The HSMM hasn't replaced the heuristic in the user-facing path
-yet — only the audit CLI (`compare-hmm-vs-heuristic`) consumes
-it. Decision to enable in prod comes after audit shows the HSMM
-is consistently better than the heuristic on the residuals it's
-designed to address.
+The HSMM's **place** decode is live in the user-facing path: when a
+decode exists in `decoded_days`, `place-override.ts` overrides the
+heuristic's place attribution in `velocity.ts`. **Mode** and **line**
+are still heuristic-owned; the full cutover (the decoder owning mode
+in the timeline) is gated on the measurement and phases tracked in
+`docs/proposals/decoder-roadmap.md`. The `compare-hmm-vs-heuristic`
+CLI is the audit harness behind those gates.
 
 **Read `docs/design/probabilistic-principles.md` before adding
 new factors, tuning parameters, or proposing changes.** That
@@ -347,15 +357,16 @@ document captures the architectural philosophy, the ground rules
 (no hard constraints; graduated probabilities; runtime budget is
 offline-side; expose uncertainty), and the current factor library.
 
-Active proposals under `docs/proposals/` cover the per-phase
-detail:
+The decode shell shipped through the joint-sequence and
+HSMM-physical-constraints work (Viterbi + state space + emission +
+transition; per-state duration distributions; sleep-coherence; learned
+per-mode/per-place emissions). The forward plan — finishing the decoder
+so it owns the day — lives in one place:
 
-- `2026-05-joint-sequence-model.md` — Phase 1, HMM (Viterbi + state
-  space + emission + transition)
-- `2026-05-hmm-learned-emissions.md` — Phase 2, supervised MLE
-  per-mode + per-place distributions
-- `2026-05-hsmm-physical-constraints.md` — Phase 3, HSMM with
-  duration distributions and soft physical-constraint factors
+- `docs/proposals/decoder-roadmap.md` — the consolidated decoder plan
+  (vision, generator/scorer architecture, measurement, Phases 0–5)
+- `2026-05-hmm-learned-emissions.md` — supervised MLE per-mode +
+  per-place emission distributions (#208)
 
 ## Future extensions
 

@@ -68,13 +68,13 @@ EpisodeGeometry = {
   startTs: number,         // copied from the state, for ordering
   endTs:   number,
   mode:    DayStateMode,   // for the mode colour
-  kind:    "snapped" | "raw" | "anchor" | "tentative" | "matched",
+  kind:    "snapped" | "smoothed" | "raw" | "anchor" | "tentative" | "matched",
   points:  { lat: number; lon: number }[],   // may be empty
 }
 ```
 
 `kind` is the *geometry provenance* and is the only style input the map
-needs — solid for `raw`/`matched`, dashed for `snapped`/`tentative`, a
+needs — solid for `raw`/`matched`/`smoothed`, dashed for `snapped`/`tentative`, a
 dot for `anchor`. There is deliberately **no** `confidence` field: the
 only confidence upstream is `EnrichedSegment.confidence`, which is
 *mode-classification* confidence (`segments.ts`), not *geometry* trust.
@@ -117,6 +117,7 @@ already uses for point bucketing; at single-user scale it is trivial.
 |-------------------------|------------|------------------------------------------------|
 | `train` w/ snappedPath  | `snapped`  | the covering train segment's `snappedPath`, time-clipped to the state window |
 | `train` w/o snappedPath | `raw`      | the train segment's own fixes (uncached routes still have real GPS — see grounding), spike-rejected |
+| `walking` w/ smoothedPath | `smoothed` | the covering walk segment's `smoothedPath` — the pedestrian smoother's MAP estimate (below) |
 | `walking`/`cycling`     | `raw`      | the state-window fixes, spike-rejected **+ speed-plausibility filtered** (below) |
 | `driving`/`bus`/`plane` | `raw`      | the state-window fixes, spike-rejected         |
 | `stationary`/`sleeping` | `anchor`   | one point — the covering segment's centroid     |
@@ -182,6 +183,24 @@ The train side is unaffected and already correct: the train segment
 keeps its 27 real fixes (or its `snappedPath` when the route is cached),
 so the ride itself still renders — only the impossible-for-walking tail
 stops being mis-coloured green.
+
+### Smoothed walks (`smoothedPath`)
+
+For walking legs the raw trace is often noisy enough that it is *not* the
+best truth. `src/geo/pedestrian-smooth.ts` computes a MAP estimate of the
+walked path with a factor-graph smoother fusing: accuracy-weighted GPS under a
+robust (Huber) loss; pedometer step-distance (PDR); endpoint anchors;
+inter-vertex smoothness; and a *soft* walkable-surface prior where building
+footprints repel vertices and an in-building fix is trust-discounted
+(`GPS_IN_BUILDING_TRUST`). It is **display-only** — `smoothedPath` never feeds
+classification — and offline-computed/cached. `pedestrian-smooth-annotate.ts`
+attaches it only when a self-checking tortuosity gate confirms the smoothed
+line beats the raw track; otherwise the episode falls back to `raw`. Measured
+on real walks 2026-06-21: step-distance error 110%→5%. (A discrete
+which-footway particle smoother is deferred — the soft prior is enough for
+display.) This is the walking counterpart of map-constrained positioning,
+which proposes the same MAP estimate as the *estimator* rather than a display
+layer.
 
 ### Bounding the `unknown` connector
 

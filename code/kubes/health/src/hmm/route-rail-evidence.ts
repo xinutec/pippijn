@@ -4,7 +4,7 @@
  * geometry.
  *
  * Phase 1A of the route-aware decoder
- * (`docs/proposals/2026-05-route-aware-decoder.md`). The earlier
+ * (`docs/design/probabilistic-principles.md`). The earlier
  * station-list approach was blind to inner-London Tube stations
  * tagged under composite line names ("Circle, Hammersmith & City
  * and Metropolitan Lines"). This module uses the RouteGraph's

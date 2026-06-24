@@ -1,6 +1,6 @@
 /**
  * Route-aware HSMM decoder — Phase 1 hierarchical inner/outer
- * Viterbi (`docs/proposals/2026-05-route-aware-decoder.md`).
+ * Viterbi (`docs/design/probabilistic-principles.md`).
  *
  * Outer state space stays `(mode, place, line)` to keep today's
  * duration model + entry priors intact. For `train @ line` states

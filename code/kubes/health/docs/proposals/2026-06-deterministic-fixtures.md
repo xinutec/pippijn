@@ -5,7 +5,7 @@ status: design (revised — adapter pattern for unbounded sources)
 references:
   - 2026-05-scored-classification.md
   - 2026-06-presence-continuity.md
-  - 2026-05-joint-sequence-model.md
+  - decoder-roadmap.md
 ---
 
 # Deterministic fixtures for the classification pipeline

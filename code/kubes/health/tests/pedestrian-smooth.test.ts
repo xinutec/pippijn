@@ -1,7 +1,7 @@
 /**
  * Pedestrian trajectory smoother tests — pins the physical behaviour each
  * factor is supposed to produce (proposal:
- * 2026-06-pedestrian-trajectory-smoother.md).
+ * docs/design/episode-geometry.md).
  */
 
 import { describe, expect, it } from "vitest";

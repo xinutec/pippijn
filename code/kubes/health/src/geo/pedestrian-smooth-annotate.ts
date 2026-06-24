@@ -1,6 +1,6 @@
 /**
  * Annotate walking segments with a physically-precise smoothed geometry
- * (`docs/proposals/2026-06-pedestrian-trajectory-smoother.md`).
+ * (`docs/design/episode-geometry.md`).
  *
  * The map draws a walking leg as its raw GPS, which zig-zags (slow-walk GPS
  * velocity is noise) and jumps on the odd 150–230 m accuracy fix. This pass

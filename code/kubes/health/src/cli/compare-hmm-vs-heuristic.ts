@@ -3,7 +3,7 @@
  * decoder on the same day(s), then surfaces minute-level
  * disagreements + an aggregate mode-confusion matrix.
  *
- * Phase 1.5 of `docs/proposals/2026-05-joint-sequence-model.md` —
+ * Phase 1.5 of `docs/design/overview.md` —
  * proves the HMM architecture before any user-facing change.
  *
  * Usage (via prod-db.sh so the tunnel + env are set up):
