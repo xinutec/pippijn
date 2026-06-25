@@ -71,6 +71,7 @@ import {
 	consolidateJitterStays,
 	mergeAdjacentStays,
 } from "./passes/stays.js";
+import { annotateWalkMatches } from "./pedestrian-match-annotate.js";
 import { annotateWalkSmoothing } from "./pedestrian-smooth-annotate.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
@@ -1281,13 +1282,27 @@ export async function computeVelocityFromInputs(
 			run: (segs) => annotateRoadMatches(segs, points, inputs.osm),
 		},
 
+		// Pedestrian map-matching (#265): snap each walking leg onto the OSM
+		// walkable network (footway / path / pedestrian / residential…) so the
+		// map draws it on the pavement instead of the soft-smoothed line cutting
+		// across buildings. Runs before walkSmooth (independent producers — this
+		// attaches `walkMatchedPath`, the smoother `smoothedPath`); episode-
+		// geometry prefers the matched line, falling back to smoothed then raw
+		// when the matcher bails (off-network / fragmented graph). Same per-leg
+		// `walkableRoads` query key as the smoother, so no golden re-capture.
+		{
+			name: "walkMatch",
+			run: (segs) => annotateWalkMatches(segs, displayFixes, points, inputs.osm),
+		},
+
 		// Pedestrian trajectory smoother: a walking leg's raw GPS zigzags (slow-
 		// walk velocity is noise) and jumps on the odd 150-230 m fix. This runs
 		// the MAP smoother (robust GPS + pedometer distance + endpoint anchors +
 		// gait smoothness + soft walkable-surface prior) over each walk and
 		// attaches `smoothedPath`. Fed the raw, accuracy-bearing displayFixes
 		// (not the Kalman points, which dropped accuracy) + the per-minute steps.
-		// Purely additive — display geometry only; states unchanged.
+		// Purely additive — display geometry only; states unchanged. Kept as the
+		// fallback below walkMatch for off-network / fragmented-graph legs.
 		{
 			name: "walkSmooth",
 			run: (segs) => annotateWalkSmoothing(segs, displayFixes, points, steps, inputs.osm),

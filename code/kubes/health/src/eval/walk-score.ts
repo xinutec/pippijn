@@ -39,6 +39,12 @@ export interface WalkScore {
 	/** Mean distance (m) from a drawn vertex to the nearest NEARBY walkable way
 	 *  (within the openness radius); null if no path is ever near. */
 	offWalkableMeanM: number | null;
+	/** p90 distance (m) of the drawn LINE to the nearest walkable way, sampled
+	 *  along the chords (not just vertices) and WITHOUT the openness exclusion —
+	 *  so a chord cutting deep across a block is counted, not filtered out. This
+	 *  is the metric that captures "the line crosses buildings", which the vertex
+	 *  mean misses; null if there is no walkable way at all. */
+	offWalkableP90M: number | null;
 }
 
 function metersBetween(a: LatLon, b: LatLon): number {
@@ -114,10 +120,40 @@ export function scoreWalk(
 	const stepDistanceError = ped && ped > 1 ? Math.abs(drawnLengthM - ped) / ped : null;
 
 	let offWalkableMeanM: number | null = null;
+	let offWalkableP90M: number | null = null;
 	if (walkable && walkable.ways.length > 0) {
 		const near = drawn.map((p) => distToNearestWay(p, walkable)).filter((d) => d <= opennessRadiusM);
 		offWalkableMeanM = near.length > 0 ? near.reduce((a, b) => a + b, 0) / near.length : null;
+		offWalkableP90M = offWalkableQuantile(drawn, walkable, 0.9);
 	}
 
-	return { tortuosity, drawnLengthM, pedometerM: ped, stepDistanceError, offWalkableMeanM };
+	return { tortuosity, drawnLengthM, pedometerM: ped, stepDistanceError, offWalkableMeanM, offWalkableP90M };
+}
+
+/** The `q`-quantile (0–1) of the drawn LINE's distance to the nearest walkable
+ *  way, sampled every `stepM` along the chords as well as at the vertices, with
+ *  NO openness exclusion. Vertex-mean misses two things this catches: the chord
+ *  excursions the map actually draws, and the far points the openness gate drops
+ *  — exactly the deep building cuts. p90 (not max) ignores a single GPS spike. */
+function offWalkableQuantile(drawn: readonly LatLon[], walkable: RoadGeometry, q: number, stepM = 5): number | null {
+	if (drawn.length === 0) return null;
+	const samples: number[] = [];
+	const consider = (p: LatLon): void => {
+		samples.push(distToNearestWay(p, walkable));
+	};
+	for (let i = 0; i < drawn.length; i++) {
+		consider(drawn[i]);
+		if (i + 1 < drawn.length) {
+			const a = drawn[i];
+			const b = drawn[i + 1];
+			const chord = metersBetween(a, b);
+			const n = Math.floor(chord / stepM);
+			for (let k = 1; k < n; k++) {
+				consider({ lat: a.lat + ((b.lat - a.lat) * k) / n, lon: a.lon + ((b.lon - a.lon) * k) / n });
+			}
+		}
+	}
+	if (samples.length === 0) return null;
+	samples.sort((x, y) => x - y);
+	return samples[Math.min(samples.length - 1, Math.floor(samples.length * q))];
 }

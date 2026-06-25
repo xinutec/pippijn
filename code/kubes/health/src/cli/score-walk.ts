@@ -14,7 +14,8 @@ import { initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import { scoreWalk } from "../eval/walk-score.js";
 import { walkableRoads } from "../geo/osm.js";
-import type { RoadGeometry } from "../geo/road-match.js";
+import { matchWalkSegment } from "../geo/pedestrian-match.js";
+import { fractionOffRoad, type RoadGeometry } from "../geo/road-match.js";
 import { dateBoundsUtc } from "../geo/timezone.js";
 import { computeVelocity, loadBiometrics } from "../geo/velocity.js";
 import { fetchTrackPoints } from "../nextcloud/phonetrack.js";
@@ -89,14 +90,25 @@ for (const ep of walks) {
 	const roads: RoadGeometry = { ways: await walkableRoads(cLat, cLon, 400) };
 
 	const drawn = ep.points.map((p) => ({ lat: p.lat, lon: p.lon }));
-	const raw = rawFixes.filter((f) => f.ts >= ep.startTs && f.ts <= ep.endTs).map((f) => ({ lat: f.lat, lon: f.lon }));
+	const rawWin = rawFixes.filter((f) => f.ts >= ep.startTs && f.ts <= ep.endTs);
+	const raw = rawWin.map((f) => ({ lat: f.lat, lon: f.lon }));
 	const d = scoreWalk(drawn, ep.startTs, ep.endTs, steps, roads);
 	const r = scoreWalk(raw, ep.startTs, ep.endTs, steps, roads);
+	// Candidate: the pedestrian map-matcher (the proposed replacement for the
+	// smoother on on-network legs). null = bailed → smoother/raw stays.
+	// WMR env overrides the candidate radius for tuning sweeps.
+	const wmr = process.env.WMR ? Number(process.env.WMR) : undefined;
+	const matched = matchWalkSegment(rawWin, roads, wmr !== undefined ? { matchRadiusM: wmr } : {});
+	const m = matched ? scoreWalk(matched.path, ep.startTs, ep.endTs, steps, roads) : null;
+	const off20 = fractionOffRoad(rawWin, roads, 20);
 
 	const fmt = (s: ReturnType<typeof scoreWalk>): string =>
-		`tortuosity=${s.tortuosity.toFixed(2)}x len=${s.drawnLengthM.toFixed(0)}m ped=${s.pedometerM?.toFixed(0) ?? "-"}m stepErr=${s.stepDistanceError !== null ? `${(s.stepDistanceError * 100).toFixed(0)}%` : "-"} offWalk=${s.offWalkableMeanM?.toFixed(0) ?? "-"}m`;
-	console.log(`── walk ${hh(ep.startTs)}-${hh(ep.endTs)}  kind=${ep.kind}  pts=${ep.points.length}`);
+		`tortuosity=${s.tortuosity.toFixed(2)}x len=${s.drawnLengthM.toFixed(0)}m ped=${s.pedometerM?.toFixed(0) ?? "-"}m stepErr=${s.stepDistanceError !== null ? `${(s.stepDistanceError * 100).toFixed(0)}%` : "-"} offWalkMean=${s.offWalkableMeanM?.toFixed(0) ?? "-"}m offWalkP90=${s.offWalkableP90M?.toFixed(0) ?? "-"}m`;
+	console.log(
+		`── walk ${hh(ep.startTs)}-${hh(ep.endTs)}  kind=${ep.kind}  pts=${ep.points.length}  rawFix>20m=${(off20 * 100).toFixed(0)}%`,
+	);
 	console.log(`   DRAWN ${fmt(d)}`);
 	console.log(`   RAW   ${fmt(r)}`);
+	console.log(`   MATCH ${m ? fmt(m) : "(bailed → smoother)"}`);
 }
 process.exit(0);

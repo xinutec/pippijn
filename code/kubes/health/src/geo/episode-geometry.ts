@@ -170,6 +170,18 @@ function resolveEpisode(
 			.map((mp) => ({ lat: mp.lat, lon: mp.lon, ts: mp.ts }));
 		if (matched && matched.length >= 2) return { ...base, kind: "matched", points: matched };
 
+		// Pedestrian map-matching (#265): a walking leg whose covering segment
+		// carries a `walkMatchedPath` draws on the OSM walkable network (pavement
+		// / footway / residential centerline) instead of the soft-smoothed line
+		// cutting across buildings. Clipped to the state window. Preferred over
+		// the smoother; falls through to it (then raw) when the matcher bailed
+		// (off-network / fragmented graph). Same solid styling as road `matched`.
+		const walkMatchSeg = covering.find((s) => (s.walkMatchedPath?.length ?? 0) >= 2 && effectiveMode(s) === "walking");
+		const walkMatched = walkMatchSeg?.walkMatchedPath
+			?.filter((mp) => mp.ts >= state.startTs && mp.ts <= state.endTs)
+			.map((mp) => ({ lat: mp.lat, lon: mp.lon, ts: mp.ts }));
+		if (walkMatched && walkMatched.length >= 2) return { ...base, kind: "matched", points: walkMatched };
+
 		// Pedestrian trajectory smoother: a walking leg whose covering segment
 		// carries a `smoothedPath` (robust GPS + pedometer + anchors + soft map —
 		// the pedestrian-smoother proposal) draws that physically-precise line

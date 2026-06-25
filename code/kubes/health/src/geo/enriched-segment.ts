@@ -43,6 +43,14 @@ export interface EnrichedSegment extends TrackSegment {
 	 *  which case the map falls back to the raw track. Each point carries an
 	 *  interpolated timestamp like `snappedPath`. */
 	matchedPath?: SnappedPoint[];
+	/** Derived: this WALKING leg map-matched onto the OSM walkable network
+	 *  (footway / path / pedestrian / residential…) so the map draws it on the
+	 *  pavement instead of the soft-smoothed line cutting across buildings.
+	 *  Attached by `annotateWalkMatches` (pedestrian-match); `undefined` when the
+	 *  leg is off-network or the graph is too fragmented to route, in which case
+	 *  the map falls back to `smoothedPath`, then the raw track. Each point
+	 *  carries an interpolated timestamp like `matchedPath`. */
+	walkMatchedPath?: SnappedPoint[];
 	/** Derived: this WALKING leg as a physically-precise MAP trajectory — the
 	 *  raw GPS de-jittered by the pedestrian smoother (`pedestrian-smooth.ts`,
 	 *  robust GPS + pedometer distance + anchors + soft map). Each point carries
