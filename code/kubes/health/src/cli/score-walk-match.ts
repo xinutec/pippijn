@@ -127,9 +127,7 @@ async function main(): Promise<void> {
 			const tag = classify(v).toUpperCase().padEnd(9);
 			const b = v.baselineP90 === null ? "  -" : `${v.baselineP90.toFixed(0).padStart(3)}m`;
 			const c = v.candidateP90 === null ? "  -" : `${v.candidateP90.toFixed(0).padStart(3)}m`;
-			console.log(
-				`  ${tag} @${hhmm(v.startTs)}Z  offWalkP90 ${b} → ${c}   (${v.baselineKind} → ${v.candidateKind})`,
-			);
+			console.log(`  ${tag} @${hhmm(v.startTs)}Z  offWalkP90 ${b} → ${c}   (${v.baselineKind} → ${v.candidateKind})`);
 		}
 	}
 
