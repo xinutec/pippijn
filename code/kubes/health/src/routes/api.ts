@@ -340,12 +340,15 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			return c.json({ error: "out_of_share_window", from: session.shareViewer.from, to: session.shareViewer.to }, 403);
 		}
 		try {
-			// Cache result by (user, date, tz) — see velocity-cache.ts.
+			// `walkMatch=0` disables pedestrian map-matching so the map can render
+			// the original smoothed/raw walks for an A/B comparison.
+			const walkMatch = c.req.query("walkMatch") !== "0";
+			// Cache result by (user, date, tz, walkMatch) — see velocity-cache.ts.
 			// Repeat views in the same session return in tens of ms;
 			// pod restart clears the cache so logic changes go live
 			// on the first request after deploy.
-			const cacheKey = `${uid}|${date}|${tz ?? ""}`;
-			const result = await getVelocityCached(cacheKey, () => computeVelocity(config, uid, date, tz));
+			const cacheKey = `${uid}|${date}|${tz ?? ""}|wm${walkMatch ? 1 : 0}`;
+			const result = await getVelocityCached(cacheKey, () => computeVelocity(config, uid, date, tz, { walkMatch }));
 			// Never assert the future: clip inferred continuations (dwell-prior,
 			// empty-day) to the current moment. Cache holds the full
 			// deterministic result; the clip is per-request so "now" advances.

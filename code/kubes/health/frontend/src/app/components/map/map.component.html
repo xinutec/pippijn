@@ -17,5 +17,10 @@
 			(change)="follow.set($event.checked)">
 			Follow live location
 		</mat-checkbox>
+		<mat-checkbox
+			[checked]="walkMatch()"
+			(change)="walkMatch.set($event.checked)">
+			Snap walks to paths
+		</mat-checkbox>
 	</div>
 </mat-card>

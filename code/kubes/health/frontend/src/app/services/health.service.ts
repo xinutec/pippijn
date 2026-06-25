@@ -301,9 +301,12 @@ export class HealthService {
     return res.json();
   }
 
-  async getVelocity(date = yesterday(), signal?: AbortSignal): Promise<VelocityData> {
+  async getVelocity(date = yesterday(), signal?: AbortSignal, walkMatch = true): Promise<VelocityData> {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const res = await this.fetch(`/api/velocity?date=${date}&tz=${encodeURIComponent(tz)}`, { signal });
+    // walkMatch=0 asks the server to skip pedestrian map-matching, so the map can
+    // render the original smoothed/raw walks for an A/B comparison.
+    const wm = walkMatch ? "" : "&walkMatch=0";
+    const res = await this.fetch(`/api/velocity?date=${date}&tz=${encodeURIComponent(tz)}${wm}`, { signal });
     if (!res.ok) throw new Error("Failed to fetch velocity data");
     return res.json();
   }

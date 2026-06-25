@@ -143,6 +143,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	/** Tab index for `<mat-tab-group [selectedIndex]>`, derived from `view`. */
 	readonly tabIndex = computed(() => (this.view() === "today" ? 0 : this.view() === "trends" ? 1 : 2));
 	readonly selectedDate = signal(todayLocal());
+	/** Map toggle: snap walking legs onto the pavement network (pedestrian
+	 *  map-matching). Off renders the original smoothed/raw walks, for an A/B
+	 *  comparison. Drives `dayData`, so toggling refetches the velocity. */
+	readonly walkMatch = signal(true);
 	/** How many days of history the Trends tab charts span. Reflected
 	 *  into `?trendDays=N`; the default (30) is omitted for a clean URL.
 	 *  Drives the `windowData` resource, so changing it refetches. */
@@ -200,10 +204,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	/** The selected day's stages / intraday HR / velocity. Keyed on the
 	 *  day, so it reloads — and supersedes — on navigation. `undefined`
 	 *  params keep it idle until the user is ready. */
-	private readonly dayData = resource<DayData, string | undefined>({
-		params: () => (this.dataReady() ? this.selectedDate() : undefined),
+	private readonly dayData = resource<DayData, { date: string; walkMatch: boolean } | undefined>({
+		params: () => (this.dataReady() ? { date: this.selectedDate(), walkMatch: this.walkMatch() } : undefined),
 		defaultValue: { stages: [], hr: [], velocity: null },
-		loader: async ({ params: date, abortSignal }) => {
+		loader: async ({ params: { date, walkMatch }, abortSignal }) => {
 			const t0 = performance.now();
 			// A fresh load for this day: clear any prior velocity failure so a
 			// retry (or a navigation to a healthy day) drops the error banner.
@@ -216,7 +220,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 				timed(this.health.getSleepStages(date, abortSignal).catch(() => [] as SleepStage[])),
 				timed(this.health.getHeartRateIntraday(date, abortSignal).catch(() => [] as HeartRatePoint[])),
 				timed(
-					this.health.getVelocity(date, abortSignal).catch((e: unknown) => {
+					this.health.getVelocity(date, abortSignal, walkMatch).catch((e: unknown) => {
 						// Distinguish a genuine load failure from an empty day so the
 						// view can offer a retry instead of silently rendering "no
 						// data". An aborted request (superseded day-navigation) is not

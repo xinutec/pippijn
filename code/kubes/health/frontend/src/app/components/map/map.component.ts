@@ -5,6 +5,7 @@ import {
 	type ElementRef,
 	inject,
 	input,
+	model,
 	NgZone,
 	type OnDestroy,
 	signal,
@@ -69,6 +70,10 @@ export class MapComponent implements OnDestroy {
 	 *  owns the polling + caching). Drives the live "current position"
 	 *  marker. */
 	readonly liveFix = input<LatestFix | null>(null);
+	/** Two-way: snap walking legs onto the pavement network (pedestrian
+	 *  map-matching). Off renders the original smoothed/raw walks. The dashboard
+	 *  owns the velocity fetch, so toggling this refetches the day's data. */
+	readonly walkMatch = model<boolean>(true);
 	readonly mapRef = viewChild<ElementRef<HTMLDivElement>>("map");
 
 	/** When checked, recentre the map on the live marker as each new

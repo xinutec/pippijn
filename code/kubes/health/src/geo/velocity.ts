@@ -509,7 +509,7 @@ export async function computeVelocity(
 	userId: string,
 	date: string,
 	tz?: string,
-	options: { enrich?: boolean } = {},
+	options: { enrich?: boolean; walkMatch?: boolean } = {},
 ): Promise<VelocityResult> {
 	// Production wrapper: load the input closure from the DB / PhoneTrack,
 	// then run the pure classification core. The two-step split (Phase B of
@@ -537,7 +537,7 @@ export async function computeVelocity(
  */
 export async function computeVelocityFromInputs(
 	inputs: ClassificationInputs,
-	options: { enrich?: boolean } = {},
+	options: { enrich?: boolean; walkMatch?: boolean } = {},
 ): Promise<VelocityResult> {
 	const { userId, date, displayTz: tz } = inputs.identity;
 	const t0 = Date.now();
@@ -1292,7 +1292,10 @@ export async function computeVelocityFromInputs(
 		// `walkableRoads` query key as the smoother, so no golden re-capture.
 		{
 			name: "walkMatch",
-			run: (segs) => annotateWalkMatches(segs, displayFixes, points, inputs.osm),
+			// `options.walkMatch === false` (the /api/velocity `walkMatch=0` query
+			// param) skips matching so the map can render the original smoothed/raw
+			// walks for an A/B comparison against the pavement-matched line.
+			run: (segs) => (options.walkMatch === false ? segs : annotateWalkMatches(segs, displayFixes, points, inputs.osm)),
 		},
 
 		// Pedestrian trajectory smoother: a walking leg's raw GPS zigzags (slow-
