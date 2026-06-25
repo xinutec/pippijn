@@ -134,6 +134,11 @@ export interface EpisodeGeometry {
 
 export interface VelocityData {
   points: VelocityPoint[];
+  /** The raw, accuracy-bearing GPS fixes the map-matchers + smoother consume —
+   *  the input the drawn line is estimated from. The map can overlay these so
+   *  you can see the matched/smoothed line against the actual GPS. Optional so
+   *  an older backend that omits it doesn't break the client. */
+  rawFixes?: { lat: number; lon: number; ts: number; accuracy?: number | null }[];
   segments: TrackSegment[];
   /** Non-overlapping state sequence — the "your day" narrative.
    *  Bottom layer of the three-altitude data model; sleep is folded

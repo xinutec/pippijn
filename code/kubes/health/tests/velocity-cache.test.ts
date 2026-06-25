@@ -24,6 +24,7 @@ function makeResult(tag: string): VelocityResult {
 	// is otherwise minimal — the cache treats VelocityResult as opaque.
 	return {
 		points: [],
+		rawFixes: [],
 		segments: [],
 		states: [{ startTs: 0, endTs: 1, mode: "stationary", place: tag }],
 		episodes: [],

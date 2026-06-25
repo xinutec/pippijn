@@ -81,6 +81,12 @@ export class MapComponent implements OnDestroy {
 	 *  yanks the view from under someone reading the map. */
 	readonly follow = signal(false);
 
+	/** When checked, overlay the raw GPS fixes (the input the matched / smoothed
+	 *  line is estimated from) as faint dots, so the drawn line can be compared
+	 *  against where the phone actually reported. Off by default. Pure client-side
+	 *  toggle — the raw fixes are always in the response, no refetch. */
+	readonly showFixes = signal(false);
+
 	/** Wall-clock time of the current position — the live fix if
 	 *  polling, else the last fix of the displayed day. */
 	readonly lastSeen = computed(() => {
@@ -110,6 +116,7 @@ export class MapComponent implements OnDestroy {
 		effect(() => {
 			const data = this.data();
 			const fix = this.liveFix();
+			this.showFixes(); // re-render when the GPS-fixes overlay toggles
 			const el = this.mapRef();
 			if (!el) return;
 			this.zone.runOutsideAngular(() => this.render(el.nativeElement, data, fix));
@@ -211,6 +218,22 @@ export class MapComponent implements OnDestroy {
 			})
 				.bindPopup(ep.place)
 				.addTo(layer);
+		}
+
+		// Optional overlay: the raw GPS fixes (the matcher/smoother input) as
+		// faint dots, so the drawn line can be judged against where the phone
+		// actually reported. Drawn on top, small and translucent so it adds
+		// context without obscuring the line.
+		if (this.showFixes()) {
+			for (const f of data?.rawFixes ?? []) {
+				L.circleMarker([f.lat, f.lon], {
+					radius: 2,
+					color: "#444444",
+					weight: 0,
+					fillColor: "#444444",
+					fillOpacity: 0.55,
+				}).addTo(layer);
+			}
 		}
 
 		const lastTuple = allCoords.at(-1);

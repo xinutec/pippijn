@@ -22,5 +22,10 @@
 			(change)="walkMatch.set($event.checked)">
 			Snap walks to paths
 		</mat-checkbox>
+		<mat-checkbox
+			[checked]="showFixes()"
+			(change)="showFixes.set($event.checked)">
+			Show GPS fixes
+		</mat-checkbox>
 	</div>
 </mat-card>

@@ -482,6 +482,12 @@ export function batterySeries(points: { ts: number; battery: number | null }[]):
 
 export interface VelocityResult {
 	points: FilteredPoint[];
+	/** The raw, accuracy-bearing GPS fixes the map-matchers + smoother actually
+	 *  consume (`displayFixes`): the cleaned PhoneTrack track (GPS-quality pass +
+	 *  accuracy ≤ 200 m), pre-Kalman, un-snapped. Exposed so the map can draw a
+	 *  "GPS fixes" overlay — the input the drawn line is estimated from, for an
+	 *  honest comparison against the matched / smoothed geometry. */
+	rawFixes: { ts: number; lat: number; lon: number; accuracy: number | null }[];
 	segments: EnrichedSegment[];
 	/** Non-overlapping day state sequence — bottom layer of the
 	 *  three-altitude data model. Derived from `segments` plus the
@@ -622,7 +628,7 @@ export async function computeVelocityFromInputs(
 		// no rewrite).
 		const states = segmentsToDayStates(segments as EnrichedSegment[], []);
 		const episodes = buildEpisodes(states, segments as EnrichedSegment[], points, displayFixes);
-		return { points, segments, states, episodes, battery, timing: phaseTimes };
+		return { points, rawFixes: displayFixes, segments, states, episodes, battery, timing: phaseTimes };
 	}
 
 	const N_SAMPLES = 5;
@@ -1484,6 +1490,7 @@ export async function computeVelocityFromInputs(
 		if (inferred.length > 0)
 			return {
 				points,
+				rawFixes: displayFixes,
 				segments: withBiometrics,
 				states: inferred,
 				episodes: buildEpisodes(inferred, withBiometrics, points, displayFixes),
@@ -1509,6 +1516,7 @@ export async function computeVelocityFromInputs(
 
 	return {
 		points,
+		rawFixes: displayFixes,
 		segments: withBiometrics,
 		states: finalStates,
 		episodes: buildEpisodes(finalStates, withBiometrics, points, displayFixes),
