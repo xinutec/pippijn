@@ -12,6 +12,28 @@ export interface Measurement {
 	voc_ppb: number | null;
 }
 
+/** Display overlay for a device, as returned alongside its latest reading. */
+export interface DeviceLabel {
+	name: string;
+	airQuality: boolean;
+	order: number;
+}
+
+/** A device's most recent reading plus its display label (from `/api/devices`). */
+export interface DeviceLatest extends Measurement {
+	label: DeviceLabel;
+}
+
+/** Distinct line colours for the per-room comparison charts, assigned by order. */
+export const ROOM_COLORS: readonly string[] = [
+	'#26a69a',
+	'#ef6c00',
+	'#5c6bc0',
+	'#ec407a',
+	'#66bb6a',
+	'#8d6e63',
+];
+
 /** Selectable history windows for the time-series charts. */
 export type RangeKey = '24h' | '7d' | '30d';
 

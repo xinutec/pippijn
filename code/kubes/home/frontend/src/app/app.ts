@@ -11,13 +11,14 @@ import { ApiService } from './api.service';
 import {
 	type Measurement,
 	RANGE_OPTIONS,
+	ROOM_COLORS,
 	type RangeKey,
 	aqiBand,
 	cleanVoc,
 } from './measurement.model';
 import { RelativeTimePipe } from './relative-time.pipe';
 import { ThemeService } from './theme.service';
-import { type TrendPoint, TrendChart } from './trend-chart/trend-chart';
+import { type ChartSeries, type TrendPoint, TrendChart } from './trend-chart/trend-chart';
 
 @Component({
 	selector: 'app-root',
@@ -42,10 +43,9 @@ export class App implements OnInit, OnDestroy {
 
 	protected readonly ranges = RANGE_OPTIONS;
 
-	protected readonly latest = this.api.latest;
-	protected readonly latestLoaded = this.api.latestLoaded;
-	protected readonly latestError = this.api.latestError;
-	protected readonly history = this.api.history;
+	protected readonly devices = this.api.devices;
+	protected readonly airDevice = this.api.airDevice;
+	protected readonly devicesError = this.api.devicesError;
 	protected readonly historyLoading = this.api.historyLoading;
 	protected readonly range = this.api.range;
 	protected readonly isEmpty = this.api.isEmpty;
@@ -56,8 +56,8 @@ export class App implements OnInit, OnDestroy {
 		return opt.hours * 3_600_000;
 	});
 
-	protected readonly band = computed(() => aqiBand(this.latest()?.aqi_us));
-	protected readonly voc = computed(() => cleanVoc(this.latest()?.voc_ppb));
+	protected readonly band = computed(() => aqiBand(this.airDevice()?.aqi_us));
+	protected readonly voc = computed(() => cleanVoc(this.airDevice()?.voc_ppb));
 
 	protected readonly themeIcon = computed(() => {
 		switch (this.theme.mode()) {
@@ -72,10 +72,12 @@ export class App implements OnInit, OnDestroy {
 
 	protected readonly themeLabel = computed(() => `Theme: ${this.theme.mode()}`);
 
-	protected readonly tempPoints = this.series((m) => m.temp_c);
-	protected readonly co2Points = this.series((m) => m.co2_ppm);
-	protected readonly humidityPoints = this.series((m) => m.humidity);
-	protected readonly pm25Points = this.series((m) => m.pm25);
+	// Temperature & humidity: one coloured line per device, for room comparison.
+	protected readonly tempSeries = this.climateSeries((m) => m.temp_c);
+	protected readonly humiditySeries = this.climateSeries((m) => m.humidity);
+	// CO₂ & PM2.5: a single line from the air-quality device only.
+	protected readonly co2Series = this.airSeries((m) => m.co2_ppm, 'CO₂', 'var(--chart-co2)');
+	protected readonly pm25Series = this.airSeries((m) => m.pm25, 'PM2.5', 'var(--chart-pm)');
 
 	ngOnInit(): void {
 		this.api.start();
@@ -93,21 +95,47 @@ export class App implements OnInit, OnDestroy {
 		this.theme.toggle();
 	}
 
-	/** Build a reactive `TrendPoint[]` selector over the history signal. */
-	private series(pick: (m: Measurement) => number | null): () => TrendPoint[] {
-		return computed(() => {
-			const out: TrendPoint[] = [];
-			for (const m of this.history()) {
-				const y = pick(m);
-				if (y == null) {
-					continue;
-				}
-				const x = new Date(m.ts).getTime();
-				if (!Number.isNaN(x)) {
-					out.push({ x, y });
-				}
+	/** Project a device's history rows onto `TrendPoint`s, dropping null values. */
+	private points(rows: Measurement[], pick: (m: Measurement) => number | null): TrendPoint[] {
+		const out: TrendPoint[] = [];
+		for (const m of rows) {
+			const y = pick(m);
+			if (y == null) {
+				continue;
 			}
-			return out;
+			const x = new Date(m.ts).getTime();
+			if (!Number.isNaN(x)) {
+				out.push({ x, y });
+			}
+		}
+		return out;
+	}
+
+	/** One coloured line per device (UI order) for a climate metric. */
+	private climateSeries(pick: (m: Measurement) => number | null): () => ChartSeries[] {
+		return computed(() => {
+			const history = this.api.historyByDevice();
+			return this.devices().map((d, i) => ({
+				label: d.label.name,
+				color: ROOM_COLORS[i % ROOM_COLORS.length],
+				points: this.points(history[d.device] ?? [], pick),
+			}));
+		});
+	}
+
+	/** A single line from the air-quality device for an air metric. */
+	private airSeries(
+		pick: (m: Measurement) => number | null,
+		label: string,
+		color: string,
+	): () => ChartSeries[] {
+		return computed(() => {
+			const air = this.airDevice();
+			if (!air) {
+				return [];
+			}
+			const rows = this.api.historyByDevice()[air.device] ?? [];
+			return [{ label, color, points: this.points(rows, pick) }];
 		});
 	}
 }

@@ -23,10 +23,10 @@
 }
 
 <main class="page">
-	@if (latestError() && !latest()) {
+	@if (devicesError() && devices().length === 0) {
 		<div class="banner banner-error">
 			<mat-icon>cloud_off</mat-icon>
-			<span>{{ latestError() }}</span>
+			<span>{{ devicesError() }}</span>
 		</div>
 	}
 
@@ -34,15 +34,15 @@
 		<section class="empty-state">
 			<mat-icon class="empty-icon">sensors</mat-icon>
 			<h2>Waiting for the first reading…</h2>
-			<p>The sensor hasn't reported any data yet. This page updates automatically.</p>
+			<p>No sensor has reported any data yet. This page updates automatically.</p>
 		</section>
 	} @else {
-		<!-- HERO: current conditions -->
+		<!-- HERO: current conditions from the air-quality sensor -->
 		<section class="hero">
 			<div class="hero-climate">
 				<div class="temp-block">
 					<span class="temp-value">
-						{{ latest()?.temp_c != null ? (latest()!.temp_c | number: '1.1-1') : '—' }}
+						{{ airDevice()?.temp_c != null ? (airDevice()!.temp_c | number: '1.1-1') : '—' }}
 					</span>
 					<span class="temp-unit">°C</span>
 				</div>
@@ -50,13 +50,13 @@
 					<div class="humidity">
 						<mat-icon>water_drop</mat-icon>
 						<span>
-							{{ latest()?.humidity != null ? (latest()!.humidity | number: '1.0-0') : '—' }}%
+							{{ airDevice()?.humidity != null ? (airDevice()!.humidity | number: '1.0-0') : '—' }}%
 							humidity
 						</span>
 					</div>
 					<div class="updated">
 						<mat-icon>schedule</mat-icon>
-						<span>Updated {{ latest()?.ts | relativeTime }}</span>
+						<span>Updated {{ airDevice()?.ts | relativeTime }}</span>
 					</div>
 				</div>
 			</div>
@@ -69,13 +69,13 @@
 			>
 				<span class="aqi-label">US AQI</span>
 				<span class="aqi-number">
-					{{ latest()?.aqi_us != null && latest()!.aqi_us! >= 0 ? latest()!.aqi_us : '—' }}
+					{{ airDevice()?.aqi_us != null && airDevice()!.aqi_us! >= 0 ? airDevice()!.aqi_us : '—' }}
 				</span>
 				<span class="aqi-band">{{ band()?.label ?? 'No reading' }}</span>
 			</div>
 		</section>
 
-		<!-- Metric cards -->
+		<!-- Air-quality metric cards (IQAir only) -->
 		<section class="metric-grid">
 			<mat-card class="metric-card" appearance="outlined">
 				<div class="metric-top">
@@ -83,7 +83,7 @@
 					<span class="metric-name">CO₂</span>
 				</div>
 				<div class="metric-value">
-					{{ latest()?.co2_ppm != null ? (latest()!.co2_ppm | number: '1.0-0') : '—' }}
+					{{ airDevice()?.co2_ppm != null ? (airDevice()!.co2_ppm | number: '1.0-0') : '—' }}
 					<span class="metric-unit">ppm</span>
 				</div>
 			</mat-card>
@@ -94,7 +94,7 @@
 					<span class="metric-name">PM2.5</span>
 				</div>
 				<div class="metric-value">
-					{{ latest()?.pm25 != null ? (latest()!.pm25 | number: '1.0-1') : '—' }}
+					{{ airDevice()?.pm25 != null ? (airDevice()!.pm25 | number: '1.0-1') : '—' }}
 					<span class="metric-unit">µg/m³</span>
 				</div>
 			</mat-card>
@@ -105,7 +105,7 @@
 					<span class="metric-name">PM10</span>
 				</div>
 				<div class="metric-value">
-					{{ latest()?.pm10 != null ? (latest()!.pm10 | number: '1.0-1') : '—' }}
+					{{ airDevice()?.pm10 != null ? (airDevice()!.pm10 | number: '1.0-1') : '—' }}
 					<span class="metric-unit">µg/m³</span>
 				</div>
 			</mat-card>
@@ -125,6 +125,33 @@
 			</mat-card>
 		</section>
 
+		<!-- Per-room current temperature & humidity -->
+		<section class="rooms">
+			<h3 class="section-title">Rooms</h3>
+			<div class="room-grid">
+				@for (d of devices(); track d.device) {
+					<mat-card class="room-card" appearance="outlined">
+						<div class="room-name">
+							<span>{{ d.label.name }}</span>
+							@if (d.label.airQuality) {
+								<mat-icon class="room-air" matTooltip="Air-quality sensor">eco</mat-icon>
+							}
+						</div>
+						<div class="room-readings">
+							<span class="room-temp">
+								{{ d.temp_c != null ? (d.temp_c | number: '1.1-1') : '—' }}°
+							</span>
+							<span class="room-humidity">
+								<mat-icon>water_drop</mat-icon>
+								{{ d.humidity != null ? (d.humidity | number: '1.0-0') : '—' }}%
+							</span>
+						</div>
+						<div class="room-updated">{{ d.ts | relativeTime }}</div>
+					</mat-card>
+				}
+			</div>
+		</section>
+
 		<!-- Range selector -->
 		<section class="range-row">
 			<h3 class="section-title">Trends</h3>
@@ -142,44 +169,40 @@
 			</mat-button-toggle-group>
 		</section>
 
-		<!-- Charts -->
+		<!-- Charts: temp/humidity compare rooms; CO₂/PM2.5 are IQAir only -->
 		<section class="chart-grid">
 			<app-trend-chart
 				title="Temperature"
 				unit="°C"
-				accent="var(--mat-sys-primary)"
 				[decimals]="1"
 				[spanMs]="spanMs()"
-				[points]="tempPoints()"
-			/>
-			<app-trend-chart
-				title="CO₂"
-				unit="ppm"
-				accent="var(--chart-co2)"
-				[decimals]="0"
-				[spanMs]="spanMs()"
-				[points]="co2Points()"
+				[series]="tempSeries()"
 			/>
 			<app-trend-chart
 				title="Humidity"
 				unit="%"
-				accent="var(--chart-humidity)"
 				[decimals]="0"
 				[spanMs]="spanMs()"
-				[points]="humidityPoints()"
+				[series]="humiditySeries()"
+			/>
+			<app-trend-chart
+				title="CO₂"
+				unit="ppm"
+				[decimals]="0"
+				[spanMs]="spanMs()"
+				[series]="co2Series()"
 			/>
 			<app-trend-chart
 				title="PM2.5"
 				unit="µg/m³"
-				accent="var(--chart-pm)"
 				[decimals]="1"
 				[spanMs]="spanMs()"
-				[points]="pm25Points()"
+				[series]="pm25Series()"
 			/>
 		</section>
 	}
 
 	<footer class="page-foot">
-		<span>Live data from an IQAir AirVisual Pro · refreshes every 60s</span>
+		<span>Live data from an IQAir AirVisual Pro + Govee room sensors · refreshes every 60s</span>
 	</footer>
 </main>

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db/pool.js";
+import { labelFor } from "../labels.js";
 import { MeasurementBatch, MeasurementInput } from "../measurement.js";
 
 function sensorValues(m: MeasurementInput) {
@@ -58,15 +59,41 @@ export function apiRoutes(ingestToken: string): Hono {
 		return c.json({ ok: true, received: rows.length });
 	});
 
-	// Public read: the most recent reading.
+	// Public read: a single device's most recent reading. Defaults to the
+	// air-quality sensor — NOT "newest across all devices", which would let a
+	// Govee room reading surface in the IQAir hero with blank air-quality fields.
 	api.get("/latest", async (c) => {
+		const device = c.req.query("device") ?? "airvisual";
 		const row = await db()
 			.selectFrom("measurement")
 			.selectAll()
+			.where("device", "=", device)
 			.orderBy("ts", "desc")
 			.limit(1)
 			.executeTakeFirst();
 		return c.json(row ?? null);
+	});
+
+	// Public read: the latest reading per device, each tagged with its display
+	// label and ordered for the UI. Drives the per-room tiles.
+	api.get("/devices", async (c) => {
+		const devices = await db().selectFrom("measurement").select("device").distinct().execute();
+		const latest = await Promise.all(
+			devices.map((d) =>
+				db()
+					.selectFrom("measurement")
+					.selectAll()
+					.where("device", "=", d.device)
+					.orderBy("ts", "desc")
+					.limit(1)
+					.executeTakeFirst(),
+			),
+		);
+		const out = latest
+			.filter((r): r is NonNullable<typeof r> => r != null)
+			.map((r) => ({ ...r, label: labelFor(r.device) }))
+			.sort((a, b) => a.label.order - b.label.order);
+		return c.json(out);
 	});
 
 	// Public read: a time range, oldest first, for charting.

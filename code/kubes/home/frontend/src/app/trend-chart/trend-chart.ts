@@ -14,6 +14,7 @@ import {
 	Chart,
 	type ChartConfiguration,
 	Filler,
+	Legend,
 	LineController,
 	LineElement,
 	LinearScale,
@@ -33,6 +34,7 @@ Chart.register(
 	CategoryScale,
 	TimeScale,
 	Filler,
+	Legend,
 	Tooltip,
 );
 
@@ -41,10 +43,19 @@ export interface TrendPoint {
 	y: number;
 }
 
+/** One named line on the chart. `color` is any CSS value (incl. `var(--…)`). */
+export interface ChartSeries {
+	label: string;
+	color: string;
+	/** Oldest-first data points. */
+	points: TrendPoint[];
+}
+
 /**
- * Standalone wrapper around a single Chart.js line chart. Pulls colours from
- * the Material 3 system CSS variables so it tracks the active light/dark theme,
- * and redraws whenever its inputs or the theme change.
+ * Standalone wrapper around a Chart.js line chart that draws one or more series.
+ * A single series keeps the filled-gradient look; multiple series drop the fill
+ * and show a legend, for room-to-room comparison. Colours resolve from the
+ * Material 3 system CSS variables so the chart tracks the active theme.
  */
 @Component({
 	selector: 'app-trend-chart',
@@ -57,10 +68,8 @@ export class TrendChart implements AfterViewInit, OnDestroy {
 
 	readonly title = input.required<string>();
 	readonly unit = input<string>('');
-	/** Oldest-first data points. */
-	readonly points = input.required<TrendPoint[]>();
-	/** Base accent colour as a CSS value, e.g. `var(--mat-sys-primary)`. */
-	readonly accent = input<string>('var(--mat-sys-primary)');
+	/** One or more series to plot. */
+	readonly series = input.required<ChartSeries[]>();
 	/** Number of decimal places to show in the tooltip. */
 	readonly decimals = input<number>(0);
 	readonly spanMs = input<number>(24 * 3_600_000);
@@ -68,14 +77,13 @@ export class TrendChart implements AfterViewInit, OnDestroy {
 	private chart: Chart<'line', TrendPoint[]> | null = null;
 	private ready = false;
 
-	readonly hasData = computed(() => this.points().length > 0);
+	readonly hasData = computed(() => this.series().some((s) => s.points.length > 0));
 
 	constructor() {
 		// Redraw on data, theme, or range changes.
 		effect(() => {
 			// Track dependencies.
-			this.points();
-			this.accent();
+			this.series();
 			this.theme.effective();
 			this.spanMs();
 			if (this.ready) {
@@ -121,48 +129,66 @@ export class TrendChart implements AfterViewInit, OnDestroy {
 			return;
 		}
 
-		const accent = this.resolve(this.accent());
 		const grid = this.withAlpha(this.resolve('var(--mat-sys-outline-variant)'), 0.5);
 		const text = this.resolve('var(--mat-sys-on-surface-variant)');
 
-		const gradient = ctx.createLinearGradient(0, 0, 0, el.height || 220);
-		gradient.addColorStop(0, this.withAlpha(accent, 0.35));
-		gradient.addColorStop(1, this.withAlpha(accent, 0.0));
+		const series = this.series();
+		const multi = series.length > 1;
 
-		const data = this.points();
+		const datasets = series.map((s) => {
+			const color = this.resolve(s.color);
+			let background: string | CanvasGradient = this.withAlpha(color, 0);
+			if (!multi) {
+				const gradient = ctx.createLinearGradient(0, 0, 0, el.height || 220);
+				gradient.addColorStop(0, this.withAlpha(color, 0.35));
+				gradient.addColorStop(1, this.withAlpha(color, 0));
+				background = gradient;
+			}
+			return {
+				label: s.label,
+				data: s.points,
+				borderColor: color,
+				backgroundColor: background,
+				borderWidth: 2,
+				fill: !multi,
+				tension: 0.35,
+				pointRadius: 0,
+				pointHoverRadius: 4,
+				pointHoverBackgroundColor: color,
+				spanGaps: true,
+			};
+		});
+
 		const decimals = this.decimals();
 		const unit = this.unit();
 
 		const config: ChartConfiguration<'line', TrendPoint[]> = {
 			type: 'line',
-			data: {
-				datasets: [
-					{
-						data,
-						borderColor: accent,
-						backgroundColor: gradient,
-						borderWidth: 2,
-						fill: true,
-						tension: 0.35,
-						pointRadius: 0,
-						pointHoverRadius: 4,
-						pointHoverBackgroundColor: accent,
-						spanGaps: true,
-					},
-				],
-			},
+			data: { datasets },
 			options: {
 				responsive: true,
 				maintainAspectRatio: false,
 				animation: { duration: 350 },
 				interaction: { mode: 'index', intersect: false },
 				plugins: {
-					legend: { display: false },
+					legend: {
+						display: multi,
+						position: 'bottom',
+						labels: {
+							color: text,
+							boxWidth: 8,
+							boxHeight: 8,
+							usePointStyle: true,
+							font: { size: 11 },
+						},
+					},
 					tooltip: {
-						displayColors: false,
+						displayColors: multi,
 						callbacks: {
-							label: (item: TooltipItem<'line'>) =>
-								`${Number(item.parsed.y).toFixed(decimals)}${unit ? ` ${unit}` : ''}`,
+							label: (item: TooltipItem<'line'>) => {
+								const value = `${Number(item.parsed.y).toFixed(decimals)}${unit ? ` ${unit}` : ''}`;
+								return multi ? `${item.dataset.label}: ${value}` : value;
+							},
 						},
 					},
 				},
