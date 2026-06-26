@@ -27,3 +27,12 @@ const LABELS: Record<string, DeviceLabel> = {
 export function labelFor(device: string): DeviceLabel {
 	return LABELS[device] ?? { name: device, airQuality: false, order: 99 };
 }
+
+/** Attach a label to each latest-per-device row and order them for the UI. */
+export function decorateDevices<T extends { device: string }>(
+	rows: T[],
+): (T & { label: DeviceLabel })[] {
+	return rows
+		.map((r) => ({ ...r, label: labelFor(r.device) }))
+		.sort((a, b) => a.label.order - b.label.order);
+}

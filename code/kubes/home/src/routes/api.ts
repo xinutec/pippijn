@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db/pool.js";
-import { labelFor } from "../labels.js";
+import { decorateDevices } from "../labels.js";
 import { MeasurementBatch, MeasurementInput } from "../measurement.js";
 
 function sensorValues(m: MeasurementInput) {
@@ -89,11 +89,8 @@ export function apiRoutes(ingestToken: string): Hono {
 					.executeTakeFirst(),
 			),
 		);
-		const out = latest
-			.filter((r): r is NonNullable<typeof r> => r != null)
-			.map((r) => ({ ...r, label: labelFor(r.device) }))
-			.sort((a, b) => a.label.order - b.label.order);
-		return c.json(out);
+		const rows = latest.filter((r): r is NonNullable<typeof r> => r != null);
+		return c.json(decorateDevices(rows));
 	});
 
 	// Public read: a time range, oldest first, for charting.

@@ -8,17 +8,11 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from './api.service';
-import {
-	type Measurement,
-	RANGE_OPTIONS,
-	ROOM_COLORS,
-	type RangeKey,
-	aqiBand,
-	cleanVoc,
-} from './measurement.model';
+import { RANGE_OPTIONS, type RangeKey, aqiBand, cleanVoc } from './measurement.model';
 import { RelativeTimePipe } from './relative-time.pipe';
+import { airSeries, climateSeries } from './series';
 import { ThemeService } from './theme.service';
-import { type ChartSeries, type TrendPoint, TrendChart } from './trend-chart/trend-chart';
+import { TrendChart } from './trend-chart/trend-chart';
 
 @Component({
 	selector: 'app-root',
@@ -73,11 +67,19 @@ export class App implements OnInit, OnDestroy {
 	protected readonly themeLabel = computed(() => `Theme: ${this.theme.mode()}`);
 
 	// Temperature & humidity: one coloured line per device, for room comparison.
-	protected readonly tempSeries = this.climateSeries((m) => m.temp_c);
-	protected readonly humiditySeries = this.climateSeries((m) => m.humidity);
+	protected readonly tempSeries = computed(() =>
+		climateSeries(this.devices(), this.api.historyByDevice(), (m) => m.temp_c),
+	);
+	protected readonly humiditySeries = computed(() =>
+		climateSeries(this.devices(), this.api.historyByDevice(), (m) => m.humidity),
+	);
 	// CO₂ & PM2.5: a single line from the air-quality device only.
-	protected readonly co2Series = this.airSeries((m) => m.co2_ppm, 'CO₂', 'var(--chart-co2)');
-	protected readonly pm25Series = this.airSeries((m) => m.pm25, 'PM2.5', 'var(--chart-pm)');
+	protected readonly co2Series = computed(() =>
+		airSeries(this.devices(), this.api.historyByDevice(), 'CO₂', 'var(--chart-co2)', (m) => m.co2_ppm),
+	);
+	protected readonly pm25Series = computed(() =>
+		airSeries(this.devices(), this.api.historyByDevice(), 'PM2.5', 'var(--chart-pm)', (m) => m.pm25),
+	);
 
 	ngOnInit(): void {
 		this.api.start();
@@ -93,49 +95,5 @@ export class App implements OnInit, OnDestroy {
 
 	protected toggleTheme(): void {
 		this.theme.toggle();
-	}
-
-	/** Project a device's history rows onto `TrendPoint`s, dropping null values. */
-	private points(rows: Measurement[], pick: (m: Measurement) => number | null): TrendPoint[] {
-		const out: TrendPoint[] = [];
-		for (const m of rows) {
-			const y = pick(m);
-			if (y == null) {
-				continue;
-			}
-			const x = new Date(m.ts).getTime();
-			if (!Number.isNaN(x)) {
-				out.push({ x, y });
-			}
-		}
-		return out;
-	}
-
-	/** One coloured line per device (UI order) for a climate metric. */
-	private climateSeries(pick: (m: Measurement) => number | null): () => ChartSeries[] {
-		return computed(() => {
-			const history = this.api.historyByDevice();
-			return this.devices().map((d, i) => ({
-				label: d.label.name,
-				color: ROOM_COLORS[i % ROOM_COLORS.length],
-				points: this.points(history[d.device] ?? [], pick),
-			}));
-		});
-	}
-
-	/** A single line from the air-quality device for an air metric. */
-	private airSeries(
-		pick: (m: Measurement) => number | null,
-		label: string,
-		color: string,
-	): () => ChartSeries[] {
-		return computed(() => {
-			const air = this.airDevice();
-			if (!air) {
-				return [];
-			}
-			const rows = this.api.historyByDevice()[air.device] ?? [];
-			return [{ label, color, points: this.points(rows, pick) }];
-		});
 	}
 }

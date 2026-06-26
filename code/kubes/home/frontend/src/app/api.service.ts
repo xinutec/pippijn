@@ -51,10 +51,14 @@ export class ApiService {
 
 	private timer: ReturnType<typeof setInterval> | null = null;
 
-	/** Load devices + history, then auto-refresh the latest per device. */
+	/** Load devices + history, then auto-refresh both on a timer. */
 	start(): void {
 		void this.init();
-		this.timer ??= setInterval(() => void this.refreshDevices(), LATEST_REFRESH_MS);
+		this.timer ??= setInterval(() => {
+			void this.refreshDevices();
+			// Quiet so the charts stay live without flashing the progress bar.
+			void this.refreshHistory(true);
+		}, LATEST_REFRESH_MS);
 	}
 
 	stop(): void {
@@ -90,7 +94,7 @@ export class ApiService {
 		}
 	}
 
-	async refreshHistory(): Promise<void> {
+	async refreshHistory(quiet = false): Promise<void> {
 		const devices = this._devices().map((d) => d.device);
 		if (devices.length === 0) {
 			this._historyByDevice.set({});
@@ -100,7 +104,9 @@ export class ApiService {
 		const to = new Date();
 		const from = new Date(to.getTime() - opt.hours * 3_600_000);
 
-		this._historyLoading.set(true);
+		if (!quiet) {
+			this._historyLoading.set(true);
+		}
 		try {
 			const entries = await Promise.all(
 				devices.map(async (device) => {
@@ -120,7 +126,9 @@ export class ApiService {
 		} catch {
 			this._historyError.set('Could not load history.');
 		} finally {
-			this._historyLoading.set(false);
+			if (!quiet) {
+				this._historyLoading.set(false);
+			}
 		}
 	}
 }
