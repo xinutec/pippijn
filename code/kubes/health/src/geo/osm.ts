@@ -1004,8 +1004,8 @@ export async function drivableRoads(lat: number, lon: number, radiusM = 600): Pr
 }
 
 /**
- * Walkable way geometry within `radiusM` of a point — the soft surface prior
- * the pedestrian smoother (`pedestrian-smooth.ts`) nudges a foot leg toward.
+ * Walkable way geometry within `radiusM` of a point — the network the
+ * pedestrian map-matcher (`pedestrian-match.ts`) snaps a foot leg onto.
  * Same shape as {@link drivableRoads} with the walkable subtype set (footways/
  * paths/pedestrian + minor roads people walk along). Ensures coverage, reads
  * the local mirror.

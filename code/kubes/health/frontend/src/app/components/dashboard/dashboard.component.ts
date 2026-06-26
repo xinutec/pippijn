@@ -144,8 +144,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	readonly tabIndex = computed(() => (this.view() === "today" ? 0 : this.view() === "trends" ? 1 : 2));
 	readonly selectedDate = signal(todayLocal());
 	/** Map toggle: snap walking legs onto the pavement network (pedestrian
-	 *  map-matching). Off renders the original smoothed/raw walks, for an A/B
-	 *  comparison. Drives `dayData`, so toggling refetches the velocity. */
+	 *  map-matching). Off renders the raw walks, for an A/B comparison. Drives
+	 *  `dayData`, so toggling refetches the velocity. */
 	readonly walkMatch = signal(true);
 	/** How many days of history the Trends tab charts span. Reflected
 	 *  into `?trendDays=N`; the default (30) is omitted for a clean URL.

@@ -19,8 +19,13 @@
  * Pure: no DB, no network. Deterministic given its inputs.
  */
 
-import type { PedStep } from "../geo/pedestrian-smooth.js";
 import type { RoadGeometry } from "../geo/road-match.js";
+
+/** Per-minute step count (Fitbit `steps_intraday` shape). */
+export interface PedStep {
+	ts: number;
+	steps: number;
+}
 
 export interface LatLon {
 	lat: number;

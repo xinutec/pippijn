@@ -172,26 +172,15 @@ function resolveEpisode(
 
 		// Pedestrian map-matching (#265): a walking leg whose covering segment
 		// carries a `walkMatchedPath` draws on the OSM walkable network (pavement
-		// / footway / residential centerline) instead of the soft-smoothed line
-		// cutting across buildings. Clipped to the state window. Preferred over
-		// the smoother; falls through to it (then raw) when the matcher bailed
-		// (off-network / fragmented graph). Same solid styling as road `matched`.
+		// / footway / residential centerline) instead of the raw GPS cutting
+		// across buildings. Clipped to the state window. Falls through to the raw
+		// track when the matcher bailed (off-network / fragmented graph). Same
+		// solid styling as road `matched`.
 		const walkMatchSeg = covering.find((s) => (s.walkMatchedPath?.length ?? 0) >= 2 && effectiveMode(s) === "walking");
 		const walkMatched = walkMatchSeg?.walkMatchedPath
 			?.filter((mp) => mp.ts >= state.startTs && mp.ts <= state.endTs)
 			.map((mp) => ({ lat: mp.lat, lon: mp.lon, ts: mp.ts }));
 		if (walkMatched && walkMatched.length >= 2) return { ...base, kind: "matched", points: walkMatched };
-
-		// Pedestrian trajectory smoother: a walking leg whose covering segment
-		// carries a `smoothedPath` (robust GPS + pedometer + anchors + soft map —
-		// the pedestrian-smoother proposal) draws that physically-precise line
-		// instead of the raw GPS zigzag. Clipped to the state window. Falls
-		// through to raw when absent (too few fixes, or fixtures predating it).
-		const walkSeg = covering.find((s) => (s.smoothedPath?.length ?? 0) >= 2 && effectiveMode(s) === "walking");
-		const smoothed = walkSeg?.smoothedPath
-			?.filter((sp) => sp.ts >= state.startTs && sp.ts <= state.endTs)
-			.map((sp) => ({ lat: sp.lat, lon: sp.lon, ts: sp.ts }));
-		if (smoothed && smoothed.length >= 2) return { ...base, kind: "smoothed", points: smoothed };
 
 		// Unmatched moving leg (walking / cycling / driving / bus / plane):
 		// draw the RAW GPS fixes, not the Kalman-smoothed `points`. Measured
@@ -203,7 +192,7 @@ function resolveEpisode(
 		// map bridges the gap with a straight chord through buildings. The raw
 		// fixes sit within a few metres of where the phone actually was and run
 		// the full length of the leg. (rawFixes absent — legacy callers, tests
-		// — keeps the smoothed path.) rejectSpikes drops lone teleports.
+		// — falls to the speed-filtered fixes below.) rejectSpikes drops lone teleports.
 		if (rawFixes) {
 			const rawWin = rejectSpikes(samplesInWindow(rawFixes, state));
 			if (rawWin.length >= 2) {

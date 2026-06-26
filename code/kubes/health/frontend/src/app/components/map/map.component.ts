@@ -71,8 +71,8 @@ export class MapComponent implements OnDestroy {
 	 *  marker. */
 	readonly liveFix = input<LatestFix | null>(null);
 	/** Two-way: snap walking legs onto the pavement network (pedestrian
-	 *  map-matching). Off renders the original smoothed/raw walks. The dashboard
-	 *  owns the velocity fetch, so toggling this refetches the day's data. */
+	 *  map-matching). Off renders the raw walks. The dashboard owns the velocity
+	 *  fetch, so toggling this refetches the day's data. */
 	readonly walkMatch = model<boolean>(true);
 	readonly mapRef = viewChild<ElementRef<HTMLDivElement>>("map");
 
@@ -81,8 +81,8 @@ export class MapComponent implements OnDestroy {
 	 *  yanks the view from under someone reading the map. */
 	readonly follow = signal(false);
 
-	/** When checked, overlay the raw GPS fixes (the input the matched / smoothed
-	 *  line is estimated from) as faint dots, so the drawn line can be compared
+	/** When checked, overlay the raw GPS fixes (the input the matched line is
+	 *  derived from) as faint dots, so the drawn line can be compared
 	 *  against where the phone actually reported. Off by default. Pure client-side
 	 *  toggle — the raw fixes are always in the response, no refetch. */
 	readonly showFixes = signal(false);
@@ -106,7 +106,7 @@ export class MapComponent implements OnDestroy {
 	 *  tap anywhere reports the nearest point's exact coordinate, time, and
 	 *  what KIND of point it is (raw GPS fix vs a derived stay centre or gap
 	 *  connector). Rebuilt on every render. */
-	private inspectPoints: { lat: number; lon: number; ts?: number; sigmaM?: number; mode: string; kind: string; place?: string }[] = [];
+	private inspectPoints: { lat: number; lon: number; ts?: number; mode: string; kind: string; place?: string }[] = [];
 	/** The `data` reference the view was last fitted to — guards against
 	 *  re-fitting (and yanking the view) on every 15s poll. */
 	private fittedTo: VelocityData | null | undefined = undefined;
@@ -187,7 +187,7 @@ export class MapComponent implements OnDestroy {
 		for (const ep of episodes) {
 			if (ep.points.length === 0) continue;
 			for (const p of ep.points) {
-				this.inspectPoints.push({ lat: p.lat, lon: p.lon, ts: p.ts, sigmaM: p.sigmaM, mode: ep.mode, kind: ep.kind, place: ep.place });
+				this.inspectPoints.push({ lat: p.lat, lon: p.lon, ts: p.ts, mode: ep.mode, kind: ep.kind, place: ep.place });
 			}
 			if (ep.kind === "anchor") {
 				prevLast = [ep.points[0].lat, ep.points[0].lon];
@@ -336,13 +336,10 @@ export class MapComponent implements OnDestroy {
 				: "—";
 		const source = MapComponent.SOURCE_LABEL[best.kind] ?? best.kind;
 		const placeLine = best.place ? `<br><i>${best.place}</i>` : "";
-			// Honest uncertainty: a smoothed walk vertex carries a posterior σ.
-			const sigmaLine =
-				best.sigmaM !== undefined ? `<br><span style="color:#64748b">±${best.sigmaM.toFixed(0)} m (estimate confidence)</span>` : "";
 		const html =
 			`<div style="font:13px/1.5 system-ui">` +
 			`<b>${coord}</b>${placeLine}<br>` +
-			`${best.mode} · ${source}${sigmaLine}<br>` +
+			`${best.mode} · ${source}<br>` +
 			`${when}<br>` +
 			`<span style="color:#64748b">${bestD < 1 ? "on this point" : `${bestD.toFixed(0)} m from your tap`}</span>` +
 			`</div>`;
@@ -354,7 +351,6 @@ export class MapComponent implements OnDestroy {
 	private static readonly SOURCE_LABEL: Record<string, string> = {
 		raw: "raw GPS fix",
 		matched: "map-matched to road",
-		smoothed: "smoothed walk (GPS + pedometer + map)",
 		snapped: "snapped to rail line",
 		anchor: "stay centre (computed average)",
 		tentative: "gap connector (inferred, no GPS)",

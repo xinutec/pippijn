@@ -126,18 +126,18 @@ export interface EpisodeGeometry {
   startTs: number;
   endTs: number;
   mode: DayState["mode"];
-  kind: "snapped" | "raw" | "anchor" | "tentative" | "matched" | "smoothed";
-  points: { lat: number; lon: number; ts?: number; sigmaM?: number }[];
+  kind: "snapped" | "raw" | "anchor" | "tentative" | "matched";
+  points: { lat: number; lon: number; ts?: number }[];
   /** Stay label for an `anchor` episode — drives the marker popup. */
   place?: string;
 }
 
 export interface VelocityData {
   points: VelocityPoint[];
-  /** The raw, accuracy-bearing GPS fixes the map-matchers + smoother consume —
-   *  the input the drawn line is estimated from. The map can overlay these so
-   *  you can see the matched/smoothed line against the actual GPS. Optional so
-   *  an older backend that omits it doesn't break the client. */
+  /** The raw, accuracy-bearing GPS fixes the map-matcher consumes — the input
+   *  the drawn line is derived from. The map can overlay these so you can see
+   *  the matched line against the actual GPS. Optional so an older backend that
+   *  omits it doesn't break the client. */
   rawFixes?: { lat: number; lon: number; ts: number; accuracy?: number | null }[];
   segments: TrackSegment[];
   /** Non-overlapping state sequence — the "your day" narrative.
@@ -309,7 +309,7 @@ export class HealthService {
   async getVelocity(date = yesterday(), signal?: AbortSignal, walkMatch = true): Promise<VelocityData> {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     // walkMatch=0 asks the server to skip pedestrian map-matching, so the map can
-    // render the original smoothed/raw walks for an A/B comparison.
+    // render the raw walks for an A/B comparison.
     const wm = walkMatch ? "" : "&walkMatch=0";
     const res = await this.fetch(`/api/velocity?date=${date}&tz=${encodeURIComponent(tz)}${wm}`, { signal });
     if (!res.ok) throw new Error("Failed to fetch velocity data");

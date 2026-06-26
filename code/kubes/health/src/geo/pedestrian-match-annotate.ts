@@ -3,20 +3,17 @@
  * analogue of `annotateRoadMatches` (#261), the proper fix for walks cutting
  * across buildings (#265 / `map-constrained-positioning`).
  *
- * The map draws a walking leg as the soft-smoothed line (`pedestrian-smooth.ts`),
- * which denoises GPS but never map-matches — on house-lined residential streets
- * the line sits where the raw GPS sits, ~10-30 m off the pavement, clipping the
- * houses. This pass reads the OSM walkable network around each walk (through the
- * `OsmAdapter`, so it records/replays deterministically like the rail/road/bus
- * passes) and runs the pedestrian matcher (`pedestrian-match.ts`) to snap the leg
- * onto the pavement/footway network. The result is attached as `walkMatchedPath`;
- * `episode-geometry` draws it as `kind:"matched"`, above `smoothedPath`.
+ * Without it the map draws a walking leg as its raw GPS, which on house-lined
+ * residential streets sits ~10-30 m off the pavement, clipping the houses. This
+ * pass reads the OSM walkable network around each walk (through the `OsmAdapter`,
+ * so it records/replays deterministically like the rail/road/bus passes) and runs
+ * the pedestrian matcher (`pedestrian-match.ts`) to snap the leg onto the
+ * pavement/footway network. The result is attached as `walkMatchedPath`;
+ * `episode-geometry` draws it as `kind:"matched"`, above the raw track.
  *
- * The query key (centroid + radius) is IDENTICAL to `annotateWalkSmoothing`'s, so
- * the `walkableRoads` lookup hits a key the golden fixtures already captured — no
- * re-capture. Purely additive: never rewrites mode or fixes, only adds display
- * geometry. The matcher's honest `null` (off-network / fragmented graph) leaves
- * `walkMatchedPath` undefined and the smoother's line draws instead.
+ * Purely additive: never rewrites mode or fixes, only adds display geometry. The
+ * matcher's honest `null` (off-network / fragmented graph) leaves
+ * `walkMatchedPath` undefined and the raw track draws instead.
  */
 
 import type { EnrichedSegment } from "./enriched-segment.js";
@@ -26,11 +23,18 @@ import { matchImprovesDisplay, type RoadFix } from "./map-match-core.js";
 import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import { matchWalkSegment } from "./pedestrian-match.js";
-import type { PedFix } from "./pedestrian-smooth.js";
 import { effectiveMode } from "./segment-util.js";
 
-/** Mirror `annotateWalkSmoothing`'s per-leg constants exactly, so the
- *  `walkableRoads` query key is identical and no golden re-capture is needed. */
+/** A raw GPS fix as drawn — the same set the raw renderer uses. */
+interface PedFix {
+	ts: number;
+	lat: number;
+	lon: number;
+	accuracy: number | null;
+}
+
+/** Per-leg constants chosen so the `walkableRoads` query key matches the keys the
+ *  golden fixtures already captured — no re-capture needed. */
 const MIN_LEG_FIXES = 4;
 const WALK_SPEED_CAP_KMH = MAX_SPEED_FOR_MODE.walking ?? 12;
 const WALK_QUERY_SLACK_M = 120;
@@ -58,9 +62,9 @@ function metersBetween(aLat: number, aLon: number, bLat: number, bLon: number): 
 /**
  * Attach `walkMatchedPath` to every walking segment the matcher can confidently
  * place on the walkable network. One `walkableRoads` query per walk (at the
- * leg's fix centroid, same key as the smoother). Returns a new segment array;
- * the input is not mutated. `WALK_MATCH_DISABLE=1` makes it a no-op (the
- * smoothed/raw baseline, for the score-walk eval).
+ * leg's fix centroid). Returns a new segment array; the input is not mutated.
+ * `WALK_MATCH_DISABLE=1` makes it a no-op (the raw baseline, for the score-walk
+ * eval).
  */
 export async function annotateWalkMatches(
 	segments: readonly EnrichedSegment[],
@@ -85,9 +89,9 @@ export async function annotateWalkMatches(
 			continue;
 		}
 
-		// Centroid + radius over `inWin` — IDENTICAL formula and input set to
-		// annotateWalkSmoothing, so the `walkableRoads` adapter key matches the
-		// smoother's captured query and the golden corpus needs no re-capture.
+		// Centroid + radius over `inWin` — the formula and input set the golden
+		// fixtures' `walkableRoads` keys were captured with, so the adapter key
+		// matches and the golden corpus needs no re-capture.
 		let sumLat = 0;
 		let sumLon = 0;
 		for (const f of inWin) {

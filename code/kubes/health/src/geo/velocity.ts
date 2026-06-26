@@ -72,7 +72,6 @@ import {
 	mergeAdjacentStays,
 } from "./passes/stays.js";
 import { annotateWalkMatches } from "./pedestrian-match-annotate.js";
-import { annotateWalkSmoothing } from "./pedestrian-smooth-annotate.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
 import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proximity.js";
@@ -1290,31 +1289,17 @@ export async function computeVelocityFromInputs(
 
 		// Pedestrian map-matching (#265): snap each walking leg onto the OSM
 		// walkable network (footway / path / pedestrian / residential…) so the
-		// map draws it on the pavement instead of the soft-smoothed line cutting
-		// across buildings. Runs before walkSmooth (independent producers — this
-		// attaches `walkMatchedPath`, the smoother `smoothedPath`); episode-
-		// geometry prefers the matched line, falling back to smoothed then raw
-		// when the matcher bails (off-network / fragmented graph). Same per-leg
-		// `walkableRoads` query key as the smoother, so no golden re-capture.
+		// map draws it on the pavement instead of the raw GPS cutting across
+		// buildings. Attaches `walkMatchedPath`; episode-geometry prefers the
+		// matched line, falling back to the raw track when the matcher bails
+		// (off-network / fragmented graph). Display geometry only — states
+		// unchanged.
 		{
 			name: "walkMatch",
 			// `options.walkMatch === false` (the /api/velocity `walkMatch=0` query
-			// param) skips matching so the map can render the original smoothed/raw
-			// walks for an A/B comparison against the pavement-matched line.
+			// param) skips matching so the map can render the raw walks for an A/B
+			// comparison against the pavement-matched line.
 			run: (segs) => (options.walkMatch === false ? segs : annotateWalkMatches(segs, displayFixes, points, inputs.osm)),
-		},
-
-		// Pedestrian trajectory smoother: a walking leg's raw GPS zigzags (slow-
-		// walk velocity is noise) and jumps on the odd 150-230 m fix. This runs
-		// the MAP smoother (robust GPS + pedometer distance + endpoint anchors +
-		// gait smoothness + soft walkable-surface prior) over each walk and
-		// attaches `smoothedPath`. Fed the raw, accuracy-bearing displayFixes
-		// (not the Kalman points, which dropped accuracy) + the per-minute steps.
-		// Purely additive — display geometry only; states unchanged. Kept as the
-		// fallback below walkMatch for off-network / fragmented-graph legs.
-		{
-			name: "walkSmooth",
-			run: (segs) => annotateWalkSmoothing(segs, displayFixes, points, steps, inputs.osm),
 		},
 
 		// Per-segment displayTz: the IANA tz the frontend should use to render

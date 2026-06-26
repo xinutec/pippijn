@@ -965,9 +965,8 @@ const WALKABLE_ROAD_SUBTYPES = [
 
 /**
  * Read the walkable way geometry around a point from the local OSM mirror —
- * the soft surface prior the pedestrian smoother (`pedestrian-smooth.ts`)
- * nudges a foot leg toward (gently, and only when nearby; see the openness
- * gate). Mirrors {@link queryDrivableRoads} exactly with the walkable subtype
+ * the network the pedestrian map-matcher (`pedestrian-match.ts`) snaps a foot
+ * leg onto. Mirrors {@link queryDrivableRoads} exactly with the walkable subtype
  * set: same local MBR query, no network.
  */
 export async function queryWalkableRoads(lat: number, lon: number, radiusM: number): Promise<OsmRoadWay[]> {

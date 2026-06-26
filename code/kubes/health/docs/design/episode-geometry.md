@@ -68,13 +68,13 @@ EpisodeGeometry = {
   startTs: number,         // copied from the state, for ordering
   endTs:   number,
   mode:    DayStateMode,   // for the mode colour
-  kind:    "snapped" | "smoothed" | "raw" | "anchor" | "tentative" | "matched",
+  kind:    "snapped" | "raw" | "anchor" | "tentative" | "matched",
   points:  { lat: number; lon: number }[],   // may be empty
 }
 ```
 
 `kind` is the *geometry provenance* and is the only style input the map
-needs — solid for `raw`/`matched`/`smoothed`, dashed for `snapped`/`tentative`, a
+needs — solid for `raw`/`matched`, dashed for `snapped`/`tentative`, a
 dot for `anchor`. There is deliberately **no** `confidence` field: the
 only confidence upstream is `EnrichedSegment.confidence`, which is
 *mode-classification* confidence (`segments.ts`), not *geometry* trust.
@@ -117,8 +117,7 @@ already uses for point bucketing; at single-user scale it is trivial.
 |-------------------------|------------|------------------------------------------------|
 | `train` w/ snappedPath  | `snapped`  | the covering train segment's `snappedPath`, time-clipped to the state window |
 | `train` w/o snappedPath | `raw`      | the train segment's own fixes (uncached routes still have real GPS — see grounding), spike-rejected |
-| `walking` w/ walkMatchedPath | `matched` | the covering walk segment's `walkMatchedPath` — the pedestrian map-matcher's pavement-snapped line (below); preferred over `smoothed` |
-| `walking` w/ smoothedPath | `smoothed` | the covering walk segment's `smoothedPath` — the pedestrian smoother's MAP estimate (below) |
+| `walking` w/ walkMatchedPath | `matched` | the covering walk segment's `walkMatchedPath` — the pedestrian map-matcher's pavement-snapped line (below) |
 | `walking`/`cycling`     | `raw`      | the state-window fixes, spike-rejected **+ speed-plausibility filtered** (below) |
 | `driving`/`bus`/`plane` | `raw`      | the state-window fixes, spike-rejected         |
 | `stationary`/`sleeping` | `anchor`   | one point — the covering segment's centroid     |
@@ -187,45 +186,23 @@ stops being mis-coloured green.
 
 ### Pavement-matched walks (`walkMatchedPath`)
 
-The soft smoother (below) *denoises* a walk but never *map-matches* it: on a
-house-lined residential street the smoothed line sits where the raw GPS sits
-(~10–30 m off the pavement), clipping the houses. `src/geo/pedestrian-match.ts`
-map-matches the walk onto the OSM **walkable** network (footway / path /
-pedestrian / residential…) the same way `road-match.ts` matches driving onto
-roads — both are thin profiles over the shared Newson-Krumm core
-`map-match-core.ts`. The walk profile drops the road turn-prior
-(`wayContinuityNats: 0` — walkers change ways at every crossing), tightens the
-candidate radius (walk GPS is closer to truth) and the length bail (a 2× detour
-is a blunder), and widens the gap-bridge (the pedestrian network is more
-fragmented). `pedestrian-match-annotate.ts` runs it per walk (same
-`walkableRoads` query key as the smoother, so no golden re-capture) and attaches
+On a house-lined residential street the raw GPS sits ~10–30 m off the pavement,
+clipping the houses. `src/geo/pedestrian-match.ts` map-matches the walk onto the
+OSM **walkable** network (footway / path / pedestrian / residential…) the same
+way `road-match.ts` matches driving onto roads — both are thin profiles over the
+shared Newson-Krumm core `map-match-core.ts`. The walk profile drops the road
+turn-prior (`wayContinuityNats: 0` — walkers change ways at every crossing),
+tightens the candidate radius (walk GPS is closer to truth) and the length bail
+(a 2× detour is a blunder), and widens the gap-bridge (the pedestrian network is
+more fragmented). `pedestrian-match-annotate.ts` runs it per walk and attaches
 `walkMatchedPath` only when the display gate (`matchImprovesDisplay`, judged on
 the drawn chords vs the walkable surface) confirms it both follows the pavement
 better than the raw line AND stays faithful to the fixes. `episode-geometry`
-prefers it (`kind:"matched"`) over `smoothed`, falling back to the smoother then
-raw when the matcher bails (off-network, or a graph too fragmented to route —
-the honest `null`). Measured (`score-walk`, off-walkable p90) on 2026-06-24: the
-home-area walks dropped from 13–25 m off-pavement to 3–6 m. This is the
-pedestrian slice of map-constrained positioning, shipped as a display layer
-ahead of the full estimator cutover.
-
-### Smoothed walks (`smoothedPath`)
-
-For walking legs the raw trace is often noisy enough that it is *not* the
-best truth. `src/geo/pedestrian-smooth.ts` computes a MAP estimate of the
-walked path with a factor-graph smoother fusing: accuracy-weighted GPS under a
-robust (Huber) loss; pedometer step-distance (PDR); endpoint anchors;
-inter-vertex smoothness; and a *soft* walkable-surface prior where building
-footprints repel vertices and an in-building fix is trust-discounted
-(`GPS_IN_BUILDING_TRUST`). It is **display-only** — `smoothedPath` never feeds
-classification — and offline-computed/cached. `pedestrian-smooth-annotate.ts`
-attaches it only when a self-checking tortuosity gate confirms the smoothed
-line beats the raw track; otherwise the episode falls back to `raw`. Measured
-on real walks 2026-06-21: step-distance error 110%→5%. (A discrete
-which-footway particle smoother is deferred — the soft prior is enough for
-display.) This is the walking counterpart of map-constrained positioning,
-which proposes the same MAP estimate as the *estimator* rather than a display
-layer.
+prefers it (`kind:"matched"`), falling back to the raw track when the matcher
+bails (off-network, or a graph too fragmented to route — the honest `null`).
+Measured (`score-walk-match`, off-walkable p90) across the golden corpus: 37
+walks improved (e.g. 55 m → 3 m), 0 regressed. This is the pedestrian slice of
+map-constrained positioning, shipped as a display layer.
 
 ### Bounding the `unknown` connector
 

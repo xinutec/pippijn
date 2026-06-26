@@ -25,9 +25,9 @@ import { computeVelocityFromInputs } from "../geo/velocity.js";
 import { type CapturedDay, inputsFromFixture, parseCapturedDay } from "./fixture-day.js";
 
 /** Every walkable way anywhere in the captured trace — the universe the drawn
- *  line is scored against. Flattened across all query keys, like the buildings
- *  in score-building-avoidance.ts. `undefined` section = fixture captured before
- *  the walkable field; treat as "no walkable data" (no matching possible). */
+ *  line is scored against, flattened across all query keys. `undefined` section
+ *  = fixture captured before the walkable field; treat as "no walkable data"
+ *  (no matching possible). */
 function allWalkable(captured: CapturedDay): OsmRoadWay[] {
 	const section = captured.inputs.osmTrace.walkableRoads;
 	if (section === undefined) return [];
