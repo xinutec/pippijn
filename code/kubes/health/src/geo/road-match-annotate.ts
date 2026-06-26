@@ -21,6 +21,7 @@ import { rejectSpikes } from "./episode-geometry.js";
 import type { FilteredPoint } from "./kalman.js";
 import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
+import { corridorWays } from "./osm-corridor.js";
 import { matchImprovesDisplay, matchRoadSegment, type RoadFix } from "./road-match.js";
 import { effectiveMode, samplesInWindow } from "./segment-util.js";
 
@@ -32,9 +33,14 @@ const ROAD_MODES: ReadonlySet<string> = new Set(["driving", "bus", "cycling"]);
  *  it for the raw renderer. */
 const MIN_LEG_FIXES = 4;
 
-/** Slack (m) added to a leg's fix-cloud radius when reading its street
- *  network, so the roads just past the leg's extent are included. */
-const ROAD_QUERY_SLACK_M = 150;
+/** Corridor sampling for the street-network read: query a small disc every
+ *  `STEP_M` along the leg and union the ways, instead of one disc around the
+ *  centroid (whose box — and the mirror's spatial scan — explode on a long
+ *  drive). The disc is `drivableRoads`'s own box (this radius + its internal
+ *  margin), wider than the matcher's reach, so the union is output-identical to
+ *  the old single disc. STEP ≈ 2× the disc radius is the cost optimum. */
+const ROAD_SAMPLE_STEP_M = 700;
+const ROAD_SAMPLE_RADIUS_M = 50;
 
 /** Confidence gate, judged on the DRAWN LINE not the fix vertices. Map-matching
  *  only helps when the raw drawn track strays off-road — but the stray is in the
@@ -49,17 +55,11 @@ const ROAD_QUERY_SLACK_M = 150;
 const NEEDS_MATCH_M = 25;
 const MATCH_MAX_STRAY_M = 40;
 
-function metersBetween(aLat: number, aLon: number, bLat: number, bLon: number): number {
-	const dLat = (bLat - aLat) * 111_320;
-	const dLon = (bLon - aLon) * 111_320 * Math.cos((((aLat + bLat) / 2) * Math.PI) / 180);
-	return Math.hypot(dLat, dLon);
-}
-
 /**
  * Attach `matchedPath` to every road-vehicle segment whose leg the matcher
- * can confidently place on the street network. One `drivableRoads` query per
- * road leg (at the leg's fix centroid). Returns a new segment array; the
- * input is not mutated.
+ * can confidently place on the street network. The street network is read in a
+ * corridor sampled along the leg ({@link corridorWays}). Returns a new segment
+ * array; the input is not mutated.
  */
 export async function annotateRoadMatches(
 	segments: readonly EnrichedSegment[],
@@ -86,26 +86,17 @@ export async function annotateRoadMatches(
 			continue;
 		}
 
-		// Query the street network around the leg's centroid, sized to reach
-		// every fix plus slack. Centroid + radius are deterministic functions
-		// of the (frozen) fixes, so the adapter key is stable across record /
-		// replay. Radius is rounded to keep the key float-stable.
-		let sumLat = 0;
-		let sumLon = 0;
-		for (const f of clean) {
-			sumLat += f.lat;
-			sumLon += f.lon;
-		}
-		const cLat = sumLat / clean.length;
-		const cLon = sumLon / clean.length;
-		let maxDist = 0;
-		for (const f of clean) {
-			const d = metersBetween(cLat, cLon, f.lat, f.lon);
-			if (d > maxDist) maxDist = d;
-		}
-		const radiusM = Math.round(maxDist + ROAD_QUERY_SLACK_M);
-
-		const ways = await osm.drivableRoads(cLat, cLon, radiusM);
+		// Read the street network in a CORRIDOR along the leg — small discs
+		// sampled down the track, unioned — not one giant disc around the
+		// centroid. Each sample is the same `drivableRoads(lat, lon, radius)` call
+		// on deterministic (frozen-fix) coordinates, so record/replay and the
+		// golden fixtures are unaffected (just several small keys per leg).
+		const ways = await corridorWays(
+			clean.map((p) => ({ lat: p.lat, lon: p.lon })),
+			(la, lo, r) => osm.drivableRoads(la, lo, r),
+			ROAD_SAMPLE_STEP_M,
+			ROAD_SAMPLE_RADIUS_M,
+		);
 		if (ways.length === 0) {
 			out.push(seg);
 			continue;
