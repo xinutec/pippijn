@@ -108,6 +108,44 @@ impl Db {
         Ok(())
     }
 
+    /// Set a conversation's display name (DM contact name or group title). No-op
+    /// for an empty name.
+    pub async fn set_conversation_name(&self, thread_id: &str, name: &str) -> Result<()> {
+        if name.is_empty() {
+            return Ok(());
+        }
+        sqlx::query("UPDATE conversations SET name = ? WHERE thread_id = ?")
+            .bind(name)
+            .bind(thread_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Record/refresh a contact. Only overwrites phone/name when a non-NULL
+    /// value is supplied, so a later sighting without a name won't wipe one.
+    pub async fn upsert_contact(
+        &self,
+        uuid: &str,
+        phone: Option<&str>,
+        name: Option<&str>,
+    ) -> Result<()> {
+        let phone = phone.filter(|s| !s.is_empty());
+        let name = name.filter(|s| !s.is_empty());
+        sqlx::query(
+            "INSERT INTO contacts (uuid, phone, profile_name) VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                phone = COALESCE(VALUES(phone), phone),
+                profile_name = COALESCE(VALUES(profile_name), profile_name)",
+        )
+        .bind(uuid)
+        .bind(phone)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Returns the new row id, or 0 if it was a duplicate (INSERT IGNORE).
     pub async fn insert_message(
         &self,
@@ -140,15 +178,17 @@ impl Db {
         content_type: Option<&str>,
         file_name: Option<&str>,
         size_bytes: Option<i64>,
+        stored_path: Option<&str>,
     ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO attachments (message_id, content_type, file_name, size_bytes)
-             VALUES (?, ?, ?, ?)",
+            "INSERT INTO attachments (message_id, content_type, file_name, size_bytes, stored_path)
+             VALUES (?, ?, ?, ?, ?)",
         )
         .bind(message_id)
         .bind(content_type)
         .bind(file_name)
         .bind(size_bytes)
+        .bind(stored_path)
         .execute(&self.pool)
         .await?;
         Ok(())

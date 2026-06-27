@@ -23,6 +23,10 @@ spec:
               value: signal
             - name: SIGNAL_API_WS
               value: ws://signal-cli-rest-api:8080
+            - name: SIGNAL_API_HTTP
+              value: http://signal-cli-rest-api:8080
+            - name: ATTACHMENTS_DIR
+              value: /attachments
             - name: DB_USER
               valueFrom:
                 secretKeyRef: { name: signal-secret, key: DB_USER }
@@ -38,3 +42,10 @@ spec:
             requests:
               cpu: 50m
               memory: 64Mi
+          volumeMounts:
+            - name: attachments
+              mountPath: /attachments
+      volumes:
+        - name: attachments
+          persistentVolumeClaim:
+            claimName: signal-attachments-pvc

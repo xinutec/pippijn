@@ -22,3 +22,15 @@ spec:
   resources:
     requests:
       storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # Downloaded attachment blobs (images/voice/etc.), keyed by attachment id.
+  name: signal-attachments-pvc
+  namespace: signal
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
