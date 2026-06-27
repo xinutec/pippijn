@@ -177,7 +177,7 @@ describeWithFixture("buildEpisodes — train-tail bleed into a walk (real data)"
 	beforeAll(async () => {
 		inputs = inputsFromFixture(captured);
 		result = await computeVelocityFromInputs(inputs);
-	});
+	}, 30_000); // full-day fixture replay (walkMatch et al.) runs 3-8s; 10s is flaky under load
 
 	function speedOf(p: { lat: number; lon: number }): number | undefined {
 		return result.points.find((f) => f.lat === p.lat && f.lon === p.lon)?.speed_kmh;

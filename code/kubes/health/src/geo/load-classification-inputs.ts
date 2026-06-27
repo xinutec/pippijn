@@ -43,6 +43,11 @@ import { dateBoundsUtc } from "./timezone.js";
 import { loadBiometrics } from "./velocity.js";
 import type { VenuePriors } from "./venue-prior.js";
 
+/** How far past the local day end to look for the battery-chart tail anchor.
+ *  18 h reaches the next morning (covers an overnight idle/charge) without
+ *  drawing a misleading slope to a reading days later when the phone was off. */
+const BATTERY_TAIL_LOOKAHEAD_H = 18;
+
 /** Load the full `ClassificationInputs` closure for one day from the
  *  production data sources. The Promise resolves to a serialisable
  *  value the pipeline can consume; nothing in the value holds a DB
@@ -70,15 +75,27 @@ export async function loadClassificationInputs(
 	const nextDayMorningEnd = `${nextDay}T12:00:00Z`;
 	const prevDayEveningStart = `${prevDay}T12:00:00Z`;
 
-	// PhoneTrack: open once, three parallel range fetches. Mirrors the
-	// pattern at velocity.ts:537-544 — three windows off one session
-	// context, same call shape.
+	// Battery-tail look-ahead: the local day end (`bounds.endUtc`) up to
+	// BATTERY_TAIL_LOOKAHEAD_H later. Captures the first reading after the day
+	// when the phone went idle in the evening (charging) and only reported
+	// again in the small hours — a window neither `today` (ends at local
+	// midnight) nor `morning` (starts at next UTC midnight) covers.
+	const dayEndIso = new Date(bounds.endUtc * 1000).toISOString();
+	const tailEndIso = new Date((bounds.endUtc + BATTERY_TAIL_LOOKAHEAD_H * 3600) * 1000).toISOString();
+
+	// PhoneTrack: open once, parallel range fetches. Mirrors the pattern at
+	// velocity.ts:537-544 — windows off one session context, same call shape.
 	const phoneTrackCtx = await openPhoneTrack(config, userId);
-	const [today, morning, priorEvening] = await Promise.all([
+	const [today, morning, priorEvening, afterDay] = await Promise.all([
 		fetchTrackPointsRange(phoneTrackCtx, date, nextDay),
 		fetchTrackPointsRange(phoneTrackCtx, nextDay, nextDayMorningEnd),
 		fetchTrackPointsRange(phoneTrackCtx, prevDayEveningStart, date),
+		fetchTrackPointsRange(phoneTrackCtx, dayEndIso, tailEndIso),
 	]);
+	// `afterDay` is ascending by ts (fetchTrackPointsRange sorts), so the first
+	// battery-bearing fix is the earliest reading after the day end.
+	const tailFix = (afterDay as RawPhonetrackFix[]).find((p) => p.battery !== null);
+	const batteryTail = tailFix ? { ts: tailFix.ts, level: tailFix.battery as number } : null;
 
 	// Eager DB reads in parallel — known places, mode biometrics, and
 	// the per-day biometric streams. The biometric loader does its own
@@ -120,6 +137,7 @@ export async function loadClassificationInputs(
 			morning: morning as RawPhonetrackFix[],
 			priorEvening: priorEvening as RawPhonetrackFix[],
 		},
+		batteryTail,
 		knownPlaces,
 		biometrics,
 		modeBiometrics,

@@ -6,7 +6,7 @@ import { annotateRailRuns, expandTubeLineNames } from "../src/geo/passes/rail-ru
 import { attachStayCentroids, mergeAdjacentStays, planJitterStayRuns } from "../src/geo/passes/stays.js";
 import type { TransportMode } from "../src/geo/segments.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
-import { batterySeries } from "../src/geo/velocity.js";
+import { appendBatteryTail, batterySeries } from "../src/geo/velocity.js";
 
 describe("mergeAdjacentSameRouteTrains", () => {
 	const train = (startTs: number, endTs: number, wayName: string): EnrichedSegment =>
@@ -1285,6 +1285,29 @@ describe("batterySeries", () => {
 			{ ts: 50, level: 85 },
 			{ ts: 60, level: 85 },
 		]);
+	});
+
+	it("appendBatteryTail extends a non-empty series with a later tail anchor", () => {
+		const series = [
+			{ ts: 0, level: 100 },
+			{ ts: 100, level: 4 },
+		];
+		// Phone idle/charging in the evening; next real reading is overnight.
+		expect(appendBatteryTail(series, { ts: 30000, level: 80 })).toEqual([
+			{ ts: 0, level: 100 },
+			{ ts: 100, level: 4 },
+			{ ts: 30000, level: 80 },
+		]);
+	});
+
+	it("appendBatteryTail is a no-op without a tail, an empty series, or a non-later tail", () => {
+		const series = [{ ts: 100, level: 4 }];
+		expect(appendBatteryTail(series, null)).toEqual(series);
+		expect(appendBatteryTail(series, undefined)).toEqual(series);
+		expect(appendBatteryTail([], { ts: 200, level: 80 })).toEqual([]);
+		// A tail at or before the last sample's ts is ignored (no backwards line).
+		expect(appendBatteryTail(series, { ts: 100, level: 80 })).toEqual(series);
+		expect(appendBatteryTail(series, { ts: 50, level: 80 })).toEqual(series);
 	});
 
 	it("collapses a same-timestamp burst to its first sample", () => {

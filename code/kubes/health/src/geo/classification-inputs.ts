@@ -136,6 +136,15 @@ export interface EmptyDayBracket {
 export interface ClassificationInputs {
 	identity: DayIdentity;
 	phonetrack: PhonetrackWindows;
+	/** First phone-battery reading strictly after the local day end (within a
+	 *  bounded look-ahead), or null. Lets the battery chart draw an angled line
+	 *  from the day's last reading up to the next real point when the phone went
+	 *  idle in the evening (e.g. charging) and stopped reporting — the next
+	 *  reading then falls in the early hours of the following day. It lands in
+	 *  the local-day-end..next-UTC-midnight gap that neither `today` nor
+	 *  `morning` cover, so it is fetched separately. Display-only; optional, so
+	 *  fixtures predating it replay with no tail (a no-op). */
+	batteryTail?: { ts: number; level: number } | null;
 	knownPlaces: KnownPlaceProjection[];
 	biometrics: BiometricsSnapshot;
 	modeBiometrics: ModeStats[];

@@ -487,6 +487,24 @@ export function batterySeries(points: { ts: number; battery: number | null }[]):
 	});
 }
 
+/**
+ * Append a trailing battery anchor — the first reading after the local day end
+ * (fetched cross-day as `inputs.batteryTail`) — so the chart slopes from the
+ * day's last in-day reading up to it, instead of stopping dead when the phone
+ * went idle in the evening (e.g. charging) and only reported again overnight.
+ * No-op when there is no tail, no in-day series to extend, or the tail does not
+ * postdate the last sample.
+ */
+export function appendBatteryTail(
+	series: BatterySample[],
+	tail: { ts: number; level: number } | null | undefined,
+): BatterySample[] {
+	if (!tail || series.length === 0) return series;
+	const last = series[series.length - 1];
+	if (tail.ts <= last.ts) return series;
+	return [...series, { ts: tail.ts, level: tail.level }];
+}
+
 export interface VelocityResult {
 	points: FilteredPoint[];
 	/** The raw, accuracy-bearing GPS fixes the map-matchers + smoother actually
@@ -576,8 +594,10 @@ export async function computeVelocityFromInputs(
 
 	// Battery trace: derived straight from the raw in-day fixes, before
 	// the GPS quality / accuracy filters touch them — a fix dropped for
-	// an incoherent position still carries a valid battery reading.
-	const battery = batterySeries(inDay);
+	// an incoherent position still carries a valid battery reading. The
+	// cross-day tail anchor lets the chart slope up to the next real reading
+	// when the phone went idle in the evening (see `appendBatteryTail`).
+	const battery = appendBatteryTail(batterySeries(inDay), inputs.batteryTail);
 
 	// GPS quality control: drop physically-incoherent runs (underground
 	// cell-tower garbage) before anything else touches the data. The
