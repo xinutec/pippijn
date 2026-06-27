@@ -73,13 +73,43 @@ export function resamplePolyline(track: readonly LL[], stepM: number, maxSamples
  * along it (each a `query(lat, lon, radiusM)` call) and unioning by `osmId`.
  * Queries run sequentially so a cold area's coverage fetch isn't fired in
  * parallel. `query` is `osm.drivableRoads` (roads) or `osm.walkableRoads` (walks).
+ *
+ * Sampling only pays off when the single centroid disc would be LARGE (and thus
+ * a slow spatial scan). For a SHORT leg — every walk and short drive — one disc
+ * is already small and fast, so sampling would just multiply the query count
+ * (the bug that made walk-heavy days slow). So below {@link SINGLE_DISC_MAX_DIST_M}
+ * (max fix-to-centroid distance) this does the single centroid disc instead.
  */
+const SINGLE_DISC_MAX_DIST_M = 600;
+const SINGLE_DISC_SLACK_M = 150;
 export async function corridorWays(
 	track: readonly LL[],
 	query: (lat: number, lon: number, radiusM: number) => Promise<OsmRoadWay[]>,
 	stepM: number,
 	radiusM: number,
 ): Promise<OsmRoadWay[]> {
+	if (track.length === 0) return [];
+
+	// Centroid + the farthest fix from it: how big a single disc would need to be.
+	let sumLat = 0;
+	let sumLon = 0;
+	for (const f of track) {
+		sumLat += f.lat;
+		sumLon += f.lon;
+	}
+	const cLat = sumLat / track.length;
+	const cLon = sumLon / track.length;
+	let maxDist = 0;
+	for (const f of track) {
+		const d = metersBetween({ lat: cLat, lon: cLon }, f);
+		if (d > maxDist) maxDist = d;
+	}
+	// Short leg → one cheap disc (sampling would only add round-trips).
+	if (maxDist <= SINGLE_DISC_MAX_DIST_M) {
+		return query(cLat, cLon, Math.round(maxDist + SINGLE_DISC_SLACK_M));
+	}
+
+	// Long leg → corridor of small discs sampled down the track, unioned.
 	const samples = resamplePolyline(track, stepM);
 	const byId = new Map<number, OsmRoadWay>();
 	for (const s of samples) {

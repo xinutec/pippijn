@@ -45,8 +45,15 @@ describe("resamplePolyline", () => {
 	});
 });
 
+// A ~3 km leg: max fix-to-centroid distance ~1.5 km, past the single-disc
+// threshold, so corridorWays samples it.
+const NORTH_3KM = [
+	{ lat: 0, lon: 0 },
+	{ lat: 0.027, lon: 0 },
+];
+
 describe("corridorWays", () => {
-	it("unions ways across samples and dedups by osmId", async () => {
+	it("samples a long leg, unioning ways across samples and deduping by osmId", async () => {
 		// Each sample returns a SHARED way (id 1) plus one UNIQUE way keyed on the
 		// sample's latitude — so the union is 1 + (#distinct samples).
 		const seenLats = new Set<number>();
@@ -58,16 +65,28 @@ describe("corridorWays", () => {
 			];
 		});
 
-		const ways = await corridorWays(NORTH_1KM, query, 300, 50);
+		const ways = await corridorWays(NORTH_3KM, query, 300, 50);
 
 		expect(query.mock.calls.length).toBeGreaterThanOrEqual(4);
 		expect(ways.filter((w) => w.osmId === 1)).toHaveLength(1); // shared kept once
 		expect(ways).toHaveLength(1 + seenLats.size);
 	});
 
-	it("passes the given per-sample radius through to the query", async () => {
+	it("passes the given per-sample radius through to the query (long leg)", async () => {
 		const query = vi.fn(async (_lat: number, _lon: number, _radiusM: number): Promise<OsmRoadWay[]> => []);
-		await corridorWays(NORTH_1KM, query, 300, 77);
+		await corridorWays(NORTH_3KM, query, 300, 77);
+		expect(query.mock.calls.length).toBeGreaterThan(1);
 		for (const call of query.mock.calls) expect(call[2]).toBe(77);
+	});
+
+	it("uses a SINGLE centroid disc for a short leg (no sampling)", async () => {
+		const query = vi.fn(async (_lat: number, _lon: number, _radiusM: number): Promise<OsmRoadWay[]> => []);
+		await corridorWays(NORTH_1KM, query, 300, 50); // ~500 m max from centroid → single disc
+		expect(query.mock.calls).toHaveLength(1);
+		const [lat, lon, radius] = query.mock.calls[0];
+		expect(lat).toBeCloseTo(0.0045, 4); // the centroid
+		expect(lon).toBeCloseTo(0, 6);
+		expect(radius).toBeGreaterThan(600); // ~maxDist(500) + slack(150)
+		expect(radius).toBeLessThan(750);
 	});
 });
