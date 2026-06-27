@@ -80,6 +80,13 @@ export class App implements OnInit, OnDestroy {
 	protected readonly pm25Series = computed(() =>
 		airSeries(this.devices(), this.api.historyByDevice(), 'PM2.5', 'var(--chart-pm)', (m) => m.pm25),
 	);
+	// Bluetooth signal (dBm): one line per device that reports rssi (the Govee
+	// sensors); empty series (e.g. the wired IQAir) are dropped.
+	protected readonly rssiSeries = computed(() =>
+		climateSeries(this.devices(), this.api.historyByDevice(), (m) => m.rssi).filter(
+			(s) => s.points.length > 0,
+		),
+	);
 
 	ngOnInit(): void {
 		this.api.start();

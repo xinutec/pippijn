@@ -150,11 +150,7 @@
 						<div class="room-foot">
 							<span class="room-updated">{{ d.ts | relativeTime }}</span>
 							@if (d.battery != null) {
-								<span
-									class="room-battery"
-									[class.low]="d.battery <= 20"
-									[matTooltip]="d.rssi != null ? 'Signal ' + d.rssi + ' dBm' : 'Battery'"
-								>
+								<span class="room-battery" [class.low]="d.battery <= 20" matTooltip="Battery">
 									<mat-icon>{{ d.battery <= 20 ? 'battery_alert' : 'battery_full' }}</mat-icon>
 									{{ d.battery }}%
 								</span>
@@ -211,6 +207,13 @@
 				[decimals]="1"
 				[spanMs]="spanMs()"
 				[series]="pm25Series()"
+			/>
+			<app-trend-chart
+				title="Bluetooth signal"
+				unit="dBm"
+				[decimals]="0"
+				[spanMs]="spanMs()"
+				[series]="rssiSeries()"
 			/>
 		</section>
 	}
