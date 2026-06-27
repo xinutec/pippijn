@@ -35,6 +35,22 @@ describe("MeasurementInput", () => {
 	it("rejects a malformed timestamp", () => {
 		expect(MeasurementInput.safeParse({ ts: "yesterday" }).success).toBe(false);
 	});
+
+	it("accepts Govee device-health fields (battery, rssi)", () => {
+		const r = MeasurementInput.parse({
+			device: "govee-A562",
+			temp_c: 25,
+			humidity: 58,
+			battery: 100,
+			rssi: -62,
+		});
+		expect(r.battery).toBe(100);
+		expect(r.rssi).toBe(-62);
+	});
+
+	it("rejects an out-of-range battery", () => {
+		expect(MeasurementInput.safeParse({ battery: 150 }).success).toBe(false);
+	});
 });
 
 describe("MeasurementBatch", () => {

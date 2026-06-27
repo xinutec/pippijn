@@ -11,6 +11,8 @@ export interface MeasurementTable {
 	pm10: number | null;
 	aqi_us: number | null;
 	voc_ppb: number | null;
+	battery: number | null;
+	rssi: number | null;
 }
 
 export interface SchemaVersionTable {

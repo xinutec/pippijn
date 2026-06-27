@@ -342,9 +342,34 @@
 	height: 17px;
 }
 
+.room-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+}
+
 .room-updated {
 	font: var(--mat-sys-label-small);
 	color: var(--mat-sys-on-surface-variant);
+}
+
+.room-battery {
+	display: flex;
+	align-items: center;
+	gap: 0.15rem;
+	font: var(--mat-sys-label-small);
+	color: var(--mat-sys-on-surface-variant);
+}
+
+.room-battery mat-icon {
+	font-size: 16px;
+	width: 16px;
+	height: 16px;
+}
+
+.room-battery.low {
+	color: var(--mat-sys-error);
 }
 
 /* Range selector ---------------------------------------------------- */

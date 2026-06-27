@@ -146,7 +146,19 @@
 								{{ d.humidity != null ? (d.humidity | number: '1.0-0') : '—' }}%
 							</span>
 						</div>
-						<div class="room-updated">{{ d.ts | relativeTime }}</div>
+						<div class="room-foot">
+							<span class="room-updated">{{ d.ts | relativeTime }}</span>
+							@if (d.battery != null) {
+								<span
+									class="room-battery"
+									[class.low]="d.battery <= 20"
+									[matTooltip]="d.rssi != null ? 'Signal ' + d.rssi + ' dBm' : 'Battery'"
+								>
+									<mat-icon>{{ d.battery <= 20 ? 'battery_alert' : 'battery_full' }}</mat-icon>
+									{{ d.battery }}%
+								</span>
+							}
+						</div>
 					</mat-card>
 				}
 			</div>

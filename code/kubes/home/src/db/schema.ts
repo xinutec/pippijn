@@ -19,6 +19,12 @@ const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (device, ts),
     INDEX idx_measurement_ts (ts)
   )`,
+	// v2: device-health columns from the Govee BLE sensors. battery % (0-100) and
+	// BLE signal strength (rssi, dBm, negative). Nullable — the IQAir reports
+	// neither over its push.
+	`ALTER TABLE measurement
+    ADD COLUMN battery INT,
+    ADD COLUMN rssi INT`,
 ];
 
 export async function migrate(conn: mariadb.Connection): Promise<void> {

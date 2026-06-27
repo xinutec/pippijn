@@ -13,6 +13,8 @@ function sensorValues(m: MeasurementInput) {
 		pm10: m.pm10 ?? null,
 		aqi_us: m.aqi_us ?? null,
 		voc_ppb: m.voc_ppb ?? null,
+		battery: m.battery ?? null,
+		rssi: m.rssi ?? null,
 	};
 }
 

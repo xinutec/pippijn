@@ -13,6 +13,8 @@ function reading(over: Partial<Measurement>): Measurement {
 		pm10: null,
 		aqi_us: null,
 		voc_ppb: null,
+		battery: null,
+		rssi: null,
 		...over,
 	};
 }

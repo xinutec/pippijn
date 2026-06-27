@@ -15,6 +15,9 @@ export const MeasurementInput = z.object({
 	pm10: z.number().min(0).nullable().optional(),
 	aqi_us: z.number().int().min(0).nullable().optional(),
 	voc_ppb: z.number().int().nullable().optional(),
+	// Device health from the Govee BLE sensors: battery % and BLE signal (dBm).
+	battery: z.number().int().min(0).max(100).nullable().optional(),
+	rssi: z.number().int().nullable().optional(),
 });
 
 export type MeasurementInput = z.infer<typeof MeasurementInput>;

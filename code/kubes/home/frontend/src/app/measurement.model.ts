@@ -10,6 +10,8 @@ export interface Measurement {
 	pm10: number | null;
 	aqi_us: number | null;
 	voc_ppb: number | null;
+	battery: number | null;
+	rssi: number | null;
 }
 
 /** Display overlay for a device, as returned alongside its latest reading. */
