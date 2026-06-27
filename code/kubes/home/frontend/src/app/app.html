@@ -137,6 +137,7 @@
 								<mat-icon class="room-air" matTooltip="Air-quality sensor">eco</mat-icon>
 							}
 						</div>
+						<div class="room-type">{{ d.label.type }}</div>
 						<div class="room-readings">
 							<span class="room-temp">
 								{{ d.temp_c != null ? (d.temp_c | number: '1.1-1') : '—' }}°

@@ -11,21 +11,23 @@ export interface DeviceLabel {
 	airQuality: boolean;
 	/** UI sort order; lower sorts first. */
 	order: number;
+	/** Hardware model — static per device (the BLE-reported model / device type). */
+	type: string;
 }
 
 // The air-quality sensor first, then the four Govee climate sensors. Set each
 // Govee `name` to its room once placed; until then it shows its device id.
 const LABELS: Record<string, DeviceLabel> = {
-	airvisual: { name: "IQAir", airQuality: true, order: 0 },
-	"govee-A562": { name: "govee-A562", airQuality: false, order: 1 },
-	"govee-525D": { name: "govee-525D", airQuality: false, order: 2 },
-	"govee-B7AC": { name: "govee-B7AC", airQuality: false, order: 3 },
-	"govee-267F": { name: "govee-267F", airQuality: false, order: 4 },
+	airvisual: { name: "IQAir", airQuality: true, order: 0, type: "IQAir AirVisual Pro" },
+	"govee-A562": { name: "govee-A562", airQuality: false, order: 1, type: "Govee H5075" },
+	"govee-525D": { name: "govee-525D", airQuality: false, order: 2, type: "Govee H5075" },
+	"govee-B7AC": { name: "govee-B7AC", airQuality: false, order: 3, type: "Govee H5075" },
+	"govee-267F": { name: "govee-267F", airQuality: false, order: 4, type: "Govee H5103" },
 };
 
 /** Label for a device id, falling back to the raw id for unmapped sensors. */
 export function labelFor(device: string): DeviceLabel {
-	return LABELS[device] ?? { name: device, airQuality: false, order: 99 };
+	return LABELS[device] ?? { name: device, airQuality: false, order: 99, type: "Unknown" };
 }
 
 /** Attach a label to each latest-per-device row and order them for the UI. */

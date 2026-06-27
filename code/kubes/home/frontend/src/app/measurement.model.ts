@@ -19,6 +19,7 @@ export interface DeviceLabel {
 	name: string;
 	airQuality: boolean;
 	order: number;
+	type: string;
 }
 
 /** A device's most recent reading plus its display label (from `/api/devices`). */

@@ -20,7 +20,7 @@ function reading(over: Partial<Measurement>): Measurement {
 }
 
 function dev(device: string, airQuality: boolean, order: number): DeviceLatest {
-	return { ...reading({ device }), label: { name: device, airQuality, order } };
+	return { ...reading({ device }), label: { name: device, airQuality, order, type: "test" } };
 }
 
 describe('toTrendPoints', () => {

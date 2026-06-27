@@ -6,6 +6,7 @@ describe("labelFor", () => {
 		const l = labelFor("airvisual");
 		expect(l.airQuality).toBe(true);
 		expect(l.order).toBe(0);
+		expect(l.type).toBe("IQAir AirVisual Pro");
 	});
 
 	it("treats Govee sensors as climate-only", () => {
@@ -19,6 +20,7 @@ describe("labelFor", () => {
 		expect(l.name).toBe("govee-FFFF");
 		expect(l.airQuality).toBe(false);
 		expect(l.order).toBe(99);
+		expect(l.type).toBe("Unknown");
 	});
 });
 
