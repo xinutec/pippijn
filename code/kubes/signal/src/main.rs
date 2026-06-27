@@ -12,8 +12,8 @@
 //! Signal → Settings → Linked devices.
 //!
 //! Config via env: DB_HOST, DB_PORT (3306), DB_NAME, DB_USER, DB_PASSWORD,
-//! SIGNAL_STORE_PATH (/data/store), SIGNAL_DEVICE_NAME (signal-archiver),
-//! STORE_PASSPHRASE (optional — encrypts the local presage store).
+//! SIGNAL_STORE_URL (sqlite:///data/signal.db), SIGNAL_DEVICE_NAME
+//! (signal-archiver), STORE_PASSPHRASE (optional — sqlcipher-encrypts the store).
 
 mod db;
 
@@ -29,7 +29,7 @@ use presage::model::identity::OnNewIdentity;
 use presage::model::messages::Received;
 use presage::store::Thread;
 use presage::Manager;
-use presage_store_sled::{MigrationConflictStrategy, SledStore};
+use presage_store_sqlite::SqliteStore;
 
 use db::Db;
 
@@ -44,21 +44,18 @@ async fn main() -> Result<()> {
 
     let link_only = matches!(std::env::args().nth(1).as_deref(), Some("link"));
 
-    let store_path = env_or("SIGNAL_STORE_PATH", "/data/store");
+    let store_url = env_or("SIGNAL_STORE_URL", "sqlite:///data/signal.db");
     let device_name = env_or("SIGNAL_DEVICE_NAME", "signal-archiver");
     let passphrase = std::env::var("STORE_PASSPHRASE").ok().filter(|s| !s.is_empty());
 
-    let store = SledStore::open_with_passphrase(
-        &store_path,
-        passphrase,
-        MigrationConflictStrategy::Raise,
-        OnNewIdentity::Trust,
-    )
-    .await
-    .context("opening sled store")?;
-
-    // Load the existing registration, or link as a new secondary device.
-    let manager = match Manager::load_registered(store.clone()).await {
+    // SqliteStore::open creates the DB if missing. Load the existing
+    // registration, or link as a new secondary device. The store is consumed by
+    // load_registered, so reopen it for the linking path (SqliteStore is cheap
+    // to open and this avoids relying on Clone).
+    let store = SqliteStore::open_with_passphrase(&store_url, passphrase.as_deref(), OnNewIdentity::Trust)
+        .await
+        .context("opening sqlite store")?;
+    let manager = match Manager::load_registered(store).await {
         Ok(m) => {
             if link_only {
                 tracing::info!("already linked; nothing to do");
@@ -69,6 +66,9 @@ async fn main() -> Result<()> {
         }
         Err(_) => {
             tracing::info!("not linked yet — starting secondary-device linking");
+            let store = SqliteStore::open_with_passphrase(&store_url, passphrase.as_deref(), OnNewIdentity::Trust)
+                .await
+                .context("reopening sqlite store for linking")?;
             let m = link(store, device_name).await?;
             tracing::info!("linked successfully");
             if link_only {
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
     receive_loop(manager, db).await
 }
 
-async fn link(store: SledStore, device_name: String) -> Result<Manager<SledStore, Registered>> {
+async fn link(store: SqliteStore, device_name: String) -> Result<Manager<SqliteStore, Registered>> {
     let (tx, rx) = oneshot::channel();
     let (res, _) = future::join(
         Manager::link_secondary_device(store, SignalServers::Production, device_name, tx),
@@ -106,7 +106,7 @@ async fn link(store: SledStore, device_name: String) -> Result<Manager<SledStore
 }
 
 /// Stream messages forever, reconnecting when the websocket drops.
-async fn receive_loop(mut manager: Manager<SledStore, Registered>, db: Db) -> Result<()> {
+async fn receive_loop(mut manager: Manager<SqliteStore, Registered>, db: Db) -> Result<()> {
     loop {
         match manager.receive_messages().await {
             Ok(stream) => {
@@ -143,7 +143,7 @@ async fn handle(db: &Db, content: &Content) -> Result<()> {
     let ts = content.metadata.timestamp as i64;
 
     let (thread_id, kind) = match Thread::try_from(content) {
-        Ok(Thread::Contact(uuid)) => (format!("dm:{uuid}"), "dm"),
+        Ok(Thread::Contact(service_id)) => (format!("dm:{}", service_id.raw_uuid()), "dm"),
         Ok(Thread::Group(key)) => (format!("group:{}", hex::encode(key)), "group"),
         Err(_) => (format!("dm:{sender}"), "dm"),
     };

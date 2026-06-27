@@ -26,8 +26,8 @@ spec:
               value: signal-db
             - name: DB_NAME
               value: signal
-            - name: SIGNAL_STORE_PATH
-              value: /data/store
+            - name: SIGNAL_STORE_URL
+              value: sqlite:///data/signal.db
             - name: DB_USER
               valueFrom:
                 secretKeyRef: { name: signal-secret, key: DB_USER }

@@ -5,11 +5,15 @@ edition = "2021"
 description = "Links as a Signal secondary device and archives received messages to MariaDB"
 
 [dependencies]
-# presage is git-only (not on crates.io). Pinned to the 0.7.0 release tag so a
-# `cargo update` can't silently pull a protocol-incompatible API. libsignal is
-# re-exported as `presage::libsignal_service` — never depend on it separately.
-presage = { git = "https://github.com/whisperfish/presage", tag = "0.7.0" }
-presage-store-sled = { git = "https://github.com/whisperfish/presage", tag = "0.7.0" }
+# presage is git-only (not on crates.io). Pinned to a specific main commit so a
+# `cargo update` can't silently pull a protocol-incompatible API. The 0.7.0 tag
+# (May 2025, libsignal v0.56.1) is too old: Signal's server rejects linking with
+# HTTP 409 (missing capabilities). This commit (2026-06-12) bumps libsignal to
+# v0.86.6 and includes #386 "Bump libsignal-service to fix linking". sled was
+# deleted at this commit (#350) — the store is now sqlite (sqlcipher-encrypted).
+# libsignal is re-exported as `presage::libsignal_service` — never depend on it directly.
+presage = { git = "https://github.com/whisperfish/presage", rev = "94208274ef7218dfe4af5603a0b9be6e275c0a1a" }
+presage-store-sqlite = { git = "https://github.com/whisperfish/presage", rev = "94208274ef7218dfe4af5603a0b9be6e275c0a1a" }
 
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"

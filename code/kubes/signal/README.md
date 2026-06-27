@@ -22,8 +22,12 @@ unique per sender — so history and live overlap safely.
 ## Why presage / Rust
 One self-contained binary is *both* the Signal client and the DB writer (no
 `signal-cli` JVM, no REST shim). Trade-off: presage is a community library that
-tracks the Signal protocol, so it's pinned to tag **`0.7.0`** in `Cargo.toml` —
-a future `cargo update` can't silently pull a breaking API. Bump deliberately.
+tracks the Signal protocol, so it's pinned to a specific **main commit** in
+`Cargo.toml` — a future `cargo update` can't silently pull a breaking API. Bump
+deliberately. (The 0.7.0 release tag is too old — Signal's server rejects its
+linking with HTTP 409 / missing capabilities; the pinned commit carries the
+libsignal bump that fixes it. sled was removed upstream, so the local store is
+sqlite, sqlcipher-encrypted.)
 
 ## Components
 - `src/main.rs` — link / receive loop (reconnects on websocket drop).
