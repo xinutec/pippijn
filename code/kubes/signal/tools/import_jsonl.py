@@ -186,11 +186,12 @@ def main():
                 if dry:
                     stats["messages"] += 1
                 else:
+                    deleted = 1 if "remoteDeletedMessage" in item else 0
                     cur.execute(
                         "INSERT IGNORE INTO messages "
-                        "(thread_id, sender_uuid, server_ts, body, quote_target_ts, is_outgoing) "
-                        "VALUES (%s,%s,%s,%s,%s,%s)",
-                        (thread_id, sender, ts, body, quote, 1 if is_out else 0))
+                        "(thread_id, sender_uuid, server_ts, body, quote_target_ts, is_outgoing, deleted) "
+                        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                        (thread_id, sender, ts, body, quote, 1 if is_out else 0, deleted))
                     if cur.rowcount == 0:
                         stats["dups"] += 1
                         continue

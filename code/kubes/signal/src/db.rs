@@ -58,6 +58,11 @@ const MIGRATIONS: &[&str] = &[
         removed TINYINT(1) NOT NULL DEFAULT 0,
         UNIQUE KEY uniq_reaction (author_uuid, target_ts, reaction_ts)
     )",
+    // v5: deletion tracking. When a sender "deletes for everyone", we KEEP the
+    // archived message and just flag it — the content is never removed.
+    r"ALTER TABLE messages
+        ADD COLUMN deleted TINYINT(1) NOT NULL DEFAULT 0,
+        ADD COLUMN deleted_at TIMESTAMP NULL",
 ];
 
 #[derive(Clone)]
@@ -170,6 +175,20 @@ impl Db {
         .execute(&self.pool)
         .await?;
         Ok(res.last_insert_id())
+    }
+
+    /// Flag an archived message as deleted-for-everyone (content is kept).
+    /// Returns the number of rows marked (0 if we never archived the original).
+    pub async fn mark_deleted(&self, sender_uuid: &str, target_ts: i64) -> Result<u64> {
+        let res = sqlx::query(
+            "UPDATE messages SET deleted = 1, deleted_at = CURRENT_TIMESTAMP \
+             WHERE sender_uuid = ? AND server_ts = ? AND deleted = 0",
+        )
+        .bind(sender_uuid)
+        .bind(target_ts)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
     }
 
     pub async fn insert_attachment(

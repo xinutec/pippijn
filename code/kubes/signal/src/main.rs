@@ -169,6 +169,20 @@ async fn store(
     };
     ctx.db.upsert_conversation(&thread_id, kind).await?;
 
+    // "Delete for everyone": flag the archived original (we keep its content);
+    // do NOT insert a row for the delete event itself.
+    if let Some(rd) = msg.get("remoteDelete") {
+        if let Some(target) = rd
+            .get("targetSentTimestamp")
+            .or_else(|| rd.get("timestamp"))
+            .and_then(Value::as_i64)
+        {
+            let n = ctx.db.mark_deleted(sender, target).await?;
+            tracing::info!("remote-delete flagged {n} message(s) (sender={sender}, ts={target})");
+        }
+        return Ok(());
+    }
+
     // A reaction carries no body of its own.
     if let Some(reaction) = msg.get("reaction") {
         if let Some(target) = reaction.get("targetSentTimestamp").and_then(Value::as_i64) {
