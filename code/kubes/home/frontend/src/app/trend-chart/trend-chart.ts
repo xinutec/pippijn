@@ -168,6 +168,9 @@ export class TrendChart implements AfterViewInit, OnDestroy {
 			options: {
 				responsive: true,
 				maintainAspectRatio: false,
+				// Debounce transient resizes (e.g. a backgrounded tab re-measuring at
+				// 0px) so a brief bad size doesn't trigger a shrink.
+				resizeDelay: 200,
 				animation: { duration: 350 },
 				interaction: { mode: 'index', intersect: false },
 				plugins: {
