@@ -1,6 +1,8 @@
 import { Component, ElementRef, type OnDestroy, effect, input, signal, viewChild } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { VelocityData } from "../../services/health.service";
+import { browserTimezone } from "../../time-utils";
+import { batteryMarker, batteryTimeLabels, batteryXRange } from "./battery-chart.logic";
 
 /** Phone-battery level over the day. The series is derived from the
  *  `battery` field PhoneTrack records on each GPS fix, compressed to
@@ -45,9 +47,9 @@ export class BatteryChartComponent implements OnDestroy {
 			const ctx = canvas.getContext("2d");
 			if (!ctx) return;
 
-			const firstTs = battery[0].ts;
-			const lastTs = battery[battery.length - 1].ts;
-			const totalDuration = lastTs - firstTs || 1;
+			const range = batteryXRange(battery);
+			if (!range) return;
+			const { firstTs, lastTs, totalDuration } = range;
 
 			const dpr = window.devicePixelRatio || 1;
 			const rect = canvas.getBoundingClientRect();
@@ -115,7 +117,7 @@ export class BatteryChartComponent implements OnDestroy {
 
 			// Mark the latest reading: a dot plus its level, so the
 			// end-of-day charge is readable at a glance.
-			const last = battery[battery.length - 1];
+			const last = batteryMarker(battery) ?? battery[battery.length - 1];
 			const lx = xPos(last.ts);
 			const ly = yPos(last.level);
 			ctx.fillStyle = green;
@@ -126,17 +128,9 @@ export class BatteryChartComponent implements OnDestroy {
 			ctx.font = "12px sans-serif";
 			ctx.fillText(`${last.level}%`, Math.min(lx + 6, w - padRight + 2), ly + 4);
 
-			// Time labels along the X axis.
-			const labelCount = 6;
-			this.timeLabels = [];
-			for (let i = 0; i <= labelCount; i++) {
-				const ts = firstTs + (totalDuration * i) / labelCount;
-				// PhoneTrack timestamps are UTC — render in browser local time.
-				const d = new Date(ts * 1000);
-				const hh = d.getHours().toString().padStart(2, "0");
-				const mm = d.getMinutes().toString().padStart(2, "0");
-				this.timeLabels.push(`${hh}:${mm}`);
-			}
+			// Time labels along the X axis (PhoneTrack timestamps are UTC; render
+			// in the viewer's local time zone).
+			this.timeLabels = batteryTimeLabels(firstTs, lastTs, 6, browserTimezone());
 		});
 	}
 
