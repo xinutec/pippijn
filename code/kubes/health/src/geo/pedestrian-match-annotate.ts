@@ -22,7 +22,6 @@ import type { FilteredPoint } from "./kalman.js";
 import { matchImprovesDisplay, type RoadFix } from "./map-match-core.js";
 import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
-import { corridorWays } from "./osm-corridor.js";
 import { matchWalkSegment } from "./pedestrian-match.js";
 import { effectiveMode } from "./segment-util.js";
 
@@ -36,11 +35,22 @@ interface PedFix {
 
 const MIN_LEG_FIXES = 4;
 const WALK_SPEED_CAP_KMH = MAX_SPEED_FOR_MODE.walking ?? 12;
-/** Corridor sampling for the walkable-network read (see `osm-corridor`): small
- *  discs along the walk, unioned, instead of one disc around the centroid. Walks
- *  are short so the step is tighter than driving's. */
-const WALK_SAMPLE_STEP_M = 400;
-const WALK_SAMPLE_RADIUS_M = 50;
+/** Slack added to the leg's centroid→farthest-fix radius for the walkable-network
+ *  read, so the disc comfortably covers the matcher's reach. Same shape as the
+ *  smoother's query (one disc around the centroid) — walks are short, so a single
+ *  disc is both cheap and sufficient. */
+const WALK_QUERY_SLACK_M = 120;
+
+/** Great-circle metres between two lat/lon points. */
+function metersBetween(aLat: number, aLon: number, bLat: number, bLon: number): number {
+	const R = 6371000;
+	const dLat = ((bLat - aLat) * Math.PI) / 180;
+	const dLon = ((bLon - aLon) * Math.PI) / 180;
+	const lat1 = (aLat * Math.PI) / 180;
+	const lat2 = (bLat * Math.PI) / 180;
+	const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+	return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
 
 /** Confidence gate, judged on the DRAWN LINE (chords) like the road matcher,
  *  but against the WALKABLE network. Use the match only when the raw chords stray
@@ -58,10 +68,10 @@ const WALK_MATCH_MAX_STRAY_M = 40;
 
 /**
  * Attach `walkMatchedPath` to every walking segment the matcher can confidently
- * place on the walkable network. The walkable network is read in a corridor
- * sampled along the walk ({@link corridorWays}). Returns a new segment array; the
- * input is not mutated. `WALK_MATCH_DISABLE=1` makes it a no-op (the raw
- * baseline, for the score-walk eval).
+ * place on the walkable network. The walkable network is read in a single disc
+ * around the leg's centroid (radius = farthest fix + {@link WALK_QUERY_SLACK_M}).
+ * Returns a new segment array; the input is not mutated. `WALK_MATCH_DISABLE=1`
+ * makes it a no-op (the raw baseline, for the score-walk eval).
  */
 export async function annotateWalkMatches(
 	segments: readonly EnrichedSegment[],
@@ -86,15 +96,23 @@ export async function annotateWalkMatches(
 			continue;
 		}
 
-		// Read the walkable network in a CORRIDOR along the walk — small discs
-		// sampled down the track, unioned — the same `walkableRoads(lat, lon,
-		// radius)` call per sample on deterministic (frozen-fix) coordinates.
-		const ways = await corridorWays(
-			inWin.map((p) => ({ lat: p.lat, lon: p.lon })),
-			(la, lo, r) => osm.walkableRoads(la, lo, r),
-			WALK_SAMPLE_STEP_M,
-			WALK_SAMPLE_RADIUS_M,
-		);
+		// Read the walkable network in a single disc around the leg's centroid —
+		// the same `walkableRoads(lat, lon, radius)` call on deterministic
+		// (frozen-fix) coordinates the smoother already captured.
+		let cLat = 0;
+		let cLon = 0;
+		for (const p of inWin) {
+			cLat += p.lat;
+			cLon += p.lon;
+		}
+		cLat /= inWin.length;
+		cLon /= inWin.length;
+		let maxDist = 0;
+		for (const p of inWin) {
+			const d = metersBetween(cLat, cLon, p.lat, p.lon);
+			if (d > maxDist) maxDist = d;
+		}
+		const ways = await osm.walkableRoads(cLat, cLon, Math.round(maxDist + WALK_QUERY_SLACK_M));
 		if (ways.length === 0) {
 			out.push(seg);
 			continue;
