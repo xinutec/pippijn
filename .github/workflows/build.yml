@@ -81,10 +81,20 @@ jobs:
       username: ${{ secrets.DOCKERHUB_USERNAME }}
       password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  # Signal message archive (presage, Rust). The Docker build compiles the crate,
-  # so it doubles as the compile gate — no separate verify job (a second heavy
-  # Rust/presage build isn't worth the CI minutes).
+  # Signal message archive (Rust). Gate the image on `cargo test` — the pure
+  # parsing logic in src/parse.rs is unit-tested in tests/parse.rs.
+  signal-verify:
+    runs-on: ubuntu-latest
+    container: rust:1-bookworm
+    defaults:
+      run:
+        working-directory: code/kubes/signal
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo test --release
+
   signal:
+    needs: signal-verify
     uses: xinutec/pippijn/.github/workflows/docker.yml@main
     with:
       path: code/kubes/signal

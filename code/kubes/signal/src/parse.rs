@@ -1,0 +1,200 @@
+//! Pure parsing of signal-cli-rest-api receive frames into archive actions.
+//!
+//! This module has NO I/O — it turns a `serde_json::Value` frame into a
+//! `Parsed` describing what to write, so the mapping logic (the bug-prone part)
+//! is unit-testable without a database. `main.rs` executes the resulting action.
+
+use serde_json::Value;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Contact {
+    pub uuid: String,
+    pub phone: Option<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attachment {
+    pub id: Option<String>,
+    pub content_type: Option<String>,
+    pub file_name: Option<String>,
+    pub size: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Message {
+    pub thread_id: String,
+    pub kind: &'static str, // "dm" | "group"
+    pub sender: String,
+    pub server_ts: i64,
+    pub body: Option<String>,
+    pub quote_target_ts: Option<i64>,
+    pub is_outgoing: bool,
+    pub attachments: Vec<Attachment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reaction {
+    pub thread_id: String,
+    pub kind: &'static str,
+    pub target_ts: i64,
+    pub author: String,
+    pub emoji: Option<String>,
+    pub reaction_ts: i64,
+    pub removed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    Message(Message),
+    Reaction(Reaction),
+    Delete { sender: String, target_ts: i64 },
+    Skip,
+}
+
+/// The full outcome of parsing one frame: the primary action, plus optional
+/// enrichment (contact to upsert / DM thread name) that the dispatcher applies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Parsed {
+    pub action: Action,
+    pub contact: Option<Contact>,
+    pub dm_name: Option<(String, String)>, // (thread_id, name)
+}
+
+impl Parsed {
+    fn skip() -> Self {
+        Parsed { action: Action::Skip, contact: None, dm_name: None }
+    }
+}
+
+/// Prefer the stable ACI UUID; fall back to the E.164 number, then "unknown".
+pub fn id_of(uuid: Option<&Value>, fallback: Option<&Value>) -> String {
+    uuid.and_then(Value::as_str)
+        .or_else(|| fallback.and_then(Value::as_str))
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn thread_of(msg: &Value, dm_thread_id: &str) -> (String, &'static str) {
+    match msg.get("groupInfo").and_then(|g| g.get("groupId")).and_then(Value::as_str) {
+        Some(gid) => (format!("group:{gid}"), "group"),
+        None => (dm_thread_id.to_string(), "dm"),
+    }
+}
+
+/// Turn the message payload (dataMessage or sentMessage — same shape) into an
+/// Action: a delete request, a reaction, or a stored message.
+fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_thread: &str) -> Action {
+    let (thread_id, kind) = thread_of(msg, dm_thread);
+
+    if let Some(rd) = msg.get("remoteDelete") {
+        if let Some(target) = rd
+            .get("targetSentTimestamp")
+            .or_else(|| rd.get("timestamp"))
+            .and_then(Value::as_i64)
+        {
+            return Action::Delete { sender: sender.to_string(), target_ts: target };
+        }
+        return Action::Skip;
+    }
+
+    if let Some(reaction) = msg.get("reaction") {
+        if let Some(target) = reaction.get("targetSentTimestamp").and_then(Value::as_i64) {
+            return Action::Reaction(Reaction {
+                thread_id,
+                kind,
+                target_ts: target,
+                author: sender.to_string(),
+                emoji: reaction.get("emoji").and_then(Value::as_str).map(str::to_string),
+                reaction_ts: ts,
+                removed: reaction.get("isRemove").and_then(Value::as_bool).unwrap_or(false),
+            });
+        }
+        return Action::Skip;
+    }
+
+    let body = match msg.get("message").and_then(Value::as_str) {
+        Some(t) => Some(t.to_string()),
+        None if msg.get("sticker").is_some() => {
+            let emoji = msg
+                .get("sticker")
+                .and_then(|s| s.get("emoji"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            Some(format!("[sticker {emoji}]"))
+        }
+        None => None,
+    };
+    let quote = msg.get("quote").and_then(|q| q.get("id")).and_then(Value::as_i64);
+    let attachments = msg
+        .get("attachments")
+        .and_then(Value::as_array)
+        .map(|atts| {
+            atts.iter()
+                .map(|a| Attachment {
+                    id: a.get("id").and_then(Value::as_str).map(str::to_string),
+                    content_type: a.get("contentType").and_then(Value::as_str).map(str::to_string),
+                    file_name: a.get("filename").and_then(Value::as_str).map(str::to_string),
+                    size: a.get("size").and_then(Value::as_i64),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Action::Message(Message {
+        thread_id,
+        kind,
+        sender: sender.to_string(),
+        server_ts: ts,
+        body,
+        quote_target_ts: quote,
+        is_outgoing,
+        attachments,
+    })
+}
+
+/// Parse one received frame. Accepts both the unwrapped `{"envelope": {...}}`
+/// shape and a JSON-RPC `{"params": {"envelope": {...}}}` notification.
+pub fn parse_frame(frame: &Value) -> Parsed {
+    let Some(env) = frame
+        .get("envelope")
+        .or_else(|| frame.get("params").and_then(|p| p.get("envelope")))
+    else {
+        return Parsed::skip();
+    };
+
+    if let Some(dm) = env.get("dataMessage") {
+        let sender = id_of(env.get("sourceUuid"), env.get("source"));
+        let ts = env
+            .get("timestamp")
+            .and_then(Value::as_i64)
+            .or_else(|| dm.get("timestamp").and_then(Value::as_i64))
+            .unwrap_or(0);
+        let name = env.get("sourceName").and_then(Value::as_str);
+        let contact = Some(Contact {
+            uuid: sender.clone(),
+            phone: env.get("sourceNumber").and_then(Value::as_str).map(str::to_string),
+            name: name.map(str::to_string),
+        });
+        let dm_thread = format!("dm:{sender}");
+        let action = payload_action(dm, &sender, ts, false, &dm_thread);
+        // Name a DM thread after the other party (not for groups/deletes).
+        let dm_name = match (&action, dm.get("groupInfo").is_none(), name) {
+            (Action::Message(_) | Action::Reaction(_), true, Some(n)) => {
+                Some((dm_thread.clone(), n.to_string()))
+            }
+            _ => None,
+        };
+        return Parsed { action, contact, dm_name };
+    }
+
+    if let Some(sent) = env.get("syncMessage").and_then(|s| s.get("sentMessage")) {
+        let sender = id_of(env.get("sourceUuid"), env.get("source")); // ourselves
+        let ts = sent.get("timestamp").and_then(Value::as_i64).unwrap_or(0);
+        let dest = id_of(sent.get("destinationUuid"), sent.get("destination"));
+        let action = payload_action(sent, &sender, ts, true, &format!("dm:{dest}"));
+        return Parsed { action, contact: None, dm_name: None };
+    }
+
+    Parsed::skip()
+}

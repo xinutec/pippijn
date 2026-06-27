@@ -31,9 +31,21 @@ protocol; our Rust binary is reduced to a dumb, dependency-light websocket→DB
 ingester (no libsignal/sqlcipher — fast, small build).
 
 ## Components
-- `src/main.rs` — connects to `ws://signal-cli-rest-api:8080/v1/receive/<number>`,
-  parses each JSON frame (defensively, via `serde_json::Value`), reconnects on drop.
+- `src/parse.rs` — **pure** frame→action mapping (`parse_frame`), no I/O. Unit-tested.
 - `src/db.rs` — MariaDB schema (append-only `MIGRATIONS`, run on startup) + inserts.
+- `src/main.rs` — the binary: connects to `ws://…/v1/receive/<number>`, parses each
+  frame via `parse`, and executes the action against the DB; reconnects on drop.
+- `src/lib.rs` — exposes `parse`/`db` as a library so the logic is testable.
+
+## Tests
+The bug-prone part — mapping signal-cli's JSON to archive actions — is unit-tested
+in `tests/parse.rs` (incoming/outgoing, groups, reactions, deletes, stickers,
+attachments, jsonrpc-wrapping, skips). Run locally:
+```
+nix-shell -p cargo rustc --run "cargo test"
+```
+(`db.rs` SQL is not unit-tested — it needs a live MariaDB; CI gates the image on
+`cargo test` via the `signal-verify` job.)
 - `Dockerfile` — pure-Rust build (no C toolchain).
 - `k8s/` — `00-namespace`, `01-pvc` (DB + signal-cli data), `02-db` (MariaDB),
   `03-signal-cli` (the rest-api engine), `04-ingester` (the Rust binary),

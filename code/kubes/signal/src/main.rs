@@ -1,18 +1,15 @@
 //! signal-archiver — ingests Signal messages from `signal-cli-rest-api`'s
-//! receive websocket into MariaDB, and enriches them: contact/group names,
-//! sticker markers, and downloaded attachment bytes.
+//! receive websocket into MariaDB, with enrichment (contact/group names,
+//! stickers, attachment bytes) and delete-tracking.
 //!
-//! Linking and the Signal protocol are handled by signal-cli-rest-api (in
-//! `MODE=json-rpc`); this binary connects to its per-account receive websocket,
-//! parses each frame, and archives it. signal-cli >=0.14.x links as a secondary
-//! device without the capabilities/409 issue presage hit.
+//! Frame PARSING lives in the `parse` module (pure, unit-tested); this binary
+//! connects to the per-account receive websocket and EXECUTES the parsed
+//! actions against the DB. Linking + the Signal protocol are handled by
+//! signal-cli-rest-api (MODE=json-rpc).
 //!
 //! Config via env: DB_HOST, DB_PORT (3306), DB_NAME, DB_USER, DB_PASSWORD,
-//! SIGNAL_NUMBER (E.164, the linked account), SIGNAL_API_WS
-//! (ws://signal-cli-rest-api:8080), SIGNAL_API_HTTP (http://signal-cli-rest-api:8080),
-//! ATTACHMENTS_DIR (/attachments).
-
-mod db;
+//! SIGNAL_NUMBER (E.164), SIGNAL_API_WS (ws://signal-cli-rest-api:8080),
+//! SIGNAL_API_HTTP (http://signal-cli-rest-api:8080), ATTACHMENTS_DIR (/attachments).
 
 use std::time::Duration;
 
@@ -20,11 +17,12 @@ use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use db::Db;
+use signal_archiver::db::Db;
+use signal_archiver::parse::{parse_frame, Action};
 
-/// Shared state passed to the per-frame handlers.
+/// Shared state for the per-frame dispatcher.
 #[derive(Clone)]
 struct Ctx {
     db: Db,
@@ -54,20 +52,11 @@ async fn main() -> Result<()> {
     tokio::fs::create_dir_all(&attach_dir).await.ok();
 
     let db = Db::connect(&database_url()?).await.context("connecting to MariaDB")?;
-    let ctx = Ctx {
-        db,
-        http: reqwest::Client::new(),
-        http_base,
-        number,
-        attach_dir,
-    };
+    let ctx = Ctx { db, http: reqwest::Client::new(), http_base, number, attach_dir };
     tracing::info!("DB connected + migrated; ingesting from {ws_url}");
 
-    // Background: periodically refresh group names (the receive payload only
-    // carries the group id, not its title).
     tokio::spawn(refresh_group_names(ctx.clone()));
 
-    // Reconnect forever — the websocket drops on signal-cli restarts / blips.
     loop {
         match run_ws(&ws_url, &ctx).await {
             Ok(()) => tracing::warn!("receive stream ended; reconnecting in 7s"),
@@ -87,14 +76,13 @@ async fn run_ws(ws_url: &str, ctx: &Ctx) -> Result<()> {
             break;
         }
         if msg.is_ping() {
-            ws.send(Message::Pong(msg.into_data())).await.ok();
+            ws.send(WsMessage::Pong(msg.into_data())).await.ok();
             continue;
         }
         let text = match msg.to_text() {
             Ok(t) if !t.trim().is_empty() => t,
             _ => continue,
         };
-        // Tolerate the occasional malformed frame rather than killing the loop.
         let frame: Value = match serde_json::from_str(text) {
             Ok(v) => v,
             Err(e) => {
@@ -102,140 +90,59 @@ async fn run_ws(ws_url: &str, ctx: &Ctx) -> Result<()> {
                 continue;
             }
         };
-        if let Err(e) = handle(ctx, &frame).await {
+        if let Err(e) = dispatch(ctx, &frame).await {
             tracing::warn!("failed to archive a frame: {e:#}");
         }
     }
     Ok(())
 }
 
-/// Archive one received frame. Accepts both the unwrapped `{"envelope": {...}}`
-/// shape and a JSON-RPC `{"params": {"envelope": {...}}}` notification.
-async fn handle(ctx: &Ctx, frame: &Value) -> Result<()> {
-    let env = frame
-        .get("envelope")
-        .or_else(|| frame.get("params").and_then(|p| p.get("envelope")));
-    let Some(env) = env else { return Ok(()) };
+/// Execute the parsed action for one frame against the DB.
+async fn dispatch(ctx: &Ctx, frame: &Value) -> Result<()> {
+    let parsed = parse_frame(frame);
 
-    if let Some(dm) = env.get("dataMessage") {
-        let sender = id_of(env.get("sourceUuid"), env.get("source"));
-        let ts = env
-            .get("timestamp")
-            .and_then(Value::as_i64)
-            .or_else(|| dm.get("timestamp").and_then(Value::as_i64))
-            .unwrap_or(0);
-        // The sender's name/number ride along in the envelope — record them.
-        let name = env.get("sourceName").and_then(Value::as_str);
-        let phone = env.get("sourceNumber").and_then(Value::as_str);
-        ctx.db.upsert_contact(&sender, phone, name).await.ok();
-        let dm_thread = format!("dm:{sender}");
-        // Name a DM thread after the other party.
-        if dm.get("groupInfo").is_none() {
-            if let Some(n) = name {
-                ctx.db.set_conversation_name(&dm_thread, n).await.ok();
-            }
+    if let Some(c) = &parsed.contact {
+        ctx.db.upsert_contact(&c.uuid, c.phone.as_deref(), c.name.as_deref()).await.ok();
+    }
+    if let Some((thread, name)) = &parsed.dm_name {
+        ctx.db.set_conversation_name(thread, name).await.ok();
+    }
+
+    match parsed.action {
+        Action::Skip => {}
+        Action::Delete { sender, target_ts } => {
+            let n = ctx.db.mark_deleted(&sender, target_ts).await?;
+            tracing::info!("remote-delete flagged {n} message(s) (sender={sender}, ts={target_ts})");
         }
-        store(ctx, dm, &sender, ts, false, &dm_thread).await?;
-        return Ok(());
-    }
-
-    if let Some(sent) = env.get("syncMessage").and_then(|s| s.get("sentMessage")) {
-        let sender = id_of(env.get("sourceUuid"), env.get("source")); // ourselves
-        let ts = sent.get("timestamp").and_then(Value::as_i64).unwrap_or(0);
-        let dest = id_of(sent.get("destinationUuid"), sent.get("destination"));
-        store(ctx, sent, &sender, ts, true, &format!("dm:{dest}")).await?;
-        return Ok(());
-    }
-
-    Ok(())
-}
-
-/// dataMessage and sentMessage share field names, so one routine handles both.
-async fn store(
-    ctx: &Ctx,
-    msg: &Value,
-    sender: &str,
-    ts: i64,
-    is_outgoing: bool,
-    dm_thread_id: &str,
-) -> Result<()> {
-    let (thread_id, kind) = match msg
-        .get("groupInfo")
-        .and_then(|g| g.get("groupId"))
-        .and_then(Value::as_str)
-    {
-        Some(gid) => (format!("group:{gid}"), "group"),
-        None => (dm_thread_id.to_string(), "dm"),
-    };
-    ctx.db.upsert_conversation(&thread_id, kind).await?;
-
-    // "Delete for everyone": flag the archived original (we keep its content);
-    // do NOT insert a row for the delete event itself.
-    if let Some(rd) = msg.get("remoteDelete") {
-        if let Some(target) = rd
-            .get("targetSentTimestamp")
-            .or_else(|| rd.get("timestamp"))
-            .and_then(Value::as_i64)
-        {
-            let n = ctx.db.mark_deleted(sender, target).await?;
-            tracing::info!("remote-delete flagged {n} message(s) (sender={sender}, ts={target})");
-        }
-        return Ok(());
-    }
-
-    // A reaction carries no body of its own.
-    if let Some(reaction) = msg.get("reaction") {
-        if let Some(target) = reaction.get("targetSentTimestamp").and_then(Value::as_i64) {
+        Action::Reaction(r) => {
+            ctx.db.upsert_conversation(&r.thread_id, r.kind).await?;
             ctx.db
-                .insert_reaction(
-                    &thread_id,
-                    target,
-                    sender,
-                    reaction.get("emoji").and_then(Value::as_str),
-                    ts,
-                    reaction.get("isRemove").and_then(Value::as_bool).unwrap_or(false),
-                )
+                .insert_reaction(&r.thread_id, r.target_ts, &r.author, r.emoji.as_deref(), r.reaction_ts, r.removed)
                 .await?;
         }
-        return Ok(());
-    }
-
-    // Text body, or a marker for a sticker-only message (otherwise NULL).
-    let text = msg.get("message").and_then(Value::as_str);
-    let sticker_marker;
-    let body = match text {
-        Some(t) => Some(t),
-        None if msg.get("sticker").is_some() => {
-            let emoji = msg
-                .get("sticker")
-                .and_then(|s| s.get("emoji"))
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            sticker_marker = format!("[sticker {emoji}]");
-            Some(sticker_marker.as_str())
-        }
-        None => None,
-    };
-    let quote = msg.get("quote").and_then(|q| q.get("id")).and_then(Value::as_i64);
-    let msg_id = ctx.db.insert_message(&thread_id, sender, ts, body, quote, is_outgoing).await?;
-
-    // msg_id == 0 means a duplicate (INSERT IGNORE) — skip children.
-    if msg_id != 0 {
-        if let Some(atts) = msg.get("attachments").and_then(Value::as_array) {
-            for att in atts {
-                let stored = match att.get("id").and_then(Value::as_str) {
-                    Some(id) => download_attachment(ctx, id).await,
-                    None => None,
-                };
-                ctx.db
-                    .insert_attachment(
-                        msg_id,
-                        att.get("contentType").and_then(Value::as_str),
-                        att.get("filename").and_then(Value::as_str),
-                        att.get("size").and_then(Value::as_i64),
-                        stored.as_deref(),
-                    )
-                    .await?;
+        Action::Message(m) => {
+            ctx.db.upsert_conversation(&m.thread_id, m.kind).await?;
+            let msg_id = ctx
+                .db
+                .insert_message(&m.thread_id, &m.sender, m.server_ts, m.body.as_deref(), m.quote_target_ts, m.is_outgoing)
+                .await?;
+            // msg_id == 0 means a duplicate (INSERT IGNORE) — skip children.
+            if msg_id != 0 {
+                for att in &m.attachments {
+                    let stored = match &att.id {
+                        Some(id) => download_attachment(ctx, id).await,
+                        None => None,
+                    };
+                    ctx.db
+                        .insert_attachment(
+                            msg_id,
+                            att.content_type.as_deref(),
+                            att.file_name.as_deref(),
+                            att.size,
+                            stored.as_deref(),
+                        )
+                        .await?;
+                }
             }
         }
     }
@@ -243,7 +150,6 @@ async fn store(
 }
 
 /// Best-effort: fetch the attachment blob from the rest-api and store it.
-/// Returns the on-disk path, or None on any failure (metadata is still kept).
 async fn download_attachment(ctx: &Ctx, id: &str) -> Option<String> {
     let url = format!("{}/v1/attachments/{}", ctx.http_base, id);
     let resp = ctx.http.get(&url).timeout(Duration::from_secs(30)).send().await.ok()?;
@@ -284,14 +190,6 @@ async fn refresh_group_names(ctx: Ctx) {
         }
         tokio::time::sleep(Duration::from_secs(600)).await;
     }
-}
-
-/// Prefer the stable ACI UUID; fall back to the E.164 number, then "unknown".
-fn id_of(uuid: Option<&Value>, fallback: Option<&Value>) -> String {
-    uuid.and_then(Value::as_str)
-        .or_else(|| fallback.and_then(Value::as_str))
-        .unwrap_or("unknown")
-        .to_string()
 }
 
 fn env_or(key: &str, default: &str) -> String {
