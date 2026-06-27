@@ -237,22 +237,77 @@ function pointToSegmentM(
 	return Math.hypot(distX, distY);
 }
 
+/** A way pre-parsed once for the proximity filter: its coords plus a
+ *  lat/lon bounding box already padded by MAX_DIST_M, so a station outside
+ *  the padded box cannot be within MAX_DIST_M of the way (cheap reject
+ *  before the per-segment distance math). */
+interface ParsedWay {
+	coords: Array<[number, number]>;
+	minLat: number;
+	maxLat: number;
+	minLon: number;
+	maxLon: number;
+}
+
 /**
  * Pure-function filter: keep station candidates within MAX_DIST_M of
  * any of the provided ways. Dedupes by station name, preserves input
  * order.
+ *
+ * Hot path (#269): a London tube line is hundreds of ways and the station
+ * list is ~1200, so the naive all-pairs loop re-parsed each way's WKT per
+ * station (~370k parses) and ran the full per-segment distance on stations
+ * nowhere near the line. We parse each way ONCE and pad its bbox by
+ * MAX_DIST_M (in degrees), then reject a station against the box before the
+ * segment math. Output-identical: the box is a conservative superset of the
+ * MAX_DIST_M neighbourhood, so the surviving exact-distance test is unchanged.
  */
 export function filterStationsByLineProximity(
 	stations: readonly StationCandidate[],
 	ways: readonly WayGeometry[],
 ): Station[] {
 	if (stations.length === 0 || ways.length === 0) return [];
+
+	// MAX_DIST_M as a degree pad. Latitude is uniform; for longitude use the
+	// smallest cos(lat) over the data so the box never under-covers (a wider
+	// box only costs a few extra exact tests, never a wrong reject).
+	const padLat = MAX_DIST_M / M_PER_DEG_LAT;
+	let maxAbsLat = 0;
+	const parsed: ParsedWay[] = [];
+	for (const w of ways) {
+		const coords = parseLineStringWkt(w.wkt);
+		if (coords.length < 2) continue;
+		let minLat = Infinity;
+		let maxLat = -Infinity;
+		let minLon = Infinity;
+		let maxLon = -Infinity;
+		for (const [la, lo] of coords) {
+			if (la < minLat) minLat = la;
+			if (la > maxLat) maxLat = la;
+			if (lo < minLon) minLon = lo;
+			if (lo > maxLon) maxLon = lo;
+			const abs = Math.abs(la);
+			if (abs > maxAbsLat) maxAbsLat = abs;
+		}
+		parsed.push({ coords, minLat, maxLat, minLon, maxLon });
+	}
+	if (parsed.length === 0) return [];
+	const padLon = MAX_DIST_M / metersPerDegLon(maxAbsLat);
+
 	const seen = new Set<string>();
 	const result: Station[] = [];
 	for (const s of stations) {
 		if (seen.has(s.name)) continue;
-		for (const w of ways) {
-			if (pointToLineDistanceM(s.lat, s.lon, w.wkt) <= MAX_DIST_M) {
+		for (const w of parsed) {
+			if (
+				s.lat < w.minLat - padLat ||
+				s.lat > w.maxLat + padLat ||
+				s.lon < w.minLon - padLon ||
+				s.lon > w.maxLon + padLon
+			) {
+				continue;
+			}
+			if (pointToLineDistanceMParsed(s.lat, s.lon, w.coords) <= MAX_DIST_M) {
 				seen.add(s.name);
 				result.push({ name: s.name, lat: s.lat, lon: s.lon });
 				break;
