@@ -1286,6 +1286,31 @@ describe("batterySeries", () => {
 			{ ts: 60, level: 85 },
 		]);
 	});
+
+	it("collapses a same-timestamp burst to its first sample", () => {
+		// While the phone charges stationary, OwnTracks reuses the last GPS-fix
+		// timestamp for every battery update, so a whole charge curve (4→80%)
+		// lands on one instant. Keep only the first sample at that ts; the chart
+		// then draws an angled line to the next real reading instead of a vertical
+		// spike up from the discharge floor.
+		const out = batterySeries([
+			b(0, 6),
+			b(50, 5),
+			b(100, 4),
+			b(100, 6),
+			b(100, 26),
+			b(100, 60),
+			b(100, 84),
+			b(100, 80),
+			b(10000, 80),
+		]);
+		expect(out).toEqual([
+			{ ts: 0, level: 6 },
+			{ ts: 50, level: 5 },
+			{ ts: 100, level: 4 },
+			{ ts: 10000, level: 80 },
+		]);
+	});
 });
 
 describe("attachStayCentroids", () => {

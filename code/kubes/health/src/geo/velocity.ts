@@ -468,10 +468,18 @@ export interface BatterySample {
  *  are dropped. Assumes `points` is in ascending-`ts` order, which is
  *  how `fetchTrackPoints` returns them. */
 export function batterySeries(points: { ts: number; battery: number | null }[]): BatterySample[] {
-	const read: BatterySample[] = [];
+	const all: BatterySample[] = [];
 	for (const p of points) {
-		if (p.battery !== null) read.push({ ts: p.ts, level: p.battery });
+		if (p.battery !== null) all.push({ ts: p.ts, level: p.battery });
 	}
+	// Collapse runs of readings that share a timestamp to their first sample.
+	// When the phone charges while stationary, OwnTracks reuses the last GPS
+	// fix's timestamp for every battery update, so an entire charge curve
+	// (e.g. 4→80%) lands on one instant. Keeping every sample would draw a
+	// vertical spike at that x; keeping only the first lets the chart draw an
+	// angled line from the discharge floor to the next real reading. Assumes
+	// ascending `ts` (how `fetchTrackPoints` returns them).
+	const read = all.filter((s, i) => i === 0 || s.ts !== all[i - 1].ts);
 	return read.filter((s, i) => {
 		const prev = read[i - 1];
 		const next = read[i + 1];
