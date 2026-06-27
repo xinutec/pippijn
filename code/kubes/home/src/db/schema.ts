@@ -25,6 +25,9 @@ const MIGRATIONS: readonly string[] = [
 	`ALTER TABLE measurement
     ADD COLUMN battery INT,
     ADD COLUMN rssi INT`,
+	// v3: scrub the BLE "RSSI not available" sentinel (127 / any non-negative)
+	// that an early build stored verbatim — rssi is always negative dBm.
+	`UPDATE measurement SET rssi = NULL WHERE rssi >= 0`,
 ];
 
 export async function migrate(conn: mariadb.Connection): Promise<void> {

@@ -51,6 +51,12 @@ describe("MeasurementInput", () => {
 	it("rejects an out-of-range battery", () => {
 		expect(MeasurementInput.safeParse({ battery: 150 }).success).toBe(false);
 	});
+
+	it("nulls the BLE sentinel rssi (>= 0) but keeps real negative dBm", () => {
+		expect(MeasurementInput.parse({ rssi: 127 }).rssi).toBeNull();
+		expect(MeasurementInput.parse({ rssi: 0 }).rssi).toBeNull();
+		expect(MeasurementInput.parse({ rssi: -62 }).rssi).toBe(-62);
+	});
 });
 
 describe("MeasurementBatch", () => {

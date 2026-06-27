@@ -17,7 +17,14 @@ export const MeasurementInput = z.object({
 	voc_ppb: z.number().int().nullable().optional(),
 	// Device health from the Govee BLE sensors: battery % and BLE signal (dBm).
 	battery: z.number().int().min(0).max(100).nullable().optional(),
-	rssi: z.number().int().nullable().optional(),
+	// RSSI is always negative dBm; 127 (0x7F) is the BLE "not available" sentinel
+	// bleak can emit. Coerce any non-negative value to null, never a bogus signal.
+	rssi: z
+		.number()
+		.int()
+		.nullable()
+		.optional()
+		.transform((v) => (v != null && v >= 0 ? null : v)),
 });
 
 export type MeasurementInput = z.infer<typeof MeasurementInput>;
