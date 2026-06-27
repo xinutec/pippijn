@@ -1,13 +1,13 @@
-// Per-device sensor-calibration offsets, ADDED to the raw reading on read — the
-// DB stays raw, so re-calibrating is a one-line edit here with no data migration.
+// Per-device sensor-calibration offsets. Served as metadata (per device, in
+// /api/devices) and applied in the client, so the correction can be toggled on
+// and off without touching the stored data — which is always raw.
 //
 // Derived 2026-06-27 by xinutec-infra/mac-mini/sensor-calibrate.py from ~59
 // co-located, steady points, anchored to the duplicate-collapsed *type*
 // consensus (each sensor type — IQAir, H5075, H5103 — gets one vote, so the
 // three identical H5075s can't out-vote the rest). Model: a single additive
 // offset per device; blocked-CV model selection showed gain/curve terms overfit
-// the narrow 24–26 °C range. Re-run the script with a wider (seasonal) range to
-// revisit whether a slope is ever warranted.
+// the narrow 24–26 °C range. See doc/calibration.md.
 
 export interface Calibration {
 	temp_c?: number;
@@ -22,21 +22,7 @@ const OFFSETS: Record<string, Calibration> = {
 	"govee-267F": { temp_c: 0.04 },
 };
 
-interface Reading {
-	device: string;
-	temp_c: number | null;
-	humidity: number | null;
-}
-
-/** Apply a device's calibration offsets to a reading; raw values stay in the DB. */
-export function calibrate<T extends Reading>(row: T): T {
-	const c = OFFSETS[row.device];
-	if (!c) {
-		return row;
-	}
-	return {
-		...row,
-		temp_c: row.temp_c != null && c.temp_c != null ? row.temp_c + c.temp_c : row.temp_c,
-		humidity: row.humidity != null && c.humidity != null ? row.humidity + c.humidity : row.humidity,
-	};
+/** Calibration offsets for a device — empty if none. */
+export function offsetFor(device: string): Calibration {
+	return OFFSETS[device] ?? {};
 }

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { calibrate } from "../calibration.js";
+import { offsetFor } from "../calibration.js";
 import { db } from "../db/pool.js";
 import { decorateDevices } from "../labels.js";
 import { MeasurementBatch, MeasurementInput } from "../measurement.js";
@@ -74,7 +74,7 @@ export function apiRoutes(ingestToken: string): Hono {
 			.orderBy("ts", "desc")
 			.limit(1)
 			.executeTakeFirst();
-		return c.json(row ? calibrate(row) : null);
+		return c.json(row ?? null);
 	});
 
 	// Public read: the latest reading per device, each tagged with its display
@@ -93,7 +93,10 @@ export function apiRoutes(ingestToken: string): Hono {
 			),
 		);
 		const rows = latest.filter((r): r is NonNullable<typeof r> => r != null);
-		return c.json(decorateDevices(rows.map(calibrate)));
+		// Serve raw + each device's calibration offset; the client applies it so
+		// the correction can be toggled.
+		const out = decorateDevices(rows).map((d) => ({ ...d, offset: offsetFor(d.device) }));
+		return c.json(out);
 	});
 
 	// Public read: a time range, oldest first, for charting.
@@ -110,7 +113,7 @@ export function apiRoutes(ingestToken: string): Hono {
 		if (from) q = q.where("ts", ">=", new Date(from));
 		if (to) q = q.where("ts", "<=", new Date(to));
 		const rows = await q.limit(limit).execute();
-		return c.json(rows.map(calibrate));
+		return c.json(rows);
 	});
 
 	return api;

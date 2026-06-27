@@ -25,12 +25,16 @@ export function climateSeries(
 	devices: DeviceLatest[],
 	history: Record<string, Measurement[]>,
 	pick: (m: Measurement) => number | null,
+	offsetOf: (d: DeviceLatest) => number = () => 0,
 ): ChartSeries[] {
-	return devices.map((d, i) => ({
-		label: d.label.name,
-		color: ROOM_COLORS[i % ROOM_COLORS.length],
-		points: toTrendPoints(history[d.device] ?? [], pick),
-	}));
+	return devices.map((d, i) => {
+		const off = offsetOf(d);
+		return {
+			label: d.label.name,
+			color: ROOM_COLORS[i % ROOM_COLORS.length],
+			points: toTrendPoints(history[d.device] ?? [], pick).map((p) => ({ x: p.x, y: p.y + off })),
+		};
+	});
 }
 
 /** A single line from the air-quality device, or none if there isn't one. */

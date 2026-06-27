@@ -7,6 +7,14 @@
 		</div>
 	</div>
 	<span class="spacer"></span>
+	<mat-slide-toggle
+		class="cal-toggle"
+		[checked]="calibrated()"
+		(change)="toggleCalibrated()"
+		matTooltip="Apply per-device calibration offsets"
+	>
+		Calibrated
+	</mat-slide-toggle>
 	<button
 		matIconButton
 		type="button"
@@ -42,7 +50,7 @@
 			<div class="hero-climate">
 				<div class="temp-block">
 					<span class="temp-value">
-						{{ airDevice()?.temp_c != null ? (airDevice()!.temp_c | number: '1.1-1') : '—' }}
+						{{ airTemp() != null ? (airTemp()! | number: '1.1-1') : '—' }}
 					</span>
 					<span class="temp-unit">°C</span>
 				</div>
@@ -50,8 +58,7 @@
 					<div class="humidity">
 						<mat-icon>water_drop</mat-icon>
 						<span>
-							{{ airDevice()?.humidity != null ? (airDevice()!.humidity | number: '1.0-0') : '—' }}%
-							humidity
+							{{ airHum() != null ? (airHum()! | number: '1.0-0') : '—' }}% humidity
 						</span>
 					</div>
 					<div class="updated">
@@ -140,11 +147,11 @@
 						<div class="room-type">{{ d.label.type }}</div>
 						<div class="room-readings">
 							<span class="room-temp">
-								{{ d.temp_c != null ? (d.temp_c | number: '1.1-1') : '—' }}°
+								{{ calTemp(d) != null ? (calTemp(d)! | number: '1.1-1') : '—' }}°
 							</span>
 							<span class="room-humidity">
 								<mat-icon>water_drop</mat-icon>
-								{{ d.humidity != null ? (d.humidity | number: '1.0-0') : '—' }}%
+								{{ calHum(d) != null ? (calHum(d)! | number: '1.0-0') : '—' }}%
 							</span>
 						</div>
 						<div class="room-foot">
@@ -219,8 +226,6 @@
 	}
 
 	<footer class="page-foot">
-		<span>
-			Live data from an IQAir AirVisual Pro + Govee room sensors · calibrated · refreshes every 60s
-		</span>
+		<span>Live data from an IQAir AirVisual Pro + Govee room sensors · refreshes every 60s</span>
 	</footer>
 </main>

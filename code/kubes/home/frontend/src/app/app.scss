@@ -50,6 +50,11 @@
 	flex: 1;
 }
 
+.cal-toggle {
+	margin-right: 0.5rem;
+	font: var(--mat-sys-label-large);
+}
+
 .top-progress {
 	position: sticky;
 	top: 64px;

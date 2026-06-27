@@ -6,19 +6,21 @@ This describes how we make them agree, and the decisions behind it.
 
 ## What we do
 
-Each device has a small **additive correction** applied when readings are
-*served*, never when stored:
+Each device has a small **additive correction**, applied in the **browser** so it
+can be toggled on and off — the API and the database are always raw:
 
-- `src/calibration.ts` holds a per-device offset map and a `calibrate()` helper.
-- It's applied in the read routes (`/api/latest`, `/api/devices`,
-  `/api/measurements`) — so the API returns corrected values and the whole
-  dashboard shows them.
-- The `measurement` table stays **raw**. Re-calibrating is a one-line edit in
-  `calibration.ts` with no DB migration, and the original readings are never
-  lost.
+- `src/calibration.ts` holds the per-device offset map and `offsetFor()`.
+- `/api/devices` serves each device's offset as metadata (alongside its label);
+  readings everywhere stay raw.
+- The frontend applies the offset to the tiles, hero, and temperature/humidity
+  charts, gated on a **Calibrated** toggle (on by default, remembered per
+  browser). Flipping it is instant — no refetch — since the browser already has
+  both the raw value and the offset.
+- The `measurement` table stays **raw**, so re-calibrating is a one-line edit in
+  `calibration.ts` with no migration and nothing lost.
 
-This is the same read-time-overlay pattern as the device labels (`src/labels.ts`):
-static per-device metadata, kept out of the time-series.
+The offset is static per-device metadata — like the device label and model
+(`src/labels.ts`) — so it's served per device, not baked into the time-series.
 
 ## How the offsets were derived
 

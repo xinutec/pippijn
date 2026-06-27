@@ -25,6 +25,8 @@ export interface DeviceLabel {
 /** A device's most recent reading plus its display label (from `/api/devices`). */
 export interface DeviceLatest extends Measurement {
 	label: DeviceLabel;
+	/** Per-device calibration offsets, applied client-side when calibration is on. */
+	offset: { temp_c?: number; humidity?: number };
 }
 
 /** Distinct line colours for the per-room comparison charts, assigned by order. */
