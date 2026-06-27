@@ -488,21 +488,28 @@ export function batterySeries(points: { ts: number; battery: number | null }[]):
 }
 
 /**
- * Append a trailing battery anchor — the first reading after the local day end
- * (fetched cross-day as `inputs.batteryTail`) — so the chart slopes from the
- * day's last in-day reading up to it, instead of stopping dead when the phone
- * went idle in the evening (e.g. charging) and only reported again overnight.
- * No-op when there is no tail, no in-day series to extend, or the tail does not
- * postdate the last sample.
+ * Extend the battery series to the day boundary when the phone went idle in the
+ * evening (e.g. charging) and only reported again after midnight. `tail` — the
+ * first reading after the local day end (fetched cross-day as
+ * `inputs.batteryTail`) — sets the slope; we interpolate the level at the day
+ * boundary (`dayEndTs`) and append THAT point, so the chart draws an angled line
+ * up to midnight and stops there, rather than running into the next day. No-op
+ * when there is no tail, no in-day series to extend, or the tail does not
+ * postdate the last in-day sample.
  */
 export function appendBatteryTail(
 	series: BatterySample[],
 	tail: { ts: number; level: number } | null | undefined,
+	dayEndTs: number,
 ): BatterySample[] {
 	if (!tail || series.length === 0) return series;
 	const last = series[series.length - 1];
-	if (tail.ts <= last.ts) return series;
-	return [...series, { ts: tail.ts, level: tail.level }];
+	if (tail.ts <= last.ts || dayEndTs <= last.ts) return series;
+	// Linear-interpolate the level where the last-reading→tail line crosses the
+	// day boundary. `tail.ts >= dayEndTs` by construction, so frac ∈ (0, 1].
+	const frac = Math.min(1, (dayEndTs - last.ts) / (tail.ts - last.ts));
+	const level = Math.round(last.level + (tail.level - last.level) * frac);
+	return [...series, { ts: dayEndTs, level }];
 }
 
 export interface VelocityResult {
@@ -597,7 +604,7 @@ export async function computeVelocityFromInputs(
 	// an incoherent position still carries a valid battery reading. The
 	// cross-day tail anchor lets the chart slope up to the next real reading
 	// when the phone went idle in the evening (see `appendBatteryTail`).
-	const battery = appendBatteryTail(batterySeries(inDay), inputs.batteryTail);
+	const battery = appendBatteryTail(batterySeries(inDay), inputs.batteryTail, bounds.endUtc);
 
 	// GPS quality control: drop physically-incoherent runs (underground
 	// cell-tower garbage) before anything else touches the data. The

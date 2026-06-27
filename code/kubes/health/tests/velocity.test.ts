@@ -1287,27 +1287,28 @@ describe("batterySeries", () => {
 		]);
 	});
 
-	it("appendBatteryTail extends a non-empty series with a later tail anchor", () => {
+	it("appendBatteryTail interpolates the next-day anchor back to the day boundary", () => {
 		const series = [
 			{ ts: 0, level: 100 },
 			{ ts: 100, level: 4 },
 		];
-		// Phone idle/charging in the evening; next real reading is overnight.
-		expect(appendBatteryTail(series, { ts: 30000, level: 80 })).toEqual([
+		// Phone idle/charging in the evening; next reading (ts=300) is overnight at
+		// 80%. The day boundary (ts=200) is midway, so the chart ends there at 42%.
+		expect(appendBatteryTail(series, { ts: 300, level: 80 }, 200)).toEqual([
 			{ ts: 0, level: 100 },
 			{ ts: 100, level: 4 },
-			{ ts: 30000, level: 80 },
+			{ ts: 200, level: 42 },
 		]);
 	});
 
 	it("appendBatteryTail is a no-op without a tail, an empty series, or a non-later tail", () => {
 		const series = [{ ts: 100, level: 4 }];
-		expect(appendBatteryTail(series, null)).toEqual(series);
-		expect(appendBatteryTail(series, undefined)).toEqual(series);
-		expect(appendBatteryTail([], { ts: 200, level: 80 })).toEqual([]);
+		expect(appendBatteryTail(series, null, 200)).toEqual(series);
+		expect(appendBatteryTail(series, undefined, 200)).toEqual(series);
+		expect(appendBatteryTail([], { ts: 300, level: 80 }, 200)).toEqual([]);
 		// A tail at or before the last sample's ts is ignored (no backwards line).
-		expect(appendBatteryTail(series, { ts: 100, level: 80 })).toEqual(series);
-		expect(appendBatteryTail(series, { ts: 50, level: 80 })).toEqual(series);
+		expect(appendBatteryTail(series, { ts: 100, level: 80 }, 200)).toEqual(series);
+		expect(appendBatteryTail(series, { ts: 50, level: 80 }, 200)).toEqual(series);
 	});
 
 	it("collapses a same-timestamp burst to its first sample", () => {
