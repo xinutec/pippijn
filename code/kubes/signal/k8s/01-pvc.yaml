@@ -13,13 +13,12 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  # The presage store: Signal linked-device keys + protocol state. SECRET-class
-  # data — treat backups of this volume as sensitive (it can impersonate the
-  # linked device). Tiny.
-  name: signal-store-pvc
+  # signal-cli's data dir: the linked-device keys + account state. SECRET-class
+  # (it can impersonate the linked device) — treat its odin backup as sensitive.
+  name: signal-cli-pvc
   namespace: signal
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 1Gi
+      storage: 2Gi

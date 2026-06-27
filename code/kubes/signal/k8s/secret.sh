@@ -21,7 +21,8 @@ kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n "$NS" create secret generic signal-secret \
   --from-literal=DB_USER=signal \
   --from-literal=DB_PASSWORD="$(gen)" \
-  --from-literal=DB_ROOT_PASSWORD="$(gen)" \
-  --from-literal=STORE_PASSPHRASE="$(gen)"
+  --from-literal=DB_ROOT_PASSWORD="$(gen)"
 
 echo "Created signal-secret in namespace '$NS'."
+echo "After linking, add the account number:"
+echo "  kubectl -n $NS patch secret signal-secret -p '{\"stringData\":{\"SIGNAL_NUMBER\":\"+44...\"}}'"

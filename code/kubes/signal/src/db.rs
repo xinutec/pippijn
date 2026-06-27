@@ -7,9 +7,9 @@ use anyhow::Result;
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 
 const MIGRATIONS: &[&str] = &[
-    // v0: contacts (people). Keyed by Signal ACI UUID.
+    // v0: contacts (people). Keyed by Signal ACI UUID (or E.164 if no UUID).
     r"CREATE TABLE IF NOT EXISTS contacts (
-        uuid CHAR(36) NOT NULL PRIMARY KEY,
+        uuid VARCHAR(64) NOT NULL PRIMARY KEY,
         phone VARCHAR(32) NULL,
         profile_name VARCHAR(255) NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -27,7 +27,7 @@ const MIGRATIONS: &[&str] = &[
     r"CREATE TABLE IF NOT EXISTS messages (
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         thread_id VARCHAR(80) NOT NULL,
-        sender_uuid CHAR(36) NOT NULL,
+        sender_uuid VARCHAR(64) NOT NULL,
         server_ts BIGINT NOT NULL,
         body TEXT NULL,
         quote_target_ts BIGINT NULL,
@@ -52,7 +52,7 @@ const MIGRATIONS: &[&str] = &[
         id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
         thread_id VARCHAR(80) NOT NULL,
         target_ts BIGINT NOT NULL,
-        author_uuid CHAR(36) NOT NULL,
+        author_uuid VARCHAR(64) NOT NULL,
         emoji VARCHAR(32) NULL,
         reaction_ts BIGINT NOT NULL,
         removed TINYINT(1) NOT NULL DEFAULT 0,

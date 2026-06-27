@@ -1,35 +1,24 @@
-//! signal-archiver — links as a Signal *secondary* device (presage) and writes
-//! every received message into MariaDB.
+//! signal-archiver — ingests Signal messages from `signal-cli-rest-api`'s
+//! receive websocket and writes them into MariaDB.
 //!
-//! Subcommands:
-//!   run   (default)  load the linked device and stream messages into the DB.
-//!                    If the store is not yet linked, it links first (prints the
-//!                    provisioning URL to stdout) and then starts receiving.
-//!   link             link only: print the provisioning URL and exit once paired.
-//!
-//! Linking shows a `sgnl://linkdevice?...` URL on stdout. Render it as a QR
-//! (e.g. `kubectl logs` → `qrencode -t ANSIUTF8 '<url>'`) and scan it in
-//! Signal → Settings → Linked devices.
+//! Linking and the Signal protocol are handled by signal-cli-rest-api (in
+//! `MODE=json-rpc`); this binary just connects to its per-account receive
+//! websocket, parses each frame, and archives it. signal-cli ≥0.14.x links as a
+//! secondary device without the capabilities/409 issue presage hit.
 //!
 //! Config via env: DB_HOST, DB_PORT (3306), DB_NAME, DB_USER, DB_PASSWORD,
-//! SIGNAL_STORE_URL (sqlite:///data/signal.db), SIGNAL_DEVICE_NAME
-//! (signal-archiver), STORE_PASSPHRASE (optional — sqlcipher-encrypts the store).
+//! SIGNAL_NUMBER (E.164, the linked account), SIGNAL_API_WS
+//! (ws://signal-cli-rest-api:8080).
 
 mod db;
 
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use futures::{channel::oneshot, future, pin_mut, StreamExt};
-
-use presage::libsignal_service::configuration::SignalServers;
-use presage::libsignal_service::content::{Content, ContentBody};
-use presage::manager::Registered;
-use presage::model::identity::OnNewIdentity;
-use presage::model::messages::Received;
-use presage::store::Thread;
-use presage::Manager;
-use presage_store_sqlite::SqliteStore;
+use futures::{SinkExt, StreamExt};
+use serde_json::Value;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::Message;
 
 use db::Db;
 
@@ -42,151 +31,155 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let link_only = matches!(std::env::args().nth(1).as_deref(), Some("link"));
+    let number = std::env::var("SIGNAL_NUMBER").context("SIGNAL_NUMBER not set")?;
+    let api_ws = env_or("SIGNAL_API_WS", "ws://signal-cli-rest-api:8080");
+    let ws_url = format!("{}/v1/receive/{}", api_ws.trim_end_matches('/'), number);
 
-    let store_url = env_or("SIGNAL_STORE_URL", "sqlite:///data/signal.db");
-    let device_name = env_or("SIGNAL_DEVICE_NAME", "signal-archiver");
-    let passphrase = std::env::var("STORE_PASSPHRASE").ok().filter(|s| !s.is_empty());
+    let db = Db::connect(&database_url()?).await.context("connecting to MariaDB")?;
+    tracing::info!("DB connected + migrated; ingesting from {ws_url}");
 
-    // SqliteStore::open creates the DB if missing. Load the existing
-    // registration, or link as a new secondary device. The store is consumed by
-    // load_registered, so reopen it for the linking path (SqliteStore is cheap
-    // to open and this avoids relying on Clone).
-    let store = SqliteStore::open_with_passphrase(&store_url, passphrase.as_deref(), OnNewIdentity::Trust)
-        .await
-        .context("opening sqlite store")?;
-    let manager = match Manager::load_registered(store).await {
-        Ok(m) => {
-            if link_only {
-                tracing::info!("already linked; nothing to do");
-                return Ok(());
-            }
-            tracing::info!("loaded existing linked device");
-            m
-        }
-        Err(_) => {
-            tracing::info!("not linked yet — starting secondary-device linking");
-            let store = SqliteStore::open_with_passphrase(&store_url, passphrase.as_deref(), OnNewIdentity::Trust)
-                .await
-                .context("reopening sqlite store for linking")?;
-            let m = link(store, device_name).await?;
-            tracing::info!("linked successfully");
-            if link_only {
-                return Ok(());
-            }
-            m
-        }
-    };
-
-    let db_url = database_url()?;
-    let db = Db::connect(&db_url).await.context("connecting to MariaDB")?;
-    tracing::info!("DB connected + migrated; entering receive loop");
-
-    receive_loop(manager, db).await
-}
-
-async fn link(store: SqliteStore, device_name: String) -> Result<Manager<SqliteStore, Registered>> {
-    let (tx, rx) = oneshot::channel();
-    let (res, _) = future::join(
-        Manager::link_secondary_device(store, SignalServers::Production, device_name, tx),
-        async move {
-            match rx.await {
-                Ok(url) => {
-                    // Printed (not logged) so it's easy to copy out of `kubectl logs`.
-                    println!(
-                        "\n=== SIGNAL LINK URL — render as QR and scan in Signal > Linked devices ===\n{url}\n=== (waiting for the phone to confirm) ===\n"
-                    );
-                }
-                Err(e) => tracing::error!("provisioning channel dropped: {e}"),
-            }
-        },
-    )
-    .await;
-    Ok(res?)
-}
-
-/// Stream messages forever, reconnecting when the websocket drops.
-async fn receive_loop(mut manager: Manager<SqliteStore, Registered>, db: Db) -> Result<()> {
+    // Reconnect forever — the websocket drops on signal-cli restarts / network blips.
     loop {
-        match manager.receive_messages().await {
-            Ok(stream) => {
-                pin_mut!(stream);
-                while let Some(received) = stream.next().await {
-                    match received {
-                        Received::QueueEmpty => tracing::debug!("caught up with the queue"),
-                        Received::Contacts => tracing::debug!("contacts sync complete"),
-                        Received::Content(content) => {
-                            if let Err(e) = handle(&db, &content).await {
-                                tracing::warn!("failed to archive a message: {e:#}");
-                            }
-                        }
-                    }
-                }
-                tracing::warn!("receive stream ended; reconnecting in 5s");
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-            Err(e) => {
-                tracing::error!("receive_messages failed: {e}; retrying in 15s");
-                tokio::time::sleep(Duration::from_secs(15)).await;
-            }
+        match run_ws(&ws_url, &db).await {
+            Ok(()) => tracing::warn!("receive stream ended; reconnecting in 7s"),
+            Err(e) => tracing::error!("websocket error: {e:#}; reconnecting in 10s"),
         }
+        tokio::time::sleep(Duration::from_secs(7)).await;
     }
 }
 
-/// Persist a single incoming message. v1 handles incoming DataMessages (text,
-/// quote, attachment metadata, reactions). NOTE: attachment *bytes* and
-/// reaction-target lookups need `&manager`, which is borrowed mutably by the
-/// receive stream — so they're deferred to a later pass (see README). Outgoing
-/// messages (SynchronizeMessage/Sent sync) are also a follow-up.
-async fn handle(db: &Db, content: &Content) -> Result<()> {
-    let sender = content.metadata.sender.raw_uuid().to_string();
-    let ts = content.metadata.timestamp as i64;
+async fn run_ws(ws_url: &str, db: &Db) -> Result<()> {
+    let (mut ws, _) = connect_async(ws_url).await.context("ws connect")?;
+    tracing::info!("websocket connected");
+    while let Some(msg) = ws.next().await {
+        let msg = msg.context("ws read")?;
+        if msg.is_close() {
+            tracing::warn!("server closed the websocket");
+            break;
+        }
+        if msg.is_ping() {
+            // Keep the connection alive — signal-cli-rest-api pings periodically.
+            ws.send(Message::Pong(msg.into_data())).await.ok();
+            continue;
+        }
+        let text = match msg.to_text() {
+            Ok(t) if !t.trim().is_empty() => t,
+            _ => continue,
+        };
+        // Tolerate the occasional malformed frame (e.g. the historical broken
+        // reaction-JSON bug) rather than killing the loop.
+        let frame: Value = match serde_json::from_str(text) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("skipping non-JSON frame: {e}");
+                continue;
+            }
+        };
+        if let Err(e) = handle(db, &frame).await {
+            tracing::warn!("failed to archive a frame: {e:#}");
+        }
+    }
+    Ok(())
+}
 
-    let (thread_id, kind) = match Thread::try_from(content) {
-        Ok(Thread::Contact(service_id)) => (format!("dm:{}", service_id.raw_uuid()), "dm"),
-        Ok(Thread::Group(key)) => (format!("group:{}", hex::encode(key)), "group"),
-        Err(_) => (format!("dm:{sender}"), "dm"),
-    };
+/// Archive one received frame. signal-cli-rest-api pushes either the unwrapped
+/// `{"envelope": {...}}` shape or a JSON-RPC `{"params": {"envelope": {...}}}`
+/// notification — accept both. Each envelope carries exactly one of
+/// dataMessage (incoming) / syncMessage.sentMessage (own outgoing) / receipt /
+/// typing; we archive the first two and ignore the rest.
+async fn handle(db: &Db, frame: &Value) -> Result<()> {
+    let env = frame
+        .get("envelope")
+        .or_else(|| frame.get("params").and_then(|p| p.get("envelope")));
+    let Some(env) = env else { return Ok(()) };
 
-    let ContentBody::DataMessage(dm) = &content.body else {
+    if let Some(dm) = env.get("dataMessage") {
+        let sender = id_of(env.get("sourceUuid"), env.get("source"));
+        let ts = env
+            .get("timestamp")
+            .and_then(Value::as_i64)
+            .or_else(|| dm.get("timestamp").and_then(Value::as_i64))
+            .unwrap_or(0);
+        // A DM thread is keyed by the other party (the sender).
+        store(db, dm, &sender, ts, false, &format!("dm:{sender}")).await?;
         return Ok(());
+    }
+
+    if let Some(sent) = env.get("syncMessage").and_then(|s| s.get("sentMessage")) {
+        let sender = id_of(env.get("sourceUuid"), env.get("source")); // ourselves
+        let ts = sent.get("timestamp").and_then(Value::as_i64).unwrap_or(0);
+        let dest = id_of(sent.get("destinationUuid"), sent.get("destination"));
+        // Outgoing DM belongs to the same thread as the recipient's incoming.
+        store(db, sent, &sender, ts, true, &format!("dm:{dest}")).await?;
+        return Ok(());
+    }
+
+    Ok(())
+}
+
+/// dataMessage and sentMessage share field names (message/groupInfo/quote/
+/// reaction/attachments), so one routine handles both.
+async fn store(
+    db: &Db,
+    msg: &Value,
+    sender: &str,
+    ts: i64,
+    is_outgoing: bool,
+    dm_thread_id: &str,
+) -> Result<()> {
+    let (thread_id, kind) = match msg
+        .get("groupInfo")
+        .and_then(|g| g.get("groupId"))
+        .and_then(Value::as_str)
+    {
+        Some(gid) => (format!("group:{gid}"), "group"),
+        None => (dm_thread_id.to_string(), "dm"),
     };
     db.upsert_conversation(&thread_id, kind).await?;
 
     // A reaction carries no body of its own.
-    if let Some(reaction) = &dm.reaction {
-        if let Some(target) = reaction.target_sent_timestamp {
+    if let Some(reaction) = msg.get("reaction") {
+        if let Some(target) = reaction.get("targetSentTimestamp").and_then(Value::as_i64) {
             db.insert_reaction(
                 &thread_id,
-                target as i64,
-                &sender,
-                reaction.emoji.as_deref(),
+                target,
+                sender,
+                reaction.get("emoji").and_then(Value::as_str),
                 ts,
-                reaction.remove.unwrap_or(false),
+                reaction.get("isRemove").and_then(Value::as_bool).unwrap_or(false),
             )
             .await?;
         }
         return Ok(());
     }
 
-    let quote_target = dm.quote.as_ref().and_then(|q| q.id).map(|id| id as i64);
-    let msg_id = db
-        .insert_message(&thread_id, &sender, ts, dm.body.as_deref(), quote_target, false)
-        .await?;
+    let body = msg.get("message").and_then(Value::as_str);
+    let quote = msg.get("quote").and_then(|q| q.get("id")).and_then(Value::as_i64);
+    let msg_id = db.insert_message(&thread_id, sender, ts, body, quote, is_outgoing).await?;
 
-    // msg_id == 0 means it was a duplicate (already archived) — skip children.
+    // msg_id == 0 means a duplicate (INSERT IGNORE) — skip children.
     if msg_id != 0 {
-        for att in &dm.attachments {
-            db.insert_attachment(
-                msg_id,
-                att.content_type.as_deref(),
-                att.file_name.as_deref(),
-                att.size.map(|s| s as i64),
-            )
-            .await?;
+        if let Some(atts) = msg.get("attachments").and_then(Value::as_array) {
+            for att in atts {
+                db.insert_attachment(
+                    msg_id,
+                    att.get("contentType").and_then(Value::as_str),
+                    att.get("filename").and_then(Value::as_str),
+                    att.get("size").and_then(Value::as_i64),
+                )
+                .await?;
+            }
         }
     }
     Ok(())
+}
+
+/// Prefer the stable ACI UUID; fall back to the E.164 number, then "unknown".
+fn id_of(uuid: Option<&Value>, fallback: Option<&Value>) -> String {
+    uuid.and_then(Value::as_str)
+        .or_else(|| fallback.and_then(Value::as_str))
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 fn env_or(key: &str, default: &str) -> String {

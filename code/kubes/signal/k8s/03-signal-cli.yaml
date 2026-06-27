@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-cli-rest-api
+  namespace: signal
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # single RWO data PVC + single linked device
+  selector:
+    matchLabels:
+      app: signal-cli-rest-api
+  template:
+    metadata:
+      labels:
+        app: signal-cli-rest-api
+    spec:
+      # signal-cli runs as uid/gid 1000; make the PVC writable by it.
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: rest-api
+          # Pinned: 0.100 (2026-06-11) bundles signal-cli >=0.14.x, which fixes
+          # the secondary-device-link 409 (missing-capabilities) that presage hit.
+          image: bbernhard/signal-cli-rest-api:0.100
+          env:
+            # json-rpc: long-lived daemon, the only mode that exposes
+            # /v1/receive/<number> as a streaming websocket.
+            - name: MODE
+              value: json-rpc
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /home/.local/share/signal-cli
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: signal-cli-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signal-cli-rest-api
+  namespace: signal
+spec:
+  selector:
+    app: signal-cli-rest-api
+  ports:
+    - port: 8080
+      targetPort: 8080

@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-ingester
+  namespace: signal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signal-ingester
+  template:
+    metadata:
+      labels:
+        app: signal-ingester
+    spec:
+      containers:
+        - name: ingester
+          image: xinutec/signal-archiver:latest
+          env:
+            - name: DB_HOST
+              value: signal-db
+            - name: DB_NAME
+              value: signal
+            - name: SIGNAL_API_WS
+              value: ws://signal-cli-rest-api:8080
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: { name: signal-secret, key: DB_USER }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: signal-secret, key: DB_PASSWORD }
+            # E.164 of the linked account; added to the secret after linking
+            # (discoverable via GET /v1/accounts on the rest-api).
+            - name: SIGNAL_NUMBER
+              valueFrom:
+                secretKeyRef: { name: signal-secret, key: SIGNAL_NUMBER }
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi

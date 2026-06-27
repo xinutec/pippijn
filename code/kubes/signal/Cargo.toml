@@ -2,30 +2,16 @@
 name = "signal-archiver"
 version = "0.1.0"
 edition = "2021"
-description = "Links as a Signal secondary device and archives received messages to MariaDB"
+description = "Ingests Signal messages from signal-cli-rest-api's receive websocket into MariaDB"
 
 [dependencies]
-# presage is git-only (not on crates.io). Pinned to a specific main commit so a
-# `cargo update` can't silently pull a protocol-incompatible API. The 0.7.0 tag
-# (May 2025, libsignal v0.56.1) is too old: Signal's server rejects linking with
-# HTTP 409 (missing capabilities). This commit (2026-06-12) bumps libsignal to
-# v0.86.6 and includes #386 "Bump libsignal-service to fix linking". sled was
-# deleted at this commit (#350) — the store is now sqlite (sqlcipher-encrypted).
-# libsignal is re-exported as `presage::libsignal_service` — never depend on it directly.
-presage = { git = "https://github.com/whisperfish/presage", rev = "94208274ef7218dfe4af5603a0b9be6e275c0a1a" }
-presage-store-sqlite = { git = "https://github.com/whisperfish/presage", rev = "94208274ef7218dfe4af5603a0b9be6e275c0a1a" }
-
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
-url = "2"
+# Plaintext ws:// to the in-cluster signal-cli-rest-api — no TLS feature needed.
+tokio-tungstenite = "0.24"
+serde_json = "1"
+# Runtime SQL only; in-cluster MariaDB is plaintext, so no TLS backend feature.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "mysql"] }
 anyhow = "1"
-hex = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-# Runtime SQL only (no compile-time DATABASE_URL needed); in-cluster MariaDB is
-# plaintext, so no TLS backend feature.
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "mysql"] }
-
-# presage requires Signal's fork of curve25519-dalek; the build fails without it.
-[patch.crates-io]
-curve25519-dalek = { git = "https://github.com/signalapp/curve25519-dalek", tag = "signal-curve25519-4.1.3" }
