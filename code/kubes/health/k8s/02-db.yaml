@@ -18,6 +18,14 @@ spec:
       containers:
         - name: mariadb
           image: mariadb:11.8
+          # The OSM mirror geometry (osm_lines ~1 GB + osm_points ~230 MB) is the
+          # hot working set for the velocity pipeline's spatial reads (classification
+          # osm, roadMatch, walkMatch, rail/bus). The stock 128 MB InnoDB buffer pool
+          # holds ~10% of it, so a walk-heavy day's footway queries are disk-bound
+          # (measured: the same spatial query swings 0.1 s warm → 4–6 s when its pages
+          # aren't resident; walkMatch hit ~40 s). A 2 GB pool keeps the whole mirror
+          # RAM-resident, putting every geometry query in the ~50–250 ms regime.
+          args: ["--innodb-buffer-pool-size=2147483648"]
           ports:
             - containerPort: 3306
           env:
@@ -55,7 +63,9 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              # 2 GB pool + mariadbd overhead. No limit: a hard cap risks an
+              # OOM-kill mid-query; isis has ample headroom (~12 GB free).
+              memory: 2304Mi
       volumes:
         - name: data
           persistentVolumeClaim:

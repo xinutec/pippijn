@@ -94,10 +94,16 @@ spec:
               value: "1"
           resources:
             requests:
-              cpu: 10m
+              # Idle most of the time; a /api/velocity compute is a short CPU
+              # burst. Keep the reservation modest but non-trivial.
+              cpu: 250m
               memory: 128Mi
             limits:
-              cpu: 200m
+              # The velocity pipeline is CPU-bound (map-matchers / HMM decode):
+              # ~6 CPU-seconds for a busy day. A 200m cap CFS-throttled that to
+              # ~50 s wall-clock (measured: walkMatch 4 s of CPU → 40 s on-pod).
+              # 2 cores lets a compute finish in a few seconds; isis sits ~7%.
+              cpu: "2"
               # Headroom for the local-OSM-mirror cold-start: multiple
               # large Overpass responses (5-50 MB each) can be in flight
               # while filling osm_points / osm_lines for a new bbox.
