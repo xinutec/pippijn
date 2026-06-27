@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Shared pre-push gate for the kubes monorepo apps: run the shared dev-lint
+# custom rules (~/Code/dev-lint — Python ast + ast-grep, e.g. angular-inline-
+# template) on whichever app a push actually touches. dev-lint is a local flake;
+# if it's missing the hook skips rather than blocking the push.
+#
+# Add an app by listing it in APPS and its dev-lint targets in targets_for().
+# Installed by code/kubes/scripts/setup-hooks.sh (symlinked into .git/hooks).
+set -euo pipefail
+
+DEVLINT="${DEVLINT_DIR:-$HOME/Code/dev-lint}"
+ZERO="0000000000000000000000000000000000000000"
+APPS="code/kubes/health code/kubes/home"
+
+# dev-lint target dirs for an app path (empty if unknown).
+targets_for() {
+	case "$1" in
+		code/kubes/health) echo "code/kubes/health/frontend/src code/kubes/health/src" ;;
+		code/kubes/home) echo "code/kubes/home/frontend/src code/kubes/home/src" ;;
+		*) echo "" ;;
+	esac
+}
+
+# Collect the set of apps this push touches, across all pushed refs.
+changed=""
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+	[ "$local_sha" = "$ZERO" ] && continue # branch deletion
+	for app in $APPS; do
+		if [ "$remote_sha" = "$ZERO" ]; then
+			changed="$changed $app" # new branch — just lint it
+		elif git diff --name-only "$remote_sha..$local_sha" -- "$app/" 2>/dev/null | grep -q .; then
+			changed="$changed $app"
+		fi
+	done
+done
+
+changed="$(printf '%s\n' $changed | sort -u | sed '/^$/d')"
+[ -n "$changed" ] || exit 0
+
+if [ ! -e "$DEVLINT/flake.nix" ]; then
+	echo "pre-push: dev-lint not found at $DEVLINT — skipping (set DEVLINT_DIR to override)" >&2
+	exit 0
+fi
+
+for app in $changed; do
+	echo "pre-push: dev-lint on ${app}…" >&2
+	# shellcheck disable=SC2046,SC2086
+	nix run "$DEVLINT" -- $(targets_for "$app")
+done
