@@ -80,3 +80,15 @@ jobs:
     secrets:
       username: ${{ secrets.DOCKERHUB_USERNAME }}
       password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  # Signal message archive (presage, Rust). The Docker build compiles the crate,
+  # so it doubles as the compile gate — no separate verify job (a second heavy
+  # Rust/presage build isn't worth the CI minutes).
+  signal:
+    uses: xinutec/pippijn/.github/workflows/docker.yml@main
+    with:
+      path: code/kubes/signal
+      image: signal-archiver
+    secrets:
+      username: ${{ secrets.DOCKERHUB_USERNAME }}
+      password: ${{ secrets.DOCKERHUB_PASSWORD }}

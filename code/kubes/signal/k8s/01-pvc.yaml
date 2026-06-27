@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signal-db-pvc
+  namespace: signal
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # Text messages are small; 10Gi covers years plus the history backfill.
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # The presage store: Signal linked-device keys + protocol state. SECRET-class
+  # data — treat backups of this volume as sensitive (it can impersonate the
+  # linked device). Tiny.
+  name: signal-store-pvc
+  namespace: signal
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi

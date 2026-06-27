@@ -1,0 +1,27 @@
+[package]
+name = "signal-archiver"
+version = "0.1.0"
+edition = "2021"
+description = "Links as a Signal secondary device and archives received messages to MariaDB"
+
+[dependencies]
+# presage is git-only (not on crates.io). Pinned to the 0.7.0 release tag so a
+# `cargo update` can't silently pull a protocol-incompatible API. libsignal is
+# re-exported as `presage::libsignal_service` — never depend on it separately.
+presage = { git = "https://github.com/whisperfish/presage", tag = "0.7.0" }
+presage-store-sled = { git = "https://github.com/whisperfish/presage", tag = "0.7.0" }
+
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+url = "2"
+anyhow = "1"
+hex = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Runtime SQL only (no compile-time DATABASE_URL needed); in-cluster MariaDB is
+# plaintext, so no TLS backend feature.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "mysql"] }
+
+# presage requires Signal's fork of curve25519-dalek; the build fails without it.
+[patch.crates-io]
+curve25519-dalek = { git = "https://github.com/signalapp/curve25519-dalek", tag = "signal-curve25519-4.1.3" }
