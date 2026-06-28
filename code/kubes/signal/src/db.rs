@@ -6,7 +6,7 @@
 use anyhow::Result;
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 
-use crate::parse::ThreadKind;
+use crate::parse::ThreadId;
 
 const MIGRATIONS: &[&str] = &[
     // v0: contacts (people). Keyed by Signal ACI UUID (or E.164 if no UUID).
@@ -111,13 +111,13 @@ impl Db {
         Ok(())
     }
 
-    pub async fn upsert_conversation(&self, thread_id: &str, kind: ThreadKind) -> Result<()> {
+    pub async fn upsert_conversation(&self, thread: &ThreadId) -> Result<()> {
         sqlx::query(
             "INSERT INTO conversations (thread_id, type) VALUES (?, ?)
              ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP",
         )
-        .bind(thread_id)
-        .bind(kind.as_str())
+        .bind(thread.to_string())
+        .bind(thread.kind().as_str())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -167,7 +167,7 @@ impl Db {
     /// for a row that was never written without the type forcing the check.
     pub async fn insert_message(
         &self,
-        thread_id: &str,
+        thread_id: &ThreadId,
         sender_uuid: &str,
         server_ts: i64,
         body: Option<&str>,
@@ -179,7 +179,7 @@ impl Db {
                 (thread_id, sender_uuid, server_ts, body, quote_target_ts, is_outgoing)
              VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .bind(thread_id)
+        .bind(thread_id.to_string())
         .bind(sender_uuid)
         .bind(server_ts)
         .bind(body)
@@ -222,7 +222,7 @@ impl Db {
     /// Store an edited version as its own row, linked to the original via edit_of_ts.
     pub async fn insert_edit(
         &self,
-        thread_id: &str,
+        thread_id: &ThreadId,
         sender_uuid: &str,
         edit_ts: i64,
         body: Option<&str>,
@@ -234,7 +234,7 @@ impl Db {
                 (thread_id, sender_uuid, server_ts, body, is_outgoing, edit_of_ts) \
              VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .bind(thread_id)
+        .bind(thread_id.to_string())
         .bind(sender_uuid)
         .bind(edit_ts)
         .bind(body)
@@ -269,7 +269,7 @@ impl Db {
 
     pub async fn insert_reaction(
         &self,
-        thread_id: &str,
+        thread_id: &ThreadId,
         target_ts: i64,
         author_uuid: &str,
         emoji: Option<&str>,
@@ -281,7 +281,7 @@ impl Db {
                 (thread_id, target_ts, author_uuid, emoji, reaction_ts, removed)
              VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .bind(thread_id)
+        .bind(thread_id.to_string())
         .bind(target_ts)
         .bind(author_uuid)
         .bind(emoji)

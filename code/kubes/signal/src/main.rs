@@ -147,7 +147,7 @@ async fn dispatch(ctx: &Ctx, frame: &Value) -> Result<()> {
             tracing::info!("remote-delete flagged {n} message(s) (sender={sender}, ts={target_ts})");
         }
         Action::Edit(e) => {
-            ctx.db.upsert_conversation(&e.thread_id, e.kind).await?;
+            ctx.db.upsert_conversation(&e.thread_id).await?;
             let n = ctx.db.mark_edited(&e.sender, e.target_ts).await?;
             ctx.db
                 .insert_edit(&e.thread_id, &e.sender, e.edit_ts, e.body.as_deref(), e.target_ts, e.is_outgoing)
@@ -158,13 +158,13 @@ async fn dispatch(ctx: &Ctx, frame: &Value) -> Result<()> {
             );
         }
         Action::Reaction(r) => {
-            ctx.db.upsert_conversation(&r.thread_id, r.kind).await?;
+            ctx.db.upsert_conversation(&r.thread_id).await?;
             ctx.db
                 .insert_reaction(&r.thread_id, r.target_ts, &r.author, r.emoji.as_deref(), r.reaction_ts, r.removed)
                 .await?;
         }
         Action::Message(m) => {
-            ctx.db.upsert_conversation(&m.thread_id, m.kind).await?;
+            ctx.db.upsert_conversation(&m.thread_id).await?;
             // `None` = a duplicate INSERT IGNORE dropped; skip its children.
             if let Some(msg_id) = ctx
                 .db

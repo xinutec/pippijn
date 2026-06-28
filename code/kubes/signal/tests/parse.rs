@@ -2,7 +2,7 @@
 
 use serde_json::json;
 use signal_archiver::parse::{
-    parse_frame, Action, Attachment, Contact, Edit, Message, Reaction, ThreadKind,
+    parse_frame, Action, Attachment, Contact, Edit, Message, Reaction, ThreadId, ThreadKind,
 };
 
 #[test]
@@ -15,7 +15,7 @@ fn incoming_text_dm() {
     assert_eq!(
         p.action,
         Action::Message(Message {
-            thread_id: "dm:u1".into(), kind: ThreadKind::Dm, sender: "u1".into(), server_ts: 1000,
+            thread_id: ThreadId::Dm("u1".into()), sender: "u1".into(), server_ts: 1000,
             body: Some("hi there".into()), quote_target_ts: None, is_outgoing: false,
             attachments: vec![],
         })
@@ -36,7 +36,7 @@ fn outgoing_sync_dm_keys_thread_by_destination() {
     assert_eq!(
         p.action,
         Action::Message(Message {
-            thread_id: "dm:u2".into(), kind: ThreadKind::Dm, sender: "me".into(), server_ts: 2000,
+            thread_id: ThreadId::Dm("u2".into()), sender: "me".into(), server_ts: 2000,
             body: Some("yo".into()), quote_target_ts: None, is_outgoing: true, attachments: vec![],
         })
     );
@@ -53,8 +53,9 @@ fn group_message_keys_thread_by_group_id() {
     let p = parse_frame(&f);
     match p.action {
         Action::Message(m) => {
-            assert_eq!(m.thread_id, "group:GID==");
-            assert_eq!(m.kind, ThreadKind::Group);
+            assert_eq!(m.thread_id, ThreadId::Group("GID==".into()));
+            assert_eq!(m.thread_id.kind(), ThreadKind::Group);
+            assert_eq!(m.thread_id.to_string(), "group:GID==");
         }
         other => panic!("expected Message, got {other:?}"),
     }
@@ -71,7 +72,7 @@ fn reaction_maps_to_reaction_action() {
     assert_eq!(
         p.action,
         Action::Reaction(Reaction {
-            thread_id: "dm:u1".into(), kind: ThreadKind::Dm, target_ts: 500, author: "u1".into(),
+            thread_id: ThreadId::Dm("u1".into()), target_ts: 500, author: "u1".into(),
             emoji: Some("👍".into()), reaction_ts: 900, removed: false,
         })
     );
@@ -166,7 +167,7 @@ fn incoming_edit_maps_to_edit_action() {
     assert_eq!(
         p.action,
         Action::Edit(Edit {
-            thread_id: "dm:u1".into(), kind: ThreadKind::Dm, sender: "u1".into(),
+            thread_id: ThreadId::Dm("u1".into()), sender: "u1".into(),
             edit_ts: 2000, target_ts: 1000, body: Some("fixed typo".into()), is_outgoing: false,
         })
     );
@@ -187,7 +188,7 @@ fn outgoing_sync_edit_maps_to_edit_action() {
     assert_eq!(
         parse_frame(&f).action,
         Action::Edit(Edit {
-            thread_id: "dm:u2".into(), kind: ThreadKind::Dm, sender: "me".into(),
+            thread_id: ThreadId::Dm("u2".into()), sender: "me".into(),
             edit_ts: 3000, target_ts: 1500, body: Some("edited (sync)".into()), is_outgoing: true,
         })
     );
@@ -201,7 +202,10 @@ fn group_edit_keys_thread_by_group_id() {
             "dataMessage": {"message": "g edit", "groupInfo": {"groupId": "GID=="}}}
     }});
     match parse_frame(&f).action {
-        Action::Edit(e) => { assert_eq!(e.thread_id, "group:GID=="); assert_eq!(e.kind, ThreadKind::Group); }
+        Action::Edit(e) => {
+            assert_eq!(e.thread_id, ThreadId::Group("GID==".into()));
+            assert_eq!(e.thread_id.kind(), ThreadKind::Group);
+        }
         other => panic!("expected Edit, got {other:?}"),
     }
 }

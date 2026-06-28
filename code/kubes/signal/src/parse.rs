@@ -25,6 +25,36 @@ impl ThreadKind {
     }
 }
 
+/// A conversation identity. A DM carries the other party's id (ACI UUID or
+/// E.164); a group carries its group id. The `dm:`/`group:` storage prefix is
+/// defined ONLY here (`Display`), and the kind is *derived* from the variant —
+/// so a thread id and its kind can never disagree, and the prefix can't be
+/// typo'd at a call site.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThreadId {
+    Dm(String),
+    Group(String),
+}
+
+impl ThreadId {
+    pub fn kind(&self) -> ThreadKind {
+        match self {
+            ThreadId::Dm(_) => ThreadKind::Dm,
+            ThreadId::Group(_) => ThreadKind::Group,
+        }
+    }
+}
+
+impl std::fmt::Display for ThreadId {
+    /// The stored key in `conversations.thread_id` / `messages.thread_id`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ThreadId::Dm(id) => write!(f, "dm:{id}"),
+            ThreadId::Group(id) => write!(f, "group:{id}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Contact {
     pub uuid: String,
@@ -42,8 +72,7 @@ pub struct Attachment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
-    pub thread_id: String,
-    pub kind: ThreadKind,
+    pub thread_id: ThreadId,
     pub sender: String,
     pub server_ts: i64,
     pub body: Option<String>,
@@ -54,8 +83,7 @@ pub struct Message {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reaction {
-    pub thread_id: String,
-    pub kind: ThreadKind,
+    pub thread_id: ThreadId,
     pub target_ts: i64,
     pub author: String,
     pub emoji: Option<String>,
@@ -65,8 +93,7 @@ pub struct Reaction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edit {
-    pub thread_id: String,
-    pub kind: ThreadKind,
+    pub thread_id: ThreadId,
     pub sender: String,
     pub edit_ts: i64,   // when the edit was made (this version's timestamp)
     pub target_ts: i64, // server_ts of the original message being edited
@@ -106,17 +133,19 @@ pub fn id_of(uuid: Option<&Value>, fallback: Option<&Value>) -> String {
         .to_string()
 }
 
-fn thread_of(msg: &Value, dm_thread_id: &str) -> (String, ThreadKind) {
+/// A message belongs to its `groupInfo.groupId` group if present, else the DM
+/// with `dm_peer` (the other party for incoming, the destination for outgoing).
+fn thread_of(msg: &Value, dm_peer: &str) -> ThreadId {
     match msg.get("groupInfo").and_then(|g| g.get("groupId")).and_then(Value::as_str) {
-        Some(gid) => (format!("group:{gid}"), ThreadKind::Group),
-        None => (dm_thread_id.to_string(), ThreadKind::Dm),
+        Some(gid) => ThreadId::Group(gid.to_string()),
+        None => ThreadId::Dm(dm_peer.to_string()),
     }
 }
 
 /// Turn the message payload (dataMessage or sentMessage — same shape) into an
 /// Action: a delete request, a reaction, or a stored message.
-fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_thread: &str) -> Action {
-    let (thread_id, kind) = thread_of(msg, dm_thread);
+fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_peer: &str) -> Action {
+    let thread_id = thread_of(msg, dm_peer);
 
     if let Some(rd) = msg.get("remoteDelete") {
         if let Some(target) = rd
@@ -133,7 +162,6 @@ fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_thre
         if let Some(target) = reaction.get("targetSentTimestamp").and_then(Value::as_i64) {
             return Action::Reaction(Reaction {
                 thread_id,
-                kind,
                 target_ts: target,
                 author: sender.to_string(),
                 emoji: reaction.get("emoji").and_then(Value::as_str).map(str::to_string),
@@ -174,7 +202,6 @@ fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_thre
 
     Action::Message(Message {
         thread_id,
-        kind,
         sender: sender.to_string(),
         server_ts: ts,
         body,
@@ -186,11 +213,10 @@ fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_thre
 
 /// Build an Edit action from an edit's inner dataMessage (same shape as a
 /// normal message payload — has `message`, `groupInfo`, …).
-fn edit_action(inner: &Value, sender: &str, edit_ts: i64, target_ts: i64, is_outgoing: bool, dm_thread: &str) -> Action {
-    let (thread_id, kind) = thread_of(inner, dm_thread);
+fn edit_action(inner: &Value, sender: &str, edit_ts: i64, target_ts: i64, is_outgoing: bool, dm_peer: &str) -> Action {
+    let thread_id = thread_of(inner, dm_peer);
     Action::Edit(Edit {
         thread_id,
-        kind,
         sender: sender.to_string(),
         edit_ts,
         target_ts,
@@ -225,10 +251,9 @@ pub fn parse_frame(frame: &Value) -> Parsed {
             phone: env.get("sourceNumber").and_then(Value::as_str).map(str::to_string),
             name: name.map(str::to_string),
         });
-        let dm_thread = format!("dm:{sender}");
-        let action = edit_action(inner, &sender, edit_ts, target, false, &dm_thread);
+        let action = edit_action(inner, &sender, edit_ts, target, false, &sender);
         let dm_name = match (inner.get("groupInfo").is_none(), name) {
-            (true, Some(n)) => Some((dm_thread.clone(), n.to_string())),
+            (true, Some(n)) => Some((ThreadId::Dm(sender.clone()).to_string(), n.to_string())),
             _ => None,
         };
         return Parsed { action, contact, dm_name };
@@ -250,7 +275,7 @@ pub fn parse_frame(frame: &Value) -> Parsed {
                     sent.and_then(|s| s.get("destinationUuid")),
                     sent.and_then(|s| s.get("destination")),
                 );
-                let action = edit_action(inner, &sender, edit_ts, target, true, &format!("dm:{dest}"));
+                let action = edit_action(inner, &sender, edit_ts, target, true, &dest);
                 return Parsed { action, contact: None, dm_name: None };
             }
             return Parsed::skip();
@@ -270,12 +295,11 @@ pub fn parse_frame(frame: &Value) -> Parsed {
             phone: env.get("sourceNumber").and_then(Value::as_str).map(str::to_string),
             name: name.map(str::to_string),
         });
-        let dm_thread = format!("dm:{sender}");
-        let action = payload_action(dm, &sender, ts, false, &dm_thread);
+        let action = payload_action(dm, &sender, ts, false, &sender);
         // Name a DM thread after the other party (not for groups/deletes).
         let dm_name = match (&action, dm.get("groupInfo").is_none(), name) {
             (Action::Message(_) | Action::Reaction(_), true, Some(n)) => {
-                Some((dm_thread.clone(), n.to_string()))
+                Some((ThreadId::Dm(sender.clone()).to_string(), n.to_string()))
             }
             _ => None,
         };
@@ -286,7 +310,7 @@ pub fn parse_frame(frame: &Value) -> Parsed {
         let sender = id_of(env.get("sourceUuid"), env.get("source")); // ourselves
         let ts = sent.get("timestamp").and_then(Value::as_i64).unwrap_or(0);
         let dest = id_of(sent.get("destinationUuid"), sent.get("destination"));
-        let action = payload_action(sent, &sender, ts, true, &format!("dm:{dest}"));
+        let action = payload_action(sent, &sender, ts, true, &dest);
         return Parsed { action, contact: None, dm_name: None };
     }
 
