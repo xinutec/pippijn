@@ -12,6 +12,7 @@ import type { FilteredPoint } from "../kalman.js";
 import { interpolateTimes } from "../rail-snap.js";
 import { effectiveMode, samplesInWindow } from "../segment-util.js";
 import { MOVING_MERGE_MAX_GAP_S } from "./moving.js";
+import { expandTubeLineNames } from "./rail-runs.js";
 
 /** The boarding→alighting station pair at the core of a train wayName
  *  ("Victoria → King's Cross St Pancras"), stripped of any "· Line"
@@ -194,6 +195,27 @@ function isStationPairTrain(seg: EnrichedSegment | undefined): seg is EnrichedSe
 	return seg !== undefined && effectiveMode(seg) === "train" && parseRailWayName(seg.wayName) !== null;
 }
 
+/** Suffix `relabelWalkingInterchanges` stamps on a walk it has identified as a
+ *  platform-to-platform line change between two train legs sharing a station. */
+const INTERCHANGE_WALK_SUFFIX = "(interchange)";
+
+/** Is there a platform-to-platform interchange walk between the train legs at
+ *  `aIdx` and `bIdx` (exclusive)? Such a walk is positive evidence of a train
+ *  change, so the rail-journey assembler must not merge across it. */
+function hasInterchangeWalkBetween(segments: readonly EnrichedSegment[], aIdx: number, bIdx: number): boolean {
+	for (let m = aIdx + 1; m < bIdx; m++) {
+		const seg = segments[m];
+		if (
+			effectiveMode(seg) === "walking" &&
+			seg.wayName !== undefined &&
+			seg.wayName.endsWith(INTERCHANGE_WALK_SUFFIX)
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
 /**
  * Find a single rail line that serves EVERY station the run's train legs touch,
  * or null. Candidates are the lines named on the legs plus the UNION of lines
@@ -306,45 +328,126 @@ export async function assembleRailJourney(
 			i++;
 			continue;
 		}
-		const trains = segments.slice(i, lastTrain + 1).filter(isStationPairTrain);
-		const stations = new Set<string>();
-		for (const t of trains) {
-			const r = parseRailWayName(t.wayName);
-			if (r) {
-				stations.add(r.board);
-				stations.add(r.alight);
-			}
-		}
-		const line = await findThroughLine(trains, stations, points, osm, stationsOnLineMemo);
-		const first = parseRailWayName(segments[i].wayName);
-		const last = parseRailWayName(segments[lastTrain].wayName);
-		if (line === null || first === null || last === null) {
-			out.push(segments[i]);
-			i++;
-			continue;
-		}
-		// Collapse [i..lastTrain] into one train leg over the whole ride; the
-		// intervening slivers are absorbed (their time is covered by the leg).
-		// snappedPath is left for the later rail-snap pass to attach from the
-		// merged route key.
-		let pointCount = 0;
-		let maxSpeed = 0;
+		// Partition the run's train legs into maximal SINGLE-LINE sub-runs and merge
+		// each on its own. A run can span a genuine interchange — e.g. Metropolitan
+		// then Victoria at King's Cross — where no single line serves every station,
+		// but each side is one continuous ride. The old all-or-nothing test (one
+		// line for the WHOLE run) bailed on such runs and left every leg shattered;
+		// here we grow a sub-run while one line still serves all its stations, emit
+		// it as one leg, then continue from the changeover. Slivers WITHIN a sub-run
+		// are absorbed; slivers BETWEEN sub-runs (the interchange) pass through.
+		const trainPositions: number[] = [];
 		for (let m = i; m <= lastTrain; m++) {
-			pointCount += segments[m].pointCount;
-			maxSpeed = Math.max(maxSpeed, segments[m].maxSpeed);
+			if (isStationPairTrain(segments[m])) trainPositions.push(m);
 		}
-		const reason = `rail-journey assembly: ${lastTrain - i + 1} fragments on ${line} (GPS surfaced mid-ride) merged into one continuous ride`;
-		out.push({
-			...segments[i],
-			mode: "train",
-			refinedMode: "train",
-			endTs: segments[lastTrain].endTs,
-			wayName: `${first.board} → ${last.alight} · ${line}`,
-			snappedPath: undefined,
-			pointCount,
-			maxSpeed,
-			refinedReason: segments[i].refinedReason ? `${segments[i].refinedReason}; ${reason}` : reason,
-		});
+		const stationsOf = (segs: readonly EnrichedSegment[]): Set<string> => {
+			const s = new Set<string>();
+			for (const t of segs) {
+				const r = parseRailWayName(t.wayName);
+				if (r) {
+					s.add(r.board);
+					s.add(r.alight);
+				}
+			}
+			return s;
+		};
+		let cursor = i;
+		let p = 0;
+		while (p < trainPositions.length) {
+			// Longest prefix trainPositions[p..e] that is one continuous ride. Three
+			// gates must all hold to extend the prefix by a fragment:
+			//   1. A single line serves every station the prefix touches
+			//      (`findThroughLine`) — the geometric through-line test.
+			//   2. The fragment's OWN line label is compatible with the lines the
+			//      prefix has already committed to. A continuous ride never changes
+			//      physical line, so an explicit Metropolitan fragment followed by an
+			//      explicit Jubilee fragment is an interchange even when one line
+			//      (Jubilee) happens to serve all three stations. Labels are expanded
+			//      to physical lines so a shared-track combined name ("Circle, H&C and
+			//      Metropolitan Lines") stays compatible with a plain "Metropolitan
+			//      Line". Unlabelled fragments impose no line constraint.
+			//   3. No platform-to-platform interchange walk sits between the fragments.
+			//      `relabelWalkingInterchanges` rewrites a short walk between two train
+			//      legs that share a station to "<station> (interchange)" — positive
+			//      evidence the rider changed trains. The geometric through-line test
+			//      alone misses this when the first leg is unlabelled and a single line
+			//      happens to serve both ends (2026-06-16 Wembley Park → Baker Street →
+			//      Green Park: Jubilee serves all three, but the rider rode the
+			//      Metropolitan to Baker Street and changed there). The interchange walk
+			//      breaks the run UNLESS both fragments carry explicit labels proving
+			//      one shared line — a genuine same-line surfacing that merely happened
+			//      to share a station still merges.
+			let groupLine: string | null = null;
+			let e = p;
+			let allowed: Set<string> | null = null;
+			for (let c = p; c < trainPositions.length; c++) {
+				const fragLine = parseRailWayName(segments[trainPositions[c]].wayName)?.line;
+				let nextAllowed: Set<string> | null = allowed;
+				if (fragLine !== undefined) {
+					const expanded = new Set<string>(expandTubeLineNames(fragLine));
+					if (allowed === null) {
+						nextAllowed = expanded;
+					} else {
+						const inter = new Set<string>();
+						for (const l of allowed) if (expanded.has(l)) inter.add(l);
+						nextAllowed = inter;
+					}
+					if (nextAllowed.size === 0) break; // line-label interchange: a physical line change
+				}
+				if (c > p && hasInterchangeWalkBetween(segments, trainPositions[c - 1], trainPositions[c])) {
+					// Both fragments explicitly the same line (allowed carried a prior
+					// label and this one intersects it) proves the interchange marker
+					// spurious; otherwise trust it and split here.
+					const provenSameLine = fragLine !== undefined && allowed !== null;
+					if (!provenSameLine) break;
+				}
+				const sub = trainPositions.slice(p, c + 1).map((idx) => segments[idx]);
+				const ln = await findThroughLine(sub, stationsOf(sub), points, osm, stationsOnLineMemo);
+				if (ln === null) break;
+				groupLine = ln;
+				allowed = nextAllowed;
+				e = c;
+			}
+			const firstPos = trainPositions[p];
+			const lastPos = trainPositions[e];
+			// Emit any segments before this sub-run unchanged (interchange slivers
+			// between sub-runs).
+			while (cursor < firstPos) {
+				out.push(segments[cursor]);
+				cursor++;
+			}
+			const first = parseRailWayName(segments[firstPos].wayName);
+			const last = parseRailWayName(segments[lastPos].wayName);
+			if (firstPos === lastPos || groupLine === null || first === null || last === null) {
+				// A lone leg, or an unresolvable line — pass the train leg(s) through
+				// unchanged rather than fabricate a merge.
+				for (let m = firstPos; m <= lastPos; m++) out.push(segments[m]);
+			} else {
+				// Collapse [firstPos..lastPos] into one leg; intervening slivers are
+				// absorbed (their time is covered by the leg). snappedPath is left for
+				// the later rail-snap pass to attach from the merged route key.
+				let pointCount = 0;
+				let maxSpeed = 0;
+				for (let m = firstPos; m <= lastPos; m++) {
+					pointCount += segments[m].pointCount;
+					maxSpeed = Math.max(maxSpeed, segments[m].maxSpeed);
+				}
+				const reason = `rail-journey assembly: ${e - p + 1} fragments on ${groupLine} (GPS surfaced mid-ride) merged into one continuous ride`;
+				out.push({
+					...segments[firstPos],
+					mode: "train",
+					refinedMode: "train",
+					endTs: segments[lastPos].endTs,
+					wayName: `${first.board} → ${last.alight} · ${groupLine}`,
+					snappedPath: undefined,
+					pointCount,
+					maxSpeed,
+					refinedReason: segments[firstPos].refinedReason ? `${segments[firstPos].refinedReason}; ${reason}` : reason,
+				});
+			}
+			cursor = lastPos + 1;
+			p = e + 1;
+		}
 		i = lastTrain + 1;
 	}
 	return out;

@@ -235,6 +235,130 @@ describe("assembleRailJourney", () => {
 		expect(out.filter((s) => s.mode === "train")).toHaveLength(2);
 	});
 
+	it("partitions a multi-line journey at the interchange, merging each single-line sub-run", async () => {
+		// Wembley Park → … → Euston Square (Metropolitan), change at King's Cross,
+		// then King's Cross → Highbury & Islington (Victoria). No single line serves
+		// every station, but the Met legs are one ride and must merge into ONE leg
+		// rather than staying shattered just because the run continues onto the
+		// Victoria line. (The real 2026-06-28 Wembley→Islington trip.)
+		const segs = [
+			seg("train", 0, 10, { wayName: "Wembley Park → Finchley Road", centroidLat: 1, centroidLon: 0 }),
+			seg("walking", 10, 12, { centroidLat: 1, centroidLon: 0 }),
+			seg("train", 12, 17, {
+				wayName: "Finchley Road → Baker Street · Metropolitan Line",
+				centroidLat: 1,
+				centroidLon: 0,
+			}),
+			seg("train", 17, 27, {
+				wayName: "Baker Street → Euston Square · Circle, Hammersmith & City and Metropolitan Lines",
+				centroidLat: 1,
+				centroidLon: 0,
+			}),
+			seg("train", 27, 35, {
+				wayName: "London King's Cross → Highbury & Islington · Victoria Line",
+				centroidLat: 2,
+				centroidLon: 0,
+			}),
+		];
+		const osm = osmStub(
+			{ 1: ["Metropolitan Line"], 2: ["Victoria Line"] },
+			{
+				"Metropolitan Line": ["Wembley Park", "Finchley Road", "Baker Street", "Euston Square", "London King's Cross"],
+				"Victoria Line": ["London King's Cross", "Highbury & Islington"],
+			},
+		);
+		const out = await assembleRailJourney([...segs], [], osm);
+		const trains = out.filter((s) => s.mode === "train");
+		expect(trains).toHaveLength(2);
+		expect(trains[0].wayName).toBe("Wembley Park → Euston Square · Metropolitan Line");
+		expect(trains[0].startTs).toBe(0);
+		expect(trains[0].endTs).toBe(27 * 60);
+		expect(trains[1].wayName).toBe("London King's Cross → Highbury & Islington · Victoria Line");
+	});
+
+	it("does NOT merge two differently-labelled lines even when one line serves every station", async () => {
+		// 2026-06-16: Wembley Park → Baker Street on the Metropolitan line, then a
+		// real Baker Street interchange (2-min walk) onto the Jubilee line to Green
+		// Park. The Jubilee line happens to serve ALL THREE stations, so the
+		// through-line test alone would merge them into one Jubilee leg and erase
+		// the change. The legs carry distinct explicit lines (Met, Jubilee), so the
+		// line-label gate must keep them split and preserve the interchange walk.
+		const segs = [
+			seg("train", 0, 9, {
+				wayName: "Wembley Park → Baker Street · Metropolitan Line",
+				centroidLat: 1,
+				centroidLon: 0,
+			}),
+			seg("walking", 9, 11, { centroidLat: 1, centroidLon: 0 }), // Baker Street interchange
+			seg("train", 11, 15, { wayName: "Baker Street → Green Park · Jubilee Line", centroidLat: 1, centroidLon: 0 }),
+		];
+		const osm = osmStub(
+			{ 1: ["Jubilee Line", "Metropolitan Line"] },
+			{
+				"Jubilee Line": ["Wembley Park", "Baker Street", "Green Park"],
+				"Metropolitan Line": ["Wembley Park", "Baker Street"],
+			},
+		);
+		const out = await assembleRailJourney([...segs], [], osm);
+		const trains = out.filter((s) => s.mode === "train");
+		expect(trains).toHaveLength(2);
+		expect(trains[0].wayName).toBe("Wembley Park → Baker Street · Metropolitan Line");
+		expect(trains[1].wayName).toBe("Baker Street → Green Park · Jubilee Line");
+		// The interchange walk survives between the two legs.
+		expect(out.some((s) => s.mode === "walking")).toBe(true);
+	});
+
+	it("does NOT merge across an interchange walk when the first leg is unlabelled (the real 2026-06-16)", async () => {
+		// The real shape: "Wembley Park → Baker Street" has NO line label (the
+		// underground reconstruction couldn't disambiguate Met vs Jubilee, which
+		// both serve that pair), a "Baker Street (interchange)" walk marks the
+		// platform change, then "Baker Street → Green Park · Jubilee Line". The
+		// through-line test finds Jubilee serves all three and would merge; the
+		// interchange-walk gate must split instead and keep the walk.
+		const segs = [
+			seg("train", 0, 9, { wayName: "Wembley Park → Baker Street", centroidLat: 1, centroidLon: 0 }),
+			seg("walking", 9, 11, { wayName: "Baker Street (interchange)", centroidLat: 1, centroidLon: 0 }),
+			seg("train", 11, 15, { wayName: "Baker Street → Green Park · Jubilee Line", centroidLat: 1, centroidLon: 0 }),
+		];
+		const osm = osmStub(
+			{ 1: ["Jubilee Line", "Metropolitan Line"] },
+			{
+				"Jubilee Line": ["Wembley Park", "Baker Street", "Green Park"],
+				"Metropolitan Line": ["Wembley Park", "Baker Street"],
+			},
+		);
+		const out = await assembleRailJourney([...segs], [], osm);
+		const trains = out.filter((s) => s.mode === "train");
+		expect(trains).toHaveLength(2);
+		expect(trains[0].wayName).toBe("Wembley Park → Baker Street");
+		expect(trains[1].wayName).toBe("Baker Street → Green Park · Jubilee Line");
+		expect(out.some((s) => s.mode === "walking" && s.wayName === "Baker Street (interchange)")).toBe(true);
+	});
+
+	it("DOES merge a same-line ride even with an interchange-labelled sliver when both legs name that line", async () => {
+		// Same-station GPS surfacing on ONE Metropolitan ride can be mis-scored as a
+		// short walk and relabelled "(interchange)" because the legs share Baker
+		// Street. Explicit matching line labels prove the marker spurious — merge.
+		const segs = [
+			seg("train", 0, 9, {
+				wayName: "Finchley Road → Baker Street · Metropolitan Line",
+				centroidLat: 1,
+				centroidLon: 0,
+			}),
+			seg("walking", 9, 10, { wayName: "Baker Street (interchange)", centroidLat: 1, centroidLon: 0 }),
+			seg("train", 10, 18, {
+				wayName: "Baker Street → Euston Square · Metropolitan Line",
+				centroidLat: 1,
+				centroidLon: 0,
+			}),
+		];
+		const osm = osmStub({ 1: ["Metropolitan Line"] }, { "Metropolitan Line": MET });
+		const out = await assembleRailJourney([...segs], [], osm);
+		const trains = out.filter((s) => s.mode === "train");
+		expect(trains).toHaveLength(1);
+		expect(trains[0].wayName).toBe("Finchley Road → Euston Square · Metropolitan Line");
+	});
+
 	it("does NOT merge across a long stop (a real stopover, not a surfacing sliver)", async () => {
 		const segs = [
 			seg("train", 0, 10, { wayName: "Wembley Park → Finchley Road", centroidLat: 1, centroidLon: 0 }),
