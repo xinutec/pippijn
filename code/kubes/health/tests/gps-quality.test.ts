@@ -111,6 +111,82 @@ describe("qualityFilterGps", () => {
 		expect(result.length).toBeLessThan(20);
 	});
 
+	it("drops a poor-accuracy underground run that marches forward UNDER the speed ceiling", () => {
+		// The 2026-06-28 return-tube signature: not thrashing garbage, but
+		// cell-tower fixes that march roughly forward at tube speed — each hop
+		// is speed-coherent (well under the 150 km/h ceiling, so the speed test
+		// alone keeps them) yet every fix has terrible accuracy (≈150 m,
+		// cell-tower). Underground the position is wrong, not just noisy, so the
+		// run must be dropped and left as a gap for reconstruction. Bracketed by
+		// a clean (good-accuracy) station stay and a clean surfacing walk.
+		const fixes: GpsPoint[] = [];
+		for (let i = 0; i < 8; i++) fixes.push(fix(1000 + i * 15, 0, 0, 8)); // station A, good acc
+		const tunnelStart = 1000 + 8 * 15;
+		// 6 poor-accuracy fixes, +400 m east every 20 s = 72 km/h (< 150), acc 150.
+		for (let k = 0; k < 6; k++) fixes.push(fix(tunnelStart + k * 20, 0, 400 + k * 400, 150));
+		const surfaceTs = tunnelStart + 6 * 20 + 60;
+		for (let i = 0; i < 8; i++) fixes.push(fix(surfaceTs + i * 15, 0, 3200 + i * 21, 12)); // station B walk, good acc
+		const result = qualityFilterGps(fixes);
+
+		// None of the acc-150 cell-tower fixes survive.
+		for (let k = 0; k < 6; k++) {
+			expect(
+				result.some((p) => p.ts === tunnelStart + k * 20),
+				`poor-accuracy fix ${k} kept`,
+			).toBe(false);
+		}
+		// Every clean (good-accuracy) bracket fix survives.
+		for (let i = 0; i < 8; i++) {
+			expect(
+				result.some((p) => p.ts === 1000 + i * 15),
+				`station A fix ${i} dropped`,
+			).toBe(true);
+			expect(
+				result.some((p) => p.ts === surfaceTs + i * 15),
+				`station B fix ${i} dropped`,
+			).toBe(true);
+		}
+	});
+
+	it("keeps a poor-accuracy stay that is NOT moving (indoor GPS, not a tube ride)", () => {
+		// Guard against over-dropping: a stationary indoor sit also has poor
+		// accuracy, but ≈0 speed. It must NOT be dropped — only inaccurate
+		// *movement* is the underground signature.
+		const fixes: GpsPoint[] = [];
+		for (let i = 0; i < 4; i++) fixes.push(fix(1000 + i * 15, 0, 0, 10)); // good entry
+		// 8 poor-accuracy fixes jittering within ~30 m, near-stationary.
+		const sitStart = 1000 + 4 * 15;
+		const jitter = [5, -8, 12, -3, 9, -11, 4, -6];
+		jitter.forEach((e, k) => {
+			fixes.push(fix(sitStart + k * 30, e, -e, 120));
+		});
+		const result = qualityFilterGps(fixes);
+		// The near-stationary poor-accuracy sit is kept (Kalman down-weights it).
+		expect(result.length).toBe(fixes.length);
+	});
+
+	it("keeps a poor-accuracy run that jitters FAST but never travels (indoor stay / interchange)", () => {
+		// The 2026-06-24 UCLH / 2026-06-12 King's Cross-interchange regression
+		// guard. A poor-accuracy indoor stay (or a platform-to-platform walk) can
+		// jitter ±150 m between cell-tower fixes — each hop implies >15 km/h, so
+		// the per-hop test would call it the underground signature — yet the run
+		// never goes anywhere: it surfaces back at its anchor. Net displacement,
+		// not per-hop speed, separates it from a tube ride, so it must be KEPT.
+		const fixes: GpsPoint[] = [];
+		for (let i = 0; i < 4; i++) fixes.push(fix(1000 + i * 15, 0, 0, 10)); // good entry
+		const sitStart = 1000 + 4 * 15;
+		// 8 poor-accuracy fixes oscillating ±150 m (each hop ~36 km/h), net ≈ 0.
+		const osc = [150, -150, 150, -150, 150, -150, 150, -150];
+		osc.forEach((n, k) => {
+			fixes.push(fix(sitStart + k * 15, n, 0, 150));
+		});
+		const exitStart = sitStart + 8 * 15;
+		for (let i = 0; i < 4; i++) fixes.push(fix(exitStart + i * 15, 0, 0, 10)); // good exit, same spot
+		const result = qualityFilterGps(fixes);
+		// Nothing dropped — the run jitters but does not travel, so it is a stay.
+		expect(result.length).toBe(fixes.length);
+	});
+
 	it("keeps sustained fast travel (a plane), which has no coherent bridge", () => {
 		// A plane: 14 fixes marching coherently NE at ~800 km/h, 30 s apart
 		// (~6.67 km per step). Every fix is "unreachable" from the previous
