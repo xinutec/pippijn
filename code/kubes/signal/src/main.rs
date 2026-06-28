@@ -16,8 +16,16 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use serde_json::Value;
+use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+/// If no frame at all (not even a server ping) arrives within this window, the
+/// connection is probably a silently-dead socket (NAT/idle drop with no close).
+/// We send a keepalive ping to probe; if `MAX_IDLE_PROBES` consecutive windows
+/// pass with no traffic, we give up and force a reconnect.
+const READ_TIMEOUT: Duration = Duration::from_secs(90);
+const MAX_IDLE_PROBES: u32 = 3;
 
 use signal_archiver::db::Db;
 use signal_archiver::parse::{parse_frame, Action};
@@ -69,7 +77,31 @@ async fn main() -> Result<()> {
 async fn run_ws(ws_url: &str, ctx: &Ctx) -> Result<()> {
     let (mut ws, _) = connect_async(ws_url).await.context("ws connect")?;
     tracing::info!("websocket connected");
-    while let Some(msg) = ws.next().await {
+    // Count consecutive idle windows; any received frame (incl. pings/pongs)
+    // proves the link is alive and resets it.
+    let mut idle_probes = 0u32;
+    loop {
+        let next = match timeout(READ_TIMEOUT, ws.next()).await {
+            Ok(next) => next,
+            Err(_elapsed) => {
+                idle_probes += 1;
+                if idle_probes > MAX_IDLE_PROBES {
+                    anyhow::bail!(
+                        "no ws traffic for ~{}s ({idle_probes} idle windows); connection is dead",
+                        READ_TIMEOUT.as_secs() * idle_probes as u64
+                    );
+                }
+                tracing::warn!(
+                    "no ws traffic for {}s; sending keepalive ping (probe {idle_probes}/{MAX_IDLE_PROBES})",
+                    READ_TIMEOUT.as_secs()
+                );
+                // A broken pipe surfaces here on write even before a read would.
+                ws.send(WsMessage::Ping(Vec::new().into())).await.context("keepalive ping")?;
+                continue;
+            }
+        };
+        let Some(msg) = next else { break }; // stream ended cleanly
+        idle_probes = 0;
         let msg = msg.context("ws read")?;
         if msg.is_close() {
             tracing::warn!("server closed the websocket");
