@@ -1,6 +1,67 @@
-<h2>Inventory</h2>
+<div class="head">
+  <h2>Inventory</h2>
+  <div class="toggles">
+    <button mat-stroked-button (click)="toggleItemForm()">
+      <mat-icon>{{ showItemForm() ? 'close' : 'add' }}</mat-icon> Item
+    </button>
+    <button mat-stroked-button (click)="togglePlaceForm()">
+      <mat-icon>{{ showPlaceForm() ? 'close' : 'add' }}</mat-icon> Place
+    </button>
+  </div>
+</div>
 
-<div class="forms">
+@if (showItemForm()) {
+  <mat-card appearance="outlined" class="form">
+    <mat-card-header>
+      <mat-card-title>{{ editingId() ? 'Edit item' : 'Add an item' }}</mat-card-title>
+    </mat-card-header>
+    <mat-card-content>
+      <mat-form-field appearance="outline">
+        <mat-label>Name</mat-label>
+        <input matInput [(ngModel)]="item.name" placeholder="e.g. Cumin" />
+      </mat-form-field>
+      <mat-form-field appearance="outline">
+        <mat-label>Category</mat-label>
+        <mat-select [(ngModel)]="item.category">
+          @for (c of categories; track c) { <mat-option [value]="c">{{ c }}</mat-option> }
+        </mat-select>
+      </mat-form-field>
+      <div class="pair">
+        <mat-form-field appearance="outline">
+          <mat-label>Qty</mat-label>
+          <input matInput type="number" inputmode="decimal" [(ngModel)]="item.quantity" />
+        </mat-form-field>
+        <mat-form-field appearance="outline">
+          <mat-label>Unit</mat-label>
+          <input matInput [(ngModel)]="item.unit" placeholder="jar, g…" />
+        </mat-form-field>
+      </div>
+      <mat-form-field appearance="outline">
+        <mat-label>Expiry</mat-label>
+        <input matInput type="date" [(ngModel)]="item.expiry" />
+      </mat-form-field>
+      <mat-form-field appearance="outline">
+        <mat-label>Location</mat-label>
+        <mat-select [(ngModel)]="item.location_id">
+          <mat-option [value]="null">— none —</mat-option>
+          @for (o of locationOptions(); track o.id) {
+            <mat-option [value]="o.id">{{ o.label }}</mat-option>
+          }
+        </mat-select>
+      </mat-form-field>
+      <div class="form-actions">
+        <button mat-flat-button color="primary" (click)="saveItem()">
+          {{ editingId() ? 'Save' : 'Add item' }}
+        </button>
+        @if (editingId()) {
+          <button mat-button (click)="cancelEdit()">Cancel</button>
+        }
+      </div>
+    </mat-card-content>
+  </mat-card>
+}
+
+@if (showPlaceForm()) {
   <mat-card appearance="outlined" class="form">
     <mat-card-header><mat-card-title>Register a place</mat-card-title></mat-card-header>
     <mat-card-content>
@@ -23,77 +84,39 @@
           }
         </mat-select>
       </mat-form-field>
-      <button mat-flat-button color="primary" (click)="addPlace()">Add place</button>
+      <div class="form-actions">
+        <button mat-flat-button color="primary" (click)="addPlace()">Add place</button>
+      </div>
     </mat-card-content>
   </mat-card>
-
-  <mat-card appearance="outlined" class="form">
-    <mat-card-header>
-      <mat-card-title>{{ editingId() ? 'Edit item' : 'Add an item' }}</mat-card-title>
-    </mat-card-header>
-    <mat-card-content>
-      <mat-form-field appearance="outline">
-        <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="item.name" placeholder="e.g. Cumin" />
-      </mat-form-field>
-      <mat-form-field appearance="outline">
-        <mat-label>Category</mat-label>
-        <mat-select [(ngModel)]="item.category">
-          @for (c of categories; track c) { <mat-option [value]="c">{{ c }}</mat-option> }
-        </mat-select>
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="narrow">
-        <mat-label>Qty</mat-label>
-        <input matInput type="number" [(ngModel)]="item.quantity" />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="narrow">
-        <mat-label>Unit</mat-label>
-        <input matInput [(ngModel)]="item.unit" placeholder="jar, g…" />
-      </mat-form-field>
-      <mat-form-field appearance="outline">
-        <mat-label>Expiry</mat-label>
-        <input matInput type="date" [(ngModel)]="item.expiry" />
-      </mat-form-field>
-      <mat-form-field appearance="outline">
-        <mat-label>Location</mat-label>
-        <mat-select [(ngModel)]="item.location_id">
-          <mat-option [value]="null">— none —</mat-option>
-          @for (o of locationOptions(); track o.id) {
-            <mat-option [value]="o.id">{{ o.label }}</mat-option>
-          }
-        </mat-select>
-      </mat-form-field>
-      <button mat-flat-button color="primary" (click)="saveItem()">
-        {{ editingId() ? 'Save' : 'Add item' }}
-      </button>
-      @if (editingId()) {
-        <button mat-button (click)="cancelEdit()">Cancel</button>
-      }
-    </mat-card-content>
-  </mat-card>
-</div>
+}
 
 <section>
   <h3>Items</h3>
   @if (items().length === 0) {
-    <p class="empty">No items yet.</p>
+    <p class="empty">No items yet — tap “+ Item”.</p>
   }
   <mat-list>
     @for (it of items(); track it.id) {
-      <mat-list-item>
+      <mat-list-item lines="2">
         <mat-icon matListItemIcon>label</mat-icon>
         <span matListItemTitle>{{ it.name }}</span>
         <span matListItemLine>
           {{ qty(it) }}
-          @if (it.location_id) { · {{ pathOf(it.location_id) }} }
+          @if (it.location_id) { · {{ shortLoc(it.location_id) }} }
           @if (it.expiry) { · exp {{ it.expiry }} }
         </span>
-        <button matListItemMeta mat-icon-button (click)="editItem(it)" aria-label="Edit">
-          <mat-icon>edit</mat-icon>
+        <button matListItemMeta mat-icon-button [matMenuTriggerFor]="itemMenu" aria-label="Actions">
+          <mat-icon>more_vert</mat-icon>
         </button>
-        <button mat-icon-button (click)="deleteItem(it.id)" aria-label="Delete">
-          <mat-icon>delete</mat-icon>
-        </button>
+        <mat-menu #itemMenu="matMenu">
+          <button mat-menu-item (click)="editItem(it)">
+            <mat-icon>edit</mat-icon><span>Edit</span>
+          </button>
+          <button mat-menu-item (click)="deleteItem(it.id)">
+            <mat-icon>delete</mat-icon><span>Delete</span>
+          </button>
+        </mat-menu>
       </mat-list-item>
     }
   </mat-list>
@@ -102,11 +125,11 @@
 <section>
   <h3>Places</h3>
   @if (locations().length === 0) {
-    <p class="empty">No places registered yet.</p>
+    <p class="empty">No places yet — tap “+ Place”.</p>
   }
   <mat-list>
     @for (loc of locations(); track loc.id) {
-      <mat-list-item>
+      <mat-list-item lines="2">
         <mat-icon matListItemIcon>inventory_2</mat-icon>
         <span matListItemTitle>{{ pathOf(loc.id) }}</span>
         <span matListItemLine>{{ loc.kind }}</span>

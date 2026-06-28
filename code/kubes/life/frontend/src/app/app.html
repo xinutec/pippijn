@@ -1,41 +1,33 @@
 @if (loading()) {
   <mat-progress-bar mode="indeterminate" />
 } @else if (me(); as user) {
-  <mat-toolbar color="primary" class="bar">
+  <header class="topbar">
     <span class="brand">life</span>
     <span class="spacer"></span>
-    <span class="user">{{ user.displayName }}</span>
-    <button mat-button (click)="signOut()">Sign out</button>
-  </mat-toolbar>
+    <button mat-icon-button [matMenuTriggerFor]="acct" aria-label="Account">
+      <mat-icon>account_circle</mat-icon>
+    </button>
+    <mat-menu #acct="matMenu">
+      <div class="acct-name">{{ user.displayName }}</div>
+      <button mat-menu-item (click)="signOut()">
+        <mat-icon>logout</mat-icon>
+        <span>Sign out</span>
+      </button>
+    </mat-menu>
+  </header>
 
-  <mat-sidenav-container class="shell">
-    <mat-sidenav mode="side" opened class="nav">
-      <mat-nav-list>
-        <a mat-list-item routerLink="/search" routerLinkActive="active">
-          <mat-icon matListItemIcon>search</mat-icon>
-          <span matListItemTitle>Find</span>
-        </a>
-        <a mat-list-item routerLink="/inventory" routerLinkActive="active">
-          <mat-icon matListItemIcon>kitchen</mat-icon>
-          <span matListItemTitle>Inventory</span>
-        </a>
-        <a mat-list-item routerLink="/recipes" routerLinkActive="active">
-          <mat-icon matListItemIcon>menu_book</mat-icon>
-          <span matListItemTitle>Recipes</span>
-        </a>
-        <a mat-list-item routerLink="/house" routerLinkActive="active">
-          <mat-icon matListItemIcon>home</mat-icon>
-          <span matListItemTitle>House</span>
-        </a>
-      </mat-nav-list>
-    </mat-sidenav>
+  <main class="content">
+    <router-outlet />
+  </main>
 
-    <mat-sidenav-content>
-      <main class="content">
-        <router-outlet />
-      </main>
-    </mat-sidenav-content>
-  </mat-sidenav-container>
+  <nav class="nav">
+    @for (n of nav; track n.path) {
+      <a [routerLink]="n.path" routerLinkActive="active">
+        <mat-icon>{{ n.icon }}</mat-icon>
+        <span class="label">{{ n.label }}</span>
+      </a>
+    }
+  </nav>
 } @else {
   <div class="signin">
     <h1>life</h1>

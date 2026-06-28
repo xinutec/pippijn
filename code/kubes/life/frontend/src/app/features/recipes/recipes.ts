@@ -41,6 +41,11 @@ export class Recipes {
   readonly cookableCount = computed(() => this.cookableIds().size);
 
   form: RecipeForm = this.emptyForm();
+  readonly showForm = signal(false);
+
+  toggleForm(): void {
+    this.showForm.update((v) => !v);
+  }
 
   constructor() {
     this.reload();
@@ -71,6 +76,7 @@ export class Recipes {
     };
     this.api.createRecipe(body).subscribe(() => {
       this.form = this.emptyForm();
+      this.showForm.set(false);
       this.reload();
     });
   }

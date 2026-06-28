@@ -2,13 +2,17 @@ import { Component, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
-import { MatListModule } from '@angular/material/list';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSidenavModule } from '@angular/material/sidenav';
-import { MatToolbarModule } from '@angular/material/toolbar';
 
 import { LifeApi } from './life-api';
 import { Me } from './models';
+
+interface NavItem {
+  path: string;
+  icon: string;
+  label: string;
+}
 
 @Component({
   selector: 'app-root',
@@ -18,11 +22,9 @@ import { Me } from './models';
     RouterOutlet,
     RouterLink,
     RouterLinkActive,
-    MatToolbarModule,
     MatButtonModule,
     MatIconModule,
-    MatSidenavModule,
-    MatListModule,
+    MatMenuModule,
     MatProgressBarModule,
   ],
 })
@@ -31,6 +33,13 @@ export class App {
 
   readonly me = signal<Me | null>(null);
   readonly loading = signal(true);
+
+  readonly nav: NavItem[] = [
+    { path: '/search', icon: 'search', label: 'Find' },
+    { path: '/inventory', icon: 'kitchen', label: 'Inventory' },
+    { path: '/recipes', icon: 'menu_book', label: 'Recipes' },
+    { path: '/house', icon: 'home', label: 'House' },
+  ];
 
   constructor() {
     this.api.me().subscribe({

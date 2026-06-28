@@ -1,26 +1,46 @@
-.forms {
+.head {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   flex-wrap: wrap;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+
+  h2 {
+    margin: 0.5rem 0;
+  }
+}
+
+.toggles {
+  display: flex;
+  gap: 0.5rem;
 }
 
 .form {
-  flex: 1 1 320px;
+  margin-bottom: 1.25rem;
 
   mat-card-content {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem 0.75rem;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 
   mat-form-field {
-    flex: 1 1 140px;
+    width: 100%;
   }
 
-  mat-form-field.narrow {
-    flex: 0 1 90px;
+  .pair {
+    display: flex;
+    gap: 0.75rem;
+
+    mat-form-field {
+      flex: 1;
+    }
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
   }
 }
 
@@ -35,4 +55,11 @@ h3 {
 
 .empty {
   opacity: 0.7;
+}
+
+// Wider screens: place the two forms side by side when both are open.
+@media (min-width: 768px) {
+  .form {
+    max-width: 460px;
+  }
 }

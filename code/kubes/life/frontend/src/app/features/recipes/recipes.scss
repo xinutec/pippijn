@@ -1,3 +1,14 @@
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+
+  h2 {
+    margin: 0.5rem 0;
+  }
+}
+
 .summary {
   opacity: 0.8;
   margin-top: 0;
@@ -13,14 +24,15 @@
   .row {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
   }
 
   mat-form-field {
-    flex: 1 1 160px;
+    flex: 1 1 130px;
   }
   mat-form-field.narrow {
-    flex: 0 1 90px;
+    flex: 1 1 80px;
   }
   mat-form-field.full {
     width: 100%;

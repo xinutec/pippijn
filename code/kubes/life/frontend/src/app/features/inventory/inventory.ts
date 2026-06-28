@@ -6,6 +6,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
 
 import { LifeApi } from '../../life-api';
@@ -42,6 +43,7 @@ interface ItemForm {
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
+    MatMenuModule,
   ],
 })
 export class Inventory {
@@ -60,6 +62,15 @@ export class Inventory {
   place: PlaceForm = this.emptyPlace();
   item: ItemForm = this.emptyItem();
   readonly editingId = signal<number | null>(null);
+  readonly showItemForm = signal(false);
+  readonly showPlaceForm = signal(false);
+
+  toggleItemForm(): void {
+    this.showItemForm.update((v) => !v);
+  }
+  togglePlaceForm(): void {
+    this.showPlaceForm.update((v) => !v);
+  }
 
   constructor() {
     this.reloadItems();
@@ -101,6 +112,12 @@ export class Inventory {
     return item.unit ? `${item.quantity} ${item.unit}` : `${item.quantity}`;
   }
 
+  /** The actionable tail of the location path (e.g. "Spice cupboard › Top shelf"). */
+  shortLoc(id: number | null): string {
+    if (id == null) return '';
+    return this.pathOf(id).split(' › ').slice(-2).join(' › ');
+  }
+
   addPlace(): void {
     if (!this.place.name.trim()) return;
     this.api.createLocation({ ...this.place }).subscribe(() => {
@@ -137,6 +154,7 @@ export class Inventory {
       location_id: it.location_id,
     };
     this.editingId.set(it.id);
+    this.showItemForm.set(true);
   }
 
   cancelEdit(): void {

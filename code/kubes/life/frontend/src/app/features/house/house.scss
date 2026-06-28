@@ -1,7 +1,15 @@
 .wrap {
   position: relative;
-  height: calc(100vh - 64px - 3rem);
-  min-height: 320px;
+  // Fill the viewport minus the top bar + bottom nav (+ safe area) + padding.
+  height: calc(100dvh - 56px - 60px - env(safe-area-inset-bottom) - 1.5rem);
+  min-height: 300px;
+  touch-action: none; // let three.js OrbitControls own touch gestures
+}
+
+@media (min-width: 768px) {
+  .wrap {
+    height: calc(100dvh - 56px - 2.75rem);
+  }
 }
 
 .canvas {

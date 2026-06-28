@@ -1,8 +1,14 @@
-<h2>Recipes</h2>
+<div class="head">
+  <h2>Recipes</h2>
+  <button mat-stroked-button (click)="toggleForm()">
+    <mat-icon>{{ showForm() ? 'close' : 'add' }}</mat-icon> Recipe
+  </button>
+</div>
 <p class="summary">{{ cookableCount() }} cookable with what's in stock.</p>
 
-<mat-card appearance="outlined" class="new">
-  <mat-card-header><mat-card-title>New recipe</mat-card-title></mat-card-header>
+@if (showForm()) {
+  <mat-card appearance="outlined" class="new">
+    <mat-card-header><mat-card-title>New recipe</mat-card-title></mat-card-header>
   <mat-card-content>
     <div class="row">
       <mat-form-field appearance="outline">
@@ -44,7 +50,8 @@
       <button mat-flat-button color="primary" (click)="createRecipe()">Create recipe</button>
     </div>
   </mat-card-content>
-</mat-card>
+  </mat-card>
+}
 
 @if (recipes().length === 0) {
   <p class="empty">No recipes yet.</p>
