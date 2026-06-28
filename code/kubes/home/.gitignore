@@ -1,6 +1,9 @@
 node_modules/
 dist/
-public/
+# Backend build-output dir only (the Dockerfile copies the built frontend here).
+# Anchored with a leading slash so it does NOT match frontend/public/ — that
+# holds the Angular source assets (favicon, icons, manifest) and must be tracked.
+/public/
 frontend/node_modules/
 frontend/dist/
 *.log
