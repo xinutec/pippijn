@@ -11,10 +11,11 @@ set -eu
 : "${NC_CLIENT_ID:?set NC_CLIENT_ID}"
 : "${NC_CLIENT_SECRET:?set NC_CLIENT_SECRET}"
 
+# /dev/urandom + base64 (coreutils) — openssl isn't on the NixOS host PATH.
 # Strip URL-significant chars from the DB password so the DSN needs no escaping.
-DB_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=')"
-DB_ROOT_PASSWORD="$(openssl rand -base64 24)"
-SESSION_SECRET="$(openssl rand -base64 48)"
+DB_PASSWORD="$(head -c 18 /dev/urandom | base64 | tr -d '/+=')"
+DB_ROOT_PASSWORD="$(head -c 18 /dev/urandom | base64 | tr -d '/+=')"
+SESSION_SECRET="$(head -c 36 /dev/urandom | base64 | tr -d '\n')"
 
 kubectl create secret -n life generic life-secret \
   --from-literal=DB_USER=life \
