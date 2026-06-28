@@ -1,0 +1,50 @@
+<h2>Recipes</h2>
+<p class="summary">{{ cookableCount() }} cookable with what's in stock.</p>
+
+@if (recipes().length === 0) {
+  <p class="empty">No recipes yet.</p>
+}
+
+@for (recipe of recipes(); track recipe.id) {
+  <mat-card class="recipe" appearance="outlined">
+    <mat-card-header>
+      <mat-card-title>
+        {{ recipe.name }}
+        @if (isCookable(recipe.id)) {
+          <mat-icon class="ok" title="In stock">check_circle</mat-icon>
+        }
+      </mat-card-title>
+      @if (recipe.servings) {
+        <mat-card-subtitle>{{ recipe.servings }} servings</mat-card-subtitle>
+      }
+    </mat-card-header>
+
+    <mat-card-content>
+      <mat-chip-set>
+        @for (ing of recipe.ingredients; track ing.name) {
+          <mat-chip>{{ label(ing) }}</mat-chip>
+        }
+      </mat-chip-set>
+
+      @if (shoppingFor(recipe.id); as missing) {
+        @if (missing.length === 0) {
+          <p class="have">Everything's in stock.</p>
+        } @else {
+          <p class="need">Need: {{ missing.length }} item(s)</p>
+          <ul>
+            @for (ing of missing; track ing.name) {
+              <li>{{ label(ing) }}</li>
+            }
+          </ul>
+        }
+      }
+    </mat-card-content>
+
+    <mat-card-actions>
+      <button mat-button (click)="loadShoppingList(recipe.id)">
+        <mat-icon>shopping_cart</mat-icon>
+        Shopping list
+      </button>
+    </mat-card-actions>
+  </mat-card>
+}

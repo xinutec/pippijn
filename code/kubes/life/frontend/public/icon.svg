@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- life app icon: green rounded square + white house. Source of truth; the
+     PNG/favicon set can be generated from this later (cf. the home app's
+     gen-icons.sh). Green (#2e7d32) distinguishes life from home/health/recall. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#2e7d32"/>
+  <g fill="none" stroke="#ffffff" stroke-width="30" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M256 110 L400 234 V402 H112 V234 Z"/>
+    <path d="M214 402 V300 H298 V402"/>
+  </g>
+</svg>

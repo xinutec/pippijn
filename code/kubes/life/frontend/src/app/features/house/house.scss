@@ -1,0 +1,36 @@
+.wrap {
+  position: relative;
+  height: calc(100vh - 64px - 3rem);
+  min-height: 320px;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+
+  :global(canvas) {
+    display: block;
+  }
+}
+
+.badge {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  background: var(--mat-sys-primary);
+  color: var(--mat-sys-on-primary);
+  font-weight: 500;
+}
+
+.hint {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  background: var(--mat-sys-surface-container-high);
+  opacity: 0.9;
+}

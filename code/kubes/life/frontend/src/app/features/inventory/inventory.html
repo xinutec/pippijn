@@ -1,0 +1,36 @@
+<h2>Inventory</h2>
+
+<section>
+  <h3>Items</h3>
+  @if (items().length === 0) {
+    <p class="empty">No items yet.</p>
+  }
+  <mat-list>
+    @for (item of items(); track item.id) {
+      <mat-list-item>
+        <mat-icon matListItemIcon>label</mat-icon>
+        <span matListItemTitle>{{ item.name }}</span>
+        <span matListItemLine>
+          {{ qty(item) }}
+          @if (item.location_id) { · {{ pathOf(item.location_id) }} }
+        </span>
+      </mat-list-item>
+    }
+  </mat-list>
+</section>
+
+<section>
+  <h3>Places</h3>
+  @if (locations().length === 0) {
+    <p class="empty">No cupboards or rooms registered yet.</p>
+  }
+  <mat-list>
+    @for (loc of locations(); track loc.id) {
+      <mat-list-item>
+        <mat-icon matListItemIcon>inventory_2</mat-icon>
+        <span matListItemTitle>{{ pathOf(loc.id) }}</span>
+        <span matListItemLine>{{ loc.kind }}</span>
+      </mat-list-item>
+    }
+  </mat-list>
+</section>

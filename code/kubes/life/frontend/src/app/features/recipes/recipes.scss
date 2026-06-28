@@ -1,0 +1,43 @@
+.summary {
+  opacity: 0.8;
+  margin-top: 0;
+}
+
+.empty {
+  opacity: 0.7;
+}
+
+.recipe {
+  margin-bottom: 1rem;
+
+  mat-card-title {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .ok {
+    color: var(--mat-sys-primary);
+    font-size: 1.2rem;
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+
+  mat-chip-set {
+    margin-bottom: 0.5rem;
+  }
+
+  .have {
+    color: var(--mat-sys-primary);
+  }
+
+  .need {
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 1.25rem;
+  }
+}

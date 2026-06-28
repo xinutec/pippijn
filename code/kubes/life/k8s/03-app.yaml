@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: life-app
+  namespace: life
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: life-app
+  template:
+    metadata:
+      labels:
+        app: life-app
+    spec:
+      containers:
+        - name: app
+          image: xinutec/life:latest
+          ports:
+            - containerPort: 8080
+          env:
+            # Full mysql:// DSN (carries the DB password) — kept whole in the secret.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: life-secret
+                  key: DATABASE_URL
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: life-secret
+                  key: SESSION_SECRET
+            - name: NC_BASE_URL
+              value: https://dash.xinutec.org
+            - name: NC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: life-secret
+                  key: NC_CLIENT_ID
+            - name: NC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: life-secret
+                  key: NC_CLIENT_SECRET
+            - name: NC_REDIRECT_URI
+              value: https://life.xinutec.org/auth/callback
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: life-app
+  namespace: life
+spec:
+  selector:
+    app: life-app
+  ports:
+    - port: 80
+      targetPort: 8080

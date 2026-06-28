@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: life-db
+  namespace: life
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: life-db
+  template:
+    metadata:
+      labels:
+        app: life-db
+    spec:
+      containers:
+        - name: mariadb
+          image: mariadb:11.8
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MARIADB_DATABASE
+              value: life
+            - name: MARIADB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: life-secret
+                  key: DB_USER
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: life-secret
+                  key: DB_PASSWORD
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: life-secret
+                  key: DB_ROOT_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+              subPath: mariadb-data
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\""]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "mariadb -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\" -e 'SELECT 1'"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: life-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: life-db
+  namespace: life
+spec:
+  clusterIP: None
+  selector:
+    app: life-db
+  ports:
+    - port: 3306

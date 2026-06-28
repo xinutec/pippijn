@@ -102,3 +102,27 @@ jobs:
     secrets:
       username: ${{ secrets.DOCKERHUB_USERNAME }}
       password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  # Personal "life" app (Rust backend + Angular frontend). Gate the image on
+  # clippy + cargo test; the DB-backed tests skip without LIFE_TEST_DATABASE_URL,
+  # so plain CI runs them offline.
+  life-verify:
+    runs-on: ubuntu-latest
+    container: rust:1-bookworm
+    defaults:
+      run:
+        working-directory: code/kubes/life
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  life:
+    needs: life-verify
+    uses: xinutec/pippijn/.github/workflows/docker.yml@main
+    with:
+      path: code/kubes/life
+      image: life
+    secrets:
+      username: ${{ secrets.DOCKERHUB_USERNAME }}
+      password: ${{ secrets.DOCKERHUB_PASSWORD }}

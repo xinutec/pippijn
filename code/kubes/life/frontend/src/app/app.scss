@@ -1,0 +1,62 @@
+:host {
+  display: block;
+  height: 100%;
+}
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.brand {
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.user {
+  margin-right: 0.5rem;
+  opacity: 0.85;
+}
+
+.shell {
+  height: calc(100% - 64px);
+}
+
+.nav {
+  width: 220px;
+  border-right: 1px solid var(--mat-sys-outline-variant);
+}
+
+.content {
+  padding: 1.5rem;
+  max-width: 900px;
+}
+
+.active {
+  background: var(--mat-sys-secondary-container);
+}
+
+.signin {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  text-align: center;
+
+  h1 {
+    margin: 0;
+    font-weight: 300;
+    font-size: 3rem;
+  }
+  p {
+    margin: 0 0 1rem;
+    opacity: 0.8;
+  }
+}

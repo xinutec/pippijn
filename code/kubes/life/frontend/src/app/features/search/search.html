@@ -1,0 +1,35 @@
+<h2>Find an item</h2>
+
+<mat-form-field appearance="outline" class="box">
+  <mat-label>Search</mat-label>
+  <input
+    matInput
+    [(ngModel)]="query"
+    (keyup.enter)="run()"
+    placeholder="e.g. cumin"
+  />
+  <mat-icon matSuffix (click)="run()">search</mat-icon>
+</mat-form-field>
+
+@if (searched() && hits().length === 0) {
+  <p class="empty">Nothing found.</p>
+}
+
+@for (hit of hits(); track hit.item.id) {
+  <mat-card class="hit" appearance="outlined">
+    <mat-card-content>
+      <div class="name">{{ hit.item.name }}</div>
+      @if (hit.path.length) {
+        <div class="where"><mat-icon>place</mat-icon>{{ breadcrumb(hit.path) }}</div>
+      } @else {
+        <div class="where unplaced">No location set</div>
+      }
+    </mat-card-content>
+    <mat-card-actions>
+      <a mat-button routerLink="/house">
+        <mat-icon>view_in_ar</mat-icon>
+        View house
+      </a>
+    </mat-card-actions>
+  </mat-card>
+}
