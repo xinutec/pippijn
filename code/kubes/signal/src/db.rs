@@ -100,7 +100,9 @@ impl Db {
             let v = i as i32;
             if !applied.contains(&v) {
                 tracing::info!("applying migration v{v}");
-                sqlx::query(sql).execute(&self.pool).await?;
+                // MIGRATIONS holds &'static str literals; sqlx 0.9's SqlSafeStr
+                // accepts those directly (deref the &&str from the iterator).
+                sqlx::query(*sql).execute(&self.pool).await?;
                 sqlx::query("INSERT INTO schema_version (version) VALUES (?)")
                     .bind(v)
                     .execute(&self.pool)

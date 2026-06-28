@@ -96,7 +96,8 @@ async fn run_ws(ws_url: &str, ctx: &Ctx) -> Result<()> {
                     READ_TIMEOUT.as_secs()
                 );
                 // A broken pipe surfaces here on write even before a read would.
-                ws.send(WsMessage::Ping(Vec::new())).await.context("keepalive ping")?;
+                // tungstenite 0.29 payloads are `Bytes`; empty ping body.
+                ws.send(WsMessage::Ping(Default::default())).await.context("keepalive ping")?;
                 continue;
             }
         };
@@ -216,9 +217,9 @@ async fn download_attachment(ctx: &Ctx, id: &str) -> Option<String> {
 async fn refresh_group_names(ctx: Ctx) {
     let url = format!("{}/v1/groups/{}", ctx.http_base, ctx.number);
     loop {
-        if let Ok(resp) = ctx.http.get(&url).timeout(Duration::from_secs(20)).send().await {
-            if let Ok(bytes) = resp.bytes().await {
-                if let Ok(Value::Array(groups)) = serde_json::from_slice::<Value>(&bytes) {
+        if let Ok(resp) = ctx.http.get(&url).timeout(Duration::from_secs(20)).send().await
+            && let Ok(bytes) = resp.bytes().await
+                && let Ok(Value::Array(groups)) = serde_json::from_slice::<Value>(&bytes) {
                     for g in &groups {
                         if let (Some(iid), Some(name)) = (
                             g.get("internal_id").and_then(Value::as_str),
@@ -229,8 +230,6 @@ async fn refresh_group_names(ctx: Ctx) {
                     }
                     tracing::debug!("refreshed {} group name(s)", groups.len());
                 }
-            }
-        }
         tokio::time::sleep(Duration::from_secs(600)).await;
     }
 }
