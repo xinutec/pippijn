@@ -11,8 +11,10 @@
 	align-items: center;
 	gap: 0.75rem;
 	// Edge-to-edge (viewport-fit=cover): the bar's surface fills the status-bar
-	// strip and its content drops below it. min-height (not height) so the inset
-	// adds to the bar instead of squeezing its contents.
+	// strip and its content drops below it. height:auto overrides mat-toolbar's
+	// fixed 64px (border-box would otherwise absorb the padding instead of growing
+	// the bar); min-height keeps the normal height when the inset is 0.
+	height: auto;
 	min-height: 64px;
 	padding: 0 1rem;
 	padding-top: var(--safe-top, 0px);
