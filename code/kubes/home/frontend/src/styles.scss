@@ -30,6 +30,11 @@ body {
 
 // App-level palette tokens used by charts and the AQI badge.
 :root {
+	// Status-bar / notch inset at the top (with viewport-fit=cover: edge-to-edge on
+	// Android, the notch on iOS). The sticky top bar pads by this so it isn't drawn
+	// under the system status bar. 0 in a normal browser tab.
+	--safe-top: env(safe-area-inset-top, 0px);
+
 	// US-AQI band colours (EPA scale).
 	--aqi-good: #2e9e5b;
 	--aqi-moderate: #d6b400;

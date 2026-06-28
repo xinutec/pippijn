@@ -10,8 +10,12 @@
 	display: flex;
 	align-items: center;
 	gap: 0.75rem;
-	height: 64px;
+	// Edge-to-edge (viewport-fit=cover): the bar's surface fills the status-bar
+	// strip and its content drops below it. min-height (not height) so the inset
+	// adds to the bar instead of squeezing its contents.
+	min-height: 64px;
 	padding: 0 1rem;
+	padding-top: var(--safe-top, 0px);
 	background: var(--mat-sys-surface);
 	color: var(--mat-sys-on-surface);
 	border-bottom: 1px solid var(--mat-sys-outline-variant);
@@ -57,7 +61,7 @@
 
 .top-progress {
 	position: sticky;
-	top: 64px;
+	top: calc(64px + var(--safe-top, 0px));
 	z-index: 9;
 }
 
