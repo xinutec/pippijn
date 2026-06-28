@@ -153,3 +153,14 @@ resource "cloudflare_dns_record" "org_home" {
   ttl     = 3600
   proxied = false
 }
+
+# --- Personal "life" app (home inventory, recipes, 3D house) ---
+
+resource "cloudflare_dns_record" "org_life" {
+  zone_id = local.xinutec_org_id
+  type    = "CNAME"
+  name    = "life"
+  content = "isis.xinutec.org"
+  ttl     = 3600
+  proxied = false
+}
