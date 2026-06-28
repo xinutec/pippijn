@@ -14,7 +14,12 @@
 
 import { describe, expect, it } from "vitest";
 import type { NearbyStation } from "../src/geo/osm.js";
-import { annotateUndergroundRuns, type CoarseFix, reconstructUndergroundRun } from "../src/geo/underground-rail.js";
+import {
+	annotateUndergroundRuns,
+	type CoarseFix,
+	reconstructUndergroundJourney,
+	reconstructUndergroundRun,
+} from "../src/geo/underground-rail.js";
 import type { EnrichedSegment } from "../src/geo/velocity.js";
 
 const LAT_DEG_PER_M = 1 / 111_000;
@@ -136,6 +141,109 @@ describe("reconstructUndergroundRun", () => {
 		const fixes = [coarseFix(1700, 1020, 510), coarseFix(2000, 2010, 1010)];
 		const run = await reconstructUndergroundRun(fixes, at(30, 15), at(2980, 1490), stationsLookup, linesLookup);
 		expect(run).toBeNull();
+	});
+});
+
+describe("reconstructUndergroundJourney", () => {
+	// A line network with two single-line legs meeting at an interchange:
+	// Alpha→Beta on Line 1, change at Beta, Beta→Omega on Line 3. No single
+	// line serves Alpha↔Omega. Mid1 / Mid2 give each leg a station its coarse
+	// fixes can hug.
+	const IX_NETWORK: FakeStation[] = [
+		{ name: "Alpha", north: 0, east: 0, lines: ["Line 1"] },
+		{ name: "Mid1", north: 500, east: 0, lines: ["Line 1"] },
+		{ name: "Beta", north: 1000, east: 0, lines: ["Line 1", "Line 3"] },
+		{ name: "Mid2", north: 1500, east: 0, lines: ["Line 3"] },
+		{ name: "Omega", north: 2000, east: 0, lines: ["Line 3"] },
+	];
+
+	it("splits a multi-line run at the interchange into two single-line legs", async () => {
+		const { stationsLookup, linesLookup } = lookupsFor(IX_NETWORK);
+		// Coarse fixes hug Mid1 (Line 1) then Mid2 (Line 3); good GPS surfaced
+		// at Beta in between (the platform change).
+		const coarse = [
+			coarseFix(1700, 500, 0),
+			coarseFix(1800, 510, 0),
+			coarseFix(2300, 1500, 0),
+			coarseFix(2400, 1510, 0),
+		];
+		const interchange = [coarseFix(2000, 1000, 0, 15), coarseFix(2100, 1010, 0, 15)];
+		const legs = await reconstructUndergroundJourney(
+			coarse,
+			interchange,
+			at(20, 0), // boarding near Alpha
+			at(1980, 0), // alighting near Omega
+			stationsLookup,
+			linesLookup,
+		);
+		expect(legs).toHaveLength(2);
+		expect(legs[0]).toMatchObject({ boardingStation: "Alpha", alightingStation: "Beta", line: "Line 1" });
+		expect(legs[1]).toMatchObject({ boardingStation: "Beta", alightingStation: "Omega", line: "Line 3" });
+	});
+
+	it("returns the single through-line unchanged when one line serves both ends", async () => {
+		const { stationsLookup, linesLookup } = lookupsFor(NETWORK);
+		const fixes = [coarseFix(1700, 1020, 510), coarseFix(2000, 2010, 1010)];
+		const legs = await reconstructUndergroundJourney(
+			fixes,
+			[],
+			at(30, 15),
+			at(2980, 1490),
+			stationsLookup,
+			linesLookup,
+		);
+		expect(legs).toHaveLength(1);
+		expect(legs[0].line).toBe("Line 1");
+	});
+
+	it("does NOT split a single line whose OSM relation names differ (parallel-corridor guard)", async () => {
+		// The 2026-06-23 false positive: one Metropolitan ride whose halves the
+		// per-fix lookup labels "Metropolitan Line" then the shared-track relation
+		// "Circle, Hammersmith & City and Metropolitan Lines". Different strings,
+		// SAME physical line — must not be read as an interchange.
+		const network: FakeStation[] = [
+			{ name: "Alpha", north: 0, east: 0, lines: ["Metropolitan Line"] },
+			{ name: "MidA", north: 500, east: 0, lines: ["Metropolitan Line"] },
+			{
+				name: "Beta",
+				north: 1000,
+				east: 0,
+				lines: ["Metropolitan Line", "Circle, Hammersmith & City and Metropolitan Lines"],
+			},
+			{ name: "MidB", north: 1500, east: 0, lines: ["Circle, Hammersmith & City and Metropolitan Lines"] },
+			{ name: "Omega", north: 2000, east: 0, lines: ["Circle, Hammersmith & City and Metropolitan Lines"] },
+		];
+		const { stationsLookup, linesLookup } = lookupsFor(network);
+		const coarse = [
+			coarseFix(1700, 500, 0),
+			coarseFix(1800, 510, 0),
+			coarseFix(2300, 1500, 0),
+			coarseFix(2400, 1510, 0),
+		];
+		const interchange = [coarseFix(2000, 1000, 0, 15), coarseFix(2100, 1010, 0, 15)];
+		const legs = await reconstructUndergroundJourney(
+			coarse,
+			interchange,
+			at(20, 0),
+			at(1980, 0),
+			stationsLookup,
+			linesLookup,
+		);
+		expect(legs).toHaveLength(0);
+	});
+
+	it("returns nothing when no interchange reconciles the two ends", async () => {
+		// Alpha→Omega with no common line and no Beta-style interchange good
+		// fixes — cannot honestly reconstruct.
+		const network: FakeStation[] = [
+			{ name: "Alpha", north: 0, east: 0, lines: ["Line 1"] },
+			{ name: "Mid1", north: 500, east: 0, lines: ["Line 1"] },
+			{ name: "Omega", north: 2000, east: 0, lines: ["Line 3"] },
+		];
+		const { stationsLookup, linesLookup } = lookupsFor(network);
+		const coarse = [coarseFix(1700, 480, 0), coarseFix(1800, 510, 0)];
+		const legs = await reconstructUndergroundJourney(coarse, [], at(20, 0), at(1980, 0), stationsLookup, linesLookup);
+		expect(legs).toHaveLength(0);
 	});
 });
 

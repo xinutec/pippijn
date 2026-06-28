@@ -28,6 +28,7 @@ import type { EnrichedSegment } from "./enriched-segment.js";
 import type { NearbyStation, NearbyWay } from "./osm.js";
 import { pickBestStation } from "./osm.js";
 import { dbOsmAdapter } from "./osm-adapter.js";
+import { expandTubeLineNames } from "./passes/rail-runs.js";
 
 /** A raw GPS fix with its reported accuracy radius, in metres. */
 export interface CoarseFix {
@@ -164,6 +165,96 @@ export async function reconstructUndergroundRun(
 	};
 }
 
+/**
+ * Reconstruct an underground journey as ONE or TWO line legs.
+ *
+ * A single coarse run can span an interchange: the cell-network fixes hug
+ * one line, GPS briefly recovers on the platform at the changeover (a small
+ * cluster of well-located `interchangeFixes` mid-run), then coarse fixes hug
+ * the next line. No single line serves both ends, so {@link
+ * reconstructUndergroundRun} alone returns null and the whole ride is lost
+ * (the 2026-06-28 Highbury & Islington → King's Cross [Victoria] → Wembley
+ * Park [Metropolitan] return).
+ *
+ * Strategy: try a single through-line first (the common case — unchanged). If
+ * that fails AND a mid-run good-fix cluster pins a plausible interchange,
+ * split the coarse fixes there and reconstruct each half independently. Two
+ * legs are returned only when both halves resolve to a real single-line
+ * journey AND agree on the interchange station — so a spurious mid-run blip
+ * cannot manufacture a phantom change.
+ */
+export async function reconstructUndergroundJourney(
+	fixes: CoarseFix[],
+	interchangeFixes: CoarseFix[],
+	boardingFix: { lat: number; lon: number },
+	alightingFix: { lat: number; lon: number },
+	stationsLookup: StationsLookup,
+	linesLookup: LinesLookup,
+): Promise<UndergroundRun[]> {
+	const single = await reconstructUndergroundRun(fixes, boardingFix, alightingFix, stationsLookup, linesLookup);
+	if (single) return [single];
+
+	const coarse = fixes.filter(isCoarse).sort((a, b) => a.ts - b.ts);
+	if (coarse.length < 2 * MIN_COARSE_FIXES) return []; // not enough to split into two real legs
+
+	// A genuine interchange means the rider could NOT have stayed on one line:
+	// the boarding end is not served by the second leg's line, and the
+	// alighting end is not served by the first leg's. This rejects a
+	// parallel-line corridor (e.g. Metropolitan/Jubilee through Finchley Road,
+	// or Metropolitan/Circle/H&C at Baker Street) where one line actually serves
+	// both ends and the per-fix line lookup merely disagrees — a single ride,
+	// not a change (2026-06-23 Wembley Park → Euston Square, all Metropolitan).
+	const boardLines = await linesLookup(boardingFix.lat, boardingFix.lon);
+	const alightLines = await linesLookup(alightingFix.lat, alightingFix.lon);
+
+	// Candidate interchanges: clusters of good fixes that surfaced mid-run,
+	// each separated by a recovered-GPS gap. Order by time.
+	const mid = interchangeFixes
+		.filter((f) => f.ts > coarse[0].ts && f.ts < coarse[coarse.length - 1].ts)
+		.sort((a, b) => a.ts - b.ts);
+	const clusters: CoarseFix[][] = [];
+	for (const f of mid) {
+		const cur = clusters.at(-1);
+		if (cur && f.ts - cur[cur.length - 1].ts <= MAX_COARSE_GAP_S) cur.push(f);
+		else clusters.push([f]);
+	}
+
+	for (const cluster of clusters) {
+		const ixTs = cluster[Math.floor(cluster.length / 2)].ts;
+		const ixPt = {
+			lat: cluster.reduce((s, f) => s + f.lat, 0) / cluster.length,
+			lon: cluster.reduce((s, f) => s + f.lon, 0) / cluster.length,
+		};
+		const before = coarse.filter((f) => f.ts < ixTs);
+		const after = coarse.filter((f) => f.ts > ixTs);
+		if (before.length < MIN_COARSE_FIXES || after.length < MIN_COARSE_FIXES) continue;
+		const leg1 = await reconstructUndergroundRun(before, boardingFix, ixPt, stationsLookup, linesLookup);
+		const leg2 = await reconstructUndergroundRun(after, ixPt, alightingFix, stationsLookup, linesLookup);
+		if (!leg1 || !leg2 || leg1.alightingStation !== leg2.boardingStation) continue;
+
+		// Compare PHYSICAL lines, not OSM relation strings: "Metropolitan Line"
+		// and "Circle, Hammersmith & City and Metropolitan Lines" are the same
+		// line. Both halves must be on genuinely distinct lines that meet at one
+		// station, and neither end could have ridden straight through on the
+		// other half's line — otherwise it is a parallel-line corridor (Met/Jubilee
+		// at Finchley Road, Met/Circle/H&C at Baker Street), a single ride the
+		// per-fix line lookup merely disagrees on (2026-06-23 Wembley Park →
+		// Euston Square, all Metropolitan).
+		const expand = (names: Iterable<string>): Set<string> => new Set([...names].flatMap(expandTubeLineNames));
+		const leg1Lines = expand([leg1.line]);
+		const leg2Lines = expand([leg2.line]);
+		const disjoint = (a: Set<string>, b: Set<string>): boolean => ![...a].some((x) => b.has(x));
+		if (
+			disjoint(leg1Lines, leg2Lines) &&
+			disjoint(expand(boardLines), leg2Lines) &&
+			disjoint(expand(alightLines), leg1Lines)
+		) {
+			return [leg1, leg2];
+		}
+	}
+	return [];
+}
+
 /** Shortest underground run worth carving out (s). Below this, a stray
  *  pair of coarse fixes in an ordinary walk is just noise. */
 const MIN_RUN_DURATION_S = 180;
@@ -252,16 +343,26 @@ export async function annotateUndergroundRuns(
 			continue;
 		}
 
-		const recon = await reconstructUndergroundRun(runFixes, boarding, alighting, stationsLookup, linesLookup);
-		if (!recon) {
+		// Good fixes that surfaced INSIDE the run are interchange candidates —
+		// the platform where the rider changed lines (the run spans a change).
+		const midGood = good.filter((f) => f.ts > runFixes[0].ts && f.ts < runFixes[runFixes.length - 1].ts);
+		const legs = await reconstructUndergroundJourney(
+			runFixes,
+			midGood,
+			boarding,
+			alighting,
+			stationsLookup,
+			linesLookup,
+		);
+		if (legs.length === 0) {
 			result.push(host);
 			continue;
 		}
 
-		// The train segment spans the GPS-dark window — last good fix
-		// before the run to the first one after, clamped to the host.
-		// That covers the real ride (entering the station, the tunnel,
-		// surfacing), not just the mid-tunnel coarse-fix span.
+		// The train window spans the GPS-dark stretch — last good fix before
+		// the run to the first one after, clamped to the host. That covers the
+		// real ride (entering the station, the tunnel, surfacing), not just the
+		// mid-tunnel coarse-fix span.
 		const darkStart = Math.max(host.startTs, boarding.ts);
 		const darkEnd = Math.min(host.endTs, alighting.ts);
 		const keepPre = darkStart - host.startTs >= MIN_SIDE_DURATION_S;
@@ -272,6 +373,13 @@ export async function annotateUndergroundRuns(
 		const distM = equirectMeters(boarding.lat, boarding.lon, alighting.lat, alighting.lon);
 		const speedKmh = Math.round((distM / Math.max(1, trainEnd - trainStart)) * 3.6 * 10) / 10;
 
+		// Boundaries between consecutive legs: the changeover sits between one
+		// leg's last coarse fix and the next leg's first.
+		const boundaries: number[] = [];
+		for (let li = 0; li < legs.length - 1; li++) {
+			boundaries.push(Math.round((legs[li].endTs + legs[li + 1].startTs) / 2));
+		}
+
 		if (keepPre) {
 			result.push({
 				...host,
@@ -279,23 +387,32 @@ export async function annotateUndergroundRuns(
 				wayName: await sideWayName(good, host.startTs, trainStart, waysLookup),
 			});
 		}
-		result.push({
-			...host,
-			startTs: trainStart,
-			endTs: trainEnd,
-			mode: "train",
-			refinedMode: "train",
-			confidence: 0.6,
-			confidenceMargin: 1.5,
-			avgSpeed: speedKmh,
-			maxSpeed: speedKmh,
-			linearity: 1,
-			pointCount: 0,
-			place: undefined,
-			city: undefined,
-			wayName: `${recon.boardingStation} → ${recon.alightingStation} · ${recon.line}`,
-			refinedReason: `underground reconstruction (${runFixes.length} coarse fixes on ${recon.line})`,
-		});
+		for (let li = 0; li < legs.length; li++) {
+			const leg = legs[li];
+			const segStart = li === 0 ? trainStart : boundaries[li - 1];
+			const segEnd = li === legs.length - 1 ? trainEnd : boundaries[li];
+			const reason =
+				legs.length > 1
+					? `underground reconstruction (interchange leg ${li + 1}/${legs.length} on ${leg.line})`
+					: `underground reconstruction (${runFixes.length} coarse fixes on ${leg.line})`;
+			result.push({
+				...host,
+				startTs: segStart,
+				endTs: segEnd,
+				mode: "train",
+				refinedMode: "train",
+				confidence: 0.6,
+				confidenceMargin: 1.5,
+				avgSpeed: speedKmh,
+				maxSpeed: speedKmh,
+				linearity: 1,
+				pointCount: 0,
+				place: undefined,
+				city: undefined,
+				wayName: `${leg.boardingStation} → ${leg.alightingStation} · ${leg.line}`,
+				refinedReason: reason,
+			});
+		}
 		if (keepPost) {
 			result.push({
 				...host,
