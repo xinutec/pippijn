@@ -114,6 +114,17 @@ async fn dispatch(ctx: &Ctx, frame: &Value) -> Result<()> {
             let n = ctx.db.mark_deleted(&sender, target_ts).await?;
             tracing::info!("remote-delete flagged {n} message(s) (sender={sender}, ts={target_ts})");
         }
+        Action::Edit(e) => {
+            ctx.db.upsert_conversation(&e.thread_id, e.kind).await?;
+            let n = ctx.db.mark_edited(&e.sender, e.target_ts).await?;
+            ctx.db
+                .insert_edit(&e.thread_id, &e.sender, e.edit_ts, e.body.as_deref(), e.target_ts, e.is_outgoing)
+                .await?;
+            tracing::info!(
+                "edit flagged {n} original(s) + stored new version (sender={}, target={})",
+                e.sender, e.target_ts
+            );
+        }
         Action::Reaction(r) => {
             ctx.db.upsert_conversation(&r.thread_id, r.kind).await?;
             ctx.db

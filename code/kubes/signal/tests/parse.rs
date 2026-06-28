@@ -1,7 +1,7 @@
 //! Unit tests for the frame parser. Run with `cargo test`.
 
 use serde_json::json;
-use signal_archiver::parse::{parse_frame, Action, Attachment, Contact, Message, Reaction};
+use signal_archiver::parse::{parse_frame, Action, Attachment, Contact, Edit, Message, Reaction};
 
 #[test]
 fn incoming_text_dm() {
@@ -152,6 +152,56 @@ fn receipt_typing_and_unknown_frames_are_skipped() {
     assert_eq!(parse_frame(&receipt).action, Action::Skip);
     assert_eq!(parse_frame(&typing).action, Action::Skip);
     assert_eq!(parse_frame(&junk).action, Action::Skip);
+}
+
+#[test]
+fn incoming_edit_maps_to_edit_action() {
+    let f = json!({"envelope": {
+        "sourceUuid": "u1", "sourceName": "Alice", "timestamp": 2000,
+        "editMessage": {"targetSentTimestamp": 1000, "dataMessage": {"message": "fixed typo"}}
+    }});
+    let p = parse_frame(&f);
+    assert_eq!(
+        p.action,
+        Action::Edit(Edit {
+            thread_id: "dm:u1".into(), kind: "dm", sender: "u1".into(),
+            edit_ts: 2000, target_ts: 1000, body: Some("fixed typo".into()), is_outgoing: false,
+        })
+    );
+    // an incoming edit still refreshes the contact + DM name
+    assert_eq!(p.contact, Some(Contact { uuid: "u1".into(), phone: None, name: Some("Alice".into()) }));
+    assert_eq!(p.dm_name, Some(("dm:u1".into(), "Alice".into())));
+}
+
+#[test]
+fn outgoing_sync_edit_maps_to_edit_action() {
+    let f = json!({"envelope": {
+        "sourceUuid": "me", "timestamp": 50,
+        "syncMessage": {"sentMessage": {
+            "destinationUuid": "u2", "timestamp": 3000,
+            "editMessage": {"targetSentTimestamp": 1500, "dataMessage": {"message": "edited (sync)"}}
+        }}
+    }});
+    assert_eq!(
+        parse_frame(&f).action,
+        Action::Edit(Edit {
+            thread_id: "dm:u2".into(), kind: "dm", sender: "me".into(),
+            edit_ts: 3000, target_ts: 1500, body: Some("edited (sync)".into()), is_outgoing: true,
+        })
+    );
+}
+
+#[test]
+fn group_edit_keys_thread_by_group_id() {
+    let f = json!({"envelope": {
+        "sourceUuid": "u1", "timestamp": 2000,
+        "editMessage": {"targetSentTimestamp": 1000,
+            "dataMessage": {"message": "g edit", "groupInfo": {"groupId": "GID=="}}}
+    }});
+    match parse_frame(&f).action {
+        Action::Edit(e) => { assert_eq!(e.thread_id, "group:GID=="); assert_eq!(e.kind, "group"); }
+        other => panic!("expected Edit, got {other:?}"),
+    }
 }
 
 #[test]

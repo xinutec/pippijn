@@ -129,7 +129,7 @@ def main():
 
     seen_threads = set()
     stats = {"messages": 0, "dups": 0, "reactions": 0, "attachments": 0,
-             "skipped": 0, "errors": 0}
+             "edits": 0, "skipped": 0, "errors": 0}
 
     def ensure_thread(thread_id, kind, name):
         if dry or thread_id in seen_threads:
@@ -192,19 +192,50 @@ def main():
                         "(thread_id, sender_uuid, server_ts, body, quote_target_ts, is_outgoing, deleted) "
                         "VALUES (%s,%s,%s,%s,%s,%s,%s)",
                         (thread_id, sender, ts, body, quote, 1 if is_out else 0, deleted))
-                    if cur.rowcount == 0:
+                    if cur.rowcount != 0:
+                        stats["messages"] += 1
+                        mid = cur.lastrowid
+                        for att in (std.get("attachments") if std else []) or []:
+                            p = att.get("pointer") or {}
+                            cur.execute(
+                                "INSERT INTO attachments (message_id, content_type, file_name, size_bytes) "
+                                "VALUES (%s,%s,%s,%s)",
+                                (mid, p.get("contentType"), p.get("fileName"),
+                                 int(p["size"]) if p.get("size") else None))
+                            stats["attachments"] += 1
+                    else:
                         stats["dups"] += 1
-                        continue
-                    stats["messages"] += 1
-                    mid = cur.lastrowid
-                    for att in (std.get("attachments") if std else []) or []:
-                        p = att.get("pointer") or {}
-                        cur.execute(
-                            "INSERT INTO attachments (message_id, content_type, file_name, size_bytes) "
-                            "VALUES (%s,%s,%s,%s)",
-                            (mid, p.get("contentType"), p.get("fileName"),
-                             int(p["size"]) if p.get("size") else None))
-                        stats["attachments"] += 1
+
+                    # Edit history: the original (oldest revision) is the anchor
+                    # (edited=1); each later version links to it via edit_of_ts.
+                    # Runs regardless of dup so a re-import backfills edits.
+                    revs = sorted(
+                        (r for r in (item.get("revisions") or []) if r.get("standardMessage")),
+                        key=lambda r: int(r.get("dateSent", 0)))
+                    if revs:
+                        orig_ts = int(revs[0].get("dateSent", 0))
+                        if orig_ts and orig_ts != ts:
+                            def rbody(r):
+                                return ((r.get("standardMessage") or {}).get("text") or {}).get("body")
+                            cur.execute(
+                                "INSERT IGNORE INTO messages "
+                                "(thread_id, sender_uuid, server_ts, body, is_outgoing, edited) "
+                                "VALUES (%s,%s,%s,%s,%s,1)",
+                                (thread_id, sender, orig_ts, rbody(revs[0]), 1 if is_out else 0))
+                            for r in revs[1:]:
+                                r_ts = int(r.get("dateSent", 0))
+                                if r_ts and r_ts not in (ts, orig_ts):
+                                    cur.execute(
+                                        "INSERT IGNORE INTO messages "
+                                        "(thread_id, sender_uuid, server_ts, body, is_outgoing, edit_of_ts) "
+                                        "VALUES (%s,%s,%s,%s,%s,%s)",
+                                        (thread_id, sender, r_ts, rbody(r), 1 if is_out else 0, orig_ts))
+                            # Link the latest (top-level, already inserted) to the original.
+                            cur.execute(
+                                "UPDATE messages SET edit_of_ts=%s "
+                                "WHERE sender_uuid=%s AND server_ts=%s AND edit_of_ts IS NULL",
+                                (orig_ts, sender, ts))
+                            stats["edits"] += len(revs)
 
                 for rx in (std.get("reactions") if std else []) or []:
                     rauth = sender_of(rx.get("authorId"))

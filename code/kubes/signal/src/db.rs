@@ -63,6 +63,14 @@ const MIGRATIONS: &[&str] = &[
     r"ALTER TABLE messages
         ADD COLUMN deleted TINYINT(1) NOT NULL DEFAULT 0,
         ADD COLUMN deleted_at TIMESTAMP NULL",
+    // v6: edit tracking (append-only). The ORIGINAL message is flagged
+    // `edited=1`; each edited version is a separate row whose `edit_of_ts`
+    // points to the original's server_ts. Current text = the row in a group
+    // (original + its edits) with the greatest server_ts. Nothing is overwritten.
+    r"ALTER TABLE messages
+        ADD COLUMN edited TINYINT(1) NOT NULL DEFAULT 0,
+        ADD COLUMN edit_of_ts BIGINT NULL,
+        ADD INDEX idx_edit_of (edit_of_ts)",
 ];
 
 #[derive(Clone)]
@@ -189,6 +197,46 @@ impl Db {
         .execute(&self.pool)
         .await?;
         Ok(res.rows_affected())
+    }
+
+    /// Flag an archived original as edited (content kept; edits are separate rows).
+    /// Returns rows marked (0 if we never archived the original).
+    pub async fn mark_edited(&self, sender_uuid: &str, target_ts: i64) -> Result<u64> {
+        let res = sqlx::query(
+            "UPDATE messages SET edited = 1 \
+             WHERE sender_uuid = ? AND server_ts = ? AND edit_of_ts IS NULL",
+        )
+        .bind(sender_uuid)
+        .bind(target_ts)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    /// Store an edited version as its own row, linked to the original via edit_of_ts.
+    pub async fn insert_edit(
+        &self,
+        thread_id: &str,
+        sender_uuid: &str,
+        edit_ts: i64,
+        body: Option<&str>,
+        edit_of_ts: i64,
+        is_outgoing: bool,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT IGNORE INTO messages \
+                (thread_id, sender_uuid, server_ts, body, is_outgoing, edit_of_ts) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(thread_id)
+        .bind(sender_uuid)
+        .bind(edit_ts)
+        .bind(body)
+        .bind(is_outgoing)
+        .bind(edit_of_ts)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn insert_attachment(

@@ -45,9 +45,21 @@ pub struct Reaction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Edit {
+    pub thread_id: String,
+    pub kind: &'static str,
+    pub sender: String,
+    pub edit_ts: i64,   // when the edit was made (this version's timestamp)
+    pub target_ts: i64, // server_ts of the original message being edited
+    pub body: Option<String>,
+    pub is_outgoing: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
     Message(Message),
     Reaction(Reaction),
+    Edit(Edit),
     Delete { sender: String, target_ts: i64 },
     Skip,
 }
@@ -153,6 +165,21 @@ fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_thre
     })
 }
 
+/// Build an Edit action from an edit's inner dataMessage (same shape as a
+/// normal message payload — has `message`, `groupInfo`, …).
+fn edit_action(inner: &Value, sender: &str, edit_ts: i64, target_ts: i64, is_outgoing: bool, dm_thread: &str) -> Action {
+    let (thread_id, kind) = thread_of(inner, dm_thread);
+    Action::Edit(Edit {
+        thread_id,
+        kind,
+        sender: sender.to_string(),
+        edit_ts,
+        target_ts,
+        body: inner.get("message").and_then(Value::as_str).map(str::to_string),
+        is_outgoing,
+    })
+}
+
 /// Parse one received frame. Accepts both the unwrapped `{"envelope": {...}}`
 /// shape and a JSON-RPC `{"params": {"envelope": {...}}}` notification.
 pub fn parse_frame(frame: &Value) -> Parsed {
@@ -162,6 +189,54 @@ pub fn parse_frame(frame: &Value) -> Parsed {
     else {
         return Parsed::skip();
     };
+
+    // Incoming edit ("edit for everyone"): editMessage wraps the new content.
+    if let Some(edit) = env.get("editMessage") {
+        let Some(inner) = edit.get("dataMessage") else { return Parsed::skip() };
+        let sender = id_of(env.get("sourceUuid"), env.get("source"));
+        let edit_ts = env
+            .get("timestamp")
+            .and_then(Value::as_i64)
+            .or_else(|| inner.get("timestamp").and_then(Value::as_i64))
+            .unwrap_or(0);
+        let target = edit.get("targetSentTimestamp").and_then(Value::as_i64).unwrap_or(0);
+        let name = env.get("sourceName").and_then(Value::as_str);
+        let contact = Some(Contact {
+            uuid: sender.clone(),
+            phone: env.get("sourceNumber").and_then(Value::as_str).map(str::to_string),
+            name: name.map(str::to_string),
+        });
+        let dm_thread = format!("dm:{sender}");
+        let action = edit_action(inner, &sender, edit_ts, target, false, &dm_thread);
+        let dm_name = match (inner.get("groupInfo").is_none(), name) {
+            (true, Some(n)) => Some((dm_thread.clone(), n.to_string())),
+            _ => None,
+        };
+        return Parsed { action, contact, dm_name };
+    }
+
+    // Outgoing edit, synced from another of our devices.
+    if let Some(sync) = env.get("syncMessage") {
+        let sent = sync.get("sentMessage");
+        if let Some(edit) = sync.get("editMessage").or_else(|| sent.and_then(|s| s.get("editMessage"))) {
+            if let Some(inner) = edit.get("dataMessage") {
+                let sender = id_of(env.get("sourceUuid"), env.get("source"));
+                let edit_ts = sent
+                    .and_then(|s| s.get("timestamp"))
+                    .and_then(Value::as_i64)
+                    .or_else(|| inner.get("timestamp").and_then(Value::as_i64))
+                    .unwrap_or(0);
+                let target = edit.get("targetSentTimestamp").and_then(Value::as_i64).unwrap_or(0);
+                let dest = id_of(
+                    sent.and_then(|s| s.get("destinationUuid")),
+                    sent.and_then(|s| s.get("destination")),
+                );
+                let action = edit_action(inner, &sender, edit_ts, target, true, &format!("dm:{dest}"));
+                return Parsed { action, contact: None, dm_name: None };
+            }
+            return Parsed::skip();
+        }
+    }
 
     if let Some(dm) = env.get("dataMessage") {
         let sender = id_of(env.get("sourceUuid"), env.get("source"));
