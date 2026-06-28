@@ -38,12 +38,38 @@ $rail-w: 220px;
   opacity: 0.8;
 }
 
-.acct-btn .avatar {
-  width: 32px;
-  height: 32px;
+.acct-btn {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
   border-radius: 50%;
-  object-fit: cover;
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--mat-sys-on-surface);
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+  }
+
+  mat-icon {
+    font-size: 28px;
+    width: 28px;
+    height: 28px;
+  }
 }
 
 .content {
