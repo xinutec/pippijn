@@ -114,6 +114,7 @@ jobs:
         working-directory: code/kubes/life
     steps:
       - uses: actions/checkout@v6
+      - run: rustup component add clippy
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
 
