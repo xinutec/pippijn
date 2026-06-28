@@ -116,4 +116,38 @@ async fn inventory_crud_against_real_db() {
         .await
         .unwrap();
     assert_eq!(count, 2);
+
+    // Update every field (name + quantity).
+    let updated = repo::update_item(
+        &pool,
+        user,
+        item.id,
+        NewItem {
+            name: "Ground cumin".into(),
+            category: ItemCategory::Food,
+            quantity: Some(2.0),
+            unit: Some("jar".into()),
+            expiry: None,
+            location_id: Some(kitchen.id),
+        },
+    )
+    .await
+    .unwrap()
+    .expect("item exists");
+    assert_eq!(updated.name, "Ground cumin");
+    assert_eq!(updated.quantity, Some(2.0));
+
+    // Delete the item; gone afterwards.
+    assert!(repo::delete_item(&pool, user, item.id).await.unwrap());
+    assert!(
+        repo::get_item(&pool, user, item.id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(!repo::delete_item(&pool, user, item.id).await.unwrap());
+
+    // Delete a location.
+    assert!(repo::delete_location(&pool, user, shelf.id).await.unwrap());
+    assert!(!repo::delete_location(&pool, user, shelf.id).await.unwrap());
 }

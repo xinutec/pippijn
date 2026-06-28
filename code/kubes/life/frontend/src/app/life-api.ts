@@ -29,8 +29,17 @@ export class LifeApi {
   createItem(body: Partial<Item>): Observable<Item> {
     return this.http.post<Item>('/api/items', body);
   }
+  updateItem(id: number, body: Partial<Item>): Observable<Item> {
+    return this.http.patch<Item>(`/api/items/${id}`, body);
+  }
+  deleteItem(id: number): Observable<unknown> {
+    return this.http.delete(`/api/items/${id}`);
+  }
   moveItem(id: number, locationId: number | null): Observable<Item> {
     return this.http.post<Item>(`/api/items/${id}/move`, { location_id: locationId });
+  }
+  deleteLocation(id: number): Observable<unknown> {
+    return this.http.delete(`/api/locations/${id}`);
   }
 
   search(q: string): Observable<SearchHit[]> {
@@ -43,6 +52,12 @@ export class LifeApi {
 
   recipes(): Observable<Recipe[]> {
     return this.http.get<Recipe[]>('/api/recipes');
+  }
+  createRecipe(body: Partial<Recipe>): Observable<Recipe> {
+    return this.http.post<Recipe>('/api/recipes', body);
+  }
+  deleteRecipe(id: number): Observable<unknown> {
+    return this.http.delete(`/api/recipes/${id}`);
   }
   cookable(): Observable<Recipe[]> {
     return this.http.get<Recipe[]>('/api/cookable');

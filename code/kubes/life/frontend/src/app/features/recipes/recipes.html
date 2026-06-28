@@ -1,6 +1,51 @@
 <h2>Recipes</h2>
 <p class="summary">{{ cookableCount() }} cookable with what's in stock.</p>
 
+<mat-card appearance="outlined" class="new">
+  <mat-card-header><mat-card-title>New recipe</mat-card-title></mat-card-header>
+  <mat-card-content>
+    <div class="row">
+      <mat-form-field appearance="outline">
+        <mat-label>Name</mat-label>
+        <input matInput [(ngModel)]="form.name" placeholder="e.g. Dal" />
+      </mat-form-field>
+      <mat-form-field appearance="outline" class="narrow">
+        <mat-label>Servings</mat-label>
+        <input matInput type="number" [(ngModel)]="form.servings" />
+      </mat-form-field>
+    </div>
+    <mat-form-field appearance="outline" class="full">
+      <mat-label>Instructions</mat-label>
+      <textarea matInput rows="2" [(ngModel)]="form.instructions"></textarea>
+    </mat-form-field>
+
+    <p class="ing-label">Ingredients</p>
+    @for (ing of form.ingredients; track $index) {
+      <div class="row">
+        <mat-form-field appearance="outline">
+          <mat-label>Name</mat-label>
+          <input matInput [(ngModel)]="ing.name" />
+        </mat-form-field>
+        <mat-form-field appearance="outline" class="narrow">
+          <mat-label>Qty</mat-label>
+          <input matInput type="number" [(ngModel)]="ing.quantity" />
+        </mat-form-field>
+        <mat-form-field appearance="outline" class="narrow">
+          <mat-label>Unit</mat-label>
+          <input matInput [(ngModel)]="ing.unit" />
+        </mat-form-field>
+        <button mat-icon-button (click)="removeIngredientRow($index)" aria-label="Remove">
+          <mat-icon>close</mat-icon>
+        </button>
+      </div>
+    }
+    <div class="actions">
+      <button mat-button (click)="addIngredientRow()"><mat-icon>add</mat-icon> Ingredient</button>
+      <button mat-flat-button color="primary" (click)="createRecipe()">Create recipe</button>
+    </div>
+  </mat-card-content>
+</mat-card>
+
 @if (recipes().length === 0) {
   <p class="empty">No recipes yet.</p>
 }
@@ -44,6 +89,10 @@
       <button mat-button (click)="loadShoppingList(recipe.id)">
         <mat-icon>shopping_cart</mat-icon>
         Shopping list
+      </button>
+      <button mat-button (click)="deleteRecipe(recipe.id)">
+        <mat-icon>delete</mat-icon>
+        Delete
       </button>
     </mat-card-actions>
   </mat-card>

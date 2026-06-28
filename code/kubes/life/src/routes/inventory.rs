@@ -3,6 +3,7 @@
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
@@ -49,6 +50,42 @@ pub async fn create_item(
 #[derive(Deserialize)]
 pub struct MoveBody {
     pub location_id: Option<u64>,
+}
+
+pub async fn update_item(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<u64>,
+    Json(body): Json<NewItem>,
+) -> Result<Json<Item>, AppError> {
+    repo::update_item(&app.pool, &user.user_id, id, body)
+        .await?
+        .map(Json)
+        .ok_or(AppError::NotFound)
+}
+
+pub async fn delete_item(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<u64>,
+) -> Result<StatusCode, AppError> {
+    if repo::delete_item(&app.pool, &user.user_id, id).await? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(AppError::NotFound)
+    }
+}
+
+pub async fn delete_location(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<u64>,
+) -> Result<StatusCode, AppError> {
+    if repo::delete_location(&app.pool, &user.user_id, id).await? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(AppError::NotFound)
+    }
 }
 
 pub async fn move_item(

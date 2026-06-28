@@ -7,6 +7,38 @@
   opacity: 0.7;
 }
 
+.new {
+  margin-bottom: 1.5rem;
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  mat-form-field {
+    flex: 1 1 160px;
+  }
+  mat-form-field.narrow {
+    flex: 0 1 90px;
+  }
+  mat-form-field.full {
+    width: 100%;
+  }
+
+  .ing-label {
+    margin: 0.25rem 0;
+    font-weight: 500;
+    opacity: 0.85;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+}
+
 .recipe {
   margin-bottom: 1rem;
 

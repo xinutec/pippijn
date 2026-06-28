@@ -78,4 +78,14 @@ async fn recipe_create_and_shopping_list_against_real_db() {
     let list = shopping_list(&fetched.ingredients, &inventory);
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].name, "salt");
+
+    // Delete the recipe (ingredients cascade).
+    assert!(repo::delete_recipe(&pool, user, recipe.id).await.unwrap());
+    assert!(
+        repo::get_recipe(&pool, user, recipe.id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(!repo::delete_recipe(&pool, user, recipe.id).await.unwrap());
 }

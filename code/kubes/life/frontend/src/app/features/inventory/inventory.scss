@@ -1,3 +1,29 @@
+.forms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.form {
+  flex: 1 1 320px;
+
+  mat-card-content {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+  }
+
+  mat-form-field {
+    flex: 1 1 140px;
+  }
+
+  mat-form-field.narrow {
+    flex: 0 1 90px;
+  }
+}
+
 section {
   margin-bottom: 1.5rem;
 }

@@ -6,7 +6,7 @@ pub mod inventory;
 pub mod recipes;
 
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, patch, post};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::state::AppState;
@@ -21,14 +21,22 @@ pub fn router(state: AppState) -> Router {
             "/locations",
             get(inventory::list_locations).post(inventory::create_location),
         )
+        .route("/locations/{id}", delete(inventory::delete_location))
         .route(
             "/items",
             get(inventory::list_items).post(inventory::create_item),
         )
+        .route(
+            "/items/{id}",
+            patch(inventory::update_item).delete(inventory::delete_item),
+        )
         .route("/items/{id}/move", post(inventory::move_item))
         .route("/search", get(inventory::search))
         .route("/recipes", get(recipes::list).post(recipes::create))
-        .route("/recipes/{id}", get(recipes::get_one))
+        .route(
+            "/recipes/{id}",
+            get(recipes::get_one).delete(recipes::delete),
+        )
         .route("/recipes/{id}/shopping-list", get(recipes::shopping_list))
         .route("/cookable", get(recipes::cookable));
 

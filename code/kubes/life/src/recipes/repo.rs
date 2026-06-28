@@ -139,3 +139,13 @@ pub async fn create_recipe(pool: &MySqlPool, user_id: &str, new: NewRecipe) -> R
         ingredients: new.ingredients,
     })
 }
+
+/// Delete a recipe (its ingredients cascade). Returns whether a row was removed.
+pub async fn delete_recipe(pool: &MySqlPool, user_id: &str, id: u64) -> Result<bool> {
+    let res = sqlx::query("DELETE FROM recipes WHERE id = ? AND user_id = ?")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(res.rows_affected() > 0)
+}

@@ -189,6 +189,59 @@ pub async fn move_item(
     get_item(pool, user_id, item_id).await
 }
 
+/// Update every field of an item. Returns the updated item, or `None` if no
+/// such item belongs to the user. Records a `moved` history row if the location
+/// changed.
+pub async fn update_item(
+    pool: &MySqlPool,
+    user_id: &str,
+    id: u64,
+    new: NewItem,
+) -> Result<Option<Item>> {
+    let Some(existing) = get_item(pool, user_id, id).await? else {
+        return Ok(None);
+    };
+    sqlx::query(
+        "UPDATE items SET name = ?, category = ?, quantity = ?, unit = ?, expiry = ?, \
+         location_id = ? WHERE id = ? AND user_id = ?",
+    )
+    .bind(&new.name)
+    .bind(new.category.to_string())
+    .bind(new.quantity)
+    .bind(&new.unit)
+    .bind(new.expiry)
+    .bind(new.location_id)
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    if existing.location_id != new.location_id {
+        record_history(pool, id, user_id, new.location_id, "moved", new.quantity).await?;
+    }
+    get_item(pool, user_id, id).await
+}
+
+/// Delete an item (its history cascades). Returns whether a row was removed.
+pub async fn delete_item(pool: &MySqlPool, user_id: &str, id: u64) -> Result<bool> {
+    let res = sqlx::query("DELETE FROM items WHERE id = ? AND user_id = ?")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+/// Delete a location. Child locations cascade; items there have their
+/// `location_id` set NULL (per the FKs). Returns whether a row was removed.
+pub async fn delete_location(pool: &MySqlPool, user_id: &str, id: u64) -> Result<bool> {
+    let res = sqlx::query("DELETE FROM locations WHERE id = ? AND user_id = ?")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(res.rows_affected() > 0)
+}
+
 async fn record_history(
     pool: &MySqlPool,
     item_id: u64,
