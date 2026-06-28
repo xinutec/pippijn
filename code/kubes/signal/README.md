@@ -41,6 +41,8 @@ ingester (no libsignal/sqlcipher — fast, small build).
   export → the same tables, deduped against the live feed). See *History backfill*.
 - `tools/reconcile_groups.py` — one-time fixer that rekeys master-key group
   threads to the live group ids (for history imported before `--groups-json`).
+- `tools/import_gchat.py` — imports the Google Chat archive into SEPARATE
+  `gchat_*` tables in the same DB (see *Other origins* below).
 
 ## Tests
 The bug-prone part — mapping signal-cli's JSON to archive actions — is unit-tested
@@ -125,7 +127,27 @@ group ids (dry-run by default).
   to the masterKey key (the importer warns); a future hardening is matching on the
   member set instead of the name.
 
+## Other origins — Google Chat (separate tables)
+This DB is also the store for **other** message origins, each in its OWN tables
+(not merged into the Signal schema — the shapes differ too much to unify cleanly).
+
+**Google Chat** (`gchat_conversations`, `gchat_messages`, `gchat_reactions`):
+imported from the decoded archive produced by `~/Code/gchat-archive` (a CDP
+reverse-engineering capture, NOT a Takeout) by `tools/import_gchat.py`. Differences
+from Signal that justify separate tables: reactions are **aggregated** (`emoji` +
+`cnt`) not per-author events; messages carry Google **threading** (`thread_id`) and
+numeric `sender_id`; self is a `(you)` name suffix → stored as `is_self`. Messages
+dedupe on `(group_id, msg_id)`, names/reaction-counts upsert, so it is re-runnable.
+```
+# port-forward the DB, then on the machine holding the archive:
+DB_HOST=… DB_PORT=… DB_USER=… DB_PASSWORD=… DB_NAME=signal \
+  ./tools/import_gchat.py [conversations_dir] [--apply]   # dry-run by default
+```
+The importer creates the `gchat_*` tables itself (`CREATE TABLE IF NOT EXISTS`);
+they are independent of the Rust ingester's `MIGRATIONS` (which owns only the
+Signal tables).
+
 ## Security
 The signal-cli data PVC holds linked-device keys — secret-class; keep its odin
-backup encrypted. The DB holds private conversations (same class as
-`gchat-archive`); real content stays out of git.
+backup encrypted. The DB holds private conversations (Signal + the imported Google
+Chat history, same private class); real content stays out of git.
