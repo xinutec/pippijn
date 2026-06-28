@@ -6,15 +6,14 @@ Archives Signal messages into MariaDB on the **isis** k3s cluster, the same way
 - **Ongoing** — [`signal-cli-rest-api`](https://github.com/bbernhard/signal-cli-rest-api)
   links as a Signal **secondary device** and exposes received messages on a
   websocket; a small Rust **ingester** parses each frame into MariaDB.
-- **History** (one-time, later) — an Android Signal backup decoded with
-  [`signalbackup-tools`](https://github.com/bepaald/signalbackup-tools) and
-  imported into the same tables.
+- **History** (one-time, done) — an Android Signal **plaintext export**
+  (backup-v2 JSONL) imported into the same tables by `tools/import_jsonl.py`.
 
 ```
                   one-time, on Mac
- Android Signal ──.backup──▶ signalbackup-tools ──▶ import script ─┐
-   (history)                                                       │
-                                                                   ▼
+ Android Signal ──plaintext export──▶ main.jsonl ──▶ import_jsonl.py ─┐
+   (history)        (backup-v2 JSONL)                                 │
+                                                                      ▼
  Android Signal ──link (QR)──▶ signal-cli-rest-api ──ws──▶ ingester ──▶ MariaDB
    (ongoing)                   [json-rpc, PVC=keys]    (Rust)        [ns: signal]
 ```
@@ -34,8 +33,14 @@ ingester (no libsignal/sqlcipher — fast, small build).
 - `src/parse.rs` — **pure** frame→action mapping (`parse_frame`), no I/O. Unit-tested.
 - `src/db.rs` — MariaDB schema (append-only `MIGRATIONS`, run on startup) + inserts.
 - `src/main.rs` — the binary: connects to `ws://…/v1/receive/<number>`, parses each
-  frame via `parse`, and executes the action against the DB; reconnects on drop.
+  frame via `parse`, and executes the action against the DB; a heartbeat probes
+  idle sockets and reconnects on drop. Also downloads attachment bytes and
+  periodically refreshes group titles.
 - `src/lib.rs` — exposes `parse`/`db` as a library so the logic is testable.
+- `tools/import_jsonl.py` — the one-time history importer (plaintext JSONL
+  export → the same tables, deduped against the live feed). See *History backfill*.
+- `tools/reconcile_groups.py` — one-time fixer that rekeys master-key group
+  threads to the live group ids (for history imported before `--groups-json`).
 
 ## Tests
 The bug-prone part — mapping signal-cli's JSON to archive actions — is unit-tested
@@ -52,9 +57,17 @@ nix-shell -p cargo rustc --run "cargo test"
   `secret.sh` (DB creds; `SIGNAL_NUMBER` added after linking).
 
 ## Schema
-`contacts`, `conversations` (`dm:<uuid>` / `group:<base64 groupId>`), `messages`
+`contacts`, `conversations` (`dm:<uuid>` / `group:<id>`), `messages`
 (UNIQUE `(sender_uuid, server_ts)`), `attachments`, `reactions`. Identities are
-keyed on the Signal ACI UUID (E.164 number as fallback).
+keyed on the Signal ACI UUID (E.164 number as fallback). Deletes and edits are
+non-destructive: a delete only flags `deleted`, and each edited version is a
+separate row linked to the original via `edit_of_ts` — content is never removed.
+
+Group threads are keyed by the signal-cli **group id** (base64 `groupInfo.groupId`,
+== the groups-API `internal_id`). The Android export instead carries each group's
+**master key** (a different value), so the importer maps master-key → group id by
+group name (`--groups-json`, below) to land history in the same thread as the live
+feed. DM threads (`dm:<uuid>`) need no mapping.
 
 ## Deploy (isis k3s, namespace `signal`)
 1. Push to `main` → CI builds `xinutec/signal-archiver:latest` (the ingester).
@@ -77,17 +90,40 @@ keyed on the Signal ACI UUID (E.164 number as fallback).
    ```
 6. Verify: `kubectl -n signal exec deploy/signal-db -- mariadb -usignal -p signal -e 'SELECT COUNT(*) FROM messages;'`
 
-## History backfill (later, one-time)
-Android Signal → Chats → Backups (note the 30-digit passphrase) → copy the
-`.backup` off the device → `signalbackup-tools` → import into the same tables
-(dedupe makes it safe alongside the live feed). *(Import script TBD when we run this.)*
+## History backfill (one-time, done)
+Source is a Signal Android **plaintext export**, not the encrypted `.backup`:
+Signal Android (beta) → "export" → `Documents/signal-export-*/main.jsonl`, a
+stream of `account` / `recipient` / `chat` / `chatItem` / `stickerPack` frames.
+Fetch the groups list (so group history merges with the live feed — see *Schema*):
+```
+NUM=$(curl -s localhost:8080/v1/accounts | sed 's/[][\"]//g')   # inside the rest-api pod
+curl -s localhost:8080/v1/groups/$NUM > groups.json
+```
+Copy `main.jsonl` (and `groups.json`) off the device/cluster and run on the Mac:
+```
+DB_HOST=… DB_PORT=… DB_USER=… DB_PASSWORD=… DB_NAME=signal SELF_UUID=<your ACI> \
+  ./tools/import_jsonl.py main.jsonl --groups-json=groups.json [--dry-run] [--limit=N]
+```
+It resolves the export's internal recipient/chat ids and writes messages,
+contacts, conversations, reactions, attachment **metadata**, and edit history
+into the same tables, deduped on `(sender_uuid, server_ts)` via `INSERT IGNORE`
+— so it is safe to run alongside the live feed and to re-run. Attachment **bytes**
+are not imported (they live in the export's `files/` tree keyed by hash).
 
-## v1 scope / known follow-ups
-- Archives **incoming** text + quotes + attachment **metadata** + reactions, and
-  **outgoing** messages (linked-device "Sent" sync).
-- NOT yet: attachment **bytes** (the rest-api can fetch them via
-  `GET /v1/attachments/<id>`), and group/contact **name** resolution (threads are
-  keyed by id).
+If you imported without `--groups-json`, group history sits under master-key
+threads; `tools/reconcile_groups.py groups.json [--apply]` rekeys them to the live
+group ids (dry-run by default).
+
+## Scope / known follow-ups
+- Live feed archives **incoming** text + quotes + attachment metadata + **bytes**
+  + reactions, and **outgoing** messages (linked-device "Sent" sync); it resolves
+  contact names (DM thread names) and refreshes group titles.
+- The JSONL importer archives the same, **minus attachment bytes** (metadata only).
+- Group threads unify across feeds via the `--groups-json` name→groupId map
+  (`reconcile_groups.py` fixes any pre-mapping import). The only soft spot is the
+  name match — a renamed or duplicate group title can't be mapped and falls back
+  to the masterKey key (the importer warns); a future hardening is matching on the
+  member set instead of the name.
 
 ## Security
 The signal-cli data PVC holds linked-device keys — secret-class; keep its odin

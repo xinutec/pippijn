@@ -13,8 +13,14 @@ alongside the live feed and to re-run.
 Attachment BYTES are not imported (they live in the export's files/ tree keyed by
 hash); metadata only, matching the live v1 behaviour.
 
+Group threads: the export keys groups by `masterKey`, the live feed by signal-cli's
+derived `groupId`. Pass `--groups-json=FILE` (the `GET /v1/groups/<number>` output)
+to key groups by groupId (matched by name) so history lands in the live thread;
+otherwise groups fall back to masterKey and `tools/reconcile_groups.py` must run
+afterwards to unify them.
+
 Usage (env: DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME, SELF_UUID):
-    ./import_jsonl.py main.jsonl [--dry-run] [--limit N]
+    ./import_jsonl.py main.jsonl [--groups-json=groups.json] [--dry-run] [--limit=N]
 """
 import base64
 import json
@@ -60,6 +66,21 @@ def main():
     limit = next((int(o.split("=")[1]) for o in opts if o.startswith("--limit=")), None)
     self_uuid = os.environ["SELF_UUID"]
 
+    # The export keys a group by its `masterKey`, but the live ingester keys it by
+    # signal-cli's derived `groupId` (the groups-API `internal_id`) — different
+    # values. To land history in the SAME thread as the live feed, pass the groups
+    # list (--groups-json, the `GET /v1/groups/<number>` output) and we map each
+    # group to its groupId by NAME. Without it, groups fall back to the masterKey
+    # key and won't unify until tools/reconcile_groups.py is run.
+    groups_json = next((o.split("=", 1)[1] for o in opts if o.startswith("--groups-json=")), None)
+    name_to_gid = {}
+    if groups_json:
+        with open(groups_json) as gf:
+            for g in json.load(gf):
+                if g.get("name") and g.get("internal_id"):
+                    name_to_gid[g["name"]] = g["internal_id"]
+    unmapped_groups = set()
+
     # --- pass 1: build recipient + chat maps -------------------------------
     recipients = {}   # id -> dict(uuid, phone, name, is_group, group_key, group_name, is_self)
     chats = {}        # chatId -> recipientId
@@ -104,7 +125,11 @@ def main():
         if not r:
             return (f"chat:{chat_id}", "dm")
         if r["is_group"]:
-            return (f"group:{r.get('group_key')}", "group")
+            # Prefer the live feed's groupId (matched by name); else the masterKey.
+            gid = name_to_gid.get(r.get("group_name"))
+            if not gid:
+                unmapped_groups.add(r.get("group_name"))
+            return (f"group:{gid or r.get('group_key')}", "group")
         return (f"dm:{r['uuid'] or r['phone']}", "dm")
 
     # --- connect -----------------------------------------------------------
@@ -262,6 +287,11 @@ def main():
         conn.commit()
     conn.close()
     print(f"{'DRY-RUN ' if dry else ''}done: {stats}")
+    if unmapped_groups:
+        how = "not in --groups-json" if groups_json else "no --groups-json given"
+        print(f"WARNING: {len(unmapped_groups)} group(s) keyed by masterKey ({how}); "
+              f"run tools/reconcile_groups.py to unify with the live feed: "
+              f"{sorted(g for g in unmapped_groups if g)}")
 
 
 if __name__ == "__main__":

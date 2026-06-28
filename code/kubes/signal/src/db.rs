@@ -16,7 +16,10 @@ const MIGRATIONS: &[&str] = &[
         profile_name VARCHAR(255) NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )",
-    // v1: conversations (threads). thread_id is `dm:<uuid>` or `group:<hex master key>`.
+    // v1: conversations (threads). thread_id is `dm:<uuid>` or `group:<id>`, where
+    // the group id is signal-cli's base64 `groupInfo.groupId` (== the groups-API
+    // `internal_id`). NB the JSONL importer keys groups on the export's masterKey
+    // instead — a different value — so history/live group threads don't yet merge.
     r"CREATE TABLE IF NOT EXISTS conversations (
         thread_id VARCHAR(80) NOT NULL PRIMARY KEY,
         type ENUM('dm','group') NOT NULL,
