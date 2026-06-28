@@ -220,3 +220,30 @@ fn timestamp_falls_back_to_data_message_timestamp() {
         other => panic!("expected Message, got {other:?}"),
     }
 }
+
+#[test]
+fn message_with_no_timestamp_anywhere_is_skipped() {
+    // No env timestamp and none on the dataMessage: we can't anchor it in time,
+    // so it's skipped rather than stored at ts=0.
+    let f = json!({"envelope": {"sourceUuid": "u1", "dataMessage": {"message": "no ts"}}});
+    assert_eq!(parse_frame(&f).action, Action::Skip);
+}
+
+#[test]
+fn outgoing_sync_with_no_timestamp_is_skipped() {
+    let f = json!({"envelope": {
+        "sourceUuid": "me",
+        "syncMessage": {"sentMessage": {"destinationUuid": "u2", "message": "no ts"}}
+    }});
+    assert_eq!(parse_frame(&f).action, Action::Skip);
+}
+
+#[test]
+fn edit_with_no_target_timestamp_is_skipped() {
+    // An edit with no targetSentTimestamp can't be linked to its original.
+    let f = json!({"envelope": {
+        "sourceUuid": "u1", "timestamp": 2000,
+        "editMessage": {"dataMessage": {"message": "orphan edit"}}
+    }});
+    assert_eq!(parse_frame(&f).action, Action::Skip);
+}

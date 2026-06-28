@@ -239,12 +239,16 @@ pub fn parse_frame(frame: &Value) -> Parsed {
     if let Some(edit) = env.get("editMessage") {
         let Some(inner) = edit.get("dataMessage") else { return Parsed::skip() };
         let sender = id_of(env.get("sourceUuid"), env.get("source"));
-        let edit_ts = env
+        let Some(edit_ts) = env
             .get("timestamp")
             .and_then(Value::as_i64)
             .or_else(|| inner.get("timestamp").and_then(Value::as_i64))
-            .unwrap_or(0);
-        let target = edit.get("targetSentTimestamp").and_then(Value::as_i64).unwrap_or(0);
+        else {
+            return Parsed::skip();
+        };
+        let Some(target) = edit.get("targetSentTimestamp").and_then(Value::as_i64) else {
+            return Parsed::skip();
+        };
         let name = env.get("sourceName").and_then(Value::as_str);
         let contact = Some(Contact {
             uuid: sender.clone(),
@@ -265,12 +269,16 @@ pub fn parse_frame(frame: &Value) -> Parsed {
         if let Some(edit) = sync.get("editMessage").or_else(|| sent.and_then(|s| s.get("editMessage"))) {
             if let Some(inner) = edit.get("dataMessage") {
                 let sender = id_of(env.get("sourceUuid"), env.get("source"));
-                let edit_ts = sent
+                let Some(edit_ts) = sent
                     .and_then(|s| s.get("timestamp"))
                     .and_then(Value::as_i64)
                     .or_else(|| inner.get("timestamp").and_then(Value::as_i64))
-                    .unwrap_or(0);
-                let target = edit.get("targetSentTimestamp").and_then(Value::as_i64).unwrap_or(0);
+                else {
+                    return Parsed::skip();
+                };
+                let Some(target) = edit.get("targetSentTimestamp").and_then(Value::as_i64) else {
+                    return Parsed::skip();
+                };
                 let dest = id_of(
                     sent.and_then(|s| s.get("destinationUuid")),
                     sent.and_then(|s| s.get("destination")),
@@ -284,11 +292,13 @@ pub fn parse_frame(frame: &Value) -> Parsed {
 
     if let Some(dm) = env.get("dataMessage") {
         let sender = id_of(env.get("sourceUuid"), env.get("source"));
-        let ts = env
+        let Some(ts) = env
             .get("timestamp")
             .and_then(Value::as_i64)
             .or_else(|| dm.get("timestamp").and_then(Value::as_i64))
-            .unwrap_or(0);
+        else {
+            return Parsed::skip();
+        };
         let name = env.get("sourceName").and_then(Value::as_str);
         let contact = Some(Contact {
             uuid: sender.clone(),
@@ -308,7 +318,9 @@ pub fn parse_frame(frame: &Value) -> Parsed {
 
     if let Some(sent) = env.get("syncMessage").and_then(|s| s.get("sentMessage")) {
         let sender = id_of(env.get("sourceUuid"), env.get("source")); // ourselves
-        let ts = sent.get("timestamp").and_then(Value::as_i64).unwrap_or(0);
+        let Some(ts) = sent.get("timestamp").and_then(Value::as_i64) else {
+            return Parsed::skip();
+        };
         let dest = id_of(sent.get("destinationUuid"), sent.get("destination"));
         let action = payload_action(sent, &sender, ts, true, &dest);
         return Parsed { action, contact: None, dm_name: None };
