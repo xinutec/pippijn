@@ -96,7 +96,7 @@ async fn run_ws(ws_url: &str, ctx: &Ctx) -> Result<()> {
                     READ_TIMEOUT.as_secs()
                 );
                 // A broken pipe surfaces here on write even before a read would.
-                ws.send(WsMessage::Ping(Vec::new().into())).await.context("keepalive ping")?;
+                ws.send(WsMessage::Ping(Vec::new())).await.context("keepalive ping")?;
                 continue;
             }
         };
@@ -165,12 +165,12 @@ async fn dispatch(ctx: &Ctx, frame: &Value) -> Result<()> {
         }
         Action::Message(m) => {
             ctx.db.upsert_conversation(&m.thread_id, m.kind).await?;
-            let msg_id = ctx
+            // `None` = a duplicate INSERT IGNORE dropped; skip its children.
+            if let Some(msg_id) = ctx
                 .db
                 .insert_message(&m.thread_id, &m.sender, m.server_ts, m.body.as_deref(), m.quote_target_ts, m.is_outgoing)
-                .await?;
-            // msg_id == 0 means a duplicate (INSERT IGNORE) — skip children.
-            if msg_id != 0 {
+                .await?
+            {
                 for att in &m.attachments {
                     let stored = match &att.id {
                         Some(id) => download_attachment(ctx, id).await,

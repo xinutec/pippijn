@@ -6,6 +6,8 @@
 use anyhow::Result;
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 
+use crate::parse::ThreadKind;
+
 const MIGRATIONS: &[&str] = &[
     // v0: contacts (people). Keyed by Signal ACI UUID (or E.164 if no UUID).
     r"CREATE TABLE IF NOT EXISTS contacts (
@@ -109,13 +111,13 @@ impl Db {
         Ok(())
     }
 
-    pub async fn upsert_conversation(&self, thread_id: &str, kind: &str) -> Result<()> {
+    pub async fn upsert_conversation(&self, thread_id: &str, kind: ThreadKind) -> Result<()> {
         sqlx::query(
             "INSERT INTO conversations (thread_id, type) VALUES (?, ?)
              ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP",
         )
         .bind(thread_id)
-        .bind(kind)
+        .bind(kind.as_str())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -159,7 +161,10 @@ impl Db {
         Ok(())
     }
 
-    /// Returns the new row id, or 0 if it was a duplicate (INSERT IGNORE).
+    /// Inserts a message, returning its new row id — or `None` if it was a
+    /// duplicate that `INSERT IGNORE` dropped. Encoding the duplicate case as
+    /// `None` (rather than a `0` sentinel) means a caller can't fetch children
+    /// for a row that was never written without the type forcing the check.
     pub async fn insert_message(
         &self,
         thread_id: &str,
@@ -168,7 +173,7 @@ impl Db {
         body: Option<&str>,
         quote_target_ts: Option<i64>,
         is_outgoing: bool,
-    ) -> Result<u64> {
+    ) -> Result<Option<u64>> {
         let res = sqlx::query(
             "INSERT IGNORE INTO messages
                 (thread_id, sender_uuid, server_ts, body, quote_target_ts, is_outgoing)
@@ -182,7 +187,8 @@ impl Db {
         .bind(is_outgoing)
         .execute(&self.pool)
         .await?;
-        Ok(res.last_insert_id())
+        // INSERT IGNORE skips a duplicate: 0 rows affected, no new id.
+        Ok((res.rows_affected() != 0).then(|| res.last_insert_id()))
     }
 
     /// Flag an archived message as deleted-for-everyone (content is kept).

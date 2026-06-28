@@ -6,6 +6,25 @@
 
 use serde_json::Value;
 
+/// Which kind of conversation a message belongs to. Replaces a stringly-typed
+/// `"dm"`/`"group"`: the DB `conversations.type` ENUM and every call site now
+/// share one type, so a typo'd kind is a compile error, not a runtime one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreadKind {
+    Dm,
+    Group,
+}
+
+impl ThreadKind {
+    /// The value stored in the `conversations.type` ENUM.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ThreadKind::Dm => "dm",
+            ThreadKind::Group => "group",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Contact {
     pub uuid: String,
@@ -24,7 +43,7 @@ pub struct Attachment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub thread_id: String,
-    pub kind: &'static str, // "dm" | "group"
+    pub kind: ThreadKind,
     pub sender: String,
     pub server_ts: i64,
     pub body: Option<String>,
@@ -36,7 +55,7 @@ pub struct Message {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reaction {
     pub thread_id: String,
-    pub kind: &'static str,
+    pub kind: ThreadKind,
     pub target_ts: i64,
     pub author: String,
     pub emoji: Option<String>,
@@ -47,7 +66,7 @@ pub struct Reaction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edit {
     pub thread_id: String,
-    pub kind: &'static str,
+    pub kind: ThreadKind,
     pub sender: String,
     pub edit_ts: i64,   // when the edit was made (this version's timestamp)
     pub target_ts: i64, // server_ts of the original message being edited
@@ -87,10 +106,10 @@ pub fn id_of(uuid: Option<&Value>, fallback: Option<&Value>) -> String {
         .to_string()
 }
 
-fn thread_of(msg: &Value, dm_thread_id: &str) -> (String, &'static str) {
+fn thread_of(msg: &Value, dm_thread_id: &str) -> (String, ThreadKind) {
     match msg.get("groupInfo").and_then(|g| g.get("groupId")).and_then(Value::as_str) {
-        Some(gid) => (format!("group:{gid}"), "group"),
-        None => (dm_thread_id.to_string(), "dm"),
+        Some(gid) => (format!("group:{gid}"), ThreadKind::Group),
+        None => (dm_thread_id.to_string(), ThreadKind::Dm),
     }
 }
 
