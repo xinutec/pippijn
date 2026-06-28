@@ -4,8 +4,12 @@
   <header class="topbar">
     <span class="brand">life</span>
     <span class="spacer"></span>
-    <button mat-icon-button [matMenuTriggerFor]="acct" aria-label="Account">
-      <mat-icon>account_circle</mat-icon>
+    <button mat-icon-button [matMenuTriggerFor]="acct" aria-label="Account" class="acct-btn">
+      @if (user.avatarUrl && !avatarError()) {
+        <img class="avatar" [src]="user.avatarUrl" alt="" (error)="avatarError.set(true)" />
+      } @else {
+        <mat-icon>account_circle</mat-icon>
+      }
     </button>
     <mat-menu #acct="matMenu">
       <div class="acct-name">{{ user.displayName }}</div>

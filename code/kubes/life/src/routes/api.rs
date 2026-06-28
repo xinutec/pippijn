@@ -20,6 +20,8 @@ pub async fn me(
     Ok(Json(json!({
         "userId": user.user_id,
         "displayName": user.display_name,
+        // NC serves avatars publicly, so the SPA can load this cross-origin.
+        "avatarUrl": format!("{}/avatar/{}/64", app.cfg.nc_base_url, user.user_id),
         "nextcloud": nextcloud,
     })))
 }

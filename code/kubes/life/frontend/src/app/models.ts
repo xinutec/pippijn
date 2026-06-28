@@ -6,6 +6,7 @@ export type ConnectionStatus = 'active' | 'needs_reauth' | 'not_linked';
 export interface Me {
   userId: string;
   displayName: string;
+  avatarUrl?: string;
   nextcloud: ConnectionStatus;
 }
 

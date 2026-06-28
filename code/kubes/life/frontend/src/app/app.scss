@@ -38,6 +38,14 @@ $rail-w: 220px;
   opacity: 0.8;
 }
 
+.acct-btn .avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
 .content {
   padding: calc(#{$topbar-h} + 0.75rem) 1rem
     calc(#{$bottomnav-h} + env(safe-area-inset-bottom) + 0.75rem);

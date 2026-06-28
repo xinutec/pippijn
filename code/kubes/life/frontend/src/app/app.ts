@@ -33,6 +33,7 @@ export class App {
 
   readonly me = signal<Me | null>(null);
   readonly loading = signal(true);
+  readonly avatarError = signal(false);
 
   readonly nav: NavItem[] = [
     { path: '/search', icon: 'search', label: 'Find' },
