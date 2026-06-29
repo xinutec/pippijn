@@ -16,6 +16,9 @@
   <mat-form-field appearance="outline" class="grow">
     <mat-label>Barcode</mat-label>
     <input matInput [(ngModel)]="barcode" inputmode="numeric" (keyup.enter)="lookup()" />
+    <button matSuffix mat-icon-button (click)="scan()" aria-label="Scan barcode">
+      <mat-icon>photo_camera</mat-icon>
+    </button>
     <button matSuffix mat-icon-button (click)="lookup()" aria-label="Look up product">
       <mat-icon>search</mat-icon>
     </button>

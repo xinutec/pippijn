@@ -24,3 +24,10 @@ body {
   color: var(--mat-sys-on-surface);
   font: var(--mat-sys-body-medium);
 }
+
+// The barcode scanner dialog is full-bleed (the camera fills its own box).
+.scanner-pane .mat-mdc-dialog-surface {
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}

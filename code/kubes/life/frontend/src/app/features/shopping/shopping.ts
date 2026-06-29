@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -10,6 +11,7 @@ import { MatListModule } from '@angular/material/list';
 
 import { LifeApi } from '../../life-api';
 import { ShoppingItem } from '../../models';
+import { ScannerDialog } from '../scanner/scanner-dialog';
 
 @Component({
   selector: 'app-shopping',
@@ -23,10 +25,12 @@ import { ShoppingItem } from '../../models';
     MatCheckboxModule,
     MatFormFieldModule,
     MatInputModule,
+    MatDialogModule,
   ],
 })
 export class Shopping {
   private api = inject(LifeApi);
+  private dialog = inject(MatDialog);
 
   readonly items = signal<ShoppingItem[]>([]);
   readonly doneCount = computed(() => this.items().filter((i) => i.done).length);
@@ -61,6 +65,19 @@ export class Shopping {
         this.reload();
       }
     });
+  }
+
+  /** Open the camera scanner; on a detected code, fill the field and look up. */
+  scan(): void {
+    this.dialog
+      .open<ScannerDialog, unknown, string | null>(ScannerDialog, { panelClass: 'scanner-pane' })
+      .afterClosed()
+      .subscribe((code) => {
+        if (code) {
+          this.barcode = code;
+          this.lookup();
+        }
+      });
   }
 
   /** Look up the typed barcode on Open Food Facts; prefill the name if empty. */

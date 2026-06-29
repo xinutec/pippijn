@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -11,6 +12,7 @@ import { MatSelectModule } from '@angular/material/select';
 
 import { LifeApi } from '../../life-api';
 import { Item, ItemCategory, Loc, LocationKind } from '../../models';
+import { ScannerDialog } from '../scanner/scanner-dialog';
 
 const KINDS: LocationKind[] = ['house', 'room', 'cupboard', 'fridge', 'layer'];
 const CATEGORIES: ItemCategory[] = ['food', 'medication', 'tool', 'document', 'other'];
@@ -45,10 +47,12 @@ interface ItemForm {
     MatInputModule,
     MatSelectModule,
     MatMenuModule,
+    MatDialogModule,
   ],
 })
 export class Inventory {
   private api = inject(LifeApi);
+  private dialog = inject(MatDialog);
 
   readonly kinds = KINDS;
   readonly categories = CATEGORIES;
@@ -177,6 +181,23 @@ export class Inventory {
   cancelEdit(): void {
     this.item = this.emptyItem();
     this.editingId.set(null);
+  }
+
+  /** Scan a barcode into the item form; look up to cache + prefill the name. */
+  scan(): void {
+    this.dialog
+      .open<ScannerDialog, unknown, string | null>(ScannerDialog, { panelClass: 'scanner-pane' })
+      .afterClosed()
+      .subscribe((code) => {
+        if (!code) return;
+        this.item.barcode = code;
+        this.api.lookupProduct(code).subscribe({
+          next: (p) => {
+            if (!this.item.name.trim() && p.name) this.item.name = p.name;
+          },
+          error: () => {},
+        });
+      });
   }
 
   deleteItem(id: number): void {

@@ -1,0 +1,13 @@
+<div class="scanner">
+  @if (error(); as e) {
+    <div class="err">
+      <mat-icon>videocam_off</mat-icon>
+      <p>{{ e }}</p>
+    </div>
+  } @else {
+    <video #video playsinline muted></video>
+    <div class="reticle"></div>
+    <p class="hint">Point the camera at a barcode</p>
+  }
+  <button mat-flat-button (click)="cancel()" class="cancel">Cancel</button>
+</div>
