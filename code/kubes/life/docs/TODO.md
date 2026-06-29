@@ -23,6 +23,8 @@ add new ones under the right section. Architecture/rationale lives in
 - [x] Food fields: category, quantity, unit, expiry (stored)
 - [x] Recipes: create/delete, ingredients, shopping-list, cook-now
 - [x] Shopping list ("Buy" tab): add/tick/remove + buy→inventory loop
+- [x] Product lookup: barcode → Open Food Facts, cached in our DB (image as
+      BLOB, served from /api); barcode field + thumbnails on Buy/Inventory
 - [x] Search → location breadcrumb ("where is my X")
 - [x] 3D house renders the real `scenes/house.json` (perimeter walls + furniture)
 - [x] Mobile-first UI (bottom tabs ↔ side rail), management forms, NC avatar
@@ -45,25 +47,15 @@ add new ones under the right section. Architecture/rationale lives in
 
 ## Backlog
 
-- [ ] **QR / barcode scanning** — scan a product's code to identify it and act
-      on it: find it in inventory, or add it to the **Buy** list, without typing.
-      Also the make-or-break for fast, accurate item entry. Adds a camera surface.
-- [ ] **Product lookup & images** (design decided — build with the scanner):
-      - Source: **Open Food Facts** (barcode → name/brand/image). Read API needs
-        no auth. Pippijn has an OFF account (for contributing products/images
-        back later; OFF creds are user-held, not stored by us).
-      - **Cache in our own DB**, don't call OFF live: a `products` table
-        (`barcode` PK, name, brand, `image` BLOB, `fetched_at`). On scan, look up
-        our table first; **call OFF only on a cache miss**, then write the result
-        + image into the cache.
-      - Items/shopping-items carry the `barcode` and **copy name + image at
-        add-time** → self-contained; the cache is a pure optimisation, wipeable.
-      - Images stored as BLOB, **served from our own `/api` endpoint**
-        (session-gated), never hot-linked. Camera photo = universal fallback;
-        paste-URL → `og:image` = manual option.
-      - Cache indefinitely (product data barely changes); optional manual
-        "refresh from OFF" later — no TTL machinery. Identify our client via a
-        descriptive User-Agent; don't hammer OFF.
+- [ ] **Camera barcode scanning** — the product lookup/cache is shipped (manual
+      barcode entry works); this adds scanning the code with the **camera**
+      instead of typing, on Buy/Inventory. A JS barcode lib + camera permission.
+- [ ] **Product extras** — name+image are copied onto items at add-time idea is
+      not done yet (currently items just carry the barcode and the thumbnail is
+      fetched live from the cache — fine, but not self-contained if the cache is
+      wiped); camera photo + paste-URL→`og:image` as alternative image sources;
+      manual "refresh from OFF"; contribute missing products back to OFF (uses
+      Pippijn's OFF account — creds user-held).
 - [ ] **Purchases: shop + price observations** (design decided) — price is NOT
       a product attribute; it varies by shop and time, so model it as an
       **observation = the same record as "where bought"**:
