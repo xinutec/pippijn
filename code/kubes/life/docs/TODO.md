@@ -1,22 +1,64 @@
-# life — important TODOs
+# Life — roadmap & TODO
 
-## ⚠️ BACKUP — the life DB is NOT backed up yet
+Living checklist for the Life app. Keep it current: tick items as they ship,
+add new ones under the right section. Architecture/rationale lives in
+`docs/design/overview.md`; this is the "what's done / what's next" tracker.
 
-**Do this before relying on life for real data.** The `life` MariaDB on isis
-(namespace `life`, deployment `life-db`, PVC `life-db-pvc`) currently has **no
-backup**. If the PVC is lost, all inventory/recipes/places are gone.
+## ⚠️ Top priority before real reliance
 
-Plan (mirrors the fleet pattern): a scheduled `mysqldump` of the `life` database
-folded into the **Mac-mini restic set** (`xinutec-infra/mac-mini/hm-agents.nix`,
-daily 05:00). Restic backs up the dump file, not the live DB. See
-`docs/design/overview.md` §6.
+- [ ] **Back up the Life DB** — the `life` MariaDB on isis (ns `life`, deploy
+  `life-db`, PVC `life-db-pvc`) has **no backup**. Lose the PVC → lose all
+  inventory/recipes/places. Plan: scheduled `mysqldump` folded into the
+  Mac-mini **restic** set (`xinutec-infra/mac-mini/hm-agents.nix`, daily 05:00).
+  Deferred deliberately until there's real data worth protecting — revisit now
+  that the app is in use. (overview §6)
 
-Deferred deliberately until the app is somewhat in use (real data worth
-protecting). Revisit once the management UI lands and there's data to lose.
+## Shipped
 
-## Other
+- [x] Nextcloud identity login (OAuth2) + own DB-backed HMAC sessions
+- [x] Generic location/item engine (house→room→cupboard→fridge→layer)
+- [x] Inventory: register/delete places, add/edit/move/delete items (CRUD)
+- [x] Food fields: category, quantity, unit, expiry (stored)
+- [x] Recipes: create/delete, ingredients, shopping-list, cook-now
+- [x] Search → location breadcrumb ("where is my X")
+- [x] 3D house renders the real `scenes/house.json` (perimeter walls + furniture)
+- [x] Mobile-first UI (bottom tabs ↔ side rail), management forms, NC avatar
+- [x] Deployed: isis k3s, CI/CD (`xinutec/life`), DNS, TLS, live login
+- [x] Wordmark "Life"
 
-- **Live NC login** — placeholder NC client in prod; register the OAuth2 client
-  and patch `life-secret` (see project memory / overview §2).
-- **CalDAV** — bins-feed read + shop-trip writes (overview §5).
-- **Frontend test runner** — none yet; Rust backend has full tests.
+## Next up
+
+- [ ] **Expiry / "use soon" view** — surface `expiry` (sort/flag soon + expired).
+      Data already stored; just needs a view.
+- [ ] **Extend `scenes/house.json` to the whole house** — Pippijn measures the
+      remaining rooms; decide how rooms compose (shared origin / offsets).
+- [ ] **Place cupboards in scene coordinates** → re-wire **search → highlight in
+      3D** (currently parked: the demo box-highlight was removed). Decide how
+      DB locations map to scene geometry.
+- [ ] **CalDAV** — read the Brent bins feed; write "shop trip" `VEVENT`s with a
+      location. Needs the Login-Flow-v2 app-password link (overview §2b, §5).
+- [ ] **Frontend test runner** — none yet (vitest, like recall). Cover the pure
+      helpers (scene-geometry, matching) + key components.
+
+## Backlog
+
+- [ ] **Barcode / phone capture** for fast item entry (make-or-break for the
+      inventory staying accurate). Adds a camera surface.
+- [ ] **Shopping list as its own surface** — aggregate across recipes + low
+      stock, tickable; sync to phone.
+- [ ] **Whole-house inventory** — surface non-food categories in the UI (tools,
+      documents, meds); the engine is already generic.
+- [ ] **Meds / supplements** — expiry + refill-soon (fits the generic engine).
+- [ ] **Warranties / receipts / manuals** — attach a file + purchase/expiry date.
+- [ ] **Item history view** — the `item_history` audit is recorded but unshown.
+- [ ] **House polish** — camera/lighting, per-cupboard layer visualisation,
+      tap-a-cupboard-to-list-its-items.
+- [ ] **PWA polish** — full icon set (png/maskable/favicon, not just svg),
+      offline shell.
+
+## Open decisions
+
+- three.js parametric geometry vs an authored glTF model of the house.
+- How scene cupboards relate to the DB location tree (store `position` on the
+  `location` rows, vs keep scene geometry separate and map by id/name).
+- Whether barcode capture is worth the mobile-camera surface.
