@@ -21,9 +21,9 @@
           Google Chat
         </button>
       </div>
-      <mat-nav-list>
+      <mat-action-list>
         @for (c of visibleConversations(); track c.origin + c.id) {
-          <a mat-list-item [class.active]="selected() === c" (click)="open(c)">
+          <button mat-list-item [class.active]="selected() === c" (click)="open(c)">
             <span matListItemTitle>{{ title(c) }}</span>
             <span matListItemLine>
               {{ c.origin === 'signal' ? 'Signal' : 'Google Chat' }} · {{ c.message_count }} msgs
@@ -31,11 +31,11 @@
                 · {{ c.last_ts | date: 'mediumDate' }}
               }
             </span>
-          </a>
+          </button>
         } @empty {
           <p class="empty">No conversations.</p>
         }
-      </mat-nav-list>
+      </mat-action-list>
     </aside>
 
     <main class="thread">

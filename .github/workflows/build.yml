@@ -142,8 +142,24 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
 
+  # Frontend static analysis: angular-eslint (incl. forbidding inline templates)
+  # + a production build, same convention as health/home.
+  messages-fe-verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: code/kubes/messages/frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run lint
+      - run: npx ng build --configuration production
+
   messages:
-    needs: messages-verify
+    needs: [messages-verify, messages-fe-verify]
     uses: xinutec/pippijn/.github/workflows/docker.yml@main
     with:
       path: code/kubes/messages

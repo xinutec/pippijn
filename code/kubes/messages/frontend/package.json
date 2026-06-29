@@ -6,7 +6,8 @@
     "ng": "ng",
     "start": "ng serve",
     "build": "ng build",
-    "watch": "ng build --watch --configuration development"
+    "watch": "ng build --watch --configuration development",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@angular/cdk": "^22.0.1",
@@ -24,6 +25,9 @@
     "@angular/build": "^22.0.1",
     "@angular/cli": "^22.0.1",
     "@angular/compiler-cli": "^22.0.0",
-    "typescript": "~6.0.2"
+    "angular-eslint": "22.0.0",
+    "eslint": "10.3.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "8.59.3"
   }
 }
