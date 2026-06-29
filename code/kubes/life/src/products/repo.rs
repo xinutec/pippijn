@@ -7,7 +7,8 @@ use super::types::Product;
 
 #[derive(sqlx::FromRow)]
 struct MetaRow {
-    barcode: String,
+    id: u64,
+    barcode: Option<String>,
     name: Option<String>,
     brand: Option<String>,
     quantity_label: Option<String>,
@@ -17,13 +18,14 @@ struct MetaRow {
 /// Cached metadata for a barcode (no image bytes), or None if not cached.
 pub async fn get(pool: &MySqlPool, barcode: &str) -> Result<Option<Product>> {
     let row: Option<MetaRow> = sqlx::query_as(
-        "SELECT barcode, name, brand, quantity_label, (image IS NOT NULL) AS has_image \
+        "SELECT id, barcode, name, brand, quantity_label, (image IS NOT NULL) AS has_image \
          FROM products WHERE barcode = ?",
     )
     .bind(barcode)
     .fetch_optional(pool)
     .await?;
     Ok(row.map(|r| Product {
+        id: r.id,
         barcode: r.barcode,
         name: r.name,
         brand: r.brand,
@@ -59,8 +61,8 @@ pub async fn upsert(
         None => (None, None),
     };
     sqlx::query(
-        "INSERT INTO products (barcode, name, brand, quantity_label, image, image_mime) \
-         VALUES (?, ?, ?, ?, ?, ?) \
+        "INSERT INTO products (barcode, name, brand, quantity_label, image, image_mime, source) \
+         VALUES (?, ?, ?, ?, ?, ?, 'off') \
          ON DUPLICATE KEY UPDATE name = VALUES(name), brand = VALUES(brand), \
          quantity_label = VALUES(quantity_label), image = VALUES(image), \
          image_mime = VALUES(image_mime), fetched_at = CURRENT_TIMESTAMP",

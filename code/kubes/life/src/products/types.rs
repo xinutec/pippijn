@@ -4,7 +4,9 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Product {
-    pub barcode: String,
+    /// Catalog id (surrogate key). A product may have no barcode (hand-defined).
+    pub id: u64,
+    pub barcode: Option<String>,
     pub name: Option<String>,
     pub brand: Option<String>,
     pub quantity_label: Option<String>,

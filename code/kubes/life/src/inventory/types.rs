@@ -94,17 +94,24 @@ pub struct Location {
     pub position: Option<serde_json::Value>,
 }
 
-/// A tracked item as returned by the API.
+/// A tracked item (holding) as returned by the API. `name`/`brand`/`barcode`/
+/// `has_image` are *resolved*: they come from the linked catalog product when
+/// `product_id` is set, falling back to the item's own fields otherwise.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Item {
     pub id: u64,
+    pub product_id: Option<u64>,
     pub name: String,
+    pub brand: Option<String>,
     pub category: ItemCategory,
     pub quantity: Option<f64>,
     pub unit: Option<String>,
     pub expiry: Option<NaiveDate>,
     pub location_id: Option<u64>,
     pub barcode: Option<String>,
+    /// True when the linked product has a cached image
+    /// (served from /api/products/{barcode}/image).
+    pub has_image: bool,
 }
 
 /// Request body for creating a location.

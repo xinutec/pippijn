@@ -1,0 +1,26 @@
+.count {
+  opacity: 0.7;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.empty {
+  opacity: 0.7;
+}
+
+.brand {
+  opacity: 0.65;
+  font-weight: 400;
+}
+
+.thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--mat-sys-surface-container-high);
+}
+
+.expiry {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}

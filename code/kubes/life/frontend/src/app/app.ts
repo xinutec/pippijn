@@ -35,6 +35,7 @@ export class App {
   readonly loading = signal(true);
   readonly avatarError = signal(false);
 
+  // The frequent destinations live in the bottom tab bar.
   readonly nav: NavItem[] = [
     { path: '/search', icon: 'search', label: 'Find' },
     { path: '/shopping', icon: 'shopping_cart', label: 'Buy' },
@@ -42,6 +43,9 @@ export class App {
     { path: '/recipes', icon: 'menu_book', label: 'Recipes' },
     { path: '/house', icon: 'home', label: 'House' },
   ];
+
+  // Less-common destinations live behind the hamburger menu.
+  readonly more: NavItem[] = [{ path: '/items', icon: 'inventory_2', label: 'All items' }];
 
   constructor() {
     this.api.me().subscribe({

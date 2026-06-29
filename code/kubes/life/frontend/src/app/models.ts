@@ -25,18 +25,25 @@ export type ItemCategory = 'food' | 'medication' | 'tool' | 'document' | 'other'
 
 export interface Item {
   id: number;
+  /** Linked catalog product, or null for a standalone (freeform) item. */
+  product_id: number | null;
+  /** Resolved: the product's name when linked, else the item's own. */
   name: string;
+  brand: string | null;
   category: ItemCategory;
   quantity: number | null;
   unit: string | null;
   expiry: string | null;
   location_id: number | null;
   barcode: string | null;
+  /** The linked product has a cached image (at /api/products/{barcode}/image). */
+  has_image: boolean;
 }
 
 /** Product reference data cached from Open Food Facts (keyed by barcode). */
 export interface Product {
-  barcode: string;
+  id: number;
+  barcode: string | null;
   name: string | null;
   brand: string | null;
   quantity_label: string | null;

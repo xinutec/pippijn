@@ -15,13 +15,16 @@ fn ing(name: &str, qty: Option<f64>, unit: Option<&str>) -> RecipeIngredient {
 fn item(name: &str, qty: Option<f64>, unit: Option<&str>) -> Item {
     Item {
         id: 0,
+        product_id: None,
         name: name.into(),
+        brand: None,
         category: ItemCategory::Food,
         quantity: qty,
         unit: unit.map(Into::into),
         expiry: None,
         location_id: None,
         barcode: None,
+        has_image: false,
     }
 }
 

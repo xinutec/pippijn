@@ -40,13 +40,17 @@ impl LocationRow {
 #[derive(sqlx::FromRow)]
 struct ItemRow {
     id: u64,
+    product_id: Option<u64>,
     name: String,
+    brand: Option<String>,
     category: String,
     quantity: Option<f64>,
     unit: Option<String>,
     expiry: Option<NaiveDate>,
     location_id: Option<u64>,
     barcode: Option<String>,
+    // A boolean SQL expression decodes as an integer.
+    has_image: i64,
 }
 
 impl ItemRow {
@@ -54,15 +58,42 @@ impl ItemRow {
         let category = ItemCategory::from_str(&self.category).map_err(|e| anyhow!(e))?;
         Ok(Item {
             id: self.id,
+            product_id: self.product_id,
             name: self.name,
+            brand: self.brand,
             category,
             quantity: self.quantity,
             unit: self.unit,
             expiry: self.expiry,
             location_id: self.location_id,
             barcode: self.barcode,
+            has_image: self.has_image != 0,
         })
     }
+}
+
+/// The resolved item read: holding fields from `items`, display fields
+/// (name/brand/barcode/image) resolved against the linked catalog product. A
+/// macro (not a const) so it stays a compile-time literal — sqlx rejects
+/// runtime-built query strings.
+macro_rules! item_select {
+    () => {
+        "SELECT i.id AS id, i.product_id AS product_id, \
+         COALESCE(p.name, i.name, '') AS name, p.brand AS brand, i.category AS category, \
+         i.quantity AS quantity, i.unit AS unit, i.expiry AS expiry, i.location_id AS location_id, \
+         COALESCE(i.barcode, p.barcode) AS barcode, (p.image IS NOT NULL) AS has_image \
+         FROM items i LEFT JOIN products p ON p.id = i.product_id"
+    };
+}
+
+/// Resolve the catalog product id for a barcode, if one is cached.
+async fn product_id_for_barcode(pool: &MySqlPool, barcode: Option<&str>) -> Result<Option<u64>> {
+    let Some(bc) = barcode else { return Ok(None) };
+    let row: Option<(u64,)> = sqlx::query_as("SELECT id FROM products WHERE barcode = ?")
+        .bind(bc)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| r.0))
 }
 
 pub async fn list_locations(pool: &MySqlPool, user_id: &str) -> Result<Vec<Location>> {
@@ -108,22 +139,20 @@ pub async fn create_location(
 }
 
 pub async fn list_items(pool: &MySqlPool, user_id: &str) -> Result<Vec<Item>> {
-    let rows: Vec<ItemRow> = sqlx::query_as(
-        "SELECT id, name, category, quantity, unit, expiry, location_id, barcode FROM items \
-         WHERE user_id = ? ORDER BY name",
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<ItemRow> =
+        sqlx::query_as(concat!(item_select!(), " WHERE i.user_id = ? ORDER BY name"))
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
     rows.into_iter().map(ItemRow::into_item).collect()
 }
 
 pub async fn search_items(pool: &MySqlPool, user_id: &str, query: &str) -> Result<Vec<Item>> {
     let pattern = format!("%{query}%");
-    let rows: Vec<ItemRow> = sqlx::query_as(
-        "SELECT id, name, category, quantity, unit, expiry, location_id, barcode FROM items \
-         WHERE user_id = ? AND name LIKE ? ORDER BY name",
-    )
+    let rows: Vec<ItemRow> = sqlx::query_as(concat!(
+        item_select!(),
+        " WHERE i.user_id = ? AND COALESCE(p.name, i.name, '') LIKE ? ORDER BY name"
+    ))
     .bind(user_id)
     .bind(pattern)
     .fetch_all(pool)
@@ -132,23 +161,25 @@ pub async fn search_items(pool: &MySqlPool, user_id: &str, query: &str) -> Resul
 }
 
 pub async fn get_item(pool: &MySqlPool, user_id: &str, id: u64) -> Result<Option<Item>> {
-    let row: Option<ItemRow> = sqlx::query_as(
-        "SELECT id, name, category, quantity, unit, expiry, location_id, barcode FROM items \
-         WHERE id = ? AND user_id = ?",
-    )
-    .bind(id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
+    let row: Option<ItemRow> =
+        sqlx::query_as(concat!(item_select!(), " WHERE i.id = ? AND i.user_id = ?"))
+            .bind(id)
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?;
     row.map(ItemRow::into_item).transpose()
 }
 
 pub async fn create_item(pool: &MySqlPool, user_id: &str, new: NewItem) -> Result<Item> {
+    // Link to the catalog when the barcode is already known (scanned/looked up).
+    let product_id = product_id_for_barcode(pool, new.barcode.as_deref()).await?;
     let res = sqlx::query(
-        "INSERT INTO items (user_id, name, category, quantity, unit, expiry, location_id, barcode) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO items \
+         (user_id, product_id, name, category, quantity, unit, expiry, location_id, barcode) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(user_id)
+    .bind(product_id)
     .bind(&new.name)
     .bind(new.category.to_string())
     .bind(new.quantity)
@@ -160,16 +191,9 @@ pub async fn create_item(pool: &MySqlPool, user_id: &str, new: NewItem) -> Resul
     .await?;
     let id = res.last_insert_id();
     record_history(pool, id, user_id, new.location_id, "added", new.quantity).await?;
-    Ok(Item {
-        id,
-        name: new.name,
-        category: new.category,
-        quantity: new.quantity,
-        unit: new.unit,
-        expiry: new.expiry,
-        location_id: new.location_id,
-        barcode: new.barcode,
-    })
+    get_item(pool, user_id, id)
+        .await?
+        .ok_or_else(|| anyhow!("created item {id} not found"))
 }
 
 /// Move an item to a new location (or `None` to detach). Returns the updated
@@ -205,10 +229,12 @@ pub async fn update_item(
     let Some(existing) = get_item(pool, user_id, id).await? else {
         return Ok(None);
     };
+    let product_id = product_id_for_barcode(pool, new.barcode.as_deref()).await?;
     sqlx::query(
-        "UPDATE items SET name = ?, category = ?, quantity = ?, unit = ?, expiry = ?, \
-         location_id = ?, barcode = ? WHERE id = ? AND user_id = ?",
+        "UPDATE items SET product_id = ?, name = ?, category = ?, quantity = ?, unit = ?, \
+         expiry = ?, location_id = ?, barcode = ? WHERE id = ? AND user_id = ?",
     )
+    .bind(product_id)
     .bind(&new.name)
     .bind(new.category.to_string())
     .bind(new.quantity)

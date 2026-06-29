@@ -27,5 +27,10 @@ export const routes: Routes = [
     title: 'Life · house',
     loadComponent: () => import('./features/house/house').then((m) => m.House),
   },
+  {
+    path: 'items',
+    title: 'Life · all items',
+    loadComponent: () => import('./features/items/items').then((m) => m.Items),
+  },
   { path: '**', redirectTo: 'search' },
 ];
