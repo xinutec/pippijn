@@ -58,6 +58,7 @@ async fn seed(pool: &MySqlPool) {
     // Throwaway DB: start from a clean slate every run.
     for t in [
         "reactions",
+        "attachments",
         "messages",
         "conversations",
         "contacts",
@@ -76,6 +77,7 @@ async fn seed(pool: &MySqlPool) {
         "CREATE TABLE contacts (uuid VARCHAR(64) PRIMARY KEY, phone VARCHAR(32) NULL, profile_name VARCHAR(255) NULL) DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE messages (id BIGINT AUTO_INCREMENT PRIMARY KEY, thread_id VARCHAR(80) NOT NULL, sender_uuid VARCHAR(64) NOT NULL, server_ts BIGINT NOT NULL, body TEXT NULL, quote_target_ts BIGINT NULL, is_outgoing TINYINT(1) NOT NULL DEFAULT 0, deleted TINYINT(1) NOT NULL DEFAULT 0, edited TINYINT(1) NOT NULL DEFAULT 0, edit_of_ts BIGINT NULL) DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE reactions (id BIGINT AUTO_INCREMENT PRIMARY KEY, thread_id VARCHAR(80) NOT NULL, target_ts BIGINT NOT NULL, author_uuid VARCHAR(64) NOT NULL, emoji VARCHAR(32) NULL, reaction_ts BIGINT NOT NULL, removed TINYINT(1) NOT NULL DEFAULT 0) DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE attachments (id BIGINT AUTO_INCREMENT PRIMARY KEY, message_id BIGINT NOT NULL, content_type VARCHAR(255) NULL, file_name VARCHAR(512) NULL, size_bytes BIGINT NULL, stored_path VARCHAR(1024) NULL) DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE gchat_conversations (group_id VARCHAR(64) PRIMARY KEY, name VARCHAR(255) NULL, is_dm TINYINT(1) NOT NULL DEFAULT 0) DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE gchat_messages (id BIGINT AUTO_INCREMENT PRIMARY KEY, group_id VARCHAR(64) NOT NULL, msg_id VARCHAR(64) NOT NULL, thread_id VARCHAR(64) NULL, sender_id VARCHAR(32) NULL, sender_name VARCHAR(255) NULL, is_self TINYINT(1) NOT NULL DEFAULT 0, ts_us BIGINT NOT NULL, sent_at DATETIME(6) NULL, text TEXT NULL) DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE gchat_reactions (id BIGINT AUTO_INCREMENT PRIMARY KEY, message_id BIGINT NOT NULL, emoji VARCHAR(64) NULL, cnt INT NOT NULL DEFAULT 0) DEFAULT CHARSET=utf8mb4",
@@ -115,6 +117,16 @@ async fn seed(pool: &MySqlPool) {
         .fetch_one(pool).await.unwrap();
     sqlx::query("INSERT INTO gchat_reactions (message_id, emoji, cnt) VALUES (?, '❤️', 3)")
         .bind(m2).execute(pool).await.unwrap();
+
+    // Two attachments on the ts=1000 'hi' message: an image with bytes on the
+    // PVC (available), and a metadata-only PDF (history import, no bytes).
+    let hi: i64 = sqlx::query_scalar("SELECT id FROM messages WHERE thread_id='dm:alice' AND server_ts=1000")
+        .fetch_one(pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO attachments (message_id, content_type, file_name, size_bytes, stored_path) VALUES
+         (?, 'image/jpeg', 'pic.jpg', 1234, '/attachments/pic_jpg'),
+         (?, 'application/pdf', 'doc.pdf', 5678, NULL)",
+    ).bind(hi).bind(hi).execute(pool).await.unwrap();
 }
 
 #[tokio::test]
@@ -165,6 +177,32 @@ async fn signal_messages_flags_reactions_and_pagination() {
         if !p.has_more { break; }
     }
     assert_eq!(seen, [1000, 2000, 3000, 4000], "paginated walk covers all in order");
+}
+
+#[tokio::test]
+async fn signal_attachments_available_flag_and_blob_lookup() {
+    let Some(pool) = test_pool().await else { return };
+    seed(&pool).await;
+
+    let page = archive::messages_page(&pool, "signal", "dm:alice", None, 100).await.unwrap();
+    let m0 = &page.messages[0]; // ts=1000 'hi'
+    assert_eq!(m0.attachments.len(), 2);
+    let img = m0.attachments.iter().find(|a| a.is_image).expect("image attachment");
+    assert!(img.available && img.content_type.as_deref() == Some("image/jpeg") && img.file_name.as_deref() == Some("pic.jpg"));
+    let pdf = m0.attachments.iter().find(|a| !a.is_image).expect("pdf attachment");
+    assert!(!pdf.available, "metadata-only attachment is not available");
+
+    // Other messages have no attachments.
+    assert!(page.messages[1].attachments.is_empty());
+
+    // Blob lookup: present for the image (with bytes), absent for the PDF (none).
+    let img_id: i64 = img.id.parse().unwrap();
+    let pdf_id: i64 = pdf.id.parse().unwrap();
+    assert_eq!(
+        archive::attachment_blob(&pool, img_id).await.unwrap(),
+        Some((Some("image/jpeg".to_string()), "/attachments/pic_jpg".to_string())),
+    );
+    assert_eq!(archive::attachment_blob(&pool, pdf_id).await.unwrap(), None);
 }
 
 #[tokio::test]

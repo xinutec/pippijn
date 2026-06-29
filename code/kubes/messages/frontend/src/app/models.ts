@@ -21,6 +21,15 @@ export interface Reaction {
   count: number;
 }
 
+export interface Attachment {
+  id: string;
+  content_type: string | null;
+  file_name: string | null;
+  size: number | null;
+  available: boolean;
+  is_image: boolean;
+}
+
 export interface Message {
   id: string;
   ts: number; // ms epoch
@@ -30,6 +39,7 @@ export interface Message {
   deleted: boolean;
   edited: boolean;
   reactions: Reaction[];
+  attachments: Attachment[];
 }
 
 export interface MessagesPage {

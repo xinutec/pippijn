@@ -51,6 +51,18 @@ pub struct Reaction {
 }
 
 #[derive(Serialize)]
+pub struct Attachment {
+    pub id: String,
+    pub content_type: Option<String>,
+    pub file_name: Option<String>,
+    pub size: Option<i64>,
+    /// Whether the bytes are present (downloaded to the PVC). Metadata-only
+    /// history rows are `false` — the UI shows them but can't fetch the blob.
+    pub available: bool,
+    pub is_image: bool,
+}
+
+#[derive(Serialize)]
 pub struct Message {
     pub id: String,
     pub ts: i64, // ms epoch
@@ -60,6 +72,29 @@ pub struct Message {
     pub deleted: bool,
     pub edited: bool,
     pub reactions: Vec<Reaction>,
+    pub attachments: Vec<Attachment>,
+}
+
+fn is_image(ct: Option<&str>) -> bool {
+    ct.is_some_and(|c| c.starts_with("image/"))
+}
+
+/// Stored location + content-type for an attachment blob, if its bytes exist.
+/// Used by the serving endpoint; returns None when unknown or metadata-only.
+pub async fn attachment_blob(
+    pool: &MySqlPool,
+    id: i64,
+) -> Result<Option<(Option<String>, String)>> {
+    let row = sqlx::query(
+        "SELECT content_type, stored_path FROM attachments WHERE id = ? AND stored_path IS NOT NULL",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    match row {
+        Some(r) => Ok(Some((r.try_get("content_type")?, r.try_get("stored_path")?))),
+        None => Ok(None),
+    }
 }
 
 #[derive(Serialize)]
@@ -166,6 +201,7 @@ async fn signal_messages(
 
     let mut msgs = Vec::with_capacity(rows.len());
     let mut ts_list = Vec::with_capacity(rows.len());
+    let mut ids = Vec::with_capacity(rows.len());
     for r in rows {
         let id: i64 = r.try_get("id")?;
         let ts: i64 = r.try_get("ts")?;
@@ -173,6 +209,7 @@ async fn signal_messages(
         let deleted: i8 = r.try_get("deleted")?;
         let edited: i8 = r.try_get("edited")?;
         ts_list.push(ts);
+        ids.push(id);
         msgs.push(Message {
             id: id.to_string(),
             ts,
@@ -182,7 +219,39 @@ async fn signal_messages(
             deleted: deleted != 0,
             edited: edited != 0,
             reactions: Vec::new(),
+            attachments: Vec::new(),
         });
+    }
+
+    // Attachments (Signal only) — metadata for the page's messages; `available`
+    // marks the ones whose bytes were downloaded to the PVC.
+    if !ids.is_empty() {
+        let placeholders = vec!["?"; ids.len()].join(",");
+        let sql = format!(
+            "SELECT id, message_id, content_type, file_name, size_bytes, stored_path
+             FROM attachments WHERE message_id IN ({placeholders})",
+        );
+        let mut q = sqlx::query(AssertSqlSafe(sql));
+        for id in &ids {
+            q = q.bind(id);
+        }
+        for ar in q.fetch_all(pool).await? {
+            let mid: i64 = ar.try_get("message_id")?;
+            let mid = mid.to_string();
+            let content_type: Option<String> = ar.try_get("content_type")?;
+            let stored_path: Option<String> = ar.try_get("stored_path")?;
+            let att = Attachment {
+                id: ar.try_get::<i64, _>("id")?.to_string(),
+                is_image: is_image(content_type.as_deref()),
+                content_type,
+                file_name: ar.try_get("file_name")?,
+                size: ar.try_get("size_bytes")?,
+                available: stored_path.is_some(),
+            };
+            if let Some(m) = msgs.iter_mut().find(|m| m.id == mid) {
+                m.attachments.push(att);
+            }
+        }
     }
 
     // Reactions key on (thread_id, target_ts=message server_ts). Approximate the
@@ -254,6 +323,7 @@ async fn gchat_messages(
             deleted: false,
             edited: false,
             reactions: Vec::new(),
+            attachments: Vec::new(), // Google Chat export carries no attachments
         });
     }
 

@@ -32,6 +32,10 @@ pub struct Config {
     /// Directory of the built Angular bundle to serve (SPA fallback). Unset →
     /// API-only (dev, where `ng serve` proxies).
     pub static_dir: Option<String>,
+
+    /// Mount of the signal-attachments PVC (read-only); files referenced by
+    /// `attachments.stored_path` are served from here by basename.
+    pub attachments_dir: String,
 }
 
 fn env(key: &str) -> Result<String> {
@@ -68,6 +72,7 @@ impl Config {
             nc_redirect_uri: env("NC_REDIRECT_URI")?,
             allowed_users,
             static_dir: std::env::var("STATIC_DIR").ok(),
+            attachments_dir: env_or("ATTACHMENTS_DIR", "/attachments"),
         })
     }
 

@@ -2,7 +2,10 @@
 //! which in turn only exists for an allow-listed user (see routes::auth).
 
 use axum::Json;
+use axum::body::Body;
 use axum::extract::{Path, Query, State};
+use axum::http::header;
+use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 
 use crate::archive;
@@ -57,6 +60,26 @@ pub async fn messages(
 pub struct SearchQuery {
     q: String,
     limit: Option<i64>,
+}
+
+/// GET /api/attachments/{id} → stream a Signal attachment blob from the PVC.
+/// Only serves files whose bytes were downloaded; resolves by basename under
+/// the configured attachments dir, so a stored path can't escape the mount.
+pub async fn attachment(
+    State(app): State<AppState>,
+    AuthUser(_user): AuthUser,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    let Some((content_type, stored_path)) = archive::attachment_blob(&app.pool, id).await? else {
+        return Err(AppError::NotFound);
+    };
+    let name = std::path::Path::new(&stored_path)
+        .file_name()
+        .ok_or(AppError::NotFound)?;
+    let path = std::path::Path::new(&app.cfg.attachments_dir).join(name);
+    let bytes = tokio::fs::read(&path).await.map_err(|_| AppError::NotFound)?;
+    let ct = content_type.unwrap_or_else(|| "application/octet-stream".to_string());
+    Ok(([(header::CONTENT_TYPE, ct)], Body::from(bytes)).into_response())
 }
 
 /// GET /api/search?q= → substring search across both origins.

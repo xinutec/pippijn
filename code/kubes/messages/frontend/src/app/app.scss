@@ -127,6 +127,30 @@
     .tag {
       font-style: italic;
     }
+    .attach {
+      margin-top: 0.3rem;
+      img {
+        max-width: min(320px, 100%);
+        max-height: 320px;
+        border-radius: 0.4rem;
+        display: block;
+      }
+      a,
+      .unavailable {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        font-size: 0.85rem;
+      }
+      .unavailable {
+        opacity: 0.6;
+      }
+      mat-icon {
+        font-size: 1rem;
+        width: 1rem;
+        height: 1rem;
+      }
+    }
     .reactions {
       margin-top: 0.25rem;
       .chip {

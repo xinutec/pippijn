@@ -14,6 +14,7 @@ pub fn router(state: AppState) -> Router {
         .route("/me", get(api::me))
         .route("/conversations", get(api::conversations))
         .route("/conversations/{origin}/{id}/messages", get(api::messages))
+        .route("/attachments/{id}", get(api::attachment))
         .route("/search", get(api::search));
 
     let app = Router::new()

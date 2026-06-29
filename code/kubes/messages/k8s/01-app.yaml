@@ -60,6 +60,14 @@ spec:
                 secretKeyRef:
                   name: messages-secret
                   key: NC_CLIENT_SECRET
+            - name: ATTACHMENTS_DIR
+              value: /attachments
+          volumeMounts:
+            # The ingester's downloaded attachment blobs, read-only. RWO PVC is
+            # fine alongside the ingester since both pods are on the isis node.
+            - name: attachments
+              mountPath: /attachments
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /healthz
@@ -78,6 +86,10 @@ spec:
               memory: 64Mi
             limits:
               memory: 256Mi
+      volumes:
+        - name: attachments
+          persistentVolumeClaim:
+            claimName: signal-attachments-pvc
 ---
 apiVersion: v1
 kind: Service
