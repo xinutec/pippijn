@@ -4,14 +4,16 @@ Living checklist for the Life app. Keep it current: tick items as they ship,
 add new ones under the right section. Architecture/rationale lives in
 `docs/design/overview.md`; this is the "what's done / what's next" tracker.
 
-## ⚠️ Top priority before real reliance
+## Backup — deliberately NOT yet (wait for Pippijn's go)
 
-- [ ] **Back up the Life DB** — the `life` MariaDB on isis (ns `life`, deploy
-  `life-db`, PVC `life-db-pvc`) has **no backup**. Lose the PVC → lose all
-  inventory/recipes/places. Plan: scheduled `mysqldump` folded into the
-  Mac-mini **restic** set (`xinutec-infra/mac-mini/hm-agents.nix`, daily 05:00).
-  Deferred deliberately until there's real data worth protecting — revisit now
-  that the app is in use. (overview §6)
+- [ ] **Back up the Life DB** — **DO NOT set this up yet.** It matters *after*
+  the system is developed and the DB schema is **stable**; while migrations are
+  still being added, a backup is premature. Pippijn will say when to start —
+  don't start, offer to start, or flag it as overdue before then.
+  When the time comes: scheduled `mysqldump` of the `life` DB on isis (ns
+  `life`, deploy `life-db`, PVC `life-db-pvc`) folded into the Mac-mini
+  **restic** set (`xinutec-infra/mac-mini/hm-agents.nix`, daily 05:00). Until
+  then the PVC is the only copy — that's an accepted, temporary state. (overview §6)
 
 ## Shipped
 
