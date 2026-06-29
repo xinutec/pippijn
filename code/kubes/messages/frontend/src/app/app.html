@@ -8,7 +8,7 @@
     <button mat-button (click)="signOut()">Sign out</button>
   </mat-toolbar>
 
-  <div class="shell">
+  <div class="shell" [class.has-selection]="selected()">
     <aside class="list">
       <div class="filters">
         <button mat-button [class.active]="originFilter() === 'all'" (click)="setFilter('all')">
@@ -40,7 +40,12 @@
 
     <main class="thread">
       @if (selected(); as c) {
-        <h2>{{ title(c) }}</h2>
+        <div class="thread-head">
+          <button mat-icon-button class="back" (click)="back()" aria-label="Back">
+            <mat-icon>arrow_back</mat-icon>
+          </button>
+          <h2>{{ title(c) }}</h2>
+        </div>
         @if (loadingThread()) {
           <mat-progress-bar mode="indeterminate" />
         } @else {

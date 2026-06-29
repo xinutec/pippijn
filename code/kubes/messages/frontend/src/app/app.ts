@@ -77,6 +77,11 @@ export class App {
     });
   }
 
+  /** Mobile: return from the thread to the conversation list. */
+  back(): void {
+    this.selected.set(null);
+  }
+
   title(c: Conversation): string {
     return c.name?.trim() || (c.kind === 'dm' ? 'Direct message' : 'Group');
   }

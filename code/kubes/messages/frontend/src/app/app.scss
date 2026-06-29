@@ -1,9 +1,11 @@
 :host {
-  display: block;
+  display: flex;
+  flex-direction: column;
   height: 100%;
 }
 
 .bar {
+  flex: 0 0 auto;
   .brand {
     font-weight: 500;
   }
@@ -13,23 +15,31 @@
   .user {
     margin-right: 0.5rem;
     opacity: 0.85;
+    max-width: 40vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
+// Two-pane on desktop; the list and thread fill the space under the toolbar.
 .shell {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 320px 1fr;
-  height: calc(100% - 64px);
 }
 
 .list {
   border-right: 1px solid rgba(0, 0, 0, 0.12);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 
   .filters {
     display: flex;
     gap: 0.25rem;
     padding: 0.5rem;
+    flex-wrap: wrap;
     button.active {
       font-weight: 600;
       text-decoration: underline;
@@ -46,10 +56,19 @@
 
 .thread {
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 1rem 1.5rem;
 
-  h2 {
-    margin: 0 0 1rem;
+  .thread-head {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    .back {
+      display: none; // desktop: two-pane, no back needed
+    }
+    h2 {
+      margin: 0 0 1rem;
+    }
   }
   .placeholder {
     opacity: 0.5;
@@ -72,10 +91,12 @@
       opacity: 0.7;
       display: flex;
       gap: 0.5rem;
+      flex-wrap: wrap;
     }
     .body {
       white-space: pre-wrap;
       word-break: break-word;
+      overflow-wrap: anywhere;
       &.deleted {
         font-style: italic;
         opacity: 0.6;
@@ -97,6 +118,38 @@
   }
 }
 
+// Phone: single pane. Show the list; when a conversation is open, swap to the
+// thread full-width with a back button.
+@media (max-width: 767px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .list {
+    display: block;
+    border-right: none;
+  }
+  .thread {
+    display: none;
+    padding: 0.75rem 0.9rem;
+  }
+  .shell.has-selection .list {
+    display: none;
+  }
+  .shell.has-selection .thread {
+    display: block;
+  }
+  .thread .thread-head .back {
+    display: inline-flex;
+  }
+  .thread .thread-head h2 {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+  .thread .msg {
+    max-width: 85%;
+  }
+}
+
 .signin {
   height: 100%;
   display: flex;
@@ -104,4 +157,6 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  text-align: center;
+  padding: 1rem;
 }
