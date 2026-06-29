@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -32,6 +32,10 @@ export class Shopping {
   private store = inject(ShoppingStore);
   private api = inject(LifeApi);
   private dialog = inject(MatDialog);
+  // The app is zoneless: programmatic field writes in async callbacks (dialog
+  // close, HTTP response) don't trigger change detection on their own, so the
+  // ngModel inputs wouldn't refresh. markForCheck() schedules a render.
+  private cdr = inject(ChangeDetectorRef);
 
   // Local-first: the list is the live RxDB query — instant, offline, reactive.
   readonly items = toSignal(this.store.items$, { initialValue: [] as ShoppingDoc[] });
@@ -71,6 +75,7 @@ export class Shopping {
       .subscribe((code) => {
         if (code) {
           this.barcode = code;
+          this.cdr.markForCheck();
           this.lookup();
         }
       });
@@ -83,6 +88,7 @@ export class Shopping {
     this.api.lookupProduct(code).subscribe({
       next: (p) => {
         if (!this.name.trim() && p.name) this.name = p.name;
+        this.cdr.markForCheck();
       },
       error: () => {},
     });

@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectorRef, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -53,6 +53,8 @@ interface ItemForm {
 export class Inventory {
   private api = inject(LifeApi);
   private dialog = inject(MatDialog);
+  // Zoneless: async field writes need an explicit render (see Shopping).
+  private cdr = inject(ChangeDetectorRef);
 
   readonly kinds = KINDS;
   readonly categories = CATEGORIES;
@@ -191,9 +193,11 @@ export class Inventory {
       .subscribe((code) => {
         if (!code) return;
         this.item.barcode = code;
+        this.cdr.markForCheck();
         this.api.lookupProduct(code).subscribe({
           next: (p) => {
             if (!this.item.name.trim() && p.name) this.item.name = p.name;
+            this.cdr.markForCheck();
           },
           error: () => {},
         });
