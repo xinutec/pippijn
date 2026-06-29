@@ -30,10 +30,12 @@ export class Shopping {
 
   readonly items = signal<ShoppingItem[]>([]);
   readonly doneCount = computed(() => this.items().filter((i) => i.done).length);
+  private readonly imgFailed = signal<Set<number>>(new Set());
 
   name = '';
   quantity: number | null = null;
   unit: string | null = null;
+  barcode = '';
 
   constructor() {
     this.reload();
@@ -45,17 +47,43 @@ export class Shopping {
 
   add(): void {
     if (!this.name.trim()) return;
-    this.api.addShopping({ name: this.name, quantity: this.quantity, unit: this.unit }).subscribe(() => {
+    const barcode = this.barcode.trim() || null;
+    this.api.addShopping({ name: this.name, quantity: this.quantity, unit: this.unit, barcode }).subscribe(() => {
       this.name = '';
       this.quantity = null;
       this.unit = null;
-      this.reload();
+      this.barcode = '';
+      // Ensure the product (and its image) is cached, then refresh so the
+      // thumbnail shows. No-op if there's no barcode.
+      if (barcode) {
+        this.api.lookupProduct(barcode).subscribe({ next: () => this.reload(), error: () => this.reload() });
+      } else {
+        this.reload();
+      }
+    });
+  }
+
+  /** Look up the typed barcode on Open Food Facts; prefill the name if empty. */
+  lookup(): void {
+    const code = this.barcode.trim();
+    if (!code) return;
+    this.api.lookupProduct(code).subscribe({
+      next: (p) => {
+        if (!this.name.trim() && p.name) this.name = p.name;
+      },
+      error: () => {},
     });
   }
 
   toggle(it: ShoppingItem): void {
     this.api
-      .updateShopping(it.id, { name: it.name, quantity: it.quantity, unit: it.unit, done: !it.done })
+      .updateShopping(it.id, {
+        name: it.name,
+        quantity: it.quantity,
+        unit: it.unit,
+        barcode: it.barcode,
+        done: !it.done,
+      })
       .subscribe(() => this.reload());
   }
 
@@ -63,18 +91,25 @@ export class Shopping {
     this.api.deleteShopping(id).subscribe(() => this.reload());
   }
 
-  /** Turn everything ticked off into inventory items (then drop from the list). */
   buyDone(): void {
     const done = this.items().filter((i) => i.done);
     if (!done.length) return;
     forkJoin(done.map((i) => this.api.buyShopping(i.id))).subscribe(() => this.reload());
   }
 
-  /** Just remove the ticked-off items (don't add to inventory). */
   clearDone(): void {
     const done = this.items().filter((i) => i.done);
     if (!done.length) return;
     forkJoin(done.map((i) => this.api.deleteShopping(i.id))).subscribe(() => this.reload());
+  }
+
+  /** Thumbnail URL for an item with a barcode, unless the image failed to load. */
+  imageUrl(it: ShoppingItem): string | null {
+    if (!it.barcode || this.imgFailed().has(it.id)) return null;
+    return this.api.productImageUrl(it.barcode);
+  }
+  onImgError(id: number): void {
+    this.imgFailed.update((s) => new Set(s).add(id));
   }
 
   label(it: ShoppingItem): string {

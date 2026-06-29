@@ -21,6 +21,7 @@ fn item(name: &str, qty: Option<f64>, unit: Option<&str>) -> Item {
         unit: unit.map(Into::into),
         expiry: None,
         location_id: None,
+        barcode: None,
     }
 }
 

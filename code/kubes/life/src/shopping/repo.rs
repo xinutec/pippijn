@@ -11,6 +11,7 @@ struct Row {
     name: String,
     quantity: Option<f64>,
     unit: Option<String>,
+    barcode: Option<String>,
     done: bool,
 }
 
@@ -21,6 +22,7 @@ impl From<Row> for ShoppingItem {
             name: r.name,
             quantity: r.quantity,
             unit: r.unit,
+            barcode: r.barcode,
             done: r.done,
         }
     }
@@ -29,7 +31,7 @@ impl From<Row> for ShoppingItem {
 /// To-buy items, undone first, then by name.
 pub async fn list(pool: &MySqlPool, user_id: &str) -> Result<Vec<ShoppingItem>> {
     let rows: Vec<Row> = sqlx::query_as(
-        "SELECT id, name, quantity, unit, done FROM shopping_items \
+        "SELECT id, name, quantity, unit, barcode, done FROM shopping_items \
          WHERE user_id = ? ORDER BY done, name",
     )
     .bind(user_id)
@@ -40,7 +42,7 @@ pub async fn list(pool: &MySqlPool, user_id: &str) -> Result<Vec<ShoppingItem>> 
 
 pub async fn get(pool: &MySqlPool, user_id: &str, id: u64) -> Result<Option<ShoppingItem>> {
     let row: Option<Row> =
-        sqlx::query_as("SELECT id, name, quantity, unit, done FROM shopping_items WHERE id = ? AND user_id = ?")
+        sqlx::query_as("SELECT id, name, quantity, unit, barcode, done FROM shopping_items WHERE id = ? AND user_id = ?")
             .bind(id)
             .bind(user_id)
             .fetch_optional(pool)
@@ -49,18 +51,22 @@ pub async fn get(pool: &MySqlPool, user_id: &str, id: u64) -> Result<Option<Shop
 }
 
 pub async fn create(pool: &MySqlPool, user_id: &str, new: NewShoppingItem) -> Result<ShoppingItem> {
-    let res = sqlx::query("INSERT INTO shopping_items (user_id, name, quantity, unit) VALUES (?, ?, ?, ?)")
-        .bind(user_id)
-        .bind(&new.name)
-        .bind(new.quantity)
-        .bind(&new.unit)
-        .execute(pool)
-        .await?;
+    let res = sqlx::query(
+        "INSERT INTO shopping_items (user_id, name, quantity, unit, barcode) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(user_id)
+    .bind(&new.name)
+    .bind(new.quantity)
+    .bind(&new.unit)
+    .bind(&new.barcode)
+    .execute(pool)
+    .await?;
     Ok(ShoppingItem {
         id: res.last_insert_id(),
         name: new.name,
         quantity: new.quantity,
         unit: new.unit,
+        barcode: new.barcode,
         done: false,
     })
 }
@@ -75,12 +81,13 @@ pub async fn update(
         return Ok(None);
     }
     sqlx::query(
-        "UPDATE shopping_items SET name = ?, quantity = ?, unit = ?, done = ? \
+        "UPDATE shopping_items SET name = ?, quantity = ?, unit = ?, barcode = ?, done = ? \
          WHERE id = ? AND user_id = ?",
     )
     .bind(&upd.name)
     .bind(upd.quantity)
     .bind(&upd.unit)
+    .bind(&upd.barcode)
     .bind(upd.done)
     .bind(id)
     .bind(user_id)

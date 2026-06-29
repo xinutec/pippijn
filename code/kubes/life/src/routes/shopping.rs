@@ -71,6 +71,7 @@ pub async fn buy(
             unit: s.unit,
             expiry: None,
             location_id: None,
+            barcode: s.barcode,
         },
     )
     .await?;

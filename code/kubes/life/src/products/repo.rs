@@ -1,0 +1,77 @@
+//! Persistence for the product cache.
+
+use anyhow::Result;
+use sqlx::MySqlPool;
+
+use super::types::Product;
+
+#[derive(sqlx::FromRow)]
+struct MetaRow {
+    barcode: String,
+    name: Option<String>,
+    brand: Option<String>,
+    quantity_label: Option<String>,
+    has_image: i64,
+}
+
+/// Cached metadata for a barcode (no image bytes), or None if not cached.
+pub async fn get(pool: &MySqlPool, barcode: &str) -> Result<Option<Product>> {
+    let row: Option<MetaRow> = sqlx::query_as(
+        "SELECT barcode, name, brand, quantity_label, (image IS NOT NULL) AS has_image \
+         FROM products WHERE barcode = ?",
+    )
+    .bind(barcode)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| Product {
+        barcode: r.barcode,
+        name: r.name,
+        brand: r.brand,
+        quantity_label: r.quantity_label,
+        has_image: r.has_image != 0,
+    }))
+}
+
+/// Cached image bytes + mime for a barcode, if present.
+pub async fn get_image(pool: &MySqlPool, barcode: &str) -> Result<Option<(Vec<u8>, String)>> {
+    let row: Option<(Option<Vec<u8>>, Option<String>)> =
+        sqlx::query_as("SELECT image, image_mime FROM products WHERE barcode = ?")
+            .bind(barcode)
+            .fetch_optional(pool)
+            .await?;
+    Ok(match row {
+        Some((Some(bytes), mime)) => Some((bytes, mime.unwrap_or_else(|| "image/jpeg".into()))),
+        _ => None,
+    })
+}
+
+/// Insert or refresh a cached product (with optional image).
+pub async fn upsert(
+    pool: &MySqlPool,
+    barcode: &str,
+    name: Option<&str>,
+    brand: Option<&str>,
+    quantity_label: Option<&str>,
+    image: Option<(Vec<u8>, String)>,
+) -> Result<()> {
+    let (bytes, mime) = match image {
+        Some((b, m)) => (Some(b), Some(m)),
+        None => (None, None),
+    };
+    sqlx::query(
+        "INSERT INTO products (barcode, name, brand, quantity_label, image, image_mime) \
+         VALUES (?, ?, ?, ?, ?, ?) \
+         ON DUPLICATE KEY UPDATE name = VALUES(name), brand = VALUES(brand), \
+         quantity_label = VALUES(quantity_label), image = VALUES(image), \
+         image_mime = VALUES(image_mime), fetched_at = CURRENT_TIMESTAMP",
+    )
+    .bind(barcode)
+    .bind(name)
+    .bind(brand)
+    .bind(quantity_label)
+    .bind(&bytes)
+    .bind(&mime)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

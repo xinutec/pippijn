@@ -28,6 +28,7 @@ interface ItemForm {
   unit: string | null;
   expiry: string | null;
   location_id: number | null;
+  barcode: string | null;
 }
 
 @Component({
@@ -87,7 +88,7 @@ export class Inventory {
     return { kind: 'cupboard', name: '', parent_id: null };
   }
   private emptyItem(): ItemForm {
-    return { name: '', category: 'food', quantity: null, unit: null, expiry: null, location_id: null };
+    return { name: '', category: 'food', quantity: null, unit: null, expiry: null, location_id: null, barcode: null };
   }
 
   /** Root→leaf breadcrumb for a location id, resolved client-side. */
@@ -110,6 +111,15 @@ export class Inventory {
   qty(item: Item): string {
     if (item.quantity == null) return '';
     return item.unit ? `${item.quantity} ${item.unit}` : `${item.quantity}`;
+  }
+
+  private readonly imgFailed = signal<Set<number>>(new Set());
+  imageUrl(it: Item): string | null {
+    if (!it.barcode || this.imgFailed().has(it.id)) return null;
+    return this.api.productImageUrl(it.barcode);
+  }
+  onImgError(id: number): void {
+    this.imgFailed.update((s) => new Set(s).add(id));
   }
 
   /** The actionable tail of the location path (e.g. "Spice cupboard › Top shelf"). */
@@ -138,9 +148,15 @@ export class Inventory {
     const body = { ...this.item };
     const id = this.editingId();
     const req = id ? this.api.updateItem(id, body) : this.api.createItem(body);
+    const barcode = this.item.barcode?.trim() || null;
     req.subscribe(() => {
       this.cancelEdit();
-      this.reloadItems();
+      // Cache the product image (if a barcode was set) before refreshing.
+      if (barcode) {
+        this.api.lookupProduct(barcode).subscribe({ next: () => this.reloadItems(), error: () => this.reloadItems() });
+      } else {
+        this.reloadItems();
+      }
     });
   }
 
@@ -152,6 +168,7 @@ export class Inventory {
       unit: it.unit,
       expiry: it.expiry,
       location_id: it.location_id,
+      barcode: it.barcode,
     };
     this.editingId.set(it.id);
     this.showItemForm.set(true);

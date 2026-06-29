@@ -3,6 +3,7 @@
 pub mod api;
 pub mod auth;
 pub mod inventory;
+pub mod products;
 pub mod recipes;
 pub mod shopping;
 
@@ -48,7 +49,9 @@ pub fn router(state: AppState) -> Router {
             "/shopping/{id}",
             patch(shopping::update).delete(shopping::delete),
         )
-        .route("/shopping/{id}/buy", post(shopping::buy));
+        .route("/shopping/{id}/buy", post(shopping::buy))
+        .route("/products/{barcode}", get(products::lookup))
+        .route("/products/{barcode}/image", get(products::image));
 
     let mut app = Router::new()
         .route("/healthz", get(|| async { "ok" }))

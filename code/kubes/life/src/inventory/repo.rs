@@ -46,6 +46,7 @@ struct ItemRow {
     unit: Option<String>,
     expiry: Option<NaiveDate>,
     location_id: Option<u64>,
+    barcode: Option<String>,
 }
 
 impl ItemRow {
@@ -59,6 +60,7 @@ impl ItemRow {
             unit: self.unit,
             expiry: self.expiry,
             location_id: self.location_id,
+            barcode: self.barcode,
         })
     }
 }
@@ -107,7 +109,7 @@ pub async fn create_location(
 
 pub async fn list_items(pool: &MySqlPool, user_id: &str) -> Result<Vec<Item>> {
     let rows: Vec<ItemRow> = sqlx::query_as(
-        "SELECT id, name, category, quantity, unit, expiry, location_id FROM items \
+        "SELECT id, name, category, quantity, unit, expiry, location_id, barcode FROM items \
          WHERE user_id = ? ORDER BY name",
     )
     .bind(user_id)
@@ -119,7 +121,7 @@ pub async fn list_items(pool: &MySqlPool, user_id: &str) -> Result<Vec<Item>> {
 pub async fn search_items(pool: &MySqlPool, user_id: &str, query: &str) -> Result<Vec<Item>> {
     let pattern = format!("%{query}%");
     let rows: Vec<ItemRow> = sqlx::query_as(
-        "SELECT id, name, category, quantity, unit, expiry, location_id FROM items \
+        "SELECT id, name, category, quantity, unit, expiry, location_id, barcode FROM items \
          WHERE user_id = ? AND name LIKE ? ORDER BY name",
     )
     .bind(user_id)
@@ -131,7 +133,7 @@ pub async fn search_items(pool: &MySqlPool, user_id: &str, query: &str) -> Resul
 
 pub async fn get_item(pool: &MySqlPool, user_id: &str, id: u64) -> Result<Option<Item>> {
     let row: Option<ItemRow> = sqlx::query_as(
-        "SELECT id, name, category, quantity, unit, expiry, location_id FROM items \
+        "SELECT id, name, category, quantity, unit, expiry, location_id, barcode FROM items \
          WHERE id = ? AND user_id = ?",
     )
     .bind(id)
@@ -143,8 +145,8 @@ pub async fn get_item(pool: &MySqlPool, user_id: &str, id: u64) -> Result<Option
 
 pub async fn create_item(pool: &MySqlPool, user_id: &str, new: NewItem) -> Result<Item> {
     let res = sqlx::query(
-        "INSERT INTO items (user_id, name, category, quantity, unit, expiry, location_id) \
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO items (user_id, name, category, quantity, unit, expiry, location_id, barcode) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(user_id)
     .bind(&new.name)
@@ -153,6 +155,7 @@ pub async fn create_item(pool: &MySqlPool, user_id: &str, new: NewItem) -> Resul
     .bind(&new.unit)
     .bind(new.expiry)
     .bind(new.location_id)
+    .bind(&new.barcode)
     .execute(pool)
     .await?;
     let id = res.last_insert_id();
@@ -165,6 +168,7 @@ pub async fn create_item(pool: &MySqlPool, user_id: &str, new: NewItem) -> Resul
         unit: new.unit,
         expiry: new.expiry,
         location_id: new.location_id,
+        barcode: new.barcode,
     })
 }
 
@@ -203,7 +207,7 @@ pub async fn update_item(
     };
     sqlx::query(
         "UPDATE items SET name = ?, category = ?, quantity = ?, unit = ?, expiry = ?, \
-         location_id = ? WHERE id = ? AND user_id = ?",
+         location_id = ?, barcode = ? WHERE id = ? AND user_id = ?",
     )
     .bind(&new.name)
     .bind(new.category.to_string())
@@ -211,6 +215,7 @@ pub async fn update_item(
     .bind(&new.unit)
     .bind(new.expiry)
     .bind(new.location_id)
+    .bind(&new.barcode)
     .bind(id)
     .bind(user_id)
     .execute(pool)

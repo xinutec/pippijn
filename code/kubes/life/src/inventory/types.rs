@@ -104,6 +104,7 @@ pub struct Item {
     pub unit: Option<String>,
     pub expiry: Option<NaiveDate>,
     pub location_id: Option<u64>,
+    pub barcode: Option<String>,
 }
 
 /// Request body for creating a location.
@@ -127,6 +128,8 @@ pub struct NewItem {
     pub unit: Option<String>,
     pub expiry: Option<NaiveDate>,
     pub location_id: Option<u64>,
+    #[serde(default)]
+    pub barcode: Option<String>,
 }
 
 fn default_category() -> ItemCategory {

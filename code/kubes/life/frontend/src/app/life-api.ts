@@ -6,6 +6,7 @@ import {
   Item,
   Loc,
   Me,
+  Product,
   Recipe,
   RecipeIngredient,
   SearchHit,
@@ -73,6 +74,15 @@ export class LifeApi {
   }
   buyShopping(id: number): Observable<Item> {
     return this.http.post<Item>(`/api/shopping/${id}/buy`, {});
+  }
+
+  /** Look up (and cache) a product by barcode via Open Food Facts. */
+  lookupProduct(barcode: string): Observable<Product> {
+    return this.http.get<Product>(`/api/products/${encodeURIComponent(barcode)}`);
+  }
+  /** URL of the cached product image (use directly as <img src>). */
+  productImageUrl(barcode: string): string {
+    return `/api/products/${encodeURIComponent(barcode)}/image`;
   }
 
   recipes(): Observable<Recipe[]> {

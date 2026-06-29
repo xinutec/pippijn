@@ -6,6 +6,7 @@ pub mod db;
 pub mod error;
 pub mod inventory;
 pub mod nextcloud;
+pub mod products;
 pub mod recipes;
 pub mod routes;
 pub mod session;

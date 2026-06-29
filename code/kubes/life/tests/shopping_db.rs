@@ -32,14 +32,14 @@ async fn shopping_crud_and_buy_against_real_db() {
     let yog = repo::create(
         &pool,
         user,
-        NewShoppingItem { name: "Yoghurt".into(), quantity: Some(1.0), unit: Some("kg".into()) },
+        NewShoppingItem { name: "Yoghurt".into(), quantity: Some(1.0), unit: Some("kg".into()), barcode: None },
     )
     .await
     .unwrap();
     repo::create(
         &pool,
         user,
-        NewShoppingItem { name: "Batteries".into(), quantity: None, unit: None },
+        NewShoppingItem { name: "Batteries".into(), quantity: None, unit: None, barcode: None },
     )
     .await
     .unwrap();
@@ -51,7 +51,7 @@ async fn shopping_crud_and_buy_against_real_db() {
         &pool,
         user,
         yog.id,
-        UpdateShoppingItem { name: yog.name.clone(), quantity: yog.quantity, unit: yog.unit.clone(), done: true },
+        UpdateShoppingItem { name: yog.name.clone(), quantity: yog.quantity, unit: yog.unit.clone(), barcode: None, done: true },
     )
     .await
     .unwrap()
@@ -70,6 +70,7 @@ async fn shopping_crud_and_buy_against_real_db() {
             unit: got.unit,
             expiry: None,
             location_id: None,
+            barcode: got.barcode,
         },
     )
     .await

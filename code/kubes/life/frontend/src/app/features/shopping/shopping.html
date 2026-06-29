@@ -13,6 +13,13 @@
     <mat-label>Unit</mat-label>
     <input matInput [(ngModel)]="unit" (keyup.enter)="add()" />
   </mat-form-field>
+  <mat-form-field appearance="outline" class="grow">
+    <mat-label>Barcode</mat-label>
+    <input matInput [(ngModel)]="barcode" inputmode="numeric" (keyup.enter)="lookup()" />
+    <button matSuffix mat-icon-button (click)="lookup()" aria-label="Look up product">
+      <mat-icon>search</mat-icon>
+    </button>
+  </mat-form-field>
   <button mat-flat-button color="primary" (click)="add()">Add</button>
 </div>
 
@@ -29,7 +36,12 @@
         (change)="toggle(it)"
         [attr.aria-label]="'Bought ' + it.name"
       ></mat-checkbox>
-      <span matListItemTitle [class.done]="it.done">{{ it.name }}</span>
+      <span matListItemTitle class="row-title">
+        @if (imageUrl(it); as url) {
+          <img class="thumb" [src]="url" alt="" (error)="onImgError(it.id)" />
+        }
+        <span [class.done]="it.done">{{ it.name }}</span>
+      </span>
       @if (label(it)) {
         <span matListItemLine [class.done]="it.done">{{ label(it) }}</span>
       }

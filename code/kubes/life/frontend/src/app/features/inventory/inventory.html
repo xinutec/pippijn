@@ -49,6 +49,10 @@
           }
         </mat-select>
       </mat-form-field>
+      <mat-form-field appearance="outline">
+        <mat-label>Barcode</mat-label>
+        <input matInput [(ngModel)]="item.barcode" inputmode="numeric" />
+      </mat-form-field>
       <div class="form-actions">
         <button mat-flat-button color="primary" (click)="saveItem()">
           {{ editingId() ? 'Save' : 'Add item' }}
@@ -99,7 +103,11 @@
   <mat-list>
     @for (it of items(); track it.id) {
       <mat-list-item lines="2">
-        <mat-icon matListItemIcon>label</mat-icon>
+        @if (imageUrl(it); as url) {
+          <img matListItemAvatar class="thumb" [src]="url" alt="" (error)="onImgError(it.id)" />
+        } @else {
+          <mat-icon matListItemIcon>label</mat-icon>
+        }
         <span matListItemTitle>{{ it.name }}</span>
         <span matListItemLine>
           {{ qty(it) }}

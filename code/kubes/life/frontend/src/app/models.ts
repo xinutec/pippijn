@@ -31,6 +31,16 @@ export interface Item {
   unit: string | null;
   expiry: string | null;
   location_id: number | null;
+  barcode: string | null;
+}
+
+/** Product reference data cached from Open Food Facts (keyed by barcode). */
+export interface Product {
+  barcode: string;
+  name: string | null;
+  brand: string | null;
+  quantity_label: string | null;
+  has_image: boolean;
 }
 
 export interface SearchHit {
@@ -43,6 +53,7 @@ export interface ShoppingItem {
   name: string;
   quantity: number | null;
   unit: string | null;
+  barcode: string | null;
   done: boolean;
 }
 

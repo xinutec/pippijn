@@ -77,6 +77,7 @@ async fn inventory_crud_against_real_db() {
             unit: Some("jar".into()),
             expiry: None,
             location_id: Some(shelf.id),
+            barcode: None,
         },
     )
     .await
@@ -129,6 +130,7 @@ async fn inventory_crud_against_real_db() {
             unit: Some("jar".into()),
             expiry: None,
             location_id: Some(kitchen.id),
+            barcode: None,
         },
     )
     .await

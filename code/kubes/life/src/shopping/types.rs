@@ -9,6 +9,7 @@ pub struct ShoppingItem {
     pub name: String,
     pub quantity: Option<f64>,
     pub unit: Option<String>,
+    pub barcode: Option<String>,
     pub done: bool,
 }
 
@@ -18,6 +19,8 @@ pub struct NewShoppingItem {
     pub name: String,
     pub quantity: Option<f64>,
     pub unit: Option<String>,
+    #[serde(default)]
+    pub barcode: Option<String>,
 }
 
 /// Full update (used for edits and the done toggle).
@@ -26,5 +29,7 @@ pub struct UpdateShoppingItem {
     pub name: String,
     pub quantity: Option<f64>,
     pub unit: Option<String>,
+    #[serde(default)]
+    pub barcode: Option<String>,
     pub done: bool,
 }

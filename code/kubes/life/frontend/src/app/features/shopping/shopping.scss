@@ -22,6 +22,20 @@
   opacity: 0.55;
 }
 
+.row-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--mat-sys-surface-container-high);
+}
+
 .bought-actions {
   position: sticky;
   bottom: 0;
