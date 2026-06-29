@@ -37,6 +37,7 @@ export class App {
 
   readonly nav: NavItem[] = [
     { path: '/search', icon: 'search', label: 'Find' },
+    { path: '/shopping', icon: 'shopping_cart', label: 'Buy' },
     { path: '/inventory', icon: 'kitchen', label: 'Inventory' },
     { path: '/recipes', icon: 'menu_book', label: 'Recipes' },
     { path: '/house', icon: 'home', label: 'House' },

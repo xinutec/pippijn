@@ -9,4 +9,5 @@ pub mod nextcloud;
 pub mod recipes;
 pub mod routes;
 pub mod session;
+pub mod shopping;
 pub mod state;

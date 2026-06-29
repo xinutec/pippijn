@@ -8,6 +8,11 @@ export const routes: Routes = [
     loadComponent: () => import('./features/search/search').then((m) => m.Search),
   },
   {
+    path: 'shopping',
+    title: 'Life · buy',
+    loadComponent: () => import('./features/shopping/shopping').then((m) => m.Shopping),
+  },
+  {
     path: 'inventory',
     title: 'Life · inventory',
     loadComponent: () => import('./features/inventory/inventory').then((m) => m.Inventory),

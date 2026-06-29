@@ -4,6 +4,7 @@ pub mod api;
 pub mod auth;
 pub mod inventory;
 pub mod recipes;
+pub mod shopping;
 
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
@@ -38,7 +39,16 @@ pub fn router(state: AppState) -> Router {
             get(recipes::get_one).delete(recipes::delete),
         )
         .route("/recipes/{id}/shopping-list", get(recipes::shopping_list))
-        .route("/cookable", get(recipes::cookable));
+        .route("/cookable", get(recipes::cookable))
+        .route(
+            "/shopping",
+            get(shopping::list).post(shopping::create),
+        )
+        .route(
+            "/shopping/{id}",
+            patch(shopping::update).delete(shopping::delete),
+        )
+        .route("/shopping/{id}/buy", post(shopping::buy));
 
     let mut app = Router::new()
         .route("/healthz", get(|| async { "ok" }))

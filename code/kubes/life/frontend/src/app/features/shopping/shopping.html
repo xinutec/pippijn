@@ -1,0 +1,51 @@
+<h2>Buy</h2>
+
+<div class="add">
+  <mat-form-field appearance="outline" class="grow">
+    <mat-label>Need to buy…</mat-label>
+    <input matInput [(ngModel)]="name" (keyup.enter)="add()" placeholder="e.g. Yoghurt" />
+  </mat-form-field>
+  <mat-form-field appearance="outline" class="narrow">
+    <mat-label>Qty</mat-label>
+    <input matInput type="number" inputmode="decimal" [(ngModel)]="quantity" (keyup.enter)="add()" />
+  </mat-form-field>
+  <mat-form-field appearance="outline" class="narrow">
+    <mat-label>Unit</mat-label>
+    <input matInput [(ngModel)]="unit" (keyup.enter)="add()" />
+  </mat-form-field>
+  <button mat-flat-button color="primary" (click)="add()">Add</button>
+</div>
+
+@if (items().length === 0) {
+  <p class="empty">Nothing on the list. Add what you need to buy above.</p>
+}
+
+<mat-list>
+  @for (it of items(); track it.id) {
+    <mat-list-item>
+      <mat-checkbox
+        matListItemIcon
+        [checked]="it.done"
+        (change)="toggle(it)"
+        [attr.aria-label]="'Bought ' + it.name"
+      ></mat-checkbox>
+      <span matListItemTitle [class.done]="it.done">{{ it.name }}</span>
+      @if (label(it)) {
+        <span matListItemLine [class.done]="it.done">{{ label(it) }}</span>
+      }
+      <button matListItemMeta mat-icon-button (click)="remove(it.id)" aria-label="Remove">
+        <mat-icon>close</mat-icon>
+      </button>
+    </mat-list-item>
+  }
+</mat-list>
+
+@if (doneCount() > 0) {
+  <div class="bought-actions">
+    <button mat-flat-button color="primary" (click)="buyDone()">
+      <mat-icon>add_shopping_cart</mat-icon>
+      Got {{ doneCount() }} → add to inventory
+    </button>
+    <button mat-button (click)="clearDone()">Clear bought</button>
+  </div>
+}

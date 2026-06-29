@@ -1,0 +1,33 @@
+.add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+
+  .grow {
+    flex: 1 1 100%;
+  }
+  .narrow {
+    flex: 1 1 90px;
+  }
+}
+
+.empty {
+  opacity: 0.7;
+}
+
+.done {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.bought-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+  background: linear-gradient(var(--mat-sys-surface) 60%, transparent);
+}

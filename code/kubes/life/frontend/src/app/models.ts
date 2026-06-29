@@ -38,6 +38,14 @@ export interface SearchHit {
   path: Loc[];
 }
 
+export interface ShoppingItem {
+  id: number;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  done: boolean;
+}
+
 export interface RecipeIngredient {
   name: string;
   quantity: number | null;

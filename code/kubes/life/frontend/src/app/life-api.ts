@@ -1,7 +1,16 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { HouseScene, Item, Loc, Me, Recipe, RecipeIngredient, SearchHit } from './models';
+import {
+  HouseScene,
+  Item,
+  Loc,
+  Me,
+  Recipe,
+  RecipeIngredient,
+  SearchHit,
+  ShoppingItem,
+} from './models';
 
 /** Thin client over the life backend. Same-origin in prod; via the dev proxy
  *  (proxy.conf.json) in `ng serve`. Session cookie rides along automatically. */
@@ -48,6 +57,22 @@ export class LifeApi {
 
   house(): Observable<HouseScene> {
     return this.http.get<HouseScene>('/api/house');
+  }
+
+  shopping(): Observable<ShoppingItem[]> {
+    return this.http.get<ShoppingItem[]>('/api/shopping');
+  }
+  addShopping(body: Partial<ShoppingItem>): Observable<ShoppingItem> {
+    return this.http.post<ShoppingItem>('/api/shopping', body);
+  }
+  updateShopping(id: number, body: Partial<ShoppingItem>): Observable<ShoppingItem> {
+    return this.http.patch<ShoppingItem>(`/api/shopping/${id}`, body);
+  }
+  deleteShopping(id: number): Observable<unknown> {
+    return this.http.delete(`/api/shopping/${id}`);
+  }
+  buyShopping(id: number): Observable<Item> {
+    return this.http.post<Item>(`/api/shopping/${id}/buy`, {});
   }
 
   recipes(): Observable<Recipe[]> {
