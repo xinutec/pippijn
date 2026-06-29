@@ -10,7 +10,7 @@ set -euo pipefail
 
 DEVLINT="${DEVLINT_DIR:-$HOME/Code/dev-lint}"
 ZERO="0000000000000000000000000000000000000000"
-APPS="code/kubes/health code/kubes/home code/kubes/life"
+APPS="code/kubes/health code/kubes/home code/kubes/life code/kubes/messages"
 
 # dev-lint target dirs for an app path (empty if unknown).
 targets_for() {
@@ -20,6 +20,10 @@ targets_for() {
 		# life's backend is Rust (covered by its own cargo/clippy gate); dev-lint
 		# here lints the Angular frontend (e.g. DL-ANGULAR-BOUND-STATE-SIGNAL).
 		code/kubes/life) echo "code/kubes/life/frontend/src" ;;
+		# messages is Rust + Angular; dev-lint covers both — the Angular rules on
+		# the frontend, and the Rust rules (nan-sentinel, stringly-typed, no inline
+		# tests) on the backend, which clippy doesn't have.
+		code/kubes/messages) echo "code/kubes/messages/frontend/src code/kubes/messages/src" ;;
 		*) echo "" ;;
 	esac
 }
