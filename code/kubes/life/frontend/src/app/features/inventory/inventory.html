@@ -18,31 +18,31 @@
     <mat-card-content>
       <mat-form-field appearance="outline">
         <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="item.name" placeholder="e.g. Cumin" />
+        <input matInput [ngModel]="item().name" (ngModelChange)="patchItem({ name: $event })" placeholder="e.g. Cumin" />
       </mat-form-field>
       <mat-form-field appearance="outline">
         <mat-label>Category</mat-label>
-        <mat-select [(ngModel)]="item.category">
+        <mat-select [ngModel]="item().category" (ngModelChange)="patchItem({ category: $event })">
           @for (c of categories; track c) { <mat-option [value]="c">{{ c }}</mat-option> }
         </mat-select>
       </mat-form-field>
       <div class="pair">
         <mat-form-field appearance="outline">
           <mat-label>Qty</mat-label>
-          <input matInput type="number" inputmode="decimal" [(ngModel)]="item.quantity" />
+          <input matInput type="number" inputmode="decimal" [ngModel]="item().quantity" (ngModelChange)="patchItem({ quantity: $event })" />
         </mat-form-field>
         <mat-form-field appearance="outline">
           <mat-label>Unit</mat-label>
-          <input matInput [(ngModel)]="item.unit" placeholder="jar, g…" />
+          <input matInput [ngModel]="item().unit" (ngModelChange)="patchItem({ unit: $event })" placeholder="jar, g…" />
         </mat-form-field>
       </div>
       <mat-form-field appearance="outline">
         <mat-label>Expiry</mat-label>
-        <input matInput type="date" [(ngModel)]="item.expiry" />
+        <input matInput type="date" [ngModel]="item().expiry" (ngModelChange)="patchItem({ expiry: $event })" />
       </mat-form-field>
       <mat-form-field appearance="outline">
         <mat-label>Location</mat-label>
-        <mat-select [(ngModel)]="item.location_id">
+        <mat-select [ngModel]="item().location_id" (ngModelChange)="patchItem({ location_id: $event })">
           <mat-option [value]="null">— none —</mat-option>
           @for (o of locationOptions(); track o.id) {
             <mat-option [value]="o.id">{{ o.label }}</mat-option>
@@ -51,7 +51,7 @@
       </mat-form-field>
       <mat-form-field appearance="outline">
         <mat-label>Barcode</mat-label>
-        <input matInput [(ngModel)]="item.barcode" inputmode="numeric" />
+        <input matInput [ngModel]="item().barcode" (ngModelChange)="patchItem({ barcode: $event })" inputmode="numeric" />
         <button matSuffix mat-icon-button (click)="scan()" aria-label="Scan barcode">
           <mat-icon>photo_camera</mat-icon>
         </button>
@@ -74,17 +74,17 @@
     <mat-card-content>
       <mat-form-field appearance="outline">
         <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="place.name" placeholder="e.g. Spice cupboard" />
+        <input matInput [ngModel]="place().name" (ngModelChange)="patchPlace({ name: $event })" placeholder="e.g. Spice cupboard" />
       </mat-form-field>
       <mat-form-field appearance="outline">
         <mat-label>Kind</mat-label>
-        <mat-select [(ngModel)]="place.kind">
+        <mat-select [ngModel]="place().kind" (ngModelChange)="patchPlace({ kind: $event })">
           @for (k of kinds; track k) { <mat-option [value]="k">{{ k }}</mat-option> }
         </mat-select>
       </mat-form-field>
       <mat-form-field appearance="outline">
         <mat-label>Inside</mat-label>
-        <mat-select [(ngModel)]="place.parent_id">
+        <mat-select [ngModel]="place().parent_id" (ngModelChange)="patchPlace({ parent_id: $event })">
           <mat-option [value]="null">— top level —</mat-option>
           @for (o of locationOptions(); track o.id) {
             <mat-option [value]="o.id">{{ o.label }}</mat-option>

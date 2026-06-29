@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -53,8 +53,6 @@ interface ItemForm {
 export class Inventory {
   private api = inject(LifeApi);
   private dialog = inject(MatDialog);
-  // Zoneless: async field writes need an explicit render (see Shopping).
-  private cdr = inject(ChangeDetectorRef);
 
   readonly kinds = KINDS;
   readonly categories = CATEGORIES;
@@ -66,8 +64,17 @@ export class Inventory {
     this.locations().map((l) => ({ id: l.id, label: this.pathOf(l.id) })),
   );
 
-  place: PlaceForm = this.emptyPlace();
-  item: ItemForm = this.emptyItem();
+  // Form state is signal-backed (zoneless: a signal write is what refreshes the
+  // view, including from async scan/lookup callbacks). Bind in the template with
+  // [ngModel]="form().field" (ngModelChange)="patchX({ field: $event })".
+  readonly place = signal<PlaceForm>(this.emptyPlace());
+  readonly item = signal<ItemForm>(this.emptyItem());
+  patchPlace(p: Partial<PlaceForm>): void {
+    this.place.update((f) => ({ ...f, ...p }));
+  }
+  patchItem(p: Partial<ItemForm>): void {
+    this.item.update((f) => ({ ...f, ...p }));
+  }
   readonly editingId = signal<number | null>(null);
   readonly showItemForm = signal(false);
   readonly showPlaceForm = signal(false);
@@ -135,9 +142,9 @@ export class Inventory {
   }
 
   addPlace(): void {
-    if (!this.place.name.trim()) return;
-    this.api.createLocation({ ...this.place }).subscribe(() => {
-      this.place = this.emptyPlace();
+    if (!this.place().name.trim()) return;
+    this.api.createLocation({ ...this.place() }).subscribe(() => {
+      this.place.set(this.emptyPlace());
       this.reloadLocations();
     });
   }
@@ -150,11 +157,11 @@ export class Inventory {
   }
 
   saveItem(): void {
-    if (!this.item.name.trim()) return;
-    const body = { ...this.item };
+    if (!this.item().name.trim()) return;
+    const body = { ...this.item() };
     const id = this.editingId();
     const req = id ? this.api.updateItem(id, body) : this.api.createItem(body);
-    const barcode = this.item.barcode?.trim() || null;
+    const barcode = this.item().barcode?.trim() || null;
     req.subscribe(() => {
       this.cancelEdit();
       // Cache the product image (if a barcode was set) before refreshing.
@@ -167,7 +174,7 @@ export class Inventory {
   }
 
   editItem(it: Item): void {
-    this.item = {
+    this.item.set({
       name: it.name,
       category: it.category,
       quantity: it.quantity,
@@ -175,13 +182,13 @@ export class Inventory {
       expiry: it.expiry,
       location_id: it.location_id,
       barcode: it.barcode,
-    };
+    });
     this.editingId.set(it.id);
     this.showItemForm.set(true);
   }
 
   cancelEdit(): void {
-    this.item = this.emptyItem();
+    this.item.set(this.emptyItem());
     this.editingId.set(null);
   }
 
@@ -192,12 +199,10 @@ export class Inventory {
       .afterClosed()
       .subscribe((code) => {
         if (!code) return;
-        this.item.barcode = code;
-        this.cdr.markForCheck();
+        this.patchItem({ barcode: code });
         this.api.lookupProduct(code).subscribe({
           next: (p) => {
-            if (!this.item.name.trim() && p.name) this.item.name = p.name;
-            this.cdr.markForCheck();
+            if (!this.item().name.trim() && p.name) this.patchItem({ name: p.name });
           },
           error: () => {},
         });

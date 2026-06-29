@@ -1,4 +1,4 @@
-import { ChangeDetectorRef, Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -32,10 +32,6 @@ export class Shopping {
   private store = inject(ShoppingStore);
   private api = inject(LifeApi);
   private dialog = inject(MatDialog);
-  // The app is zoneless: programmatic field writes in async callbacks (dialog
-  // close, HTTP response) don't trigger change detection on their own, so the
-  // ngModel inputs wouldn't refresh. markForCheck() schedules a render.
-  private cdr = inject(ChangeDetectorRef);
 
   // Local-first: the list is the live RxDB query — instant, offline, reactive.
   readonly items = toSignal(this.store.items$, { initialValue: [] as ShoppingDoc[] });
@@ -43,28 +39,30 @@ export class Shopping {
   readonly syncError = this.store.syncError;
   private readonly imgFailed = signal<Set<string>>(new Set());
 
-  name = '';
-  quantity: number | null = null;
-  unit: string | null = null;
-  barcode = '';
+  // Form fields are signals: the app is zoneless, so a signal write (incl. from
+  // an async scan/lookup callback) is what schedules the view refresh.
+  readonly name = signal('');
+  readonly quantity = signal<number | null>(null);
+  readonly unit = signal<string | null>(null);
+  readonly barcode = signal('');
 
   add(): void {
-    if (!this.name.trim()) return;
-    const barcode = this.barcode.trim() || null;
+    if (!this.name().trim()) return;
+    const barcode = this.barcode().trim() || null;
     // Optimistic, local — succeeds offline.
     void this.store.add({
-      name: this.name.trim(),
-      quantity: this.quantity,
-      unit: this.unit?.trim() || null,
+      name: this.name().trim(),
+      quantity: this.quantity(),
+      unit: this.unit()?.trim() || null,
       barcode,
     });
     // Best-effort online: warm the product (image) cache for the thumbnail.
     // Ignored offline; the row is already added locally.
     if (barcode) this.api.lookupProduct(barcode).subscribe({ next: () => {}, error: () => {} });
-    this.name = '';
-    this.quantity = null;
-    this.unit = null;
-    this.barcode = '';
+    this.name.set('');
+    this.quantity.set(null);
+    this.unit.set(null);
+    this.barcode.set('');
   }
 
   /** Open the camera scanner; on a detected code, fill the field and look up. */
@@ -74,8 +72,7 @@ export class Shopping {
       .afterClosed()
       .subscribe((code) => {
         if (code) {
-          this.barcode = code;
-          this.cdr.markForCheck();
+          this.barcode.set(code);
           this.lookup();
         }
       });
@@ -83,12 +80,11 @@ export class Shopping {
 
   /** Look up the typed barcode on Open Food Facts; prefill the name if empty. */
   lookup(): void {
-    const code = this.barcode.trim();
+    const code = this.barcode().trim();
     if (!code) return;
     this.api.lookupProduct(code).subscribe({
       next: (p) => {
-        if (!this.name.trim() && p.name) this.name = p.name;
-        this.cdr.markForCheck();
+        if (!this.name().trim() && p.name) this.name.set(p.name);
       },
       error: () => {},
     });

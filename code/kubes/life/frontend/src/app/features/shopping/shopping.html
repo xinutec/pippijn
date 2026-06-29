@@ -7,19 +7,19 @@
 <div class="add">
   <mat-form-field appearance="outline" class="grow">
     <mat-label>Need to buy…</mat-label>
-    <input matInput [(ngModel)]="name" (keyup.enter)="add()" placeholder="e.g. Yoghurt" />
+    <input matInput [ngModel]="name()" (ngModelChange)="name.set($event)" (keyup.enter)="add()" placeholder="e.g. Yoghurt" />
   </mat-form-field>
   <mat-form-field appearance="outline" class="narrow">
     <mat-label>Qty</mat-label>
-    <input matInput type="number" inputmode="decimal" [(ngModel)]="quantity" (keyup.enter)="add()" />
+    <input matInput type="number" inputmode="decimal" [ngModel]="quantity()" (ngModelChange)="quantity.set($event)" (keyup.enter)="add()" />
   </mat-form-field>
   <mat-form-field appearance="outline" class="narrow">
     <mat-label>Unit</mat-label>
-    <input matInput [(ngModel)]="unit" (keyup.enter)="add()" />
+    <input matInput [ngModel]="unit()" (ngModelChange)="unit.set($event)" (keyup.enter)="add()" />
   </mat-form-field>
   <mat-form-field appearance="outline" class="grow">
     <mat-label>Barcode</mat-label>
-    <input matInput [(ngModel)]="barcode" inputmode="numeric" (keyup.enter)="lookup()" />
+    <input matInput [ngModel]="barcode()" (ngModelChange)="barcode.set($event)" inputmode="numeric" (keyup.enter)="lookup()" />
     <button matSuffix mat-icon-button (click)="scan()" aria-label="Scan barcode">
       <mat-icon>photo_camera</mat-icon>
     </button>

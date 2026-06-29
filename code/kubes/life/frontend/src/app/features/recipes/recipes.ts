@@ -40,8 +40,20 @@ export class Recipes {
 
   readonly cookableCount = computed(() => this.cookableIds().size);
 
-  form: RecipeForm = this.emptyForm();
+  // Signal-backed form (zoneless: a signal write — incl. the reset inside the
+  // async create callback — is what refreshes the view).
+  readonly form = signal<RecipeForm>(this.emptyForm());
   readonly showForm = signal(false);
+
+  patchForm(p: Partial<RecipeForm>): void {
+    this.form.update((f) => ({ ...f, ...p }));
+  }
+  patchIngredient(i: number, p: Partial<RecipeIngredient>): void {
+    this.form.update((f) => ({
+      ...f,
+      ingredients: f.ingredients.map((g, j) => (j === i ? { ...g, ...p } : g)),
+    }));
+  }
 
   toggleForm(): void {
     this.showForm.update((v) => !v);
@@ -61,21 +73,25 @@ export class Recipes {
   }
 
   addIngredientRow(): void {
-    this.form.ingredients.push({ name: '', quantity: null, unit: null });
+    this.form.update((f) => ({
+      ...f,
+      ingredients: [...f.ingredients, { name: '', quantity: null, unit: null }],
+    }));
   }
 
   removeIngredientRow(i: number): void {
-    this.form.ingredients.splice(i, 1);
+    this.form.update((f) => ({ ...f, ingredients: f.ingredients.filter((_, j) => j !== i) }));
   }
 
   createRecipe(): void {
-    if (!this.form.name.trim()) return;
+    const form = this.form();
+    if (!form.name.trim()) return;
     const body = {
-      ...this.form,
-      ingredients: this.form.ingredients.filter((g) => g.name.trim()),
+      ...form,
+      ingredients: form.ingredients.filter((g) => g.name.trim()),
     };
     this.api.createRecipe(body).subscribe(() => {
-      this.form = this.emptyForm();
+      this.form.set(this.emptyForm());
       this.showForm.set(false);
       this.reload();
     });

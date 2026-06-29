@@ -13,32 +13,32 @@
     <div class="row">
       <mat-form-field appearance="outline">
         <mat-label>Name</mat-label>
-        <input matInput [(ngModel)]="form.name" placeholder="e.g. Dal" />
+        <input matInput [ngModel]="form().name" (ngModelChange)="patchForm({ name: $event })" placeholder="e.g. Dal" />
       </mat-form-field>
       <mat-form-field appearance="outline" class="narrow">
         <mat-label>Servings</mat-label>
-        <input matInput type="number" [(ngModel)]="form.servings" />
+        <input matInput type="number" [ngModel]="form().servings" (ngModelChange)="patchForm({ servings: $event })" />
       </mat-form-field>
     </div>
     <mat-form-field appearance="outline" class="full">
       <mat-label>Instructions</mat-label>
-      <textarea matInput rows="2" [(ngModel)]="form.instructions"></textarea>
+      <textarea matInput rows="2" [ngModel]="form().instructions" (ngModelChange)="patchForm({ instructions: $event })"></textarea>
     </mat-form-field>
 
     <p class="ing-label">Ingredients</p>
-    @for (ing of form.ingredients; track $index) {
+    @for (ing of form().ingredients; track $index) {
       <div class="row">
         <mat-form-field appearance="outline">
           <mat-label>Name</mat-label>
-          <input matInput [(ngModel)]="ing.name" />
+          <input matInput [ngModel]="ing.name" (ngModelChange)="patchIngredient($index, { name: $event })" />
         </mat-form-field>
         <mat-form-field appearance="outline" class="narrow">
           <mat-label>Qty</mat-label>
-          <input matInput type="number" [(ngModel)]="ing.quantity" />
+          <input matInput type="number" [ngModel]="ing.quantity" (ngModelChange)="patchIngredient($index, { quantity: $event })" />
         </mat-form-field>
         <mat-form-field appearance="outline" class="narrow">
           <mat-label>Unit</mat-label>
-          <input matInput [(ngModel)]="ing.unit" />
+          <input matInput [ngModel]="ing.unit" (ngModelChange)="patchIngredient($index, { unit: $event })" />
         </mat-form-field>
         <button mat-icon-button (click)="removeIngredientRow($index)" aria-label="Remove">
           <mat-icon>close</mat-icon>
