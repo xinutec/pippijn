@@ -1,0 +1,27 @@
+# ONE-TIME isis setup (cluster-scoped; not specific to this app).
+#
+# isis's existing apps use the HTTP-01 issuer `letsencrypt-prod`, which cannot
+# validate a hostname that resolves to a VPN-only IP. This DNS-01 issuer proves
+# domain ownership via a Cloudflare TXT record instead, so messages.xinutec.org
+# (→ 10.100.0.2) can still get a real Let's Encrypt cert. Mirrors amun's
+# fleet/apps/amun/cert-dns/issuer.yaml.
+#
+# Prerequisite: a Cloudflare API token (Zone:DNS:Edit on xinutec.org) stored as:
+#   kubectl -n cert-manager create secret generic cloudflare-api-token \
+#     --from-literal=api-token=<token>
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns
+spec:
+  acme:
+    email: pip88nl@gmail.com
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-dns
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token

@@ -1,0 +1,80 @@
+# The messages viewer runs IN the `signal` namespace so it can read the signal
+# DB (service `signal-db`) and reuse `signal-secret` (DB_USER/DB_PASSWORD)
+# in-namespace — k8s secretKeyRef cannot cross namespaces. It owns only its own
+# `sessions` table in that DB (created on boot).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: messages
+  namespace: signal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: messages
+  template:
+    metadata:
+      labels:
+        app: messages
+    spec:
+      containers:
+        - name: messages
+          image: xinutec/messages:latest
+          ports:
+            - containerPort: 8080
+          env:
+            # --- archive DB (shared signal DB, same namespace) ---
+            - name: DB_HOST
+              value: signal-db
+            - name: DB_NAME
+              value: signal
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: signal-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: signal-secret
+                  key: DB_PASSWORD
+            # --- auth / app config ---
+            - name: NC_BASE_URL
+              value: https://dash.xinutec.org
+            - name: NC_REDIRECT_URI
+              value: https://messages.xinutec.org/auth/callback
+            - name: ALLOWED_USERS
+              value: pippijn
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: messages-secret
+                  key: SESSION_SECRET
+            - name: NC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: messages-secret
+                  key: NC_CLIENT_ID
+            - name: NC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: messages-secret
+                  key: NC_CLIENT_SECRET
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: messages
+  namespace: signal
+spec:
+  selector:
+    app: messages
+  ports:
+    - port: 80
+      targetPort: 8080

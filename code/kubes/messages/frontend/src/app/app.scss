@@ -1,0 +1,107 @@
+:host {
+  display: block;
+  height: 100%;
+}
+
+.bar {
+  .brand {
+    font-weight: 500;
+  }
+  .spacer {
+    flex: 1 1 auto;
+  }
+  .user {
+    margin-right: 0.5rem;
+    opacity: 0.85;
+  }
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  height: calc(100% - 64px);
+}
+
+.list {
+  border-right: 1px solid rgba(0, 0, 0, 0.12);
+  overflow-y: auto;
+
+  .filters {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    button.active {
+      font-weight: 600;
+      text-decoration: underline;
+    }
+  }
+  a.active {
+    background: rgba(0, 0, 0, 0.06);
+  }
+  .empty {
+    padding: 1rem;
+    opacity: 0.6;
+  }
+}
+
+.thread {
+  overflow-y: auto;
+  padding: 1rem 1.5rem;
+
+  h2 {
+    margin: 0 0 1rem;
+  }
+  .placeholder {
+    opacity: 0.5;
+    padding-top: 2rem;
+  }
+
+  .msg {
+    max-width: 70%;
+    margin: 0.4rem 0;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.5rem;
+    background: rgba(0, 0, 0, 0.05);
+
+    &.out {
+      margin-left: auto;
+      background: rgba(33, 150, 243, 0.15);
+    }
+    .meta {
+      font-size: 0.75rem;
+      opacity: 0.7;
+      display: flex;
+      gap: 0.5rem;
+    }
+    .body {
+      white-space: pre-wrap;
+      word-break: break-word;
+      &.deleted {
+        font-style: italic;
+        opacity: 0.6;
+      }
+    }
+    .tag {
+      font-style: italic;
+    }
+    .reactions {
+      margin-top: 0.25rem;
+      .chip {
+        font-size: 0.8rem;
+        background: rgba(0, 0, 0, 0.08);
+        border-radius: 1rem;
+        padding: 0 0.4rem;
+        margin-right: 0.25rem;
+      }
+    }
+  }
+}
+
+.signin {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}

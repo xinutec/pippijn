@@ -1,0 +1,34 @@
+# VPN-only by DNS: messages.xinutec.org → 10.100.0.2 (isis's WireGuard IP), so
+# it isn't listed on the public internet. NOTE the isis ingress also answers on
+# the public IP, so this is obscurity, not a firewall — the Nextcloud login +
+# `pippijn`-only allow-list is the real gate. (To harden to true L7 VPN-only,
+# add nginx.ingress.kubernetes.io/whitelist-source-range: "10.100.0.0/24" AFTER
+# confirming client source IPs survive k3s servicelb.)
+#
+# TLS uses the DNS-01 issuer `letsencrypt-dns`, which must exist on isis (it does
+# NOT by default — see README "One-time: DNS-01 issuer on isis"). HTTP-01 can't
+# validate a host that resolves to a VPN-only IP.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: messages
+  namespace: signal
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-dns"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - messages.xinutec.org
+      secretName: messages-tls
+  rules:
+    - host: messages.xinutec.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: messages
+                port:
+                  number: 80

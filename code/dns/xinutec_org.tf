@@ -2,10 +2,11 @@ locals {
   xinutec_org_id = cloudflare_zone.xinutec_org.id
 
   hosts = {
-    amun = "94.23.247.133"
-    isis = "188.165.200.180"
-    odin = "5.196.65.240"
-    vpn  = "10.100.0.1"   # WireGuard LB IP — for VPN-only services (vault)
+    amun     = "94.23.247.133"
+    isis     = "188.165.200.180"
+    odin     = "5.196.65.240"
+    vpn      = "10.100.0.1"   # amun WireGuard LB IP — VPN-only services (vault)
+    vpn_isis = "10.100.0.2"   # isis WireGuard LB IP — VPN-only services (messages)
   }
 }
 
@@ -18,6 +19,19 @@ resource "cloudflare_dns_record" "org_vault" {
   type    = "A"
   name    = "vault"
   content = local.hosts.vpn
+  ttl     = 3600
+  proxied = false
+}
+
+# messages.xinutec.org — Signal + Google Chat archive viewer on isis, VPN-only.
+# Resolves to isis's WireGuard IP so it's unlisted publicly; the real gate is the
+# Nextcloud login + pippijn-only allow-list (the isis ingress also answers on the
+# public IP). See code/kubes/messages.
+resource "cloudflare_dns_record" "org_messages" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "messages"
+  content = local.hosts.vpn_isis
   ttl     = 3600
   proxied = false
 }
