@@ -99,7 +99,7 @@ pub async fn list_conversations(pool: &MySqlPool) -> Result<Vec<Conversation>> {
         });
     }
 
-    out.sort_by(|a, b| b.last_ts.cmp(&a.last_ts));
+    out.sort_by_key(|c| std::cmp::Reverse(c.last_ts)); // newest activity first
     Ok(out)
 }
 
@@ -329,7 +329,7 @@ pub async fn search(pool: &MySqlPool, q: &str, limit: i64) -> Result<Vec<SearchH
         });
     }
 
-    hits.sort_by(|a, b| b.ts.cmp(&a.ts));
+    hits.sort_by_key(|h| std::cmp::Reverse(h.ts)); // newest first
     hits.truncate(limit as usize);
     Ok(hits)
 }
