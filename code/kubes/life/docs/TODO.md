@@ -48,6 +48,22 @@ add new ones under the right section. Architecture/rationale lives in
 - [ ] **QR / barcode scanning** — scan a product's code to identify it and act
       on it: find it in inventory, or add it to the **Buy** list, without typing.
       Also the make-or-break for fast, accurate item entry. Adds a camera surface.
+- [ ] **Product lookup & images** (design decided — build with the scanner):
+      - Source: **Open Food Facts** (barcode → name/brand/image). Read API needs
+        no auth. Pippijn has an OFF account (for contributing products/images
+        back later; OFF creds are user-held, not stored by us).
+      - **Cache in our own DB**, don't call OFF live: a `products` table
+        (`barcode` PK, name, brand, `image` BLOB, `fetched_at`). On scan, look up
+        our table first; **call OFF only on a cache miss**, then write the result
+        + image into the cache.
+      - Items/shopping-items carry the `barcode` and **copy name + image at
+        add-time** → self-contained; the cache is a pure optimisation, wipeable.
+      - Images stored as BLOB, **served from our own `/api` endpoint**
+        (session-gated), never hot-linked. Camera photo = universal fallback;
+        paste-URL → `og:image` = manual option.
+      - Cache indefinitely (product data barely changes); optional manual
+        "refresh from OFF" later — no TTL machinery. Identify our client via a
+        descriptive User-Agent; don't hammer OFF.
 - [ ] **Record where bought (purchase source)** — when you buy something, note
       *where* (which shop). Build a "where can I buy X" lookup so next time you
       know where it's available and can buy it there. Ties into the Buy list and
