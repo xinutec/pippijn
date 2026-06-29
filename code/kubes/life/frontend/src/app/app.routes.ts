@@ -32,10 +32,5 @@ export const routes: Routes = [
     title: 'Life · all items',
     loadComponent: () => import('./features/items/items').then((m) => m.Items),
   },
-  {
-    path: 'expiring',
-    title: 'Life · use soon',
-    loadComponent: () => import('./features/expiring/expiring').then((m) => m.Expiring),
-  },
   { path: '**', redirectTo: 'search' },
 ];
