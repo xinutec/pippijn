@@ -96,9 +96,9 @@
                     }
                   </div>
                   @if (m.body) {
-                    <div class="body" [class.deleted]="m.deleted">
-                      {{ m.deleted ? '(deleted)' : m.body }}
-                    </div>
+                    <!-- interpolation flush with the tags: white-space:pre-wrap
+                         would otherwise render the template indent as a leading space -->
+                    <div class="body" [class.deleted]="m.deleted">{{ m.deleted ? '(deleted)' : m.body }}</div>
                   }
                   @for (a of m.attachments; track a.id) {
                     <div class="attach">

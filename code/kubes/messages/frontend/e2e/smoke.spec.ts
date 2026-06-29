@@ -48,6 +48,25 @@ function multiDayThread() {
   return out;
 }
 
+test("message body has no spurious leading/trailing whitespace", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/conversations/**/messages**", (r) =>
+    r.fulfill({
+      json: {
+        messages: [{ id: "1", ts: Date.UTC(2026, 0, 1, 12), sender: "Alice", is_outgoing: false, body: "Hello world", deleted: false, edited: false, reactions: [], attachments: [] }],
+        has_more: false,
+        next_before: null,
+      },
+    }),
+  );
+  await page.goto("/?chat=signal:dm:a");
+  const body = page.locator(".msg .body").first();
+  await body.waitFor();
+  // pre-wrap preserves whitespace, so any template-introduced leading space
+  // would show as a first-line indent. The rendered text must equal the body.
+  expect(await body.textContent()).toBe("Hello world");
+});
+
 test("a scrolled multi-day thread does not stack date separators", async ({ page }) => {
   await mockApi(page);
   await page.route("**/api/conversations/**/messages**", (r) =>
