@@ -135,12 +135,14 @@ export class ShoppingStore {
   }
 
   private startReplication(collection: ShoppingCollection): void {
-    const onAuthOrNetwork = (res: Response) => {
-      // An expired session 302-redirects to a login page; fetch follows it to a
-      // 200 HTML body. Detect that (and any non-JSON) and fail so RxDB retries
-      // without corrupting the queue — surfaced as "login required".
+    const guardAuth = (res: Response) => {
+      // An expired session shows up two ways: our API returns 401/403 JSON, or a
+      // stale cookie 302-redirects to a login page that fetch follows to a 200
+      // non-JSON body. Either way, surface "login required" and fail so RxDB
+      // retries without corrupting the queue. Must run BEFORE the generic
+      // !res.ok check so this friendly message wins over "pull failed: 401".
       const ct = res.headers.get('content-type') ?? '';
-      if (res.redirected || !ct.includes('application/json')) {
+      if (res.status === 401 || res.status === 403 || res.redirected || !ct.includes('application/json')) {
         this.syncError.set('login required — reopen the app to sign in');
         throw new Error('auth-required');
       }
@@ -159,8 +161,8 @@ export class ShoppingStore {
             `/api/sync/shopping?since=${since}&limit=${batchSize}`,
             { credentials: 'include' },
           );
+          guardAuth(res);
           if (!res.ok) throw new Error(`pull failed: ${res.status}`);
-          onAuthOrNetwork(res);
           const body = (await res.json()) as {
             documents: (ShoppingDoc & { _deleted: boolean })[];
             checkpoint: { rev: number };
@@ -178,8 +180,8 @@ export class ShoppingStore {
             credentials: 'include',
             body: JSON.stringify(rows),
           });
+          guardAuth(res);
           if (!res.ok) throw new Error(`push failed: ${res.status}`);
-          onAuthOrNetwork(res);
           this.syncError.set(null);
           return (await res.json()) as (ShoppingDoc & { _deleted: boolean })[];
         },
