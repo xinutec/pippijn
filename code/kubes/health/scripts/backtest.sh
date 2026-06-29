@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p openssh nodejs_22
+#!nix-shell -i bash -p openssh nodejs_24
 # Backtest the factor-scorer path against the legacy cascade over a
 # date range. Mirrors scripts/golden.sh — builds locally, then runs
 # backtest-classification.js against the prod health-db via

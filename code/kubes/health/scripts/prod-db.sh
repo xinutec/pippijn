@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p openssh nodejs_22
+#!nix-shell -i bash -p openssh nodejs_24
 # Run a command with a tunnel open to the prod health-db.
 #
 # Opens an SSH-forwarded connection to the prod MariaDB and exports the

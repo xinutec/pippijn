@@ -4,7 +4,7 @@
 // a green e2e is not the verdict — look at whether the match is actually
 // better than the raw track.
 //
-// Usage: nix-shell -p nodejs_22 --run 'node scripts/roadmatch-report.mjs [fixture.json]'
+// Usage: nix-shell -p nodejs_24 --run 'node scripts/roadmatch-report.mjs [fixture.json]'
 // (run `npm run build` first — imports the compiled matcher from dist/).
 
 import { readFileSync } from "node:fs";

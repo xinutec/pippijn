@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p openssh nodejs_22
+#!nix-shell -i bash -p openssh nodejs_24
 # Capture a deterministic golden fixture for one day from prod.
 #
 # Builds locally, then runs capture-golden.js against the prod health-db

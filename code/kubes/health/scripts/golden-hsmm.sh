@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p nodejs_22
+#!nix-shell -i bash -p nodejs_24
 # Run the deterministic HSMM decode-replay check — one command, NO DB.
 #
 # Builds the project locally, then replays the captured fixtures under

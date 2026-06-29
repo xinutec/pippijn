@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p nodejs_22
+#!nix-shell -i bash -p nodejs_24
 # Run the full pre-commit verification — one command, no wrapper.
 #
 # `npm run verify` chains: typecheck (backend + frontend) →

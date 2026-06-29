@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p nodejs_22
+#!nix-shell -i bash -p nodejs_24
 # Constraint score — how many physically-impossible things the pipeline emits
 # across the frozen golden corpus. Zero-DB, deterministic (same input closure
 # as `npm run golden`). The objective the joint-inference rebuild drives to
