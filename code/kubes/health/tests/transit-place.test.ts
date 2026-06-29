@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { NearbyStation } from "../src/geo/osm.js";
-import { STATION_AT_ALIGHT_RADIUS_M, stationAtTrainAlight } from "../src/geo/transit-place.js";
+import {
+	STATION_AT_ALIGHT_RADIUS_M,
+	stationAtTrainAlight,
+	stationAtTransitInterchange,
+} from "../src/geo/transit-place.js";
 import { mockOsmAdapter } from "./helpers/mock-osm-adapter.js";
 
 const station = (name: string, distanceM: number): NearbyStation => ({ name, subtype: "subway", distanceM });
@@ -41,5 +45,77 @@ describe("stationAtTrainAlight", () => {
 	it("returns null when no station is nearby (train ended mid-network gap)", async () => {
 		const osm = mockOsmAdapter({ nearbyStations: () => [] });
 		expect(await stationAtTrainAlight({ mode: "train" }, LAT, LON, osm)).toBeNull();
+	});
+});
+
+describe("stationAtTransitInterchange", () => {
+	// A segment at minute `m` lasting `durMin`; modes & timing only.
+	const seg = (mode: string, startMin: number, durMin: number, refinedMode?: string) =>
+		({
+			mode,
+			refinedMode,
+			startTs: startMin * 60,
+			endTs: (startMin + durMin) * 60,
+		}) as never;
+	const bakerOsm = mockOsmAdapter({ nearbyStations: () => [station("Baker Street", 40)] });
+
+	it("names the station for a train → short walk → STAY → train interchange (the 06-29 Baker Street case)", async () => {
+		const segs = [
+			seg("train", 0, 2), // Euston Sq → Baker St
+			seg("walking", 2, 3), // platform-to-platform change
+			seg("stationary", 5, 5), // the wait — i=2
+			seg("train", 10, 10), // Baker St → Wembley Park
+		];
+		expect(await stationAtTransitInterchange(segs, 2, LAT, LON, bakerOsm)).toBe("Baker Street");
+	});
+
+	it("names the station for a direct train → STAY → train interchange (no walk)", async () => {
+		const segs = [seg("train", 0, 2), seg("stationary", 2, 4), seg("train", 6, 8)];
+		expect(await stationAtTransitInterchange(segs, 1, LAT, LON, bakerOsm)).toBe("Baker Street");
+	});
+
+	it("honours refinedMode on the bracketing legs", async () => {
+		const segs = [seg("driving", 0, 2, "train"), seg("stationary", 2, 4), seg("driving", 6, 8, "train")];
+		expect(await stationAtTransitInterchange(segs, 1, LAT, LON, bakerOsm)).toBe("Baker Street");
+	});
+
+	it("does NOT fire for a long stay between an outbound and a return train (a destination, not a change)", async () => {
+		// The 2026-06-24 UCLH appointment: a 2-hour stay near Warren Street,
+		// bracketed by a Wembley↔Euston round trip. Trains on both sides, but
+		// it's a destination, not an interchange.
+		const segs = [
+			seg("train", 0, 22), // Wembley Park → Euston Square
+			seg("walking", 22, 5),
+			seg("stationary", 27, 119), // ~2-hour appointment — i=2
+			seg("walking", 146, 5),
+			seg("train", 151, 13), // Euston Square → Wembley Park
+		];
+		expect(await stationAtTransitInterchange(segs, 2, LAT, LON, bakerOsm)).toBeNull();
+	});
+
+	it("does NOT fire when only one side is a train (a genuine destination at a station)", async () => {
+		const segs = [seg("train", 0, 2), seg("stationary", 2, 30), seg("walking", 32, 10)];
+		expect(await stationAtTransitInterchange(segs, 1, LAT, LON, bakerOsm)).toBeNull();
+	});
+
+	it("does NOT fire across a long walk — a real walk to a venue, not a platform change", async () => {
+		const segs = [
+			seg("train", 0, 2),
+			seg("walking", 2, 12), // 12-min walk: you went somewhere
+			seg("stationary", 14, 20),
+			seg("train", 34, 8),
+		];
+		expect(await stationAtTransitInterchange(segs, 2, LAT, LON, bakerOsm)).toBeNull();
+	});
+
+	it("does NOT fire when no station is within the footprint", async () => {
+		const farOsm = mockOsmAdapter({ nearbyStations: () => [station("Baker Street", 400)] });
+		const segs = [seg("train", 0, 2), seg("stationary", 2, 4), seg("train", 6, 8)];
+		expect(await stationAtTransitInterchange(segs, 1, LAT, LON, farOsm)).toBeNull();
+	});
+
+	it("does NOT fire for a plain stay with no surrounding trains", async () => {
+		const segs = [seg("walking", 0, 5), seg("stationary", 5, 40), seg("walking", 45, 5)];
+		expect(await stationAtTransitInterchange(segs, 1, LAT, LON, bakerOsm)).toBeNull();
 	});
 });

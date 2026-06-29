@@ -36,3 +36,76 @@ export async function stationAtTrainAlight(
 	const nearest = stations.reduce((a, b) => (b.distanceM < a.distanceM ? b : a));
 	return nearest.distanceM <= radiusM ? nearest.name : null;
 }
+
+/** A platform-to-platform interchange walk is brief — a few minutes inside the
+ *  station. A walk longer than this is a real walk to somewhere, so the stay it
+ *  precedes/follows is a genuine destination, not a change of trains. */
+export const INTERCHANGE_WALK_MAX_S = 360;
+
+/** A change of trains is a short wait — a few minutes on the platform. A stay
+ *  longer than this, even bracketed by trains, is a genuine destination reached
+ *  by one ride and left by a later one (e.g. a hospital appointment between an
+ *  outbound and a return train hours apart), not an interchange. */
+export const INTERCHANGE_DWELL_MAX_S = 900;
+
+interface InterchangeSeg {
+	mode: TransportMode;
+	refinedMode?: TransportMode;
+	startTs: number;
+	endTs: number;
+}
+
+const effMode = (s: InterchangeSeg): TransportMode => s.refinedMode ?? s.mode;
+const isShortWalk = (s: InterchangeSeg): boolean =>
+	effMode(s) === "walking" && s.endTs - s.startTs <= INTERCHANGE_WALK_MAX_S;
+
+/** Is the segment chain on one side of the stay a train, reached either directly
+ *  or across a single short platform-change walk? */
+function bracketingTrain(segments: readonly InterchangeSeg[], adjacent: number, beyond: number): boolean {
+	const a = segments[adjacent];
+	if (a !== undefined && effMode(a) === "train") return true;
+	// Skip one short interchange walk and look at the leg beyond it.
+	if (a !== undefined && isShortWalk(a)) {
+		const b = segments[beyond];
+		if (b !== undefined && effMode(b) === "train") return true;
+	}
+	return false;
+}
+
+/**
+ * Transit-interchange continuity for place-naming. A stationary stay that sits
+ * within station range AND is bracketed by train legs at that station — a train
+ * alighting just before (directly, or across one short platform-change walk) and
+ * a train boarding just after (likewise) — is a change of trains, not a venue
+ * visit. Returns the nearest station's name, or null when the stay isn't
+ * transit-bracketed on both sides or no station is close enough.
+ *
+ * Motivated by 2026-06-29: a Baker Street platform change (alight the
+ * Circle/H&C, walk to the Met platform, wait, board the Met) was mislabelled
+ * "Krispy Kreme" — a fast-food unit mapped 40 m away inside the station that the
+ * venue scorer reached for because the stay had no transit context. The existing
+ * `stationAtTrainAlight` misses this: it bails the moment a walk sits between the
+ * train and the stay (it assumes a walk means a genuine destination). An
+ * interchange breaks that assumption — the walk is platform-to-platform and a
+ * train departs the same station right after. Requiring trains on BOTH sides
+ * (within one short walk) is what distinguishes a change of trains from
+ * alight → walk to a café → walk back → board.
+ */
+export async function stationAtTransitInterchange(
+	segments: readonly InterchangeSeg[],
+	i: number,
+	lat: number,
+	lon: number,
+	osm: Pick<OsmAdapter, "nearbyStations">,
+	radiusM: number = STATION_AT_ALIGHT_RADIUS_M,
+): Promise<string | null> {
+	const stay = segments[i];
+	if (stay === undefined || stay.endTs - stay.startTs > INTERCHANGE_DWELL_MAX_S) return null;
+	const before = bracketingTrain(segments, i - 1, i - 2);
+	const after = bracketingTrain(segments, i + 1, i + 2);
+	if (!before || !after) return null;
+	const stations = await osm.nearbyStations(lat, lon, radiusM);
+	if (stations.length === 0) return null;
+	const nearest = stations.reduce((a, b) => (b.distanceM < a.distanceM ? b : a));
+	return nearest.distanceM <= radiusM ? nearest.name : null;
+}

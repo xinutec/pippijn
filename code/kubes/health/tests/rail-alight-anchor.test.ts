@@ -18,7 +18,6 @@ import { anchorTrainAlightToWalkedStation } from "../src/geo/passes/rail-absorbe
  * Synthetic London-ish coords; all OSM access via injected lookups, no DB.
  */
 
-const LAT = 51.52;
 // Stations (~real positions). Baker St → Euston Sq is ~1.5 km east on the
 // shared sub-surface corridor (Circle/H&C/Metropolitan).
 const WEMBLEY = { lat: 51.5635, lon: -0.2795, name: "Wembley Park", lines: ["Metropolitan Line", "Jubilee Line"] };

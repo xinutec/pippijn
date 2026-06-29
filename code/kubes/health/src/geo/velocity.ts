@@ -88,7 +88,7 @@ import {
 	splitWalksOnVehicleLeg,
 } from "./stay-split.js";
 import { dateBoundsUtc, fitbitTsToUnix } from "./timezone.js";
-import { stationAtTrainAlight } from "./transit-place.js";
+import { stationAtTrainAlight, stationAtTransitInterchange } from "./transit-place.js";
 import {
 	annotateUndergroundRuns,
 	UNDERGROUND_LINES_RADIUS_M,
@@ -1461,6 +1461,46 @@ export async function computeVelocityFromInputs(
 		{
 			name: "repairHandoff",
 			run: (segs) => repairVehicleHandoff(segs),
+		},
+
+		// Transit-interchange stay label: a stationary stay sitting at a station
+		// and bracketed by train legs on BOTH sides — a train alighting just
+		// before (across at most one short platform-change walk) and a train
+		// boarding just after — is a change of trains, not a venue visit. Name it
+		// the station so a co-located shop can't be surfaced as a destination (the
+		// 2026-06-29 Baker Street platform change mislabelled "Krispy Kreme", a
+		// fast-food unit mapped 40 m away inside the station). Runs LAST, because
+		// the train adjacency is only final after the rail passes AND repairHandoff
+		// absorb the surfaced slivers between the change and the next ride; the
+		// early place-enrichment that named the stay had no transit context yet.
+		// See `stationAtTransitInterchange`.
+		{
+			name: "interchangeStayLabel",
+			run: async (segs) => {
+				const out = [...segs];
+				for (let i = 0; i < out.length; i++) {
+					const s = out[i];
+					if (s.mode !== "stationary") continue;
+					// Centroid from the stay's own fixes — `centroidLat` isn't
+					// reliably attached at this point, so compute it here as the
+					// enrichment does.
+					const segPoints = samplesInWindow(points, s);
+					if (segPoints.length === 0) continue;
+					const cLat = segPoints.reduce((a, p) => a + p.lat, 0) / segPoints.length;
+					const cLon = segPoints.reduce((a, p) => a + p.lon, 0) / segPoints.length;
+					const station = await stationAtTransitInterchange(out, i, cLat, cLon, inputs.osm);
+					if (station !== null && station !== s.place) {
+						out[i] = {
+							...s,
+							place: station,
+							refinedReason: s.refinedReason
+								? `${s.refinedReason}; transit interchange → named station`
+								: "transit interchange → named station",
+						};
+					}
+				}
+				return out;
+			},
 		},
 	];
 
