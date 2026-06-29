@@ -3,6 +3,11 @@
 Fitbit + Owntracks/PhoneTrack data ingestion, classification, and dashboard.
 Lives at https://health.xinutec.org.
 
+## Android app
+
+A native-feeling phone wrapper — a full-screen WebView onto this dashboard, no
+browser chrome. Build & install steps: [`android/README.md`](android/README.md).
+
 ## Layout
 
 ```

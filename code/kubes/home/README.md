@@ -14,6 +14,11 @@ IQAir (home LAN) ──SMB──▶ Mac poller ──HTTPS POST /api/ingest─�
                                                   MariaDB ◀── Hono API ──▶ Angular
 ```
 
+## Android app
+
+A native-feeling phone wrapper — a full-screen WebView onto this dashboard, no
+browser chrome. Build & install steps: [`android/README.md`](android/README.md).
+
 ## Stack
 - Backend: Hono + Kysely + MariaDB (TypeScript, Node 24). Serves the built
   Angular app and the JSON API. Migrations run on startup.

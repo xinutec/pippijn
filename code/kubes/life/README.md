@@ -4,6 +4,11 @@ Personal home OS web app. Rust (axum) backend + Angular frontend, own MariaDB.
 Nextcloud is used only for **identity** (login) and **calendar** (CalDAV) — see
 [`docs/design/overview.md`](docs/design/overview.md).
 
+## Android app
+
+A native-feeling phone wrapper — a full-screen WebView onto this site, no browser
+chrome. Build & install steps: [`android/README.md`](android/README.md).
+
 ## Develop
 
 ```sh
