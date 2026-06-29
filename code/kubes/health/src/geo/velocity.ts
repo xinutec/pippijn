@@ -71,6 +71,7 @@ import {
 	consolidateJitterStays,
 	mergeAdjacentStays,
 } from "./passes/stays.js";
+import { upgradeTubeHops } from "./passes/tube-hop.js";
 import { annotateWalkMatches } from "./pedestrian-match-annotate.js";
 import { type PlaceCandidate, pickBestPlace } from "./place-prior.js";
 import { haversineMeters, type KnownPlace, snapToPlace } from "./place-snap.js";
@@ -1279,6 +1280,27 @@ export async function computeVelocityFromInputs(
 		{
 			name: "railJourney",
 			run: (segs) => assembleRailJourney(segs, points, inputs.osm),
+		},
+
+		// Short clean tube-hop rescue (#280): a brief Underground hop whose GPS
+		// surfaces cleanly (fixes on the platforms) trips neither
+		// annotateUndergroundRuns gate (≥180 s + coarse fixes), so it survives as
+		// a `driving` leg carved out by vehicleSplit — and the only thing left to
+		// label it is the bus matcher. Upgrade a fast (≥ bus-pace ceiling)
+		// station-to-station driving leg on a shared Underground line to `train`,
+		// making it ineligible for the bus passes. Runs AFTER railJourney so it
+		// can't trigger a journey over-merge, BEFORE railSnap so the upgraded leg
+		// can still be snapped. The 2026-06-29 Euston Square → Baker Street hop
+		// mislabelled "bus 18". See upgradeTubeHops.
+		{
+			name: "tubeHop",
+			run: (segs) =>
+				upgradeTubeHops(
+					segs,
+					points,
+					(lat, lon) => inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+					(lat, lon) => inputs.osm.linesAtPoint(lat, lon),
+				),
 		},
 
 		// Rail-snap: attach the precomputed rail-track geometry to each
