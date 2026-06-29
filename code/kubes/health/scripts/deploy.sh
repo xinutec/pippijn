@@ -1,11 +1,13 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p git git-crypt nodejs_24 gh -I nixpkgs=channel:nixos-26.05
+#!nix-shell -i bash -p git git-crypt gh
 # Deploy the health-sync app end-to-end.
 #
-# Node is pinned to the nixos-26.05 channel's nodejs_24 (24.16+) because
-# the Angular 22 frontend build hard-requires Node >= 24.15 (the default
-# channel's nodejs_22/24 are a patch too old). See the 2026-06-29 Angular
-# 21->22 + zoneless migration.
+# Node for `npm run verify` is sourced per-command from the nixos-26.05
+# channel's nodejs_24 (24.16+, see VERIFY_NODE below) because the Angular 22
+# frontend build hard-requires Node >= 24.15 and the default channel's
+# nodejs_22/24 are a patch too old. git/git-crypt/gh stay on the default
+# channel — a 26.05 `gh` can't read the macOS keyring credential and 401s.
+# (2026-06-29 Angular 21->22 + zoneless migration.)
 #
 # Runs `npm run verify` (typecheck + lint + tests), commits the
 # staged-or-stageable changes under `code/kubes/health/`, pushes
@@ -67,9 +69,12 @@ cleanup() {
 trap cleanup EXIT
 
 # --- verify --------------------------------------------------------------
-echo "==> [1/6] npm run verify"
+# The Angular 22 frontend build needs Node >= 24.15; source it per-command
+# from the 26.05 channel so the shebang's default-channel gh keeps working.
+VERIFY_NODE="nixpkgs/nixos-26.05#nodejs_24"
+echo "==> [1/6] npm run verify (node from $VERIFY_NODE)"
 cd "$HEALTH_DIR"
-npm run verify
+nix shell "$VERIFY_NODE" --command npm run verify
 
 # --- stage health/ changes only -----------------------------------------
 echo "==> [2/6] staging $HEALTH_REL"
