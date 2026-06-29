@@ -11,6 +11,8 @@ import { MatListModule } from '@angular/material/list';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatToolbarModule } from '@angular/material/toolbar';
 
+import { firstValueFrom } from 'rxjs';
+
 import { MessagesApi } from './messages-api';
 import { Conversation, Me, Message, Origin, SearchHit } from './models';
 
@@ -103,7 +105,7 @@ export class App {
       if (key === loadedKey) return; // already handled this target
       if (key && !conv) return; // chat set but conversations not loaded yet — wait
       loadedKey = key;
-      if (conv) this.loadThread(conv);
+      if (conv) void this.loadThread(conv);
       else this.messages.set([]);
     });
   }
@@ -112,38 +114,52 @@ export class App {
     this.navigate({ origin: f === 'all' ? null : f });
   }
 
-  /** Open a conversation = put it in the URL; the effect loads it. */
+  /** Open a conversation = put it in the URL; the effect loads it. Clears ?from
+   *  so a freshly-opened conversation starts at the most recent page. */
   open(c: Conversation): void {
-    this.navigate({ chat: `${c.origin}:${c.id}` });
+    this.navigate({ chat: `${c.origin}:${c.id}`, from: null });
   }
 
-  /** Back to the list = drop ?chat (the in-app/mobile back affordance). */
+  /** Back to the list = drop ?chat (and ?from) — the in-app/mobile back. */
   back(): void {
-    this.navigate({ chat: null });
+    this.navigate({ chat: null, from: null });
   }
 
   private navigate(queryParams: Record<string, string | null>): void {
     void this.router.navigate([], { relativeTo: this.route, queryParams, queryParamsHandling: 'merge' });
   }
 
-  private loadThread(c: Conversation): void {
+  /** Load the thread, restoring the paged-back depth from ?from (the oldest ts
+   *  the user had loaded) so a refresh/deep-link shows the same range, not just
+   *  the most recent page. */
+  private async loadThread(c: Conversation): Promise<void> {
     this.messages.set([]);
     this.threadError.set(false);
     this.hasMore.set(false);
     this.cursor = null;
     this.loadingThread.set(true);
-    this.api.messages(c.origin, c.id, undefined, PAGE).subscribe({
-      next: (page) => {
-        this.messages.set(page.messages);
-        this.hasMore.set(page.has_more);
-        this.cursor = page.next_before;
-        this.loadingThread.set(false);
-      },
-      error: () => {
-        this.threadError.set(true);
-        this.loadingThread.set(false);
-      },
-    });
+    const from = Number(this.route.snapshot.queryParamMap.get('from')) || null;
+    try {
+      const first = await firstValueFrom(this.api.messages(c.origin, c.id, undefined, PAGE));
+      let msgs = first.messages;
+      let hasMore = first.has_more;
+      let cursor = first.next_before;
+      // Page older until we've reached the saved depth (or run out).
+      while (from != null && hasMore && cursor != null && msgs.length > 0 && msgs[0].ts > from) {
+        const older = await firstValueFrom(this.api.messages(c.origin, c.id, cursor, PAGE));
+        if (older.messages.length === 0) break;
+        msgs = [...older.messages, ...msgs];
+        hasMore = older.has_more;
+        cursor = older.next_before;
+      }
+      this.messages.set(msgs);
+      this.hasMore.set(hasMore);
+      this.cursor = cursor;
+      this.loadingThread.set(false);
+    } catch {
+      this.threadError.set(true);
+      this.loadingThread.set(false);
+    }
   }
 
   loadOlder(): void {
@@ -156,6 +172,17 @@ export class App {
         this.hasMore.set(page.has_more);
         this.cursor = page.next_before;
         this.loadingOlder.set(false);
+        // Persist how far back we've paged so a refresh restores it. replaceUrl:
+        // paging shouldn't add Back-history (Back should leave the conversation).
+        const oldest = this.messages()[0]?.ts;
+        if (oldest != null) {
+          void this.router.navigate([], {
+            relativeTo: this.route,
+            queryParams: { from: String(oldest) },
+            queryParamsHandling: 'merge',
+            replaceUrl: true,
+          });
+        }
       },
       error: () => this.loadingOlder.set(false),
     });

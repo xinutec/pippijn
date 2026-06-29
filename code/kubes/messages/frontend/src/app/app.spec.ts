@@ -80,21 +80,22 @@ describe('App', () => {
     const { app, router } = setup(makeApi());
     const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     app.open(CONVS[0]);
-    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: 'signal:dm:a' } }));
+    // from: null resets paged-back depth for a freshly-opened conversation.
+    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: 'signal:dm:a', from: null } }));
   });
 
-  it('back navigates by dropping the chat query param', () => {
+  it('back navigates by dropping the chat (and from) query params', () => {
     const { app, router } = setup(makeApi());
     const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     app.back();
-    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: null } }));
+    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: null, from: null } }));
   });
 
   it('openHit navigates to the conversation a search hit belongs to', () => {
     const { app, router } = setup(makeApi());
     const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     app.openHit({ origin: 'gchat', conversation_id: 'gc1', conversation_name: 'Bob', ts: 1, sender: 's', snippet: 'x' });
-    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: 'gchat:gc1' } }));
+    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: 'gchat:gc1', from: null } }));
   });
 
   it('runs a search and clears it', () => {

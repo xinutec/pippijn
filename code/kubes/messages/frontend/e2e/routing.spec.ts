@@ -53,6 +53,43 @@ test("deep-linking an origin filter restores it on load", async ({ page }) => {
   await expect(page.getByText("Alice")).toHaveCount(0);
 });
 
+function m(ts: number, body: string) {
+  return { id: String(ts), ts, sender: "s", is_outgoing: false, body, deleted: false, edited: false, reactions: [], attachments: [] };
+}
+
+// Paged mock: the recent page (no `before`) has more; one older page below it.
+async function mockApiPaged(page: Page): Promise<void> {
+  await page.route("**/api/**", (r) => r.fulfill({ status: 204, body: "" }));
+  await page.route("**/api/me", (r) => r.fulfill({ json: ME }));
+  await page.route("**/api/conversations", (r) => r.fulfill({ json: CONVERSATIONS }));
+  await page.route("**/api/conversations/**/messages**", (route) => {
+    // Distinct bodies that don't substring-collide with UI text like
+    // "Load older messages" (getByText is case-insensitive substring).
+    const before = new URL(route.request().url()).searchParams.get("before");
+    if (before) {
+      route.fulfill({ json: { messages: [m(1000, "antiquemsg")], has_more: false, next_before: null } });
+    } else {
+      route.fulfill({ json: { messages: [m(2000, "freshmsg")], has_more: true, next_before: 2000 } });
+    }
+  });
+}
+
+test("loading older messages is reflected in the URL", async ({ page }) => {
+  await mockApiPaged(page);
+  await page.goto("/?chat=signal:dm:a");
+  await page.getByText("freshmsg", { exact: true }).waitFor();
+  await page.getByRole("button", { name: /Load older/ }).click();
+  await page.getByText("antiquemsg", { exact: true }).waitFor();
+  await expect(page).toHaveURL(/[?&]from=1000\b/);
+});
+
+test("reloading restores the older messages that were paged in", async ({ page }) => {
+  await mockApiPaged(page);
+  await page.goto("/?chat=signal:dm:a&from=1000"); // as if reloaded after paging
+  await page.getByText("antiquemsg", { exact: true }).waitFor(); // restored, no click
+  await page.getByText("freshmsg", { exact: true }).waitFor();
+});
+
 test("Back returns from a conversation to the list", async ({ page }) => {
   await mockApi(page);
   await page.goto("/");
