@@ -33,3 +33,34 @@ test("authenticated shell renders: icon font loaded, no text overlaps @ 390px", 
   await expectIconFontLoaded(page);
   await expectNoTextOverlaps(page);
 });
+
+// A thread spanning several days, long enough to scroll. The date separators
+// must not pile up on each other at the top when scrolled (the sticky-stacking
+// bug). 4 days × 12 messages → 4 separators + plenty of scroll height.
+function multiDayThread() {
+  const base = Date.UTC(2026, 0, 1, 12, 0, 0);
+  const out = [];
+  for (let d = 0; d < 4; d++) {
+    for (let k = 0; k < 12; k++) {
+      const ts = base + d * 86_400_000 + k * 60_000;
+      out.push({ id: `${d}-${k}`, ts, sender: "Alice", is_outgoing: false, body: `msg ${d}-${k}`, deleted: false, edited: false, reactions: [], attachments: [] });
+    }
+  }
+  return out;
+}
+
+test("a scrolled multi-day thread does not stack date separators", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/conversations/**/messages**", (r) =>
+    r.fulfill({ json: { messages: multiDayThread(), has_more: false, next_before: null } }),
+  );
+  await page.goto("/?chat=signal:dm:a");
+  await page.getByText("msg 3-11", { exact: true }).waitFor();
+  // Scroll the thread to the bottom — where the sticky bug piled the dates up.
+  await page.evaluate(() => {
+    const t = document.querySelector(".thread");
+    if (t) t.scrollTop = t.scrollHeight;
+  });
+  await page.waitForTimeout(150);
+  await expectNoTextOverlaps(page);
+});

@@ -93,8 +93,9 @@
     font-size: 0.75rem;
     opacity: 0.6;
     margin: 0.75rem 0 0.25rem;
-    position: sticky;
-    top: 0;
+    // In-flow divider, NOT sticky: as flat siblings, multiple `position: sticky`
+    // day headers all pin at top:0 and pile up when scrolled (proper sticky
+    // headers would need per-day section wrappers).
   }
 
   .msg {
