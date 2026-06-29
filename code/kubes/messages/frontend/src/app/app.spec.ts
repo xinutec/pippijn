@@ -1,5 +1,6 @@
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -29,86 +30,77 @@ const CONVS: Conversation[] = [
 
 const ME: Me = { user_id: 'pippijn', display_name: 'Pippijn' };
 
-interface ApiOverrides {
-  messages?: ReturnType<typeof vi.fn>;
-  search?: ReturnType<typeof vi.fn>;
-}
-
-function makeApi(over: ApiOverrides = {}) {
+function makeApi(over: { search?: ReturnType<typeof vi.fn> } = {}) {
   return {
     me: vi.fn(() => of(ME)),
     conversations: vi.fn(() => of(CONVS)),
-    messages: over.messages ?? vi.fn(() => of({ messages: [msg('1', 100)], has_more: false, next_before: null } as MessagesPage)),
+    messages: vi.fn(() => of({ messages: [msg('1', 100)], has_more: false, next_before: null } as MessagesPage)),
     search: over.search ?? vi.fn(() => of([] as SearchHit[])),
     logout: vi.fn(() => of({})),
   } as unknown as MessagesApi;
 }
 
-function setup(api: MessagesApi): App {
+function setup(api: MessagesApi): { app: App; router: Router } {
   TestBed.configureTestingModule({
-    providers: [provideZonelessChangeDetection(), { provide: MessagesApi, useValue: api }],
+    providers: [
+      provideZonelessChangeDetection(),
+      provideRouter([{ path: '**', children: [] }]),
+      { provide: MessagesApi, useValue: api },
+    ],
   });
-  // Instantiate the component class (runs the constructor → loads me +
-  // conversations). We test the class logic, not the rendered DOM.
-  return TestBed.runInInjectionContext(() => new App());
+  const app = TestBed.runInInjectionContext(() => new App());
+  return { app, router: TestBed.inject(Router) };
 }
 
 describe('App', () => {
   it('loads the user and conversations on init', () => {
-    const app = setup(makeApi());
+    const { app } = setup(makeApi());
     expect(app.me()?.user_id).toBe('pippijn');
     expect(app.conversations().length).toBe(2);
   });
 
-  it('filters conversations by origin', () => {
-    const app = setup(makeApi());
+  it('shows all conversations by default (no origin filter in the URL)', () => {
+    const { app } = setup(makeApi());
+    expect(app.originFilter()).toBe('all');
     expect(app.visibleConversations().length).toBe(2);
+  });
+
+  // Navigation state lives in the URL: these actions navigate; the URL→state
+  // wiring (filtering, opening, Back) is covered by e2e/routing.spec.ts.
+  it('setFilter navigates with the origin query param', () => {
+    const { app, router } = setup(makeApi());
+    const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     app.setFilter('signal');
-    expect(app.visibleConversations().map((c) => c.id)).toEqual(['dm:a']);
-    app.setFilter('gchat');
-    expect(app.visibleConversations().map((c) => c.id)).toEqual(['gc1']);
+    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { origin: 'signal' }, queryParamsHandling: 'merge' }));
+    app.setFilter('all');
+    expect(nav).toHaveBeenLastCalledWith([], expect.objectContaining({ queryParams: { origin: null } }));
   });
 
-  it('opens a conversation and records the pagination cursor', () => {
-    const messages = vi.fn(() =>
-      of({ messages: [msg('2', 100)], has_more: true, next_before: 100 } as MessagesPage),
-    );
-    const app = setup(makeApi({ messages }));
+  it('open navigates with the chat query param', () => {
+    const { app, router } = setup(makeApi());
+    const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     app.open(CONVS[0]);
-    expect(app.selected()).toBe(CONVS[0]);
-    expect(app.messages().map((m) => m.id)).toEqual(['2']);
-    expect(app.hasMore()).toBe(true);
-    expect(messages).toHaveBeenCalledWith('signal', 'dm:a', undefined, 100);
+    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: 'signal:dm:a' } }));
   });
 
-  it('loadOlder prepends the older page and advances the cursor', () => {
-    // First page (newest) has more; second page (older) ends it.
-    const messages = vi
-      .fn()
-      .mockReturnValueOnce(of({ messages: [msg('2', 100)], has_more: true, next_before: 100 } as MessagesPage))
-      .mockReturnValueOnce(of({ messages: [msg('1', 50)], has_more: false, next_before: null } as MessagesPage));
-    const app = setup(makeApi({ messages }));
-    app.open(CONVS[0]);
-    app.loadOlder();
-    expect(app.messages().map((m) => m.id)).toEqual(['1', '2']); // older prepended
-    expect(app.hasMore()).toBe(false);
-    expect(messages).toHaveBeenLastCalledWith('signal', 'dm:a', 100, 100); // before=cursor
+  it('back navigates by dropping the chat query param', () => {
+    const { app, router } = setup(makeApi());
+    const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    app.back();
+    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: null } }));
   });
 
-  it('does not page when there is nothing older', () => {
-    const messages = vi.fn(() =>
-      of({ messages: [msg('1', 100)], has_more: false, next_before: null } as MessagesPage),
-    );
-    const app = setup(makeApi({ messages }));
-    app.open(CONVS[0]);
-    app.loadOlder();
-    expect(messages).toHaveBeenCalledTimes(1); // open only; loadOlder no-op
+  it('openHit navigates to the conversation a search hit belongs to', () => {
+    const { app, router } = setup(makeApi());
+    const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+    app.openHit({ origin: 'gchat', conversation_id: 'gc1', conversation_name: 'Bob', ts: 1, sender: 's', snippet: 'x' });
+    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: 'gchat:gc1' } }));
   });
 
   it('runs a search and clears it', () => {
     const hit: SearchHit = { origin: 'signal', conversation_id: 'dm:a', conversation_name: 'Alice', ts: 1, sender: 's', snippet: 'hi' };
     const search = vi.fn(() => of([hit]));
-    const app = setup(makeApi({ search }));
+    const { app } = setup(makeApi({ search }));
     app.query.set('hi');
     app.runSearch();
     expect(app.results()).toEqual([hit]);
@@ -119,25 +111,15 @@ describe('App', () => {
 
   it('ignores a blank search', () => {
     const search = vi.fn(() => of([] as SearchHit[]));
-    const app = setup(makeApi({ search }));
+    const { app } = setup(makeApi({ search }));
     app.query.set('   ');
     app.runSearch();
     expect(search).not.toHaveBeenCalled();
     expect(app.results()).toBeNull();
   });
 
-  it('opens the conversation a search hit belongs to', () => {
-    const messages = vi.fn(() => of({ messages: [msg('1', 100)], has_more: false, next_before: null } as MessagesPage));
-    const app = setup(makeApi({ messages }));
-    app.openHit({ origin: 'gchat', conversation_id: 'gc1', conversation_name: 'Bob', ts: 1, sender: 's', snippet: 'x' });
-    expect(app.selected()?.id).toBe('gc1');
-    expect(messages).toHaveBeenCalledWith('gchat', 'gc1', undefined, 100);
-  });
-
   it('newDay marks day boundaries', () => {
-    const app = setup(makeApi());
-    // Local-component dates so the test is timezone-independent (newDay groups
-    // by local calendar day, matching how messages render).
+    const { app } = setup(makeApi());
     const d1 = new Date(2026, 5, 1, 9, 0, 0).getTime();
     const d1b = new Date(2026, 5, 1, 18, 0, 0).getTime();
     const d2 = new Date(2026, 5, 2, 9, 0, 0).getTime();
@@ -147,7 +129,7 @@ describe('App', () => {
   });
 
   it('title falls back when a conversation is unnamed', () => {
-    const app = setup(makeApi());
+    const { app } = setup(makeApi());
     expect(app.title({ ...CONVS[0], name: null })).toBe('Direct message');
     expect(app.title({ ...CONVS[0], name: '', kind: 'group' })).toBe('Group');
     expect(app.title(CONVS[0])).toBe('Alice');

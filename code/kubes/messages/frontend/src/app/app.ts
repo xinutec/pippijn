@@ -1,5 +1,7 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -32,15 +34,35 @@ const PAGE = 100;
 })
 export class App {
   private api = inject(MessagesApi);
+  private router = inject(Router);
+  private route = inject(ActivatedRoute);
 
   readonly me = signal<Me | null>(null);
   readonly loading = signal(true);
-
   readonly conversations = signal<Conversation[]>([]);
-  readonly originFilter = signal<Origin | 'all'>('all');
 
-  // Thread state.
-  readonly selected = signal<Conversation | null>(null);
+  // The URL is the source of truth for navigation state: ?origin filters the
+  // list, ?chat=<origin>:<id> opens a conversation. Deriving from the route
+  // means deep-links, refresh, and the browser Back button all just work.
+  private params = toSignal(this.route.queryParamMap);
+
+  readonly originFilter = computed<Origin | 'all'>(() => {
+    const o = this.params()?.get('origin');
+    return o === 'signal' || o === 'gchat' ? o : 'all';
+  });
+
+  private selectedKey = computed(() => this.params()?.get('chat') ?? null);
+
+  readonly selected = computed<Conversation | null>(() => {
+    const key = this.selectedKey();
+    if (!key) return null;
+    const i = key.indexOf(':'); // ids contain ':' (dm:uuid, group:…) → split once
+    if (i < 0) return null;
+    const origin = key.slice(0, i);
+    const id = key.slice(i + 1);
+    return this.conversations().find((c) => c.origin === origin && c.id === id) ?? null;
+  });
+
   readonly messages = signal<Message[]>([]);
   readonly loadingThread = signal(false);
   readonly loadingOlder = signal(false);
@@ -48,7 +70,7 @@ export class App {
   readonly threadError = signal(false);
   private cursor: number | null = null;
 
-  // Search state. `results === null` → showing the conversation list.
+  // Search overlays the list; it's transient UI, not URL state.
   readonly query = signal('');
   readonly results = signal<SearchHit[] | null>(null);
   readonly searching = signal(false);
@@ -71,14 +93,40 @@ export class App {
         this.loading.set(false);
       },
     });
+
+    // Load (or clear) the thread whenever the URL's selected conversation
+    // changes — including Back/forward and a deep-link once conversations load.
+    let loadedKey: string | null = null;
+    effect(() => {
+      const key = this.selectedKey();
+      const conv = this.selected();
+      if (key === loadedKey) return; // already handled this target
+      if (key && !conv) return; // chat set but conversations not loaded yet — wait
+      loadedKey = key;
+      if (conv) this.loadThread(conv);
+      else this.messages.set([]);
+    });
   }
 
   setFilter(f: Origin | 'all'): void {
-    this.originFilter.set(f);
+    this.navigate({ origin: f === 'all' ? null : f });
   }
 
+  /** Open a conversation = put it in the URL; the effect loads it. */
   open(c: Conversation): void {
-    this.selected.set(c);
+    this.navigate({ chat: `${c.origin}:${c.id}` });
+  }
+
+  /** Back to the list = drop ?chat (the in-app/mobile back affordance). */
+  back(): void {
+    this.navigate({ chat: null });
+  }
+
+  private navigate(queryParams: Record<string, string | null>): void {
+    void this.router.navigate([], { relativeTo: this.route, queryParams, queryParamsHandling: 'merge' });
+  }
+
+  private loadThread(c: Conversation): void {
     this.messages.set([]);
     this.threadError.set(false);
     this.hasMore.set(false);
@@ -111,11 +159,6 @@ export class App {
       },
       error: () => this.loadingOlder.set(false),
     });
-  }
-
-  /** Mobile: return from the thread to the conversation list. */
-  back(): void {
-    this.selected.set(null);
   }
 
   runSearch(): void {
