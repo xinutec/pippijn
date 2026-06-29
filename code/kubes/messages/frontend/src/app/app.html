@@ -10,32 +10,56 @@
 
   <div class="shell" [class.has-selection]="selected()">
     <aside class="list">
-      <div class="filters">
-        <button mat-button [class.active]="originFilter() === 'all'" (click)="setFilter('all')">
-          All
-        </button>
-        <button mat-button [class.active]="originFilter() === 'signal'" (click)="setFilter('signal')">
-          Signal
-        </button>
-        <button mat-button [class.active]="originFilter() === 'gchat'" (click)="setFilter('gchat')">
-          Google Chat
-        </button>
-      </div>
-      <mat-action-list>
-        @for (c of visibleConversations(); track c.origin + c.id) {
-          <button mat-list-item [class.active]="selected() === c" (click)="open(c)">
-            <span matListItemTitle>{{ title(c) }}</span>
-            <span matListItemLine>
-              {{ c.origin === 'signal' ? 'Signal' : 'Google Chat' }} · {{ c.message_count }} msgs
-              @if (c.last_ts) {
-                · {{ c.last_ts | date: 'mediumDate' }}
-              }
-            </span>
-          </button>
-        } @empty {
-          <p class="empty">No conversations.</p>
+      <form class="search" (ngSubmit)="runSearch()">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+          <mat-icon matPrefix>search</mat-icon>
+          <input matInput placeholder="Search messages" name="q" [(ngModel)]="query" />
+          @if (query()) {
+            <button matSuffix mat-icon-button type="button" (click)="clearSearch()" aria-label="Clear">
+              <mat-icon>close</mat-icon>
+            </button>
+          }
+        </mat-form-field>
+      </form>
+
+      @if (results() !== null) {
+        <!-- Search results replace the conversation list until cleared. -->
+        @if (searching()) {
+          <mat-progress-bar mode="indeterminate" />
         }
-      </mat-action-list>
+        <mat-action-list>
+          @for (h of results(); track h.origin + h.conversation_id + h.ts) {
+            <button mat-list-item (click)="openHit(h)">
+              <span matListItemTitle>{{ h.conversation_name || '(unnamed)' }}</span>
+              <span matListItemLine>{{ h.sender }}: {{ h.snippet }}</span>
+              <span matListItemMeta>{{ h.ts | date: 'shortDate' }}</span>
+            </button>
+          } @empty {
+            <p class="empty">No matches.</p>
+          }
+        </mat-action-list>
+      } @else {
+        <div class="filters">
+          <button mat-button [class.active]="originFilter() === 'all'" (click)="setFilter('all')">All</button>
+          <button mat-button [class.active]="originFilter() === 'signal'" (click)="setFilter('signal')">Signal</button>
+          <button mat-button [class.active]="originFilter() === 'gchat'" (click)="setFilter('gchat')">Google Chat</button>
+        </div>
+        <mat-action-list>
+          @for (c of visibleConversations(); track c.origin + c.id) {
+            <button mat-list-item [class.active]="selected() === c" (click)="open(c)">
+              <span matListItemTitle>{{ title(c) }}</span>
+              <span matListItemLine>
+                {{ c.origin === 'signal' ? 'Signal' : 'Google Chat' }} · {{ c.message_count }} msgs
+                @if (c.last_ts) {
+                  · {{ c.last_ts | date: 'mediumDate' }}
+                }
+              </span>
+            </button>
+          } @empty {
+            <p class="empty">No conversations.</p>
+          }
+        </mat-action-list>
+      }
     </aside>
 
     <main class="thread">
@@ -46,14 +70,27 @@
           </button>
           <h2>{{ title(c) }}</h2>
         </div>
+
         @if (loadingThread()) {
           <mat-progress-bar mode="indeterminate" />
+        } @else if (threadError()) {
+          <p class="error">Couldn't load this conversation. <button mat-button (click)="open(c)">Retry</button></p>
         } @else {
-          @for (m of messages(); track m.id) {
+          @if (hasMore()) {
+            <div class="load-older">
+              <button mat-stroked-button (click)="loadOlder()" [disabled]="loadingOlder()">
+                {{ loadingOlder() ? 'Loading…' : 'Load older messages' }}
+              </button>
+            </div>
+          }
+          @for (m of messages(); track m.id; let i = $index) {
+            @if (newDay(messages()[i - 1], m)) {
+              <div class="day">{{ m.ts | date: 'fullDate' }}</div>
+            }
             <div class="msg" [class.out]="m.is_outgoing">
               <div class="meta">
                 <span class="sender">{{ m.sender }}</span>
-                <span class="time">{{ m.ts | date: 'short' }}</span>
+                <span class="time">{{ m.ts | date: 'shortTime' }}</span>
                 @if (m.edited) {
                   <span class="tag">edited</span>
                 }

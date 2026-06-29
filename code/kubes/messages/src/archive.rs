@@ -18,6 +18,22 @@ pub fn valid_origin(origin: &str) -> bool {
     origin == ORIGIN_SIGNAL || origin == ORIGIN_GCHAT
 }
 
+/// Google Chat stores microsecond timestamps; the unified API uses milliseconds.
+pub fn us_to_ms(us: i64) -> i64 {
+    us / 1000
+}
+
+/// Conversation kind from the gchat `is_dm` flag.
+pub fn kind_from_is_dm(is_dm: bool) -> &'static str {
+    if is_dm { "dm" } else { "group" }
+}
+
+/// Escape a user search term for a SQL `LIKE` (so `%` and `_` are literal). The
+/// query still binds the result as a parameter; this only neutralises wildcards.
+pub fn escape_like(q: &str) -> String {
+    format!("%{}%", q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"))
+}
+
 #[derive(Serialize)]
 pub struct Conversation {
     pub origin: String,
@@ -93,9 +109,9 @@ pub async fn list_conversations(pool: &MySqlPool) -> Result<Vec<Conversation>> {
             origin: ORIGIN_GCHAT.into(),
             id: r.try_get("id")?,
             name: r.try_get("name")?,
-            kind: if is_dm != 0 { "dm".into() } else { "group".into() },
+            kind: kind_from_is_dm(is_dm != 0).into(),
             message_count: r.try_get("cnt")?,
-            last_ts: last_us.map(|u| u / 1000),
+            last_ts: last_us.map(us_to_ms),
         });
     }
 
@@ -231,7 +247,7 @@ async fn gchat_messages(
         ids.push(id);
         msgs.push(Message {
             id: id.to_string(),
-            ts: ts_us / 1000,
+            ts: us_to_ms(ts_us),
             sender: r.try_get::<Option<String>, _>("sender")?.unwrap_or_default(),
             is_outgoing: is_self != 0,
             body: r.try_get("body")?,
@@ -278,7 +294,7 @@ pub struct SearchHit {
 
 /// Simple substring search across both origins' message text. Newest first.
 pub async fn search(pool: &MySqlPool, q: &str, limit: i64) -> Result<Vec<SearchHit>> {
-    let like = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
+    let like = escape_like(q);
     let mut hits = Vec::new();
 
     let srows = sqlx::query(
@@ -323,7 +339,7 @@ pub async fn search(pool: &MySqlPool, q: &str, limit: i64) -> Result<Vec<SearchH
             origin: ORIGIN_GCHAT.into(),
             conversation_id: r.try_get("cid")?,
             conversation_name: r.try_get("cname")?,
-            ts: ts_us / 1000,
+            ts: us_to_ms(ts_us),
             sender: r.try_get::<Option<String>, _>("sender")?.unwrap_or_default(),
             snippet: r.try_get::<Option<String>, _>("body")?.unwrap_or_default(),
         });

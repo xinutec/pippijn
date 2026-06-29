@@ -83,9 +83,20 @@ Most steps are one-time. Steps 1–3 need actions only you can do.
    `kubectl -n signal rollout status deploy/messages` and check the cert:
    `kubectl -n signal get certificate messages-tls`.
 
+## Tests
+- `tests/archive.rs` — pure units (timestamp/kind/LIKE-escape) always run; the
+  end-to-end DB tests seed a fixture into a throwaway MariaDB and assert the real
+  queries (cross-origin sort, the `before` pagination cursor, Signal reaction
+  aggregation, edit/delete flags, µs→ms, search). They run when
+  `MESSAGES_TEST_DATABASE_URL` is set (CI provides a MariaDB service); skipped
+  otherwise. Run locally against an ephemeral DB, or `cargo test` for units only.
+
 ## Status
-Thin vertical slice: login (+ allow-list) → conversation list (both origins) →
-thread view + search. Not yet: message pagination UI (the API supports `before`),
-richer Signal edit-history rendering, attachment display. The `archive.rs`
-reaction aggregation for Signal approximates live state as distinct non-removed
-authors per emoji (ignores same-author add-then-remove within a page).
+Login (+ allow-list) → conversation list (both origins, filter) → thread view with
+**pagination** ("load older" via `before`), date separators, edit/deleted markers,
+reactions → cross-origin **search**. CI gates clippy + the seeded DB tests +
+angular-eslint + a prod build; the pod has readiness/liveness probes on `/healthz`.
+Not yet: attachment display (Signal bytes live on a PVC the viewer doesn't mount;
+gchat has metadata only), richer Signal edit-history threading. The Signal reaction
+count approximates live state as distinct non-removed authors per emoji (ignores a
+same-author add-then-remove within a page).

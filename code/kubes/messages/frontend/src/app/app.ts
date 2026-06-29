@@ -10,7 +10,9 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatToolbarModule } from '@angular/material/toolbar';
 
 import { MessagesApi } from './messages-api';
-import { Conversation, Me, Message, Origin } from './models';
+import { Conversation, Me, Message, Origin, SearchHit } from './models';
+
+const PAGE = 100;
 
 @Component({
   selector: 'app-root',
@@ -36,9 +38,20 @@ export class App {
 
   readonly conversations = signal<Conversation[]>([]);
   readonly originFilter = signal<Origin | 'all'>('all');
+
+  // Thread state.
   readonly selected = signal<Conversation | null>(null);
   readonly messages = signal<Message[]>([]);
   readonly loadingThread = signal(false);
+  readonly loadingOlder = signal(false);
+  readonly hasMore = signal(false);
+  readonly threadError = signal(false);
+  private cursor: number | null = null;
+
+  // Search state. `results === null` → showing the conversation list.
+  readonly query = signal('');
+  readonly results = signal<SearchHit[] | null>(null);
+  readonly searching = signal(false);
 
   readonly visibleConversations = computed(() => {
     const f = this.originFilter();
@@ -67,13 +80,36 @@ export class App {
   open(c: Conversation): void {
     this.selected.set(c);
     this.messages.set([]);
+    this.threadError.set(false);
+    this.hasMore.set(false);
+    this.cursor = null;
     this.loadingThread.set(true);
-    this.api.messages(c.origin, c.id).subscribe({
+    this.api.messages(c.origin, c.id, undefined, PAGE).subscribe({
       next: (page) => {
         this.messages.set(page.messages);
+        this.hasMore.set(page.has_more);
+        this.cursor = page.next_before;
         this.loadingThread.set(false);
       },
-      error: () => this.loadingThread.set(false),
+      error: () => {
+        this.threadError.set(true);
+        this.loadingThread.set(false);
+      },
+    });
+  }
+
+  loadOlder(): void {
+    const c = this.selected();
+    if (!c || !this.hasMore() || this.cursor == null || this.loadingOlder()) return;
+    this.loadingOlder.set(true);
+    this.api.messages(c.origin, c.id, this.cursor, PAGE).subscribe({
+      next: (page) => {
+        this.messages.update((cur) => [...page.messages, ...cur]); // prepend older
+        this.hasMore.set(page.has_more);
+        this.cursor = page.next_before;
+        this.loadingOlder.set(false);
+      },
+      error: () => this.loadingOlder.set(false),
     });
   }
 
@@ -82,8 +118,44 @@ export class App {
     this.selected.set(null);
   }
 
+  runSearch(): void {
+    const q = this.query().trim();
+    if (!q) {
+      this.results.set(null);
+      return;
+    }
+    this.searching.set(true);
+    this.api.search(q).subscribe({
+      next: (hits) => {
+        this.results.set(hits);
+        this.searching.set(false);
+      },
+      error: () => {
+        this.results.set([]);
+        this.searching.set(false);
+      },
+    });
+  }
+
+  clearSearch(): void {
+    this.query.set('');
+    this.results.set(null);
+  }
+
+  /** Open the conversation a search hit belongs to (looked up from the list). */
+  openHit(h: SearchHit): void {
+    const c = this.conversations().find((x) => x.origin === h.origin && x.id === h.conversation_id);
+    if (c) this.open(c);
+  }
+
   title(c: Conversation): string {
     return c.name?.trim() || (c.kind === 'dm' ? 'Direct message' : 'Group');
+  }
+
+  /** True when message `cur` falls on a different calendar day than `prev`. */
+  newDay(prev: Message | undefined, cur: Message): boolean {
+    if (!prev) return true;
+    return new Date(prev.ts).toDateString() !== new Date(cur.ts).toDateString();
   }
 
   signOut(): void {
