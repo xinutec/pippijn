@@ -1,11 +1,15 @@
 package org.xinutec.life
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
 import android.view.ViewGroup
+import android.webkit.PermissionRequest
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 
@@ -24,6 +28,9 @@ import android.webkit.WebViewClient
  */
 class MainActivity : Activity() {
     private lateinit var web: WebView
+
+    // A pending web camera request, held while the OS permission dialog is up.
+    private var pendingCameraRequest: PermissionRequest? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,6 +63,24 @@ class MainActivity : Activity() {
                             }
                         }
                     }
+                // The barcode scanner calls getUserMedia; a WebView denies camera
+                // access unless we explicitly grant it. Grant video capture, asking
+                // the OS for the runtime CAMERA permission first if we lack it.
+                webChromeClient =
+                    object : WebChromeClient() {
+                        override fun onPermissionRequest(request: PermissionRequest) {
+                            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE !in request.resources) {
+                                request.deny()
+                                return
+                            }
+                            if (hasCameraPermission()) {
+                                request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
+                            } else {
+                                pendingCameraRequest = request
+                                requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_REQ)
+                            }
+                        }
+                    }
                 // The page is dark; black avoids a white flash and fills the strips
                 // behind the (transparent, edge-to-edge) system bars.
                 setBackgroundColor(Color.BLACK)
@@ -73,7 +98,28 @@ class MainActivity : Activity() {
         if (web.canGoBack()) web.goBack() else super.onBackPressed()
     }
 
+    private fun hasCameraPermission() =
+        checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    // Resolve the held web camera request once the user answers the OS dialog.
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != CAMERA_REQ) return
+        val request = pendingCameraRequest ?: return
+        pendingCameraRequest = null
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
+        } else {
+            request.deny()
+        }
+    }
+
     companion object {
+        private const val CAMERA_REQ = 1
         // The life app (HTTPS, behind a Nextcloud-identity login).
         private const val LIFE_URL = "https://life.xinutec.org/"
         private const val KEY_LAST_URL = "last_url"
