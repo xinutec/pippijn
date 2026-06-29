@@ -1,6 +1,11 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p git git-crypt nodejs_22 gh
+#!nix-shell -i bash -p git git-crypt nodejs_24 gh -I nixpkgs=channel:nixos-26.05
 # Deploy the health-sync app end-to-end.
+#
+# Node is pinned to the nixos-26.05 channel's nodejs_24 (24.16+) because
+# the Angular 22 frontend build hard-requires Node >= 24.15 (the default
+# channel's nodejs_22/24 are a patch too old). See the 2026-06-29 Angular
+# 21->22 + zoneless migration.
 #
 # Runs `npm run verify` (typecheck + lint + tests), commits the
 # staged-or-stageable changes under `code/kubes/health/`, pushes

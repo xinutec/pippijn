@@ -1,4 +1,4 @@
-import { Component, inject, signal } from "@angular/core";
+import { Component, inject, signal, ChangeDetectionStrategy } from "@angular/core";
 import { MatButtonModule } from "@angular/material/button";
 import { MatIconModule } from "@angular/material/icon";
 import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";
@@ -30,6 +30,7 @@ type ConnectState = "idle" | "starting" | "waiting" | "success" | "failed";
 	standalone: true,
 	imports: [MatButtonModule, MatIconModule, MatProgressSpinnerModule],
 	templateUrl: "./reauth-banner.component.html",
+	changeDetection: ChangeDetectionStrategy.OnPush,
 	styleUrl: "./reauth-banner.component.scss",
 })
 export class ReauthBannerComponent {

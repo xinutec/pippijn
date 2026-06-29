@@ -4,7 +4,7 @@
     @if (points().length === 0) {
       <p class="no-data">No heart rate data available</p>
     } @else {
-      <canvas baseChart [data]="chartData" [options]="chartOptions" type="line"></canvas>
+      <canvas baseChart [data]="chartData()" [options]="chartOptions()" type="line"></canvas>
     }
   </mat-card-content>
 </mat-card>

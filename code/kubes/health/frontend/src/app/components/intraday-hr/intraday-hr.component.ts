@@ -1,4 +1,4 @@
-import { Component, input, effect } from "@angular/core";
+import { Component, input, effect, ChangeDetectionStrategy, signal } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import { BaseChartDirective } from "ng2-charts";
 import type { ChartConfiguration } from "chart.js";
@@ -11,13 +11,14 @@ import { formatLocalTime } from "../../time-utils";
   standalone: true,
   imports: [MatCardModule, BaseChartDirective],
   templateUrl: './intraday-hr.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './intraday-hr.component.scss',
 })
 export class IntradayHrComponent {
   readonly points = input<HeartRatePoint[]>([]);
 
-  chartData: ChartConfiguration<"line">["data"] = { labels: [], datasets: [] };
-  chartOptions: ChartConfiguration<"line">["options"] = {
+  readonly chartData = signal<ChartConfiguration<"line">["data"]>({ labels: [], datasets: [] });
+  readonly chartOptions = signal<ChartConfiguration<"line">["options"]>({
     responsive: true,
     maintainAspectRatio: true,
     plugins: { legend: { display: false } },
@@ -33,7 +34,7 @@ export class IntradayHrComponent {
         suggestedMin: 40,
       },
     },
-  };
+  });
 
   constructor() {
     effect(() => {
@@ -43,7 +44,7 @@ export class IntradayHrComponent {
       // Downsample to every 5 minutes for performance
       const sampled = data.filter((_, i) => i % 5 === 0);
 
-      this.chartData = {
+      this.chartData.set({
         labels: sampled.map((p) => formatLocalTime(p.ts)),
         datasets: [{
           data: sampled.map((p) => p.bpm),
@@ -53,7 +54,7 @@ export class IntradayHrComponent {
           tension: 0.2,
           borderWidth: 1.5,
         }],
-      };
+      });
     });
   }
 }

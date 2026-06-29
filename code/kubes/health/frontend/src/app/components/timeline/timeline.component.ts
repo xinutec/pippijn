@@ -1,4 +1,4 @@
-import { Component, computed, input } from "@angular/core";
+import { Component, computed, input, ChangeDetectionStrategy } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import { MatIconModule } from "@angular/material/icon";
 import type { DayState, TrackSegment, VelocityData } from "../../services/health.service";
@@ -38,6 +38,7 @@ const MODE_ICONS: Record<string, string> = {
   standalone: true,
   imports: [MatCardModule, MatIconModule],
   templateUrl: "./timeline.component.html",
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: "./timeline.component.scss",
 })
 export class TimelineComponent {

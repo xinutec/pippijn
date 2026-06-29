@@ -1,15 +1,16 @@
 import {
-	Component,
-	computed,
-	effect,
-	type ElementRef,
-	inject,
-	input,
-	model,
-	NgZone,
-	type OnDestroy,
-	signal,
-	viewChild,
+  Component,
+  computed,
+  effect,
+  type ElementRef,
+  inject,
+  input,
+  model,
+  NgZone,
+  type OnDestroy,
+  signal,
+  viewChild,
+  ChangeDetectionStrategy
 } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import { MatCheckboxModule } from "@angular/material/checkbox";
@@ -59,6 +60,7 @@ const DEFAULT_COLOR = "#94a3b8";
 	standalone: true,
 	imports: [MatCardModule, MatCheckboxModule],
 	templateUrl: "./map.component.html",
+	changeDetection: ChangeDetectionStrategy.OnPush,
 	styleUrl: "./map.component.scss",
 })
 export class MapComponent implements OnDestroy {

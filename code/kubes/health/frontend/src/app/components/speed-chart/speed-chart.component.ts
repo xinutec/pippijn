@@ -1,4 +1,4 @@
-import { Component, effect, ElementRef, input, type OnDestroy, signal, viewChild } from "@angular/core";
+import { Component, effect, ElementRef, input, type OnDestroy, signal, viewChild, ChangeDetectionStrategy } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { VelocityData } from "../../services/health.service";
 
@@ -27,6 +27,7 @@ const MODE_LABELS: Record<string, string> = {
 	standalone: true,
 	imports: [MatCardModule],
 	templateUrl: './speed-chart.component.html',
+	changeDetection: ChangeDetectionStrategy.OnPush,
 	styleUrl: './speed-chart.component.scss',
 })
 export class SpeedChartComponent implements OnDestroy {

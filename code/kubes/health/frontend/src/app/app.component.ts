@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject } from "@angular/core";
+import { Component, computed, effect, inject, ChangeDetectionStrategy } from "@angular/core";
 import { toSignal } from "@angular/core/rxjs-interop";
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from "@angular/router";
 import { filter, map, startWith } from "rxjs/operators";
@@ -31,6 +31,7 @@ type AppMode = "dashboard" | "settings" | "share";
 		ReauthBannerComponent,
 	],
 	templateUrl: "./app.component.html",
+	changeDetection: ChangeDetectionStrategy.OnPush,
 	styleUrl: "./app.component.scss",
 })
 export class AppComponent {

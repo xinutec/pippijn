@@ -1,4 +1,4 @@
-import { Component, effect, input } from "@angular/core";
+import { Component, effect, input, ChangeDetectionStrategy, signal } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { ChartConfiguration } from "chart.js";
 import { BaseChartDirective } from "ng2-charts";
@@ -10,6 +10,7 @@ import type { BodyDay } from "../../services/health.service";
   standalone: true,
   imports: [MatCardModule, BaseChartDirective],
   templateUrl: "./weight-chart.component.html",
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: "./weight-chart.component.scss",
 })
 export class WeightChartComponent {
@@ -18,8 +19,8 @@ export class WeightChartComponent {
   private static readonly PAD_KG = 1;
   private static readonly MIN_SPAN_KG = 4;
 
-  chartData: ChartConfiguration<"line">["data"] = { datasets: [] };
-  chartOptions: ChartConfiguration<"line">["options"] = this.buildOptions(60, 80);
+  readonly chartData = signal<ChartConfiguration<"line">["data"]>({ datasets: [] });
+  readonly chartOptions = signal<ChartConfiguration<"line">["options"]>(this.buildOptions(60, 80));
 
   // Weigh-ins are sparse and irregular, so the x-axis is a real *linear* time
   // scale keyed on the date (epoch ms) — horizontal distance = elapsed time, so
@@ -67,7 +68,7 @@ export class WeightChartComponent {
         .sort((a, b) => a.x - b.x);
 
       if (pts.length === 0) {
-        this.chartData = { datasets: [] };
+        this.chartData.set({ datasets: [] });
         return;
       }
 
@@ -80,9 +81,9 @@ export class WeightChartComponent {
         lo = Math.floor(lo - grow);
         hi = Math.ceil(hi + grow);
       }
-      this.chartOptions = this.buildOptions(Math.max(0, lo), hi);
+      this.chartOptions.set(this.buildOptions(Math.max(0, lo), hi));
 
-      this.chartData = {
+      this.chartData.set({
         datasets: [
           {
             label: "Weight",
@@ -94,7 +95,7 @@ export class WeightChartComponent {
             pointRadius: 2,
           },
         ],
-      };
+      });
     });
   }
 }

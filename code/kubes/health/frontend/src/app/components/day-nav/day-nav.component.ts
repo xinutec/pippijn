@@ -1,4 +1,4 @@
-import { Component, input, output } from "@angular/core";
+import { Component, input, output, ChangeDetectionStrategy } from "@angular/core";
 import { MatButtonModule } from "@angular/material/button";
 import { MatIconModule } from "@angular/material/icon";
 
@@ -14,6 +14,7 @@ import { MatIconModule } from "@angular/material/icon";
 	standalone: true,
 	imports: [MatButtonModule, MatIconModule],
 	templateUrl: "./day-nav.component.html",
+	changeDetection: ChangeDetectionStrategy.OnPush,
 	styleUrl: "./day-nav.component.scss",
 })
 export class DayNavComponent {

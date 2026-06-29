@@ -1,4 +1,4 @@
-import { Component, type OnDestroy, type OnInit, computed, effect, inject, resource, signal } from "@angular/core";
+import { Component, type OnDestroy, type OnInit, computed, effect, inject, resource, signal, ChangeDetectionStrategy } from "@angular/core";
 import { DecimalPipe, KeyValuePipe } from "@angular/common";
 import { ActivatedRoute, Router } from "@angular/router";
 import { Subscription } from "rxjs";
@@ -136,6 +136,7 @@ export interface LoadTimings {
 		WeightChartComponent,
 	],
 	templateUrl: "./dashboard.component.html",
+	changeDetection: ChangeDetectionStrategy.OnPush,
 	styleUrl: "./dashboard.component.scss",
 })
 export class DashboardComponent implements OnInit, OnDestroy {

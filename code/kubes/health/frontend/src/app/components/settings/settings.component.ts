@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from "@angular/core";
+import { Component, OnInit, inject, signal, ChangeDetectionStrategy } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCardModule } from "@angular/material/card";
@@ -41,6 +41,7 @@ import { HealthService } from "../../services/health.service";
 		RouterLink,
 	],
 	templateUrl: "./settings.component.html",
+	changeDetection: ChangeDetectionStrategy.OnPush,
 	styleUrl: "./settings.component.scss",
 })
 export class SettingsComponent implements OnInit {
@@ -51,7 +52,7 @@ export class SettingsComponent implements OnInit {
 	daysInput = 7;
 	/** Editable day-window for an ALREADY-active share — seeded from the
 	 *  loaded status so "Update days" can change it without rotating. */
-	editDays = 7;
+	readonly editDays = signal(7);
 
 	async ngOnInit(): Promise<void> {
 		await this.refresh();
@@ -63,7 +64,7 @@ export class SettingsComponent implements OnInit {
 		try {
 			await this.health.refreshShareStatus();
 			const s = this.health.shareStatus();
-			if (s?.active && typeof s.daysBack === "number") this.editDays = s.daysBack;
+			if (s?.active && typeof s.daysBack === "number") this.editDays.set(s.daysBack);
 		} catch (e) {
 			this.error.set((e as Error).message);
 		} finally {
@@ -93,7 +94,7 @@ export class SettingsComponent implements OnInit {
 	async updateDays(): Promise<void> {
 		this.error.set(null);
 		try {
-			await this.health.updateShareDays(this.editDays);
+			await this.health.updateShareDays(this.editDays());
 			this.snackBar.open("Share window updated", "Dismiss", { duration: 2000 });
 		} catch (e) {
 			this.error.set((e as Error).message);

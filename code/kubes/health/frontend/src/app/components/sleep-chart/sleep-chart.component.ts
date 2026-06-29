@@ -1,4 +1,4 @@
-import { Component, input, effect } from "@angular/core";
+import { Component, input, effect, ChangeDetectionStrategy, signal } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import { BaseChartDirective } from "ng2-charts";
 import type { ChartConfiguration } from "chart.js";
@@ -10,13 +10,14 @@ import { chartColors, gridColor, tickColor, formatDay } from "../../chart-theme"
   standalone: true,
   imports: [MatCardModule, BaseChartDirective],
   templateUrl: './sleep-chart.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './sleep-chart.component.scss',
 })
 export class SleepChartComponent {
   readonly sleep = input<SleepLog[]>([]);
 
-  chartData: ChartConfiguration<"bar">["data"] = { labels: [], datasets: [] };
-  chartOptions: ChartConfiguration<"bar">["options"] = {
+  readonly chartData = signal<ChartConfiguration<"bar">["data"]>({ labels: [], datasets: [] });
+  readonly chartOptions = signal<ChartConfiguration<"bar">["options"]>({
     responsive: true,
     maintainAspectRatio: true,
     plugins: {
@@ -30,14 +31,14 @@ export class SleepChartComponent {
         grid: { color: gridColor },
       },
     },
-  };
+  });
 
   constructor() {
     effect(() => {
       const main = this.sleep().filter((s) => s.is_main_sleep);
       const toHours = (mins: number | null) => (mins ?? 0) / 60;
 
-      this.chartData = {
+      this.chartData.set({
         labels: main.map((s) => formatDay(s.date)),
         datasets: [
           { label: "Deep", data: main.map((s) => toHours(s.minutes_deep)), backgroundColor: chartColors.deepBlue, borderRadius: 2 },
@@ -45,7 +46,7 @@ export class SleepChartComponent {
           { label: "REM", data: main.map((s) => toHours(s.minutes_rem)), backgroundColor: chartColors.purple, borderRadius: 2 },
           { label: "Awake", data: main.map((s) => toHours(s.minutes_wake)), backgroundColor: chartColors.amber, borderRadius: 2 },
         ],
-      };
+      });
     });
   }
 }

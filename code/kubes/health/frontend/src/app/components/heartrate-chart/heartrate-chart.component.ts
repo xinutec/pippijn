@@ -1,4 +1,4 @@
-import { Component, input, effect } from "@angular/core";
+import { Component, input, effect, ChangeDetectionStrategy, signal } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import { BaseChartDirective } from "ng2-charts";
 import type { ChartConfiguration } from "chart.js";
@@ -10,6 +10,7 @@ import { chartColors, gridColor, tickColor, formatDay } from "../../chart-theme"
   standalone: true,
   imports: [MatCardModule, BaseChartDirective],
   templateUrl: './heartrate-chart.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './heartrate-chart.component.scss',
 })
 export class HeartrateChartComponent {
@@ -23,8 +24,8 @@ export class HeartrateChartComponent {
    *  dramatic swing. ~15 bpm keeps real trends visible without crying wolf. */
   private static readonly MIN_SPAN = 15;
 
-  chartData: ChartConfiguration<"line">["data"] = { labels: [], datasets: [] };
-  chartOptions: ChartConfiguration<"line">["options"] = this.buildOptions(50, 90);
+  readonly chartData = signal<ChartConfiguration<"line">["data"]>({ labels: [], datasets: [] });
+  readonly chartOptions = signal<ChartConfiguration<"line">["options"]>(this.buildOptions(50, 90));
 
   /** Fit the y-axis to [lo, hi] rather than a fixed 50–90 band, so the
    *  actual resting-HR variation fills the chart. */
@@ -54,10 +55,10 @@ export class HeartrateChartComponent {
           lo = Math.floor(lo - grow);
           hi = Math.ceil(hi + grow);
         }
-        this.chartOptions = this.buildOptions(lo, hi);
+        this.chartOptions.set(this.buildOptions(lo, hi));
       }
 
-      this.chartData = {
+      this.chartData.set({
         labels: data.map((d) => formatDay(d.date)),
         datasets: [{
           data: values,
@@ -67,7 +68,7 @@ export class HeartrateChartComponent {
           tension: 0.3,
           pointRadius: 3,
         }],
-      };
+      });
     });
   }
 }

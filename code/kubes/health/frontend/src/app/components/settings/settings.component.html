@@ -40,7 +40,7 @@
 					</p>
 					<mat-form-field appearance="outline" subscriptSizing="dynamic">
 						<mat-label>Days to share</mat-label>
-						<input matInput type="number" min="1" max="365" [(ngModel)]="editDays" />
+						<input matInput type="number" min="1" max="365" [ngModel]="editDays()" (ngModelChange)="editDays.set($event)" />
 						<mat-hint>Change this and press "Update days" — the link stays the same.</mat-hint>
 					</mat-form-field>
 				} @else {
@@ -60,7 +60,7 @@
 				@if (s.active) {
 					<button mat-button color="warn" (click)="revoke()">Revoke</button>
 					<button mat-stroked-button (click)="rotate(s.daysBack ?? 7)">Generate new link</button>
-					<button mat-raised-button color="primary" (click)="updateDays()" [disabled]="editDays === s.daysBack">
+					<button mat-raised-button color="primary" (click)="updateDays()" [disabled]="editDays() === s.daysBack">
 						Update days
 					</button>
 				} @else {

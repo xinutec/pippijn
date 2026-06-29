@@ -1,4 +1,4 @@
-import { Component, input, effect } from "@angular/core";
+import { Component, input, effect, ChangeDetectionStrategy, signal } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import { BaseChartDirective } from "ng2-charts";
 import type { ChartConfiguration } from "chart.js";
@@ -10,6 +10,7 @@ import { chartColors, gridColor, tickColor, formatDay } from "../../chart-theme"
   standalone: true,
   imports: [MatCardModule, BaseChartDirective],
   templateUrl: "./hrv-chart.component.html",
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: "./hrv-chart.component.scss",
 })
 export class HrvChartComponent {
@@ -18,8 +19,8 @@ export class HrvChartComponent {
   private static readonly PAD = 2;
   private static readonly MIN_SPAN = 10;
 
-  chartData: ChartConfiguration<"line">["data"] = { labels: [], datasets: [] };
-  chartOptions: ChartConfiguration<"line">["options"] = this.buildOptions(0, 80);
+  readonly chartData = signal<ChartConfiguration<"line">["data"]>({ labels: [], datasets: [] });
+  readonly chartOptions = signal<ChartConfiguration<"line">["options"]>(this.buildOptions(0, 80));
 
   private buildOptions(min: number, max: number): ChartConfiguration<"line">["options"] {
     return {
@@ -45,7 +46,7 @@ export class HrvChartComponent {
     effect(() => {
       const data = this.hrv();
       if (data.length === 0) {
-        this.chartData = { labels: [], datasets: [] };
+        this.chartData.set({ labels: [], datasets: [] });
         return;
       }
 
@@ -61,9 +62,9 @@ export class HrvChartComponent {
         lo = Math.floor(lo - grow);
         hi = Math.ceil(hi + grow);
       }
-      this.chartOptions = this.buildOptions(Math.max(0, lo), hi);
+      this.chartOptions.set(this.buildOptions(Math.max(0, lo), hi));
 
-      this.chartData = {
+      this.chartData.set({
         labels: data.map((d) => formatDay(d.date)),
         datasets: [
           {
@@ -85,7 +86,7 @@ export class HrvChartComponent {
             pointRadius: 3,
           },
         ],
-      };
+      });
     });
   }
 }

@@ -1,4 +1,4 @@
-import { Component, ElementRef, type OnDestroy, effect, input, signal, viewChild } from "@angular/core";
+import { Component, ElementRef, type OnDestroy, effect, input, signal, viewChild, ChangeDetectionStrategy } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { VelocityData } from "../../services/health.service";
 import { browserTimezone } from "../../time-utils";
@@ -15,6 +15,7 @@ import { batteryMarker, batteryTimeLabels, batteryXRange } from "./battery-chart
 	standalone: true,
 	imports: [MatCardModule],
 	templateUrl: "./battery-chart.component.html",
+	changeDetection: ChangeDetectionStrategy.OnPush,
 	styleUrl: "./battery-chart.component.scss",
 })
 export class BatteryChartComponent implements OnDestroy {

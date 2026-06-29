@@ -1,4 +1,4 @@
-import { Component, computed, input } from "@angular/core";
+import { Component, computed, input, ChangeDetectionStrategy } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { ActivityDay, SleepLog } from "../../services/health.service";
 
@@ -9,6 +9,7 @@ const DASH = "—";
 	standalone: true,
 	imports: [MatCardModule],
 	templateUrl: "./summary-cards.component.html",
+	changeDetection: ChangeDetectionStrategy.OnPush,
 	styleUrl: "./summary-cards.component.scss",
 })
 export class SummaryCardsComponent {

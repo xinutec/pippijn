@@ -1,4 +1,4 @@
-import { Component, effect, ElementRef, input, type OnDestroy, signal, viewChild } from "@angular/core";
+import { Component, effect, ElementRef, input, type OnDestroy, signal, viewChild, ChangeDetectionStrategy } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
 import type { SleepStage } from "../../services/health.service";
 import { localEpoch } from "../../time-utils";
@@ -28,6 +28,7 @@ const STAGE_LABELS = ["Awake", "REM", "Light", "Deep"];
   standalone: true,
   imports: [MatCardModule],
   templateUrl: './hypnogram.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './hypnogram.component.scss',
 })
 export class HypnogramComponent implements OnDestroy {
