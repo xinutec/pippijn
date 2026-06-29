@@ -19,9 +19,14 @@ pub async fn lookup(
     Path(barcode): Path<String>,
 ) -> Result<Json<Product>, AppError> {
     if let Some(p) = repo::get(&app.pool, &barcode).await? {
+        tracing::debug!(%barcode, "product cache hit");
         return Ok(Json(p));
     }
-    let found = off::fetch(&app.http, &barcode).await?.ok_or(AppError::NotFound)?;
+    let Some(found) = off::fetch(&app.http, &barcode).await? else {
+        tracing::debug!(%barcode, "product not in Open Food Facts");
+        return Err(AppError::NotFound);
+    };
+    tracing::debug!(%barcode, name = ?found.name, has_image = found.image_url.is_some(), "product fetched from Open Food Facts");
     let image = match &found.image_url {
         Some(url) => off::fetch_image(&app.http, url).await.ok().flatten(),
         None => None,

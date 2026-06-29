@@ -31,9 +31,15 @@ pub async fn pull_shopping(
     Query(q): Query<PullQuery>,
 ) -> Result<Json<PullResponse>, AppError> {
     let limit = q.limit.clamp(1, 1000);
-    Ok(Json(
-        repo::pull_shopping(&app.pool, &user.user_id, q.since, limit).await?,
-    ))
+    let res = repo::pull_shopping(&app.pool, &user.user_id, q.since, limit).await?;
+    tracing::debug!(
+        user = %user.user_id,
+        since = q.since,
+        returned = res.documents.len(),
+        checkpoint = res.checkpoint.rev,
+        "sync pull shopping"
+    );
+    Ok(Json(res))
 }
 
 /// POST /api/sync/shopping — body: array of `{newDocumentState, assumedMasterState}`.
@@ -43,7 +49,13 @@ pub async fn push_shopping(
     AuthUser(user): AuthUser,
     Json(entries): Json<Vec<PushEntry>>,
 ) -> Result<Json<Vec<ShoppingDoc>>, AppError> {
-    Ok(Json(
-        repo::push_shopping(&app.pool, &user.user_id, entries).await?,
-    ))
+    let pushed = entries.len();
+    let conflicts = repo::push_shopping(&app.pool, &user.user_id, entries).await?;
+    tracing::debug!(
+        user = %user.user_id,
+        pushed,
+        conflicts = conflicts.len(),
+        "sync push shopping"
+    );
+    Ok(Json(conflicts))
 }

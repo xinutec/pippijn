@@ -11,6 +11,8 @@ pub mod sync;
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 use crate::state::AppState;
 
@@ -56,7 +58,14 @@ pub fn router(state: AppState) -> Router {
             get(sync::pull_shopping).post(sync::push_shopping),
         )
         .route("/products/{barcode}", get(products::lookup))
-        .route("/products/{barcode}/image", get(products::image));
+        .route("/products/{barcode}/image", get(products::image))
+        // One INFO line per API request (method, path, status, latency). Scoped to
+        // /api so static-asset serving and the k8s /healthz probe don't spam it.
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        );
 
     let mut app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
