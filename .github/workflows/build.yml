@@ -171,6 +171,11 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npx ng build --configuration production
+      # Real-browser render check: icon fonts actually load, no text overlaps.
+      # Catches render bugs jsdom unit tests can't see (e.g. an icon font that
+      # falls back to its ligature word). Serves the app via `ng serve`.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run ui-check
 
   messages:
     needs: [messages-verify, messages-fe-verify]
