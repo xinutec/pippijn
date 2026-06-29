@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { expectIconFontLoaded, expectNoTextOverlaps } from "./ui-overlap";
 
 /**
@@ -34,14 +34,13 @@ test("authenticated shell renders: icon font loaded, no text overlaps @ 390px", 
   await expectNoTextOverlaps(page);
 });
 
-// A thread spanning several days, long enough to scroll. The date separators
-// must not pile up on each other at the top when scrolled (the sticky-stacking
-// bug). 4 days × 12 messages → 4 separators + plenty of scroll height.
+// Two days, each tall enough (25 messages) to exceed the viewport so a day's
+// sticky header actually pins while scrolling within it.
 function multiDayThread() {
-  const base = Date.UTC(2026, 0, 1, 12, 0, 0);
+  const base = Date.UTC(2026, 0, 1, 12, 0, 0); // Jan 1 (Thu), Jan 2 (Fri)
   const out = [];
-  for (let d = 0; d < 4; d++) {
-    for (let k = 0; k < 12; k++) {
+  for (let d = 0; d < 2; d++) {
+    for (let k = 0; k < 25; k++) {
       const ts = base + d * 86_400_000 + k * 60_000;
       out.push({ id: `${d}-${k}`, ts, sender: "Alice", is_outgoing: false, body: `msg ${d}-${k}`, deleted: false, edited: false, reactions: [], attachments: [] });
     }
@@ -55,12 +54,36 @@ test("a scrolled multi-day thread does not stack date separators", async ({ page
     r.fulfill({ json: { messages: multiDayThread(), has_more: false, next_before: null } }),
   );
   await page.goto("/?chat=signal:dm:a");
-  await page.getByText("msg 3-11", { exact: true }).waitFor();
-  // Scroll the thread to the bottom — where the sticky bug piled the dates up.
+  await page.getByText("msg 1-24", { exact: true }).waitFor();
+  // Scroll the thread to the bottom — where the sticky bug piled the dates up,
+  // and where the last day's header now floats (sticky) over its messages.
   await page.evaluate(() => {
     const t = document.querySelector(".thread");
     if (t) t.scrollTop = t.scrollHeight;
   });
   await page.waitForTimeout(150);
   await expectNoTextOverlaps(page);
+});
+
+test("the current day's date stays pinned at the top while scrolling", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/conversations/**/messages**", (r) =>
+    r.fulfill({ json: { messages: multiDayThread(), has_more: false, next_before: null } }),
+  );
+  await page.goto("/?chat=signal:dm:a");
+  await page.getByText("msg 0-0", { exact: true }).waitFor();
+  // Scroll down within the first (tall) day so its header has scrolled past.
+  await page.evaluate(() => {
+    const t = document.querySelector(".thread");
+    if (t) t.scrollTop = 400;
+  });
+  await page.waitForTimeout(150);
+  // Day 1's header is pinned at the top of the thread (visible, near the top),
+  // not scrolled away above it (which would read as a large negative offset).
+  const threadTop = await page.locator(".thread").evaluate((e) => e.getBoundingClientRect().top);
+  const box = await page.getByText("Thursday, January 1, 2026", { exact: true }).boundingBox();
+  expect(box).not.toBeNull();
+  const offset = (box?.y ?? -999) - threadTop;
+  expect(offset).toBeGreaterThanOrEqual(-2); // still visible at the top, not scrolled off
+  expect(offset).toBeLessThan(48); // pinned, not at its in-flow position far down
 });

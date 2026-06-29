@@ -119,14 +119,16 @@ describe('App', () => {
     expect(app.results()).toBeNull();
   });
 
-  it('newDay marks day boundaries', () => {
+  it('dayGroups buckets consecutive messages by calendar day', () => {
     const { app } = setup(makeApi());
     const d1 = new Date(2026, 5, 1, 9, 0, 0).getTime();
     const d1b = new Date(2026, 5, 1, 18, 0, 0).getTime();
     const d2 = new Date(2026, 5, 2, 9, 0, 0).getTime();
-    expect(app.newDay(undefined, msg('a', d1))).toBe(true);
-    expect(app.newDay(msg('a', d1), msg('b', d1b))).toBe(false);
-    expect(app.newDay(msg('a', d1b), msg('b', d2))).toBe(true);
+    app.messages.set([msg('a', d1), msg('b', d1b), msg('c', d2)]);
+    const groups = app.dayGroups();
+    expect(groups.length).toBe(2);
+    expect(groups[0].items.map((m) => m.id)).toEqual(['a', 'b']);
+    expect(groups[1].items.map((m) => m.id)).toEqual(['c']);
   });
 
   it('title falls back when a conversation is unnamed', () => {

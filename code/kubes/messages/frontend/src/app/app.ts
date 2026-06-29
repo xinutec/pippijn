@@ -83,6 +83,24 @@ export class App {
     return f === 'all' ? list : list.filter((c) => c.origin === f);
   });
 
+  /** Messages bucketed by calendar day, so each day renders as a section with a
+   *  sticky date header (the header pins only within its own day → it shows the
+   *  current top message's date and is replaced by the next day, never stacks). */
+  readonly dayGroups = computed(() => {
+    const groups: { key: string; ts: number; items: Message[] }[] = [];
+    let lastKey: string | null = null;
+    for (const m of this.messages()) {
+      const key = new Date(m.ts).toDateString();
+      if (key === lastKey) {
+        groups[groups.length - 1].items.push(m);
+      } else {
+        groups.push({ key, ts: m.ts, items: [m] });
+        lastKey = key;
+      }
+    }
+    return groups;
+  });
+
   constructor() {
     this.api.me().subscribe({
       next: (m) => {
@@ -223,12 +241,6 @@ export class App {
     // `||`/`??`/`x?x:y`) makes the empty-string-is-no-name intent unambiguous.
     const name = c.name?.trim() ?? '';
     return name.length > 0 ? name : c.kind === 'dm' ? 'Direct message' : 'Group';
-  }
-
-  /** True when message `cur` falls on a different calendar day than `prev`. */
-  newDay(prev: Message | undefined, cur: Message): boolean {
-    if (!prev) return true;
-    return new Date(prev.ts).toDateString() !== new Date(cur.ts).toDateString();
   }
 
   signOut(): void {

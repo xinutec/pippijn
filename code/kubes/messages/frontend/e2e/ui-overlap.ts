@@ -14,6 +14,7 @@ import { expect, type Page } from "@playwright/test";
 interface TextRect {
   text: string;
   node: number; // index of the source text node, so a node can't collide with itself
+  sticky: boolean; // under a position:sticky ancestor (intentional floating overlay)
   x: number;
   y: number;
   w: number;
@@ -65,6 +66,13 @@ function findTextOverlaps(tol: number): OverlapPair[] {
       nodeId++;
       continue;
     }
+    let sticky = false;
+    for (let n: Element | null = parent; n && n !== document.body; n = n.parentElement) {
+      if (getComputedStyle(n).position === "sticky") {
+        sticky = true;
+        break;
+      }
+    }
     const clip = clipBox(parent);
     const range = document.createRange();
     range.selectNodeContents(node);
@@ -74,7 +82,7 @@ function findTextOverlaps(tol: number): OverlapPair[] {
       const w = Math.min(r.right, clip.right) - x;
       const h = Math.min(r.bottom, clip.bottom) - y;
       if (w < 1 || h < 1) continue; // clipped away / off-screen
-      rects.push({ text, node: nodeId, x, y, w, h });
+      rects.push({ text, node: nodeId, sticky, x, y, w, h });
     }
     nodeId++;
   }
@@ -85,6 +93,10 @@ function findTextOverlaps(tol: number): OverlapPair[] {
       const a = rects[i];
       const b = rects[j];
       if (a.node === b.node) continue; // a node can't meaningfully overlap itself
+      // A sticky element floating over normal content is intentional (e.g. the
+      // pinned date pill over messages). Two stickies overlapping IS a bug
+      // (stacked headers); two normals overlapping is a layout bug.
+      if (a.sticky !== b.sticky) continue;
       const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
       const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
       if (ox > tol && oy > tol) pairs.push({ a, b, overlap: { w: ox, h: oy } });

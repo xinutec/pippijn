@@ -88,14 +88,25 @@
     text-align: center;
     margin: 0.25rem 0 0.5rem;
   }
+  // Each day is its own section, so its sticky header pins ONLY within that
+  // day's messages and is replaced by the next day's header — the "current top
+  // message's date" behaviour, with no stacking.
   .day {
+    position: sticky;
+    top: 0.25rem;
+    z-index: 2;
     text-align: center;
-    font-size: 0.75rem;
-    opacity: 0.6;
-    margin: 0.75rem 0 0.25rem;
-    // In-flow divider, NOT sticky: as flat siblings, multiple `position: sticky`
-    // day headers all pin at top:0 and pile up when scrolled (proper sticky
-    // headers would need per-day section wrappers).
+    margin: 0.5rem 0;
+    pointer-events: none; // a floating label; let clicks reach messages beneath
+
+    span {
+      display: inline-block;
+      background: rgba(0, 0, 0, 0.58); // translucent pill, legible over content in either theme
+      color: #fff;
+      font-size: 0.7rem;
+      padding: 0.1rem 0.6rem;
+      border-radius: 1rem;
+    }
   }
 
   .msg {

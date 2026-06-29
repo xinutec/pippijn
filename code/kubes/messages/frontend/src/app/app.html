@@ -83,48 +83,50 @@
               </button>
             </div>
           }
-          @for (m of messages(); track m.id; let i = $index) {
-            @if (newDay(messages()[i - 1], m)) {
-              <div class="day">{{ m.ts | date: 'fullDate' }}</div>
-            }
-            <div class="msg" [class.out]="m.is_outgoing">
-              <div class="meta">
-                <span class="sender">{{ m.sender }}</span>
-                <span class="time">{{ m.ts | date: 'shortTime' }}</span>
-                @if (m.edited) {
-                  <span class="tag">edited</span>
-                }
-              </div>
-              @if (m.body) {
-                <div class="body" [class.deleted]="m.deleted">
-                  {{ m.deleted ? '(deleted)' : m.body }}
-                </div>
-              }
-              @for (a of m.attachments; track a.id) {
-                <div class="attach">
-                  @if (a.available && a.is_image) {
-                    <a [href]="'/api/attachments/' + a.id" target="_blank" rel="noopener">
-                      <img [src]="'/api/attachments/' + a.id" [alt]="a.file_name || 'image'" loading="lazy" />
-                    </a>
-                  } @else if (a.available) {
-                    <a [href]="'/api/attachments/' + a.id" target="_blank" rel="noopener">
-                      <mat-icon>attach_file</mat-icon>{{ a.file_name || a.content_type || 'attachment' }}
-                    </a>
-                  } @else {
-                    <span class="unavailable">
-                      <mat-icon>attach_file</mat-icon>{{ a.file_name || a.content_type || 'attachment' }} (not stored)
-                    </span>
+          @for (g of dayGroups(); track g.key) {
+            <section class="day-group">
+              <div class="day"><span>{{ g.ts | date: 'fullDate' }}</span></div>
+              @for (m of g.items; track m.id) {
+                <div class="msg" [class.out]="m.is_outgoing">
+                  <div class="meta">
+                    <span class="sender">{{ m.sender }}</span>
+                    <span class="time">{{ m.ts | date: 'shortTime' }}</span>
+                    @if (m.edited) {
+                      <span class="tag">edited</span>
+                    }
+                  </div>
+                  @if (m.body) {
+                    <div class="body" [class.deleted]="m.deleted">
+                      {{ m.deleted ? '(deleted)' : m.body }}
+                    </div>
+                  }
+                  @for (a of m.attachments; track a.id) {
+                    <div class="attach">
+                      @if (a.available && a.is_image) {
+                        <a [href]="'/api/attachments/' + a.id" target="_blank" rel="noopener">
+                          <img [src]="'/api/attachments/' + a.id" [alt]="a.file_name || 'image'" loading="lazy" />
+                        </a>
+                      } @else if (a.available) {
+                        <a [href]="'/api/attachments/' + a.id" target="_blank" rel="noopener">
+                          <mat-icon>attach_file</mat-icon>{{ a.file_name || a.content_type || 'attachment' }}
+                        </a>
+                      } @else {
+                        <span class="unavailable">
+                          <mat-icon>attach_file</mat-icon>{{ a.file_name || a.content_type || 'attachment' }} (not stored)
+                        </span>
+                      }
+                    </div>
+                  }
+                  @if (m.reactions.length) {
+                    <div class="reactions">
+                      @for (r of m.reactions; track r.emoji) {
+                        <span class="chip">{{ r.emoji }} {{ r.count }}</span>
+                      }
+                    </div>
                   }
                 </div>
               }
-              @if (m.reactions.length) {
-                <div class="reactions">
-                  @for (r of m.reactions; track r.emoji) {
-                    <span class="chip">{{ r.emoji }} {{ r.count }}</span>
-                  }
-                </div>
-              }
-            </div>
+            </section>
           }
         }
       } @else {
