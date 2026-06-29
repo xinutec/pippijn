@@ -168,10 +168,10 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      # NB: `npm run lint` is type-aware (typescript-eslint recommendedTypeChecked)
-      # and runs LOCALLY on every commit via the pre-commit hook
-      # (code/kubes/scripts/githooks/pre-commit), not here — it needs the full TS
-      # program and is slower than CI should carry. CI keeps the fast checks:
+      # Fast eslint (angular + a11y). The slower TYPE-AWARE tier
+      # (`npm run lint:types`) runs locally on every commit via the pre-commit
+      # hook (code/kubes/scripts/githooks/pre-commit), not in CI.
+      - run: npm run lint
       - run: npm test
       - run: npx ng build --configuration production
       # Real-browser render check: icon fonts actually load, no text overlaps.

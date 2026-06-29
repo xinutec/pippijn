@@ -1,33 +1,32 @@
 // @ts-check
-// ESLint flat config for the Angular frontend. TYPE-AWARE: uses
-// typescript-eslint's recommendedTypeChecked + stylisticTypeChecked, which pull
-// real type information (parserOptions.projectService) to catch usage bugs the
-// non-type-aware rules and tsc can't — floating promises, misused promises,
-// unsafe `any` flows, await-on-non-thenable, etc. This runs locally on every
-// commit (code/kubes/scripts/githooks/pre-commit), NOT in CI, because it needs
-// the full TS program and is slower than a syntactic lint.
+// ESLint flat config for the Angular frontend. Two tiers from one config:
+//   - default (`npm run lint`): FAST, non-type-aware — typescript-eslint
+//     recommended + stylistic + Angular rules + template a11y. Runs in CI.
+//   - ESLINT_TYPE_AWARE=1 (`npm run lint:types`): adds the TYPE-CHECKED rule
+//     sets (recommendedTypeChecked + stylisticTypeChecked, via
+//     parserOptions.projectService) — floating/misused promises, unsafe `any`,
+//     await-thenable, etc. Needs the full TS program + is slower, so it runs
+//     LOCALLY on every commit (code/kubes/scripts/githooks/pre-commit), not CI.
 //
-// Plus the Angular rules: forbid inline template:/styles: (every component uses
-// templateUrl/styleUrl — the team's angular-external-template-style rule) and
-// template accessibility.
+// Angular rules either way: forbid inline template:/styles: (the team's
+// angular-external-template-style rule) and template accessibility.
 
 import angular from "angular-eslint";
 import tseslint from "typescript-eslint";
+
+const typeAware = process.env.ESLINT_TYPE_AWARE === "1";
 
 export default tseslint.config(
   {
     files: ["src/**/*.ts"],
     extends: [
-      ...tseslint.configs.recommendedTypeChecked,
-      ...tseslint.configs.stylisticTypeChecked,
+      ...(typeAware ? tseslint.configs.recommendedTypeChecked : tseslint.configs.recommended),
+      ...(typeAware ? tseslint.configs.stylisticTypeChecked : tseslint.configs.stylistic),
       ...angular.configs.tsRecommended,
     ],
-    languageOptions: {
-      parserOptions: {
-        projectService: true,
-        tsconfigRootDir: import.meta.dirname,
-      },
-    },
+    ...(typeAware
+      ? { languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } } }
+      : {}),
     processor: angular.processInlineTemplates,
     rules: {
       "@angular-eslint/component-max-inline-declarations": ["error", { template: 0, styles: 0 }],
@@ -36,9 +35,6 @@ export default tseslint.config(
   },
   {
     files: ["src/**/*.html"],
-    extends: [
-      ...angular.configs.templateRecommended,
-      ...angular.configs.templateAccessibility,
-    ],
+    extends: [...angular.configs.templateRecommended, ...angular.configs.templateAccessibility],
   },
 );
