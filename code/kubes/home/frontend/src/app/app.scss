@@ -13,9 +13,11 @@
 	// Edge-to-edge (viewport-fit=cover): the bar's surface fills the status-bar
 	// strip and its content drops below it. height:auto overrides mat-toolbar's
 	// fixed 64px (border-box would otherwise absorb the padding instead of growing
-	// the bar); min-height keeps the normal height when the inset is 0.
+	// the bar). min-height folds in the inset so the content area keeps its full
+	// 64px *below* the status bar (a bare 64px would leave the row cramped); falls
+	// back to 64px in a normal browser where the inset is 0.
 	height: auto;
-	min-height: 64px;
+	min-height: calc(64px + var(--safe-top, 0px));
 	padding: 0 1rem;
 	padding-top: var(--safe-top, 0px);
 	background: var(--mat-sys-surface);
