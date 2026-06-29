@@ -54,6 +54,7 @@ import {
 	absorbBoardingPlatform,
 	absorbDriveStops,
 	absorbInterchanges,
+	anchorTrainAlightToWalkedStation,
 	anchorTrainBoardingToWalkedStation,
 	relabelWalkingInterchanges,
 } from "./passes/rail-absorbers.js";
@@ -1274,6 +1275,25 @@ export async function computeVelocityFromInputs(
 			run: (segs) =>
 				anchorTrainBoardingToWalkedStation(segs, points, (lat, lon) =>
 					inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+				),
+		},
+
+		// Alight anchor (#288): the mirror of boardingAnchor for the disembark
+		// side. When GPS blacks out in a tunnel the train closes at the surfaced
+		// station and the ride on to the true alight (a stop or two downline on
+		// the same line) is stranded as the FAST leading fixes of the next walk.
+		// Extend the train forward to that station and trim the walk. The
+		// 2026-06-29 outbound Wembley Park → Baker Street that should be → Euston
+		// Square. Runs after boardingAnchor, before railJourney so the corrected
+		// alight feeds the journey merge. See anchorTrainAlightToWalkedStation.
+		{
+			name: "alightAnchor",
+			run: (segs) =>
+				anchorTrainAlightToWalkedStation(
+					segs,
+					points,
+					(lat, lon) => inputs.osm.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+					(lat, lon) => inputs.osm.linesAtPoint(lat, lon),
 				),
 		},
 

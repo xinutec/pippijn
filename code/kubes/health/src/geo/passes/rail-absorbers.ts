@@ -12,9 +12,9 @@ import type { FilteredPoint } from "../kalman.js";
 import { type NearbyStation, pickBestStation } from "../osm.js";
 import { dbOsmAdapter } from "../osm-adapter.js";
 import { haversineMeters } from "../place-snap.js";
-import { effectiveMode, samplesInWindowExclusiveEnd } from "../segment-util.js";
+import { effectiveMode, samplesInWindow, samplesInWindowExclusiveEnd } from "../segment-util.js";
 import { parseRailWayName } from "./rail-reconcile.js";
-import { RAIL_RUN_STATION_RADIUS_M } from "./rail-runs.js";
+import { expandTubeLineNames, RAIL_RUN_STATION_RADIUS_M } from "./rail-runs.js";
 
 /** Longest stationary stretch (s) before a rail run still treated as a
  *  platform / concourse wait and absorbed into boarding the train. A
@@ -351,6 +351,102 @@ export async function anchorTrainBoardingToWalkedStation(
 			wayName: `${station.name} → ${rail.alight}${rail.line ? ` · ${rail.line}` : ""}`,
 			refinedReason: train.refinedReason ? `${train.refinedReason}; ${reason}` : reason,
 		};
+	}
+	return out;
+}
+
+/** Min step speed (km/h) for a LEADING walk-fix to count as the train still
+ *  riding in — the same ride past the GPS-surfaced station to the real
+ *  disembark, not a walking step. Mirrors BOARDING_HOP_MIN_KMH. */
+const ALIGHT_HOP_MIN_KMH = 15;
+/** The leading fast run must cover a real inter-station distance (m). */
+const ALIGHT_HOP_MIN_DIST_M = 250;
+
+/**
+ * Re-anchor an underground train's ALIGHT to the station the FOLLOWING walk's
+ * leading hop reached — the mirror of {@link anchorTrainBoardingToWalkedStation}.
+ *
+ * When GPS goes dark in a tunnel, the train segment closes at the last clean
+ * fix (the surfaced station), and the rider's continued ride to the true
+ * disembark a stop or two on the SAME line gets stranded as the FAST leading
+ * fixes of the next "walking" segment. The 2026-06-29 outbound: Wembley Park →
+ * Baker Street (alight pinned where GPS reappeared), then a "15-min walk" whose
+ * first hop is the Metropolitan still doing ~50 km/h on to Euston Square (a
+ * single 56 km/h fix labelled "walking" is the tell).
+ *
+ * If the walk after a train OPENS with a vehicle-paced inter-station hop, and
+ * the fix where it settles sits at a rail station that shares a line with the
+ * surfaced alight, that station is the true disembark: extend the train forward
+ * to it (reclaiming the hop), trim the walk to it, and rewrite the alight.
+ * Pure given the lookups. Runs after the boarding anchor, before railJourney.
+ */
+export async function anchorTrainAlightToWalkedStation(
+	segments: EnrichedSegment[],
+	points: FilteredPoint[],
+	stationsLookup: (lat: number, lon: number) => Promise<NearbyStation[]> = (lat, lon) =>
+		dbOsmAdapter.nearbyStations(lat, lon, RAIL_RUN_STATION_RADIUS_M),
+	linesLookup: (lat: number, lon: number) => Promise<Set<string>> = (lat, lon) => dbOsmAdapter.linesAtPoint(lat, lon),
+): Promise<EnrichedSegment[]> {
+	const out = segments.map((s) => ({ ...s }));
+	for (let k = 0; k < out.length - 1; k++) {
+		const train = out[k];
+		if (effectiveMode(train) !== "train") continue;
+		const rail = parseRailWayName(train.wayName);
+		if (rail === null) continue;
+		const walk = out[k + 1];
+		if (effectiveMode(walk) !== "walking") continue;
+		// Interchange guard (mirror of the boarding side): train → walk → train
+		// is an interchange sliver — the walk's leading hop is the NEXT train
+		// pulling out, not this one riding in. Owned by reconcileAdjacentRailLegs
+		// / assembleRailJourney, not here.
+		if (k + 2 < out.length && effectiveMode(out[k + 2]) === "train") continue;
+		const fixes = samplesInWindow(points, walk);
+		if (fixes.length < 3) continue;
+
+		// The alighting hop ends at the LAST fast inter-station step in the walk —
+		// not the first. GPS routinely "sticks" at an intermediate surfaced
+		// station (a slow cluster) while the train keeps going in the tunnel, so a
+		// first-settle scan stops one station short. Taking the furthest hop, then
+		// requiring its end to be a station ON THE RUN'S LINE (the guard below),
+		// reaches the true disembark (06-29: stuck at Baker Street, then a 56 km/h
+		// jump on to Euston Square). The station+line gate stops a stray late spike
+		// from hijacking the alight.
+		let settle = -1;
+		for (let i = 1; i < fixes.length; i++) {
+			const dt = fixes[i].ts - fixes[i - 1].ts;
+			const stepM = haversineMeters(fixes[i - 1].lat, fixes[i - 1].lon, fixes[i].lat, fixes[i].lon);
+			const stepKmh = dt > 0 ? (stepM / dt) * 3.6 : 0;
+			if (stepM >= ALIGHT_HOP_MIN_DIST_M && stepKmh >= ALIGHT_HOP_MIN_KMH) settle = i;
+		}
+		if (settle < 1) continue; // no fast inter-station hop in the walk
+		const alightFix = fixes[settle];
+		const surfaced = fixes[0];
+		if (haversineMeters(surfaced.lat, surfaced.lon, alightFix.lat, alightFix.lon) < ALIGHT_HOP_MIN_DIST_M) continue;
+
+		const station = pickBestStation(await stationsLookup(alightFix.lat, alightFix.lon));
+		if (!station || station.name === rail.alight) continue;
+
+		// Line-continuity guard: the new alight must share a tube line with the
+		// GPS-surfaced station — the hop stayed on the run's corridor, not off to
+		// an unrelated station. Canonicalise directional/combined names before ∩
+		// (the expandTubeLineNames lesson).
+		const [surfacedLines, alightLines] = await Promise.all([
+			linesLookup(surfaced.lat, surfaced.lon),
+			linesLookup(alightFix.lat, alightFix.lon),
+		]);
+		const surfacedCanon = new Set([...surfacedLines].flatMap(expandTubeLineNames));
+		const alightCanon = new Set([...alightLines].flatMap(expandTubeLineNames));
+		if (![...alightCanon].some((l) => surfacedCanon.has(l))) continue;
+
+		const hopM = Math.round(haversineMeters(surfaced.lat, surfaced.lon, alightFix.lat, alightFix.lon));
+		const reason = `alight re-anchored to ${station.name} (walk's leading hop reached it) — reclaimed a ${hopM} m hop the GPS blackout left in the walk (was alighting ${rail.alight})`;
+		out[k] = {
+			...train,
+			endTs: alightFix.ts,
+			wayName: `${rail.board} → ${station.name}${rail.line ? ` · ${rail.line}` : ""}`,
+			refinedReason: train.refinedReason ? `${train.refinedReason}; ${reason}` : reason,
+		};
+		out[k + 1] = { ...walk, startTs: alightFix.ts };
 	}
 	return out;
 }
