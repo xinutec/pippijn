@@ -12,11 +12,16 @@ $rail-w: 220px;
 .topbar {
   position: fixed;
   inset: 0 0 auto 0;
-  height: $topbar-h;
+  // Edge-to-edge (viewport-fit=cover): grow the bar by the status-bar/notch inset
+  // and pad its content below it; the bar's surface fills the strip above. border-box
+  // keeps the height total (inset included) regardless of the page's box-sizing.
+  box-sizing: border-box;
+  height: calc(#{$topbar-h} + env(safe-area-inset-top));
   display: flex;
   align-items: center;
   gap: 0.25rem;
   padding: 0 0.5rem 0 1rem;
+  padding-top: env(safe-area-inset-top);
   background: var(--mat-sys-surface-container);
   border-bottom: 1px solid var(--mat-sys-outline-variant);
   z-index: 10;
@@ -73,7 +78,7 @@ $rail-w: 220px;
 }
 
 .content {
-  padding: calc(#{$topbar-h} + 0.75rem) 1rem
+  padding: calc(#{$topbar-h} + env(safe-area-inset-top) + 0.75rem) 1rem
     calc(#{$bottomnav-h} + env(safe-area-inset-bottom) + 0.75rem);
   max-width: 760px;
   margin: 0 auto;
