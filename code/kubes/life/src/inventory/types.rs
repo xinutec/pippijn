@@ -6,10 +6,12 @@ use std::str::FromStr;
 
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// A node kind in the spatial tree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum LocationKind {
     House,
     Room,
@@ -46,8 +48,9 @@ impl FromStr for LocationKind {
 }
 
 /// Item category. Generic from day one — food is just the first skin.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum ItemCategory {
     Food,
     Medication,
@@ -83,23 +86,31 @@ impl FromStr for ItemCategory {
     }
 }
 
-/// A spatial node as returned by the API.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// A spatial node as returned by the API. (Exported to TS as `Loc`.)
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export, rename = "Loc")]
 pub struct Location {
+    // ids are JSON numbers on the wire; ts-rs would otherwise emit `bigint`.
+    #[ts(type = "number")]
     pub id: u64,
     pub kind: LocationKind,
     pub name: String,
+    #[ts(type = "number | null")]
     pub parent_id: Option<u64>,
     pub sort_order: i32,
+    #[ts(type = "unknown | null")]
     pub position: Option<serde_json::Value>,
 }
 
 /// A tracked item (holding) as returned by the API. `name`/`brand`/`barcode`/
 /// `has_image` are *resolved*: they come from the linked catalog product when
 /// `product_id` is set, falling back to the item's own fields otherwise.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct Item {
+    #[ts(type = "number")]
     pub id: u64,
+    #[ts(type = "number | null")]
     pub product_id: Option<u64>,
     pub name: String,
     pub brand: Option<String>,
@@ -107,6 +118,7 @@ pub struct Item {
     pub quantity: Option<f64>,
     pub unit: Option<String>,
     pub expiry: Option<NaiveDate>,
+    #[ts(type = "number | null")]
     pub location_id: Option<u64>,
     pub barcode: Option<String>,
     /// True when the linked product has a cached image

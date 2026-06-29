@@ -52,7 +52,9 @@ pub async fn delete(
 }
 
 /// POST /api/shopping/{id}/buy → turn a bought item into an inventory item
-/// (category `other`, unplaced) and remove it from the list. Returns the item.
+/// (unplaced) and remove it from the list. Returns the item. A barcoded item
+/// came from Open *Food* Facts, so it defaults to `food`; everything else to
+/// `other`.
 pub async fn buy(
     State(app): State<AppState>,
     AuthUser(user): AuthUser,
@@ -61,12 +63,17 @@ pub async fn buy(
     let s = repo::get(&app.pool, &user.user_id, id)
         .await?
         .ok_or(AppError::NotFound)?;
+    let category = if s.barcode.is_some() {
+        ItemCategory::Food
+    } else {
+        ItemCategory::Other
+    };
     let item = inventory_repo::create_item(
         &app.pool,
         &user.user_id,
         NewItem {
             name: s.name,
-            category: ItemCategory::Other,
+            category,
             quantity: s.quantity,
             unit: s.unit,
             expiry: None,

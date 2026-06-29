@@ -3,11 +3,13 @@
 
 use anyhow::Result;
 use sqlx::MySqlPool;
+use ts_rs::TS;
 
 use crate::nextcloud::login_flow::AppPassword;
 
-#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, PartialEq, Eq, serde::Serialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export, rename = "ConnectionStatus")]
 pub enum LinkStatus {
     Active,
     NeedsReauth,

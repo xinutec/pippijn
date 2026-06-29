@@ -2,9 +2,12 @@
 //! optional. `done` = ticked off as bought.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
 pub struct ShoppingItem {
+    #[ts(type = "number")]
     pub id: u64,
     pub name: String,
     pub quantity: Option<f64>,

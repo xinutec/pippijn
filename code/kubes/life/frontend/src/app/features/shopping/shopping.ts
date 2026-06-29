@@ -10,6 +10,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
 
 import { LifeApi } from '../../life-api';
+import { showThumb } from '../../product-image';
 import { ScannerDialog } from '../scanner/scanner-dialog';
 import { ShoppingDoc, ShoppingStore } from '../../sync/shopping-store';
 
@@ -117,8 +118,7 @@ export class Shopping {
 
   /** Thumbnail URL for an item with a barcode, unless the image failed to load. */
   imageUrl(it: ShoppingDoc): string | null {
-    if (!it.barcode || this.imgFailed().has(it.ulid)) return null;
-    return this.api.productImageUrl(it.barcode);
+    return showThumb(it, this.imgFailed().has(it.ulid)) ? this.api.productImageUrl(it.barcode!) : null;
   }
   onImgError(key: string): void {
     this.imgFailed.update((s) => new Set(s).add(key));

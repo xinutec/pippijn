@@ -5,6 +5,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::error::AppError;
 use crate::inventory::path::ancestor_path;
@@ -107,7 +108,8 @@ pub struct SearchQuery {
 
 /// An item plus the root→leaf location chain that contains it. The chain is
 /// what the UI highlights (breadcrumb in 2D, node path in the 3D house).
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub struct SearchHit {
     pub item: Item,
     pub path: Vec<Location>,

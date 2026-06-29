@@ -3,6 +3,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
 
 import { LifeApi } from '../../life-api';
+import { showThumb } from '../../product-image';
 import { Item, Loc } from '../../models';
 
 /** The complete, flat list of every item that exists — display fields resolved
@@ -29,8 +30,7 @@ export class Items {
   }
 
   imageUrl(it: Item): string | null {
-    if (!it.has_image || !it.barcode || this.imgFailed().has(it.id)) return null;
-    return this.api.productImageUrl(it.barcode);
+    return showThumb(it, this.imgFailed().has(it.id)) ? this.api.productImageUrl(it.barcode!) : null;
   }
   onImgError(id: number): void {
     this.imgFailed.update((s) => new Set(s).add(id));

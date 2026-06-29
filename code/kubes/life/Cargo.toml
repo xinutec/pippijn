@@ -35,5 +35,8 @@ time = "0.3"
 ulid = "1"
 anyhow = "1"
 thiserror = "2"
+# Generates the frontend TS interfaces from these Rust types (see scripts/
+# gen-types.sh + frontend/src/app/generated/) so the wire shapes can't drift.
+ts-rs = { version = "12", features = ["serde-compat", "chrono-impl", "serde-json-impl"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

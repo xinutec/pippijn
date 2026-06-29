@@ -11,6 +11,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
 
 import { LifeApi } from '../../life-api';
+import { showThumb } from '../../product-image';
 import { Item, ItemCategory, Loc, LocationKind } from '../../models';
 import { ScannerDialog } from '../scanner/scanner-dialog';
 
@@ -128,8 +129,7 @@ export class Inventory {
 
   private readonly imgFailed = signal<Set<number>>(new Set());
   imageUrl(it: Item): string | null {
-    if (!it.barcode || this.imgFailed().has(it.id)) return null;
-    return this.api.productImageUrl(it.barcode);
+    return showThumb(it, this.imgFailed().has(it.id)) ? this.api.productImageUrl(it.barcode!) : null;
   }
   onImgError(id: number): void {
     this.imgFailed.update((s) => new Set(s).add(id));

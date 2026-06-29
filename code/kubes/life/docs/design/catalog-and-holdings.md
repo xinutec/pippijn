@@ -56,6 +56,17 @@ Indices that matter: `products.barcode` UNIQUE (lookup + dedup); `items
   with nullable hard FKs resolved server-side (see `proposals/offline-first.md`),
   so cross-table links travel as ULIDs; the BIGINT FKs are for local integrity.
 
+## Sync scope (deliberate, not an oversight)
+
+Offline-first sync (RxDB + soft-delete + `rev`/`ulid`) currently covers **only
+`shopping_items`** — the one surface you use while walking around a shop with no
+signal. `items`/`locations`/`recipes` are **online-only** (plain REST, hard
+deletes) **by choice**: inventory is edited at home, on wifi, so the cost of the
+per-table sync machinery isn't yet worth it. When that changes, the pattern
+(ULID + `rev` + tombstones + the conflict handler) is established and applies
+unchanged. So the inconsistency between the two paths is a known trade-off, not
+an accident.
+
 ## Deferred (not yet built)
 
 `purchases`/`price_observations` (+ optional `shops`), recipe_ingredient →

@@ -1,82 +1,23 @@
-// Shapes returned by the Rust backend. The inventory/recipe types are serde
-// derives → snake_case keys; /api/me is hand-built → camelCase.
+// Wire types shared with the Rust backend.
+//
+// The API DTOs are GENERATED from the Rust types by ts-rs (scripts/gen-types.sh
+// → ./generated/) so they can't drift — do not hand-edit ./generated. A drift
+// gate (scripts/check-types.sh, in the pre-push hook) fails if the Rust types
+// change without regenerating.
+export type { ConnectionStatus } from './generated/ConnectionStatus';
+export type { Me } from './generated/Me';
+export type { LocationKind } from './generated/LocationKind';
+export type { Loc } from './generated/Loc';
+export type { ItemCategory } from './generated/ItemCategory';
+export type { Item } from './generated/Item';
+export type { Product } from './generated/Product';
+export type { SearchHit } from './generated/SearchHit';
+export type { ShoppingItem } from './generated/ShoppingItem';
+export type { RecipeIngredient } from './generated/RecipeIngredient';
+export type { Recipe } from './generated/Recipe';
 
-export type ConnectionStatus = 'active' | 'needs_reauth' | 'not_linked';
-
-export interface Me {
-  userId: string;
-  displayName: string;
-  avatarUrl?: string;
-  nextcloud: ConnectionStatus;
-}
-
-export type LocationKind = 'house' | 'room' | 'cupboard' | 'fridge' | 'layer';
-
-export interface Loc {
-  id: number;
-  kind: LocationKind;
-  name: string;
-  parent_id: number | null;
-  sort_order: number;
-  position: unknown | null;
-}
-
-export type ItemCategory = 'food' | 'medication' | 'tool' | 'document' | 'other';
-
-export interface Item {
-  id: number;
-  /** Linked catalog product, or null for a standalone (freeform) item. */
-  product_id: number | null;
-  /** Resolved: the product's name when linked, else the item's own. */
-  name: string;
-  brand: string | null;
-  category: ItemCategory;
-  quantity: number | null;
-  unit: string | null;
-  expiry: string | null;
-  location_id: number | null;
-  barcode: string | null;
-  /** The linked product has a cached image (at /api/products/{barcode}/image). */
-  has_image: boolean;
-}
-
-/** Product reference data cached from Open Food Facts (keyed by barcode). */
-export interface Product {
-  id: number;
-  barcode: string | null;
-  name: string | null;
-  brand: string | null;
-  quantity_label: string | null;
-  has_image: boolean;
-}
-
-export interface SearchHit {
-  item: Item;
-  path: Loc[];
-}
-
-export interface ShoppingItem {
-  id: number;
-  name: string;
-  quantity: number | null;
-  unit: string | null;
-  barcode: string | null;
-  done: boolean;
-}
-
-export interface RecipeIngredient {
-  name: string;
-  quantity: number | null;
-  unit: string | null;
-}
-
-export interface Recipe {
-  id: number;
-  name: string;
-  instructions: string | null;
-  servings: number | null;
-  ingredients: RecipeIngredient[];
-}
+// Scene-file types are frontend-owned: /api/house streams scenes/house.json
+// through as raw JSON (no Rust struct), so these aren't generated.
 
 /** A furniture floor-box in the house scene. Centred at (cx,cz); w×d×h metres;
  *  y0 = base height off the floor. */

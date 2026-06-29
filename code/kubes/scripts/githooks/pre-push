@@ -50,3 +50,12 @@ for app in $changed; do
 	# shellcheck disable=SC2046,SC2086
 	nix run "$DEVLINT" -- $(targets_for "$app")
 done
+
+# Life: extra gates beyond dev-lint — the generated-types drift check (Rust API
+# types must match frontend/src/app/generated) and the frontend unit tests, so
+# neither can rot. Run in the life dev shell.
+if printf '%s\n' $changed | grep -qx "code/kubes/life"; then
+	echo "pre-push: life type-drift + frontend tests…" >&2
+	( cd code/kubes/life \
+		&& nix develop --command bash -c 'scripts/check-types.sh && (cd frontend && npm test)' )
+fi

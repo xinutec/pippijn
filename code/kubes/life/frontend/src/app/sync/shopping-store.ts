@@ -52,7 +52,7 @@ const schema: RxJsonSchema<ShoppingDoc> = {
 // was offline. Policy: a delete is *sticky* (a tombstone is never resurrected by a
 // later edit); otherwise the local change — the user's latest intent — wins and is
 // re-pushed. (See docs/proposals/offline-first.md, review K4/S9.)
-const conflictHandler: RxConflictHandler<ShoppingDoc> = {
+export const conflictHandler: RxConflictHandler<ShoppingDoc> = {
   isEqual: (a, b) => a.rev === b.rev && !!a._deleted === !!b._deleted,
   resolve: ({ realMasterState, newDocumentState }) =>
     Promise.resolve(realMasterState._deleted ? realMasterState : newDocumentState),
