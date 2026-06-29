@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Pre-commit gate: run the shared dev-lint custom rules (~/Code/dev-lint — Python
+# ast + ast-grep, e.g. angular-inline-template, DL-ANGULAR-BOUND-STATE-SIGNAL, and
+# the Rust rules clippy lacks) on whichever kubes app a commit touches. dev-lint
+# is fast (~0.3s) so it gates at commit; it lints the whole app dir (not just
+# staged files) because the Angular rule is cross-file (component + template).
+# dev-lint is a local flake; if it's missing the hook skips rather than blocking.
+#
+# Add an app by listing it in APPS and its dev-lint targets in targets_for().
+# Installed by code/kubes/scripts/setup-hooks.sh (symlinked into .git/hooks).
+set -euo pipefail
+
+DEVLINT="${DEVLINT_DIR:-$HOME/Code/dev-lint}"
+root="$(git rev-parse --show-toplevel)"
+APPS="code/kubes/health code/kubes/home code/kubes/life code/kubes/messages"
+
+# dev-lint target dirs for an app path (empty if unknown).
+targets_for() {
+	case "$1" in
+		code/kubes/health) echo "code/kubes/health/frontend/src code/kubes/health/src" ;;
+		code/kubes/home) echo "code/kubes/home/frontend/src code/kubes/home/src" ;;
+		code/kubes/life) echo "code/kubes/life/frontend/src code/kubes/life/src" ;;
+		code/kubes/messages) echo "code/kubes/messages/frontend/src code/kubes/messages/src" ;;
+		*) echo "" ;;
+	esac
+}
+
+# Apps with staged changes in this commit.
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+changed=""
+for app in $APPS; do
+	if printf '%s\n' "$staged" | grep -q "^$app/"; then
+		changed="$changed $app"
+	fi
+done
+changed="$(printf '%s\n' $changed | sed '/^$/d')"
+[ -n "$changed" ] || exit 0
+
+if [ ! -e "$DEVLINT/flake.nix" ]; then
+	echo "pre-commit: dev-lint not found at $DEVLINT — skipping (set DEVLINT_DIR to override)" >&2
+	exit 0
+fi
+
+cd "$root"
+for app in $changed; do
+	echo "pre-commit: dev-lint on ${app}…" >&2
+	# shellcheck disable=SC2046,SC2086
+	nix run "$DEVLINT" -- $(targets_for "$app")
+done
