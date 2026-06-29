@@ -2,7 +2,7 @@
 //! run migrations, serve. All logic lives in the `life` library crate.
 
 use anyhow::Result;
-use life::{config::Config, db, routes, state::AppState};
+use life::{config::Config, db, routes, state::AppState, sync};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -22,6 +22,7 @@ async fn main() -> Result<()> {
     }
     let pool = db::connect(&cfg.database_url).await?;
     db::migrate(&pool).await?;
+    sync::backfill(&pool).await?;
 
     let http = reqwest::Client::builder().build()?;
     let bind_addr = cfg.bind_addr.clone();

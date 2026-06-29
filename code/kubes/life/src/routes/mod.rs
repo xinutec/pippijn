@@ -6,6 +6,7 @@ pub mod inventory;
 pub mod products;
 pub mod recipes;
 pub mod shopping;
+pub mod sync;
 
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
@@ -50,6 +51,10 @@ pub fn router(state: AppState) -> Router {
             patch(shopping::update).delete(shopping::delete),
         )
         .route("/shopping/{id}/buy", post(shopping::buy))
+        .route(
+            "/sync/shopping",
+            get(sync::pull_shopping).post(sync::push_shopping),
+        )
         .route("/products/{barcode}", get(products::lookup))
         .route("/products/{barcode}/image", get(products::image));
 
