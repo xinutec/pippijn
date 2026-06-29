@@ -10,11 +10,14 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     provideRouter(routes, withComponentInputBinding()),
     provideHttpClient(withFetch()),
-    // Cache the app shell so it opens offline (prod build only). The
-    // offline-first Buy list is only usable if the app can load with no signal.
+    // Cache the app shell + read data so the app opens and shows your things
+    // offline (prod build only). registerImmediately, not registerWhenStable:
+    // the offline-first Buy list keeps the app "unstable" (its sync retries), so
+    // waiting for stability would delay caching up to 30s — register now so the
+    // cache is ready the moment you open the app (e.g. before the Tube).
     provideServiceWorker('ngsw-worker.js', {
       enabled: !isDevMode(),
-      registrationStrategy: 'registerWhenStable:30000',
+      registrationStrategy: 'registerImmediately',
     }),
   ],
 };

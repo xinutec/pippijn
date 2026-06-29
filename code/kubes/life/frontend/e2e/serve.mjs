@@ -34,7 +34,23 @@ async function fileFor(urlPath) {
   return join(ROOT, 'index.html');
 }
 
+// A tiny mock of the read API, so the offline-data e2e can prove that responses
+// are cached and served with no network. Real prod is the Rust backend.
+const API = {
+  '/api/me': { userId: 'test', displayName: 'Test', avatarUrl: '', nextcloud: 'not_linked' },
+  '/api/items': [
+    { id: 1, product_id: null, name: 'Cached Avocado', brand: null, category: 'food',
+      quantity: null, unit: null, expiry: null, location_id: null, barcode: null, has_image: false },
+  ],
+};
+
 createServer(async (req, res) => {
+  const path = (req.url ?? '/').split('?')[0];
+  if (path.startsWith('/api/')) {
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(path in API ? API[path] : []));
+    return;
+  }
   const file = await fileFor(req.url ?? '/');
   try {
     const body = await readFile(file);

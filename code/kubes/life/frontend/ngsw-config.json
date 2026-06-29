@@ -17,5 +17,25 @@
         "files": ["/media/**", "/*.(svg|png|jpg|jpeg|webp|gif|otf|ttf|woff|woff2)"]
       }
     }
+  ],
+  "dataGroups": [
+    {
+      "name": "api",
+      "urls": [
+        "/api/me",
+        "/api/items",
+        "/api/locations",
+        "/api/recipes",
+        "/api/cookable",
+        "/api/house",
+        "/api/products/**"
+      ],
+      "cacheConfig": {
+        "strategy": "freshness",
+        "maxSize": 200,
+        "maxAge": "30d",
+        "timeout": "3s"
+      }
+    }
   ]
 }

@@ -13,6 +13,9 @@ const PORT = 4271;
 export default defineConfig({
   testDir: './e2e',
   reporter: [['list']],
+  // SW registration + full prefetch can take a while on a cold headless run, and
+  // the in-test waits run up to 60s; keep the per-test budget above them.
+  timeout: 90_000,
   use: {
     baseURL: `http://localhost:${PORT}`,
     viewport: { width: 390, height: 844 },

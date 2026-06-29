@@ -52,12 +52,26 @@ export class App {
       next: (m) => {
         this.me.set(m);
         this.loading.set(false);
+        this.warmOfflineCache();
       },
       error: () => {
         this.me.set(null);
         this.loading.set(false);
       },
     });
+  }
+
+  // Fire the read endpoints once on login so the service worker caches them —
+  // makes inventory/recipes/house viewable offline even if you went straight
+  // underground without opening those tabs first. Fire-and-forget; the SW does
+  // the caching, these responses are otherwise ignored.
+  private warmOfflineCache(): void {
+    const ignore = { error: () => {} };
+    this.api.items().subscribe(ignore);
+    this.api.locations().subscribe(ignore);
+    this.api.recipes().subscribe(ignore);
+    this.api.cookable().subscribe(ignore);
+    this.api.house().subscribe(ignore);
   }
 
   signOut(): void {
