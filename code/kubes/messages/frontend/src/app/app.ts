@@ -149,7 +149,10 @@ export class App {
   }
 
   title(c: Conversation): string {
-    return c.name?.trim() || (c.kind === 'dm' ? 'Direct message' : 'Group');
+    // Empty/whitespace name → kind-based fallback. An explicit length check (not
+    // `||`/`??`/`x?x:y`) makes the empty-string-is-no-name intent unambiguous.
+    const name = c.name?.trim() ?? '';
+    return name.length > 0 ? name : c.kind === 'dm' ? 'Direct message' : 'Group';
   }
 
   /** True when message `cur` falls on a different calendar day than `prev`. */
