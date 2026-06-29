@@ -17,9 +17,10 @@ targets_for() {
 	case "$1" in
 		code/kubes/health) echo "code/kubes/health/frontend/src code/kubes/health/src" ;;
 		code/kubes/home) echo "code/kubes/home/frontend/src code/kubes/home/src" ;;
-		# life's backend is Rust (covered by its own cargo/clippy gate); dev-lint
-		# here lints the Angular frontend (e.g. DL-ANGULAR-BOUND-STATE-SIGNAL).
-		code/kubes/life) echo "code/kubes/life/frontend/src" ;;
+		# life is Rust + Angular; dev-lint covers both — the Angular rules on the
+		# frontend (DL-ANGULAR-BOUND-STATE-SIGNAL) and the Rust rules clippy lacks
+		# on the backend (nan-sentinel, stringly-typed, no inline tests).
+		code/kubes/life) echo "code/kubes/life/frontend/src code/kubes/life/src" ;;
 		# messages is Rust + Angular; dev-lint covers both — the Angular rules on
 		# the frontend, and the Rust rules (nan-sentinel, stringly-typed, no inline
 		# tests) on the backend, which clippy doesn't have.
