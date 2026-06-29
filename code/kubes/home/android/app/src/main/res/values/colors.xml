@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Adaptive-icon background: deep green for the environment/"eco" dashboard —
+         distinct on the launcher from the recall apps. -->
+    <color name="ic_launcher_background">#1B5E20</color>
+</resources>
