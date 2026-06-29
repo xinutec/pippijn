@@ -25,6 +25,8 @@ add new ones under the right section. Architecture/rationale lives in
 - [x] Shopping list ("Buy" tab): add/tick/remove + buy→inventory loop
 - [x] Product lookup: barcode → Open Food Facts, cached in our DB (image as
       BLOB, served from /api); barcode field + thumbnails on Buy/Inventory
+- [x] Camera barcode scanner (native BarcodeDetector, graceful fallback) on
+      Buy + Inventory → scans the code, fills it, runs the lookup
 - [x] Search → location breadcrumb ("where is my X")
 - [x] 3D house renders the real `scenes/house.json` (perimeter walls + furniture)
 - [x] Mobile-first UI (bottom tabs ↔ side rail), management forms, NC avatar
@@ -47,15 +49,13 @@ add new ones under the right section. Architecture/rationale lives in
 
 ## Backlog
 
-- [ ] **Camera barcode scanning** — the product lookup/cache is shipped (manual
-      barcode entry works); this adds scanning the code with the **camera**
-      instead of typing, on Buy/Inventory. A JS barcode lib + camera permission.
-- [ ] **Product extras** — name+image are copied onto items at add-time idea is
-      not done yet (currently items just carry the barcode and the thumbnail is
-      fetched live from the cache — fine, but not self-contained if the cache is
-      wiped); camera photo + paste-URL→`og:image` as alternative image sources;
-      manual "refresh from OFF"; contribute missing products back to OFF (uses
-      Pippijn's OFF account — creds user-held).
+- [ ] **Product extras** — name+image copied onto items at add-time (currently
+      items carry the barcode and the thumbnail is fetched live from the cache —
+      fine, but not self-contained if the cache is wiped); camera photo +
+      paste-URL→`og:image` as alternative image sources; manual "refresh from
+      OFF"; a `@zxing/browser` fallback for non-Chromium browsers (the native
+      BarcodeDetector scanner only works on Chromium); contribute missing
+      products back to OFF (uses Pippijn's OFF account — creds user-held).
 - [ ] **Purchases: shop + price observations** (design decided) — price is NOT
       a product attribute; it varies by shop and time, so model it as an
       **observation = the same record as "where bought"**:
