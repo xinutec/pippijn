@@ -168,9 +168,6 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      # Fast eslint (angular + a11y). The slower TYPE-AWARE tier
-      # (`npm run lint:types`) runs locally on every commit via the pre-commit
-      # hook (code/kubes/scripts/githooks/pre-commit), not in CI.
       - run: npm run lint
       - run: npm test
       - run: npx ng build --configuration production
