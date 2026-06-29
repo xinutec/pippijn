@@ -10,13 +10,16 @@ set -euo pipefail
 
 DEVLINT="${DEVLINT_DIR:-$HOME/Code/dev-lint}"
 ZERO="0000000000000000000000000000000000000000"
-APPS="code/kubes/health code/kubes/home"
+APPS="code/kubes/health code/kubes/home code/kubes/life"
 
 # dev-lint target dirs for an app path (empty if unknown).
 targets_for() {
 	case "$1" in
 		code/kubes/health) echo "code/kubes/health/frontend/src code/kubes/health/src" ;;
 		code/kubes/home) echo "code/kubes/home/frontend/src code/kubes/home/src" ;;
+		# life's backend is Rust (covered by its own cargo/clippy gate); dev-lint
+		# here lints the Angular frontend (e.g. DL-ANGULAR-BOUND-STATE-SIGNAL).
+		code/kubes/life) echo "code/kubes/life/frontend/src" ;;
 		*) echo "" ;;
 	esac
 }
