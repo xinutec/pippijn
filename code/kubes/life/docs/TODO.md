@@ -84,10 +84,13 @@ add new ones under the right section. Architecture/rationale lives in
 - [ ] **Item history view** — the `item_history` audit is recorded but unshown.
 - [ ] **House polish** — camera/lighting, per-cupboard layer visualisation,
       tap-a-cupboard-to-list-its-items.
-- [x] **Offline shell** — Angular service worker (ngsw) prefetches the app
-      shell so it opens with no network (makes the offline-first Buy list usable
-      in a dead zone). Verified by `frontend/e2e/offline.spec.ts` (Playwright,
-      prod build via `npm run e2e`).
+- [x] **Offline support** — Angular service worker (ngsw, `registerImmediately`)
+      prefetches the app shell AND caches read APIs (dataGroups, network-first):
+      `/api/me`, items, locations, recipes, cookable, house, product images. App
+      warm-fetches those on login so they're cached even for unvisited tabs. So
+      the app opens with no signal and shows your inventory/recipes/house — the
+      Tube case. Verified by `frontend/e2e/offline*.spec.ts` (npm run e2e) + on
+      prod. Still online-only (writes/fresh data): Find/search, editing.
 - [ ] **PWA polish** — full icon set (png/maskable/favicon, not just svg).
 
 ## Open decisions
