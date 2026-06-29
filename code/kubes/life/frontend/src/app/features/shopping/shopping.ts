@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
-import { forkJoin } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
@@ -10,8 +10,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
 
 import { LifeApi } from '../../life-api';
-import { ShoppingItem } from '../../models';
 import { ScannerDialog } from '../scanner/scanner-dialog';
+import { ShoppingDoc, ShoppingStore } from '../../sync/shopping-store';
 
 @Component({
   selector: 'app-shopping',
@@ -29,42 +29,38 @@ import { ScannerDialog } from '../scanner/scanner-dialog';
   ],
 })
 export class Shopping {
+  private store = inject(ShoppingStore);
   private api = inject(LifeApi);
   private dialog = inject(MatDialog);
 
-  readonly items = signal<ShoppingItem[]>([]);
+  // Local-first: the list is the live RxDB query — instant, offline, reactive.
+  readonly items = toSignal(this.store.items$, { initialValue: [] as ShoppingDoc[] });
   readonly doneCount = computed(() => this.items().filter((i) => i.done).length);
-  private readonly imgFailed = signal<Set<number>>(new Set());
+  readonly syncError = this.store.syncError;
+  private readonly imgFailed = signal<Set<string>>(new Set());
 
   name = '';
   quantity: number | null = null;
   unit: string | null = null;
   barcode = '';
 
-  constructor() {
-    this.reload();
-  }
-
-  private reload(): void {
-    this.api.shopping().subscribe((i) => this.items.set(i));
-  }
-
   add(): void {
     if (!this.name.trim()) return;
     const barcode = this.barcode.trim() || null;
-    this.api.addShopping({ name: this.name, quantity: this.quantity, unit: this.unit, barcode }).subscribe(() => {
-      this.name = '';
-      this.quantity = null;
-      this.unit = null;
-      this.barcode = '';
-      // Ensure the product (and its image) is cached, then refresh so the
-      // thumbnail shows. No-op if there's no barcode.
-      if (barcode) {
-        this.api.lookupProduct(barcode).subscribe({ next: () => this.reload(), error: () => this.reload() });
-      } else {
-        this.reload();
-      }
+    // Optimistic, local — succeeds offline.
+    void this.store.add({
+      name: this.name.trim(),
+      quantity: this.quantity,
+      unit: this.unit?.trim() || null,
+      barcode,
     });
+    // Best-effort online: warm the product (image) cache for the thumbnail.
+    // Ignored offline; the row is already added locally.
+    if (barcode) this.api.lookupProduct(barcode).subscribe({ next: () => {}, error: () => {} });
+    this.name = '';
+    this.quantity = null;
+    this.unit = null;
+    this.barcode = '';
   }
 
   /** Open the camera scanner; on a detected code, fill the field and look up. */
@@ -92,44 +88,41 @@ export class Shopping {
     });
   }
 
-  toggle(it: ShoppingItem): void {
-    this.api
-      .updateShopping(it.id, {
-        name: it.name,
-        quantity: it.quantity,
-        unit: it.unit,
-        barcode: it.barcode,
-        done: !it.done,
-      })
-      .subscribe(() => this.reload());
+  toggle(it: ShoppingDoc): void {
+    void this.store.setDone(it.ulid, !it.done);
   }
 
-  remove(id: number): void {
-    this.api.deleteShopping(id).subscribe(() => this.reload());
+  remove(key: string): void {
+    void this.store.remove(key);
   }
 
+  /** Convert ticked-off rows into inventory items. Online-only (needs the
+   *  inventory backend) and only for already-synced rows (those have a server
+   *  id); the server soft-deletes them, which syncs back as a tombstone — we also
+   *  remove locally for immediacy. */
   buyDone(): void {
-    const done = this.items().filter((i) => i.done);
-    if (!done.length) return;
-    forkJoin(done.map((i) => this.api.buyShopping(i.id))).subscribe(() => this.reload());
+    for (const it of this.items().filter((i) => i.done && i.id != null)) {
+      this.api.buyShopping(it.id as number).subscribe({
+        next: () => void this.store.remove(it.ulid),
+        error: () => {},
+      });
+    }
   }
 
   clearDone(): void {
-    const done = this.items().filter((i) => i.done);
-    if (!done.length) return;
-    forkJoin(done.map((i) => this.api.deleteShopping(i.id))).subscribe(() => this.reload());
+    void this.store.clearDone();
   }
 
   /** Thumbnail URL for an item with a barcode, unless the image failed to load. */
-  imageUrl(it: ShoppingItem): string | null {
-    if (!it.barcode || this.imgFailed().has(it.id)) return null;
+  imageUrl(it: ShoppingDoc): string | null {
+    if (!it.barcode || this.imgFailed().has(it.ulid)) return null;
     return this.api.productImageUrl(it.barcode);
   }
-  onImgError(id: number): void {
-    this.imgFailed.update((s) => new Set(s).add(id));
+  onImgError(key: string): void {
+    this.imgFailed.update((s) => new Set(s).add(key));
   }
 
-  label(it: ShoppingItem): string {
+  label(it: ShoppingDoc): string {
     if (it.quantity == null) return '';
     return it.unit ? `${it.quantity} ${it.unit}` : `${it.quantity}`;
   }

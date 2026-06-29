@@ -11,6 +11,7 @@ use ulid::Ulid;
 fn doc(ulid: &str, name: &str, rev: u64) -> ShoppingDoc {
     ShoppingDoc {
         ulid: ulid.to_string(),
+        id: None,
         name: name.to_string(),
         quantity: None,
         unit: None,

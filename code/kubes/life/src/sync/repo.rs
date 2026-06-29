@@ -23,6 +23,7 @@ pub async fn next_rev(conn: &mut MySqlConnection) -> sqlx::Result<u64> {
 
 #[derive(sqlx::FromRow)]
 struct DocRow {
+    id: u64,
     ulid: String,
     name: String,
     quantity: Option<f64>,
@@ -38,6 +39,7 @@ impl From<DocRow> for ShoppingDoc {
     fn from(r: DocRow) -> Self {
         ShoppingDoc {
             ulid: r.ulid,
+            id: Some(r.id),
             name: r.name,
             quantity: r.quantity,
             unit: r.unit,
@@ -90,7 +92,7 @@ pub async fn pull_shopping(
     limit: u64,
 ) -> Result<PullResponse> {
     let rows: Vec<DocRow> = sqlx::query_as(
-        "SELECT ulid, name, quantity, unit, barcode, done, \
+        "SELECT id, ulid, name, quantity, unit, barcode, done, \
          CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
          FROM shopping_items WHERE user_id = ? AND rev > ? ORDER BY rev ASC LIMIT ?",
     )
@@ -126,7 +128,7 @@ pub async fn push_shopping(
         let mut tx = pool.begin().await?;
         // Lock this user's row (if any) for the rest of the transaction.
         let current: Option<DocRow> = sqlx::query_as(
-            "SELECT ulid, name, quantity, unit, barcode, done, \
+            "SELECT id, ulid, name, quantity, unit, barcode, done, \
              CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
              FROM shopping_items WHERE ulid = ? AND user_id = ? FOR UPDATE",
         )

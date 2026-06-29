@@ -1,5 +1,9 @@
 <h2>Buy</h2>
 
+@if (syncError(); as err) {
+  <p class="sync-warn">{{ err }}</p>
+}
+
 <div class="add">
   <mat-form-field appearance="outline" class="grow">
     <mat-label>Need to buy…</mat-label>
@@ -31,7 +35,7 @@
 }
 
 <mat-list>
-  @for (it of items(); track it.id) {
+  @for (it of items(); track it.ulid) {
     <mat-list-item>
       <mat-checkbox
         matListItemIcon
@@ -41,14 +45,14 @@
       ></mat-checkbox>
       <span matListItemTitle class="row-title">
         @if (imageUrl(it); as url) {
-          <img class="thumb" [src]="url" alt="" (error)="onImgError(it.id)" />
+          <img class="thumb" [src]="url" alt="" (error)="onImgError(it.ulid)" />
         }
         <span [class.done]="it.done">{{ it.name }}</span>
       </span>
       @if (label(it)) {
         <span matListItemLine [class.done]="it.done">{{ label(it) }}</span>
       }
-      <button matListItemMeta mat-icon-button (click)="remove(it.id)" aria-label="Remove">
+      <button matListItemMeta mat-icon-button (click)="remove(it.ulid)" aria-label="Remove">
         <mat-icon>close</mat-icon>
       </button>
     </mat-list-item>

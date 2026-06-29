@@ -12,6 +12,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShoppingDoc {
     pub ulid: String,
+    /// Server autoincrement id — carried on *pull* so the client can still call the
+    /// legacy `/api/shopping/{id}/buy` (convert→inventory) for already-synced rows.
+    /// Ignored on push (offline-created rows have none until they sync).
+    #[serde(default)]
+    pub id: Option<u64>,
     pub name: String,
     pub quantity: Option<f64>,
     pub unit: Option<String>,
