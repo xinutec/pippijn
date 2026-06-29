@@ -35,8 +35,9 @@ add new ones under the right section. Architecture/rationale lives in
 
 ## Next up
 
-- [ ] **Expiry / "use soon" view** — surface `expiry` (sort/flag soon + expired).
-      Data already stored; just needs a view.
+- [x] **Expiry / "use soon" view** — `/expiring` (hamburger → "Use soon"): every
+      dated item, soonest first, coloured by status (expired / soon ≤7d / later).
+      Pure date logic in `expiry-status.ts` (unit-tested).
 - [ ] **Extend `scenes/house.json` to the whole house** — Pippijn measures the
       remaining rooms; decide how rooms compose (shared origin / offsets).
 - [ ] **Place cupboards in scene coordinates** → re-wire **search → highlight in

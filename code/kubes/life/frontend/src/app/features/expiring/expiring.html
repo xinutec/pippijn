@@ -1,0 +1,26 @@
+<h2>Use soon</h2>
+
+@if (rows().length === 0) {
+  <p class="empty">Nothing with an expiry date yet — add expiry dates to food items in Inventory.</p>
+} @else {
+  <mat-list>
+    @for (r of rows(); track r.item.id) {
+      <mat-list-item lines="2">
+        @if (imageUrl(r.item); as url) {
+          <img matListItemAvatar class="thumb" [src]="url" alt="" (error)="onImgError(r.item.id)" />
+        } @else {
+          <mat-icon matListItemIcon>label</mat-icon>
+        }
+        <span matListItemTitle>{{ r.item.name }}</span>
+        <span
+          matListItemLine
+          class="status"
+          [class.expired]="r.status === 'expired'"
+          [class.soon]="r.status === 'soon'"
+        >
+          {{ r.label }} · {{ r.item.expiry }}
+        </span>
+      </mat-list-item>
+    }
+  </mat-list>
+}
