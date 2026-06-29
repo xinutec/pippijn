@@ -2,6 +2,7 @@ package org.xinutec.health
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Context
 import android.graphics.Color
 import android.os.Bundle
 import android.view.ViewGroup
@@ -27,6 +28,7 @@ class MainActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val prefs = getSharedPreferences("viewer", Context.MODE_PRIVATE)
         web =
             WebView(this).apply {
                 layoutParams =
@@ -38,14 +40,29 @@ class MainActivity : Activity() {
                 settings.domStorageEnabled = true // localStorage / sessionStorage
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
-                // Keep every navigation inside this WebView — never hand off to a browser.
-                webViewClient = WebViewClient()
+                // Keep every navigation inside this WebView — never hand off to a
+                // browser — and remember the current in-app page so a cold reopen
+                // returns to it (SPA route changes fire doUpdateVisitedHistory too).
+                webViewClient =
+                    object : WebViewClient() {
+                        override fun doUpdateVisitedHistory(
+                            view: WebView,
+                            url: String,
+                            isReload: Boolean,
+                        ) {
+                            super.doUpdateVisitedHistory(view, url, isReload)
+                            if (url.startsWith(HEALTH_URL)) {
+                                prefs.edit().putString(KEY_LAST_URL, url).apply()
+                            }
+                        }
+                    }
                 // The page is dark; black avoids a white flash and fills the strips
                 // behind the (transparent, edge-to-edge) system bars.
                 setBackgroundColor(Color.BLACK)
             }
         setContentView(web)
-        web.loadUrl(HEALTH_URL)
+        // Reopen where we left off; the hardcoded URL is only the first-run default.
+        web.loadUrl(prefs.getString(KEY_LAST_URL, null) ?: HEALTH_URL)
     }
 
     // Back walks the SPA's history; it only leaves the app once there's nothing
@@ -59,5 +76,6 @@ class MainActivity : Activity() {
     companion object {
         // The health dashboard (HTTPS, behind a Nextcloud-OAuth login).
         private const val HEALTH_URL = "https://health.xinutec.org/"
+        private const val KEY_LAST_URL = "last_url"
     }
 }
