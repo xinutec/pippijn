@@ -7,7 +7,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
 import android.view.ViewGroup
+import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -68,6 +70,14 @@ class MainActivity : Activity() {
                 // the OS for the runtime CAMERA permission first if we lack it.
                 webChromeClient =
                     object : WebChromeClient() {
+                        // Mirror the web app's console to logcat (tag "life-web") so the
+                        // in-WebView flow — e.g. the scanner's "[scan]" traces — is
+                        // visible via `adb logcat -s life-web`.
+                        override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                            Log.d("life-web", "${msg.message()} (${msg.sourceId()}:${msg.lineNumber()})")
+                            return true
+                        }
+
                         override fun onPermissionRequest(request: PermissionRequest) {
                             if (PermissionRequest.RESOURCE_VIDEO_CAPTURE !in request.resources) {
                                 request.deny()

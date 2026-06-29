@@ -25,6 +25,8 @@ export class ScannerDialog implements OnDestroy {
 
   private stream?: MediaStream;
   private raf = 0;
+  private frames = 0;
+  private detectErrorLogged = false;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private detector?: any;
 
@@ -32,8 +34,16 @@ export class ScannerDialog implements OnDestroy {
     afterNextRender(() => void this.start());
   }
 
+  // Traced with a stable prefix so it's greppable in the Android WebView's
+  // logcat (the wrapper forwards console messages). See android/MainActivity.kt.
+  private log(...args: unknown[]): void {
+    console.debug('[scan]', ...args);
+  }
+
   private async start(): Promise<void> {
+    this.log('opening scanner');
     if (typeof BarcodeDetector === 'undefined') {
+      this.log('BarcodeDetector unsupported');
       this.error.set('Barcode scanning isn’t supported in this browser — enter the code manually.');
       return;
     }
@@ -44,8 +54,10 @@ export class ScannerDialog implements OnDestroy {
       this.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       video.srcObject = this.stream;
       await video.play();
+      this.log('camera opened', `${video.videoWidth}x${video.videoHeight}`);
       this.scanLoop();
-    } catch {
+    } catch (e) {
+      this.log('camera error', String(e));
       this.error.set('Couldn’t access the camera.');
     }
   }
@@ -53,15 +65,24 @@ export class ScannerDialog implements OnDestroy {
   private scanLoop = async (): Promise<void> => {
     const video = this.videoRef()?.nativeElement;
     if (this.detector && video && video.readyState >= 2) {
+      this.frames++;
       try {
         const codes = await this.detector.detect(video);
         if (codes.length && codes[0].rawValue) {
+          this.log('decoded', codes[0].rawValue, codes[0].format, `after ${this.frames} frames`);
           this.finish(codes[0].rawValue as string);
           return;
         }
-      } catch {
-        /* transient detect error — keep scanning */
+      } catch (e) {
+        // Detect can throw transiently; log only the first so it doesn't spam.
+        if (!this.detectErrorLogged) {
+          this.detectErrorLogged = true;
+          this.log('detect error', String(e));
+        }
       }
+      // Heartbeat (~1/s at 60fps) so a non-detecting camera is distinguishable
+      // from a stalled loop.
+      if (this.frames % 60 === 0) this.log('scanning…', `${this.frames} frames, no code yet`);
     }
     this.raf = requestAnimationFrame(() => void this.scanLoop());
   };
@@ -72,6 +93,7 @@ export class ScannerDialog implements OnDestroy {
   }
 
   cancel(): void {
+    this.log('cancelled', `after ${this.frames} frames`);
     this.cleanup();
     this.ref.close(null);
   }
