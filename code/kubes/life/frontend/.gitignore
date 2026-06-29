@@ -2,3 +2,8 @@
 /dist
 /.angular
 /out-tsc
+
+# Playwright e2e output
+/test-results/
+/playwright-report/
+/.playwright/

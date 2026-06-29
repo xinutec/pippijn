@@ -84,8 +84,11 @@ add new ones under the right section. Architecture/rationale lives in
 - [ ] **Item history view** — the `item_history` audit is recorded but unshown.
 - [ ] **House polish** — camera/lighting, per-cupboard layer visualisation,
       tap-a-cupboard-to-list-its-items.
-- [ ] **PWA polish** — full icon set (png/maskable/favicon, not just svg),
-      offline shell.
+- [x] **Offline shell** — Angular service worker (ngsw) prefetches the app
+      shell so it opens with no network (makes the offline-first Buy list usable
+      in a dead zone). Verified by `frontend/e2e/offline.spec.ts` (Playwright,
+      prod build via `npm run e2e`).
+- [ ] **PWA polish** — full icon set (png/maskable/favicon, not just svg).
 
 ## Open decisions
 
