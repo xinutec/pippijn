@@ -22,6 +22,7 @@ add new ones under the right section. Architecture/rationale lives in
 - [x] Inventory: register/delete places, add/edit/move/delete items (CRUD)
 - [x] Food fields: category, quantity, unit, expiry (stored)
 - [x] Recipes: create/delete, ingredients, shopping-list, cook-now
+- [x] Shopping list ("Buy" tab): add/tick/remove + buy→inventory loop
 - [x] Search → location breadcrumb ("where is my X")
 - [x] 3D house renders the real `scenes/house.json` (perimeter walls + furniture)
 - [x] Mobile-first UI (bottom tabs ↔ side rail), management forms, NC avatar
@@ -44,10 +45,16 @@ add new ones under the right section. Architecture/rationale lives in
 
 ## Backlog
 
-- [ ] **Barcode / phone capture** for fast item entry (make-or-break for the
-      inventory staying accurate). Adds a camera surface.
-- [ ] **Shopping list as its own surface** — aggregate across recipes + low
-      stock, tickable; sync to phone.
+- [ ] **QR / barcode scanning** — scan a product's code to identify it and act
+      on it: find it in inventory, or add it to the **Buy** list, without typing.
+      Also the make-or-break for fast, accurate item entry. Adds a camera surface.
+- [ ] **Record where bought (purchase source)** — when you buy something, note
+      *where* (which shop). Build a "where can I buy X" lookup so next time you
+      know where it's available and can buy it there. Ties into the Buy list and
+      the NC-Calendar shop-trip scheduling (overview §5).
+- [ ] **Shopping list refinements** — add a recipe's missing ingredients to the
+      Buy list in one tap; low-stock auto-suggestions; carry category through
+      buy→inventory (currently defaults to `other`).
 - [ ] **Whole-house inventory** — surface non-food categories in the UI (tools,
       documents, meds); the engine is already generic.
 - [ ] **Meds / supplements** — expiry + refill-soon (fits the generic engine).
