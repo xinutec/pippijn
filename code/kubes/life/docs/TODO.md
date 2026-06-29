@@ -64,10 +64,23 @@ add new ones under the right section. Architecture/rationale lives in
       - Cache indefinitely (product data barely changes); optional manual
         "refresh from OFF" later — no TTL machinery. Identify our client via a
         descriptive User-Agent; don't hammer OFF.
-- [ ] **Record where bought (purchase source)** — when you buy something, note
-      *where* (which shop). Build a "where can I buy X" lookup so next time you
-      know where it's available and can buy it there. Ties into the Buy list and
-      the NC-Calendar shop-trip scheduling (overview §5).
+- [ ] **Purchases: shop + price observations** (design decided) — price is NOT
+      a product attribute; it varies by shop and time, so model it as an
+      **observation = the same record as "where bought"**:
+      - A `price_observations` row: `barcode`/product, `shop`, `amount`,
+        `currency` (ISO, default GBP), `quantity` + `unit` (the pack the price is
+        for, → derive **price-per-unit** for fair shop comparison), `observed_at`,
+        `source` (bought / seen).
+      - **Amount as DECIMAL(10,2) or integer minor-units — never float** (money
+        must be exact; unlike `quantity`, which is DOUBLE).
+      - Captured at the **buy→inventory** step (mark bought → optionally enter
+        shop + paid). Derive: latest price, **cheapest shop**, price history,
+        "where can I buy X", and an estimated Buy-list total.
+      - Our observations are the source of truth; **don't trust OFF for price**
+        (hyper-local/stale; Open Prices is at most a hint).
+      - MVP: capture shop + amount at buy-time. Later: per-unit ranking,
+        cheapest-shop, estimated totals, shop-trip scheduling via NC Calendar
+        (overview §5).
 - [ ] **Shopping list refinements** — add a recipe's missing ingredients to the
       Buy list in one tap; low-stock auto-suggestions; carry category through
       buy→inventory (currently defaults to `other`).
