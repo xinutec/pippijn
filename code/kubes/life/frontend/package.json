@@ -6,7 +6,8 @@
     "ng": "ng",
     "start": "ng serve",
     "build": "ng build",
-    "watch": "ng build --watch --configuration development"
+    "watch": "ng build --watch --configuration development",
+    "test": "ng test --watch=false"
   },
   "dependencies": {
     "@angular/cdk": "^22.0.1",
@@ -20,15 +21,17 @@
     "dexie": "^4.4.4",
     "rxdb": "^17.3.0",
     "rxjs": "~7.8.0",
-    "ulid": "^3.0.2",
     "three": "^0.185.0",
-    "tslib": "^2.3.0"
+    "tslib": "^2.3.0",
+    "ulid": "^3.0.2"
   },
   "devDependencies": {
     "@angular/build": "^22.0.1",
     "@angular/cli": "^22.0.1",
     "@angular/compiler-cli": "^22.0.0",
     "@types/three": "^0.185.0",
-    "typescript": "~6.0.2"
+    "jsdom": "^29.1.1",
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.9"
   }
 }
