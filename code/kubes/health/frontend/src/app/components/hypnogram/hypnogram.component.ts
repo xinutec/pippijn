@@ -35,7 +35,7 @@ export class HypnogramComponent implements OnDestroy {
   readonly stages = input<SleepStage[]>([]);
   readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>("canvas");
   readonly stageLabels = STAGE_LABELS;
-  timeLabels: string[] = [];
+  timeLabels = signal<string[]>([]);
   /** Bumped by the ResizeObserver to re-run the draw effect when the
    *  canvas resizes — including 0→visible after this tab is shown,
    *  which is when a day switched on another tab left it blank. */
@@ -139,15 +139,16 @@ export class HypnogramComponent implements OnDestroy {
 
       // Time labels — use formatLocalTime for first/last, interpolate for middle
       const labelCount = 6;
-      this.timeLabels = [];
       // For interpolated labels, use the local epoch (already local time)
+      const labels: string[] = [];
       for (let i = 0; i <= labelCount; i++) {
         const ms = firstTime + (totalMs * i) / labelCount;
         const d = new Date(ms);
         const hh = d.getHours().toString().padStart(2, "0");
         const mm = d.getMinutes().toString().padStart(2, "0");
-        this.timeLabels.push(`${hh}:${mm}`);
+        labels.push(`${hh}:${mm}`);
       }
+      this.timeLabels.set(labels);
     });
   }
 

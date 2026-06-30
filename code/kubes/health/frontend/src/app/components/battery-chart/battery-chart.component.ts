@@ -25,7 +25,7 @@ const WATCH_COLOR = "#3b82f6";
 export class BatteryChartComponent implements OnDestroy {
 	readonly data = input<VelocityData | null>(null);
 	readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>("canvas");
-	timeLabels: string[] = [];
+	timeLabels = signal<string[]>([]);
 	readonly phoneColor = PHONE_COLOR;
 	readonly watchColor = WATCH_COLOR;
 
@@ -36,23 +36,23 @@ export class BatteryChartComponent implements OnDestroy {
 
 	/** True once `data()` has resolved to a non-empty series (phone OR watch) —
 	 *  drives the "no data" placeholder vs the canvas in the template. */
-	hasData = false;
+	hasData = signal(false);
 	/** Whether the watch series has any points — drives the legend's watch row. */
-	hasWatch = false;
+	hasWatch = signal(false);
 
 	constructor() {
 		effect(() => {
 			this.redrawTick();
 			const phone = this.data()?.battery ?? [];
 			const watch = this.data()?.watchBattery ?? [];
-			this.hasData = phone.length > 0 || watch.length > 0;
-			this.hasWatch = watch.length > 0;
+			this.hasData.set(phone.length > 0 || watch.length > 0);
+			this.hasWatch.set(watch.length > 0);
 			const canvasEl = this.canvasRef();
 			if (canvasEl && !this.resizeObs) {
 				this.resizeObs = new ResizeObserver(() => this.redrawTick.update((n) => n + 1));
 				this.resizeObs.observe(canvasEl.nativeElement.parentElement ?? canvasEl.nativeElement);
 			}
-			if (!this.hasData || !canvasEl) return;
+			if (!this.hasData() || !canvasEl) return;
 
 			const canvas = canvasEl.nativeElement;
 			const ctx = canvas.getContext("2d");
@@ -148,7 +148,7 @@ export class BatteryChartComponent implements OnDestroy {
 
 			// Time labels along the X axis (timestamps are absolute epoch; render
 			// in the viewer's local time zone).
-			this.timeLabels = batteryTimeLabels(firstTs, lastTs, 6, browserTimezone());
+			this.timeLabels.set(batteryTimeLabels(firstTs, lastTs, 6, browserTimezone()));
 		});
 	}
 

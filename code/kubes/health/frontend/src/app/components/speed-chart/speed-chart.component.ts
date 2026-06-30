@@ -33,8 +33,8 @@ const MODE_LABELS: Record<string, string> = {
 export class SpeedChartComponent implements OnDestroy {
 	readonly data = input<VelocityData | null>(null);
 	readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>("canvas");
-	timeLabels: string[] = [];
-	uniqueModes: string[] = [];
+	timeLabels = signal<string[]>([]);
+	uniqueModes = signal<string[]>([]);
 	/** Bumped by the ResizeObserver to re-run the draw effect when the
 	 *  canvas resizes — including 0→visible after this tab is shown,
 	 *  which is when a day switched on another tab left it blank. */
@@ -96,7 +96,7 @@ export class SpeedChartComponent implements OnDestroy {
 				ctx.fillRect(x1, padTop, x2 - x1, drawH);
 				modesSet.add(seg.mode);
 			}
-			this.uniqueModes = [...modesSet];
+			this.uniqueModes.set([...modesSet]);
 
 			// Draw Y-axis grid lines and labels
 			ctx.strokeStyle = "rgba(255,255,255,0.08)";
@@ -127,15 +127,16 @@ export class SpeedChartComponent implements OnDestroy {
 
 			// Time labels
 			const labelCount = 6;
-			this.timeLabels = [];
+			const labels: string[] = [];
 			for (let i = 0; i <= labelCount; i++) {
 				const ts = firstTs + (totalDuration * i) / labelCount;
 				// PhoneTrack timestamps are UTC — convert to browser local time
 				const d = new Date(ts * 1000);
 				const hh = d.getHours().toString().padStart(2, "0");
 				const mm = d.getMinutes().toString().padStart(2, "0");
-				this.timeLabels.push(`${hh}:${mm}`);
+				labels.push(`${hh}:${mm}`);
 			}
+			this.timeLabels.set(labels);
 		});
 	}
 

@@ -725,6 +725,99 @@ export function pathLength(pts: readonly Pt[]): number {
 	return total;
 }
 
+/**
+ * Each matched vertex's monotone arc-length position along the time-ordered
+ * `fixes` polyline (the GPS corridor). Non-decreasing, so an out-and-back
+ * excursion's outbound leg can't reduce a vertex's corridor position below an
+ * earlier one — the basis for spotting a stall (path advances, corridor doesn't).
+ */
+function corridorPositions(fixes: readonly Pt[], path: readonly Pt[]): number[] {
+	const fArc: number[] = [0];
+	for (let i = 1; i < fixes.length; i++) {
+		fArc.push(fArc[i - 1] + metersBetween(fixes[i - 1].lat, fixes[i - 1].lon, fixes[i].lat, fixes[i].lon));
+	}
+	const cp: number[] = [];
+	let minS = 0;
+	for (const v of path) {
+		let best = Number.POSITIVE_INFINITY;
+		let bestS = minS;
+		for (let i = 0; i < fixes.length - 1; i++) {
+			const proj = projectPointToSegment(v, fixes[i], fixes[i + 1]);
+			const s = fArc[i] + proj.t * (fArc[i + 1] - fArc[i]);
+			if (proj.distM < best && s >= minS - 1) {
+				best = proj.distM;
+				bestS = s;
+			}
+		}
+		cp.push(bestS);
+		minS = bestS;
+	}
+	return cp;
+}
+
+/**
+ * Excise OVER-ROUTE detours from a matched path: a stretch where the line
+ * leaves the GPS corridor (its vertices stray > `offCorridorM` from every fix)
+ * and returns, travelling ≥ `minStallM` while the corridor advances by less than
+ * `detourRatio` of that — a loop the matcher invented to reach a spot the walker
+ * barely moved past. Replace it with a direct hop between the on-corridor anchors
+ * that bracket it.
+ *
+ * The two conditions separate the bug from the look-alikes: a GAP-FILL also
+ * strays from the (sparse) fixes but advances the corridor in step with the line
+ * (so the ratio test spares it), and a there-and-back walk the GPS actually
+ * traced keeps every vertex near a fix (so it is never even flagged). Only the
+ * GPS-unsupported detours are removed, keeping the good pavement-snapping for
+ * the rest of the walk.
+ */
+export function trimOverRouteExcursions(
+	fixes: readonly Pt[],
+	path: readonly MatchedPoint[],
+	offCorridorM = 30,
+	detourRatio = 0.5,
+	minStallM = 80,
+): MatchedPoint[] {
+	if (path.length < 3 || fixes.length < 2) return [...path];
+	const cp = corridorPositions(fixes, path);
+	const n = path.length;
+	// A vertex is on-corridor when it sits within `offCorridorM` of some fix —
+	// i.e. near where the phone actually was.
+	const onCorridor = path.map((v) => {
+		let best = Number.POSITIVE_INFINITY;
+		for (const f of fixes) best = Math.min(best, metersBetween(v.lat, v.lon, f.lat, f.lon));
+		return best <= offCorridorM;
+	});
+	const remove = new Array<boolean>(n).fill(false);
+	let k = 0;
+	while (k < n) {
+		if (onCorridor[k]) {
+			k++;
+			continue;
+		}
+		// Off-corridor run k..b-1, bracketed by anchors a (last on-corridor before)
+		// and b (first on-corridor after). Need both to form a direct hop.
+		const a = k - 1;
+		let b = k;
+		while (b < n && !onCorridor[b]) b++;
+		if (a >= 0 && b < n) {
+			const span = pathLength(path.slice(a, b + 1));
+			const corridorAdv = cp[b] - cp[a];
+			if (span >= minStallM && corridorAdv < span * detourRatio) {
+				for (let x = k; x < b; x++) remove[x] = true;
+			}
+		}
+		k = b;
+	}
+	// Drop the excised vertices, then any now-coincident neighbours.
+	const out: MatchedPoint[] = [];
+	for (let idx = 0; idx < n; idx++) {
+		if (remove[idx]) continue;
+		const prev = out[out.length - 1];
+		if (!prev || metersBetween(prev.lat, prev.lon, path[idx].lat, path[idx].lon) > 0.5) out.push(path[idx]);
+	}
+	return out;
+}
+
 /** Gaussian emission log-likelihood for a snap distance. */
 function emission(distM: number, sigmaZ: number): number {
 	const z = distM / sigmaZ;

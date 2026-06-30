@@ -29,6 +29,7 @@ import {
 	matchTrajectory,
 	type RoadFix,
 	type RoadGeometry,
+	trimOverRouteExcursions,
 } from "./map-match-core.js";
 import { ROAD_PROFILE } from "./road-match.js";
 
@@ -84,5 +85,11 @@ export function matchWalkSegment(
 	opts: WalkMatchOpts = {},
 ): MatchResult | null {
 	const profile = opts.matchRadiusM !== undefined ? { ...WALK_PROFILE, matchRadiusM: opts.matchRadiusM } : WALK_PROFILE;
-	return matchTrajectory(fixes, geo, profile);
+	const result = matchTrajectory(fixes, geo, profile);
+	if (result === null) return null;
+	// Remove over-route detours the corridor-weighted router invented — a loop
+	// out and back that the raw GPS never took (#293). Cross-track gates can't
+	// see these (every loop point is still on a pavement); this is the only pass
+	// that does, by comparing path progress to GPS-corridor progress.
+	return { ...result, path: trimOverRouteExcursions(fixes, result.path) };
 }

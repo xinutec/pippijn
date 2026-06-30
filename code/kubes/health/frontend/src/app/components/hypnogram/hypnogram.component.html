@@ -13,7 +13,7 @@
         <div class="canvas-wrap">
           <canvas #canvas></canvas>
           <div class="x-labels">
-            @for (label of timeLabels; track label) {
+            @for (label of timeLabels(); track label) {
               <span>{{ label }}</span>
             }
           </div>

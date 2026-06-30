@@ -7,12 +7,12 @@
       <div class="chart-container">
         <canvas #canvas></canvas>
         <div class="x-labels">
-          @for (label of timeLabels; track label) {
+          @for (label of timeLabels(); track label) {
             <span>{{ label }}</span>
           }
         </div>
         <div class="legend">
-          @for (seg of uniqueModes; track seg) {
+          @for (seg of uniqueModes(); track seg) {
             <span class="legend-item">
               <span class="swatch" [style.background]="modeColor(seg)"></span>
               {{ modeLabel(seg) }}
