@@ -42,6 +42,7 @@ export const TREND_DAY_PRESETS = [7, 30, 90, 365] as const;
 import { logBootContext } from "../../client-diagnostics";
 import { BatteryChartComponent } from "../battery-chart/battery-chart.component";
 import { DayNavComponent } from "../day-nav/day-nav.component";
+import { PullToRefreshComponent } from "../pull-to-refresh/pull-to-refresh.component";
 import { HeartrateChartComponent } from "../heartrate-chart/heartrate-chart.component";
 import { HrvChartComponent } from "../hrv-chart/hrv-chart.component";
 import { HypnogramComponent } from "../hypnogram/hypnogram.component";
@@ -121,6 +122,7 @@ export interface LoadTimings {
 		MatInputModule,
 		MatProgressSpinnerModule,
 		MatTabsModule,
+		PullToRefreshComponent,
 		DayNavComponent,
 		SummaryCardsComponent,
 		HypnogramComponent,
@@ -281,6 +283,18 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	/** In-body overlay + dim: a day's data is loading (first time or on
 	 *  navigation). This is the spinner the user sees while stepping days. */
 	readonly dayLoading = computed(() => this.dayData.isLoading());
+	/** Any data resource in flight — drives the pull-to-refresh spinner so it
+	 *  holds until the reload settles. */
+	readonly dataLoading = computed(() => this.dayData.isLoading() || this.windowData.isLoading());
+
+	/** Pull-to-refresh handler: refetch the data behind the current view. The
+	 *  day resource backs Day + Map + summary; the Trends tab also reads the
+	 *  multi-day window, so reload that too when it's showing. */
+	reloadCurrent(): void {
+		this.dayData.reload();
+		if (this.view() === "trends") this.windowData.reload();
+	}
+
 	/** Full-screen boot spinner: shown only before the dashboard first has
 	 *  any data — auth still resolving, or the first day-load hasn't
 	 *  returned. Once data has loaded once, navigation uses `dayLoading`

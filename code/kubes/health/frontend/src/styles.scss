@@ -27,6 +27,11 @@ html {
 	// when the day-loading spinner replaces the cards (visible as a
 	// horizontal jitter on centered content).
 	scrollbar-gutter: stable;
+
+	// The custom pull-to-refresh (PullToRefreshComponent) owns the
+	// top-overscroll gesture and reloads just the data, so suppress the
+	// browser's native pull-to-reload / rubber-band at the page boundary.
+	overscroll-behavior-y: contain;
 }
 
 * {

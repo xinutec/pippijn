@@ -15,6 +15,7 @@
 		<a mat-raised-button color="primary" href="/fitbit/auth">Link Fitbit</a>
 	</div>
 } @else {
+	<app-pull-to-refresh [busy]="dataLoading()" (refresh)="reloadCurrent()">
 	<mat-tab-group
 		[selectedIndex]="tabIndex()"
 		(selectedIndexChange)="changeTab($event)"
@@ -176,4 +177,5 @@
 			</ng-template>
 		</mat-tab>
 	</mat-tab-group>
+	</app-pull-to-refresh>
 }
