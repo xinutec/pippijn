@@ -6,12 +6,12 @@
       "start": [0, 0],
       "heading": 0,
       "walls": [
-        [0, 1.38], [-90, 0.35], [90, 1.2], [90, 0.81], [-90, 0.19],
-        [37.04, 0.664], [52.96, 1.6], [52.96, 0.664], [37.04, 0.19], [-90, 0.79],
-        [90, 3.9], [90, 4.0], [90, 1.32], [90, 0.35]
+        [0, 1.38], [-90, 0.35], [90, 1.2], [90, 0.81],
+        [0, 3.19], [90, 3.9], [90, 4.0], [90, 1.32], [90, 0.35]
       ],
       "openings": [
-        {"wall": 11, "offset": 1.37, "width": 1.5, "height": 1.94, "sill": 0, "leads": "dining"}
+        {"wall": 4, "offset": 0, "width": 2.4, "height": 2.22, "sill": 0, "leads": "bay"},
+        {"wall": 6, "offset": 1.37, "width": 1.5, "height": 1.94, "sill": 0, "leads": "dining"}
       ]
     },
     {
@@ -32,10 +32,18 @@
       "openings": [
         {"wall": 5, "offset": 2.695, "width": 0.765, "height": 1.97, "sill": 0, "depth": 0.15, "leads": "dining"}
       ]
+    },
+    {
+      "name": "bay",
+      "start": [2.77, 0.46],
+      "heading": 0,
+      "walls": [[37.04, 0.664], [52.96, 1.6], [52.96, 0.664], [127.04, 2.4]],
+      "openings": [
+        {"wall": 3, "offset": 0, "width": 2.4, "height": 2.22, "sill": 0, "leads": "living"}
+      ]
     }
   ],
   "furniture": [
-    {"cx": 2.675, "cz": 1.66, "w": 0.19, "d": 2.4, "y0": 2.22, "h": 0.18, "color": "#8a7e6a"},
     {"cx": 2.345, "cz": 0.055, "w": 0.47, "d": 0.82, "h": 0.9, "color": "#d2a679"},
     {"cx": 0.69, "cz": 0.195, "w": 1.14, "d": 0.39, "h": 0.02, "y0": 0.03, "color": "#181818"},
     {"cx": 0.69, "cz": 0.0925, "w": 1.05, "d": 0.185, "h": 0.95, "y0": 0.05, "color": "#c8a878"},
@@ -46,5 +54,5 @@
     {"cx": 2.345, "cz": 3.24, "w": 0.47, "d": 0.82, "h": 0.9, "color": "#d2a679"}
   ],
   "highlight": null,
-  "question": "Rooms migration: living + dining are now separate outlines sharing the partition (the passage is an opening in each room's partition wall). Kitchen still to add as a third room."
+  "question": "Bay window is now its own alcove room (the splayed walls), sharing the living room's front wall; the beam is the header of that full-width bay opening (floor to 2.22). Furniture beam removed."
 }
