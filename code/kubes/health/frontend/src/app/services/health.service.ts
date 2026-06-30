@@ -168,6 +168,14 @@ export interface LatestFix {
   accuracy: number | null;
 }
 
+/** One raw PhoneTrack point in the live trajectory tail (past the classified
+ *  track). Lighter than a full fix — just position + time. */
+export interface TrackTailPoint {
+  lat: number;
+  lon: number;
+  ts: number;
+}
+
 export interface UserInfo {
   userId: string;
   displayName: string;
@@ -331,6 +339,20 @@ export class HealthService {
       return (await res.json()) as LatestFix | null;
     } catch {
       return null;
+    }
+  }
+
+  /** Raw PhoneTrack fixes recorded AFTER `since` (epoch seconds) — the live
+   *  trajectory tail the Map tab draws past the end of the classified track.
+   *  Never throws; a failed poll just leaves the tail as-is. */
+  async getLocationTail(since: number): Promise<TrackTailPoint[]> {
+    try {
+      const res = await this.fetch(`/api/location/tail?since=${since}`);
+      if (!res.ok) return [];
+      const body = (await res.json()) as unknown;
+      return Array.isArray(body) ? (body as TrackTailPoint[]) : [];
+    } catch {
+      return [];
     }
   }
 

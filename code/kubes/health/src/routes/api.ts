@@ -67,6 +67,16 @@ interface LatestFix {
 const latestFixCache = new Map<string, { at: number; fix: LatestFix | null }>();
 const LATEST_FIX_TTL_MS = 10_000;
 
+/** Per-user cache of today's raw PhoneTrack points, behind `/location/tail`.
+ *  The whole day's points are cached briefly so repeated tail polls (one per
+ *  Map-tab interval) don't re-hit Nextcloud each time; the `since` filter is
+ *  applied per request. */
+const tailPointsCache = new Map<string, { at: number; points: { lat: number; lon: number; ts: number }[] }>();
+const TAIL_TTL_MS = 10_000;
+/** Cap the raw tail so a long unclassified stretch can't return an unbounded
+ *  polyline; the newest points are kept. */
+const TAIL_MAX_POINTS = 2000;
+
 function sinceDate(days: number): string {
 	const d = new Date();
 	d.setDate(d.getDate() - days);
@@ -328,6 +338,39 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			if (e instanceof NextcloudReauthRequiredError) return c.json({ error: "nextcloud_reauth_required" }, 409);
 			console.error(`/api/location/latest failed for user=${uid}:`, e);
 			return c.json({ error: "latest fix fetch failed" }, 400);
+		}
+	});
+
+	// The raw PhoneTrack tail: every recorded fix AFTER `since` (the end of the
+	// day's classified track). The Map tab draws these so the live trajectory
+	// follows the real recent path instead of a straight line to the marker —
+	// the classification pipeline lags real time, this fills the gap with raw
+	// points until it catches up.
+	app.get("/location/tail", async (c) => {
+		const session = c.get("session");
+		const uid = session.userId;
+		const today = new Date().toISOString().slice(0, 10);
+		if (isDateOutsideShareWindow(session, today)) return c.json([]);
+		const since = Number(c.req.query("since") ?? 0);
+
+		try {
+			let entry = tailPointsCache.get(uid);
+			if (!entry || Date.now() - entry.at >= TAIL_TTL_MS) {
+				// Yesterday + today so a tail spanning midnight isn't clipped.
+				const y = new Date();
+				y.setDate(y.getDate() - 1);
+				const yesterday = y.toISOString().slice(0, 10);
+				const points = await fetchTrackPoints(config, uid, yesterday, nextDay(today));
+				entry = { at: Date.now(), points: points.map((p) => ({ lat: p.lat, lon: p.lon, ts: p.ts })) };
+				tailPointsCache.set(uid, entry);
+			}
+			const tail = entry.points.filter((p) => p.ts > since).slice(-TAIL_MAX_POINTS);
+			return c.json(tail);
+		} catch (e) {
+			if (e instanceof NextcloudNotLinkedError) return c.json([]);
+			if (e instanceof NextcloudReauthRequiredError) return c.json({ error: "nextcloud_reauth_required" }, 409);
+			console.error(`/api/location/tail failed for user=${uid}:`, e);
+			return c.json({ error: "tail fetch failed" }, 400);
 		}
 	});
 

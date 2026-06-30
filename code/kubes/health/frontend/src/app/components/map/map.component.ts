@@ -72,6 +72,10 @@ export class MapComponent implements OnDestroy {
 	 *  owns the polling + caching). Drives the live "current position"
 	 *  marker. */
 	readonly liveFix = input<LatestFix | null>(null);
+	/** Raw PhoneTrack points recorded after the classified track ends. Drawn as
+	 *  the live tail so the trajectory follows the real recent path up to the
+	 *  marker, instead of a straight line. Supplied + polled by the dashboard. */
+	readonly liveTail = input<{ lat: number; lon: number; ts: number }[]>([]);
 	/** Two-way: snap walking legs onto the pavement network (pedestrian
 	 *  map-matching). Off renders the raw walks. The dashboard owns the velocity
 	 *  fetch, so toggling this refetches the day's data. */
@@ -241,18 +245,19 @@ export class MapComponent implements OnDestroy {
 		const lastTuple = allCoords.at(-1);
 		const lastDrawn = lastTuple ? { lat: lastTuple[0], lon: lastTuple[1] } : null;
 
-		// The live fix runs ahead of the classified track — the day's
-		// episodes only catch up once classification re-runs. Join the
-		// track's last point to the live marker with a dashed connector
-		// so the marker isn't drawn floating, detached from the path.
+		// The live fix runs ahead of the classified track — the day's episodes
+		// only catch up once classification re-runs. Bridge the gap with the RAW
+		// recorded tail (every PhoneTrack point after the classified end), so the
+		// live path follows the real recent route up to the marker rather than a
+		// straight line. Dashed + purple to read as provisional/not-yet-classified.
+		// Falls back to a straight connector when no tail points are loaded yet.
+		const tail = this.liveTail();
 		if (fix && lastDrawn) {
-			L.polyline(
-				[
-					[lastDrawn.lat, lastDrawn.lon],
-					[fix.lat, fix.lon],
-				],
-				{ color: "#7c3aed", weight: 3, opacity: 0.7, dashArray: "4 6" },
-			).addTo(layer);
+			const tailCoords = tail.map((p) => [p.lat, p.lon] as L.LatLngTuple);
+			const path: L.LatLngTuple[] = [[lastDrawn.lat, lastDrawn.lon], ...tailCoords, [fix.lat, fix.lon]];
+			for (const t of tail) this.inspectPoints.push({ lat: t.lat, lon: t.lon, ts: t.ts, mode: "live", kind: "raw" });
+			L.polyline(path, { color: "#7c3aed", weight: 3, opacity: 0.7, dashArray: "4 6" }).addTo(layer);
+			for (const c of tailCoords) allCoords.push(c);
 		}
 
 		// Current position — the live fix when polling, else the day's

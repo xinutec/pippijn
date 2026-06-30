@@ -16,6 +16,7 @@ import {
 	type HeartRatePoint,
 	type HrvDay,
 	type LatestFix,
+	type TrackTailPoint,
 	type SleepLog,
 	type SleepStage,
 	type VelocityData,
@@ -312,6 +313,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	 *  Owned here, not in MapComponent, so it survives the Map tab
 	 *  being torn down and rebuilt on each visit. */
 	readonly liveFix = signal<LatestFix | null>(null);
+	/** Raw PhoneTrack points recorded after the classified track ends — the Map
+	 *  tab draws these so the live tail follows the real path, not a straight
+	 *  line to the marker. Polled alongside `liveFix`. */
+	readonly liveTail = signal<TrackTailPoint[]>([]);
 
 	constructor() {
 		// Seed the live marker from the last cached fix so the Map tab
@@ -338,8 +343,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
 		// tab switch.
 		effect((onCleanup) => {
 			if (!this.isToday()) {
-				// A past day has no live marker.
+				// A past day has no live marker or tail.
 				this.liveFix.set(null);
+				this.liveTail.set([]);
 				return;
 			}
 			// Off the Map tab: keep the last fix, just stop polling.
@@ -349,6 +355,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
 					this.liveFix.set(f);
 					if (f) this.cacheLiveFix(f);
 				});
+				// Raw tail since the end of the classified track (the last
+				// computed fix), so the live path follows the real recent route.
+				// Fall back to "no tail" (a far-future cutoff) rather than the whole
+				// day if the classified end is unknown.
+				const since = this.velocity()?.rawFixes?.at(-1)?.ts ?? Number.MAX_SAFE_INTEGER;
+				void this.health.getLocationTail(since).then((tail) => this.liveTail.set(tail));
 			};
 			poll();
 			const id = setInterval(poll, LIVE_POLL_MS);
