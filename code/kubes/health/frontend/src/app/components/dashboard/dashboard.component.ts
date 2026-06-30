@@ -317,6 +317,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	 *  tab draws these so the live tail follows the real path, not a straight
 	 *  line to the marker. Polled alongside `liveFix`. */
 	readonly liveTail = signal<TrackTailPoint[]>([]);
+	/** The date whose data is actually on screen — advances to `selectedDate`
+	 *  only once that day's resource resolves. The map keys its auto-fit on this
+	 *  (not the data object), so a same-day refetch (walk-snap toggle, refresh)
+	 *  preserves the viewer's pan/zoom while a real day change re-fits. */
+	readonly displayedDate = signal<string>("");
 
 	constructor() {
 		// Seed the live marker from the last cached fix so the Map tab
@@ -333,6 +338,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
 			if (this.dayData.status() === "resolved") {
 				this.lastDay.set(this.dayData.value());
 				this.hasLoadedOnce.set(true);
+				// The resolved value is for the current request key (selectedDate),
+				// so this is the date now on screen. Drives the map's fit key.
+				this.displayedDate.set(this.selectedDate());
 			}
 		});
 

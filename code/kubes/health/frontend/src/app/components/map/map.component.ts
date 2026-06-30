@@ -76,6 +76,10 @@ export class MapComponent implements OnDestroy {
 	 *  the live tail so the trajectory follows the real recent path up to the
 	 *  marker, instead of a straight line. Supplied + polled by the dashboard. */
 	readonly liveTail = input<{ lat: number; lon: number; ts: number }[]>([]);
+	/** Identifies the displayed DAY (the selected date). The view auto-fits only
+	 *  when this changes, so same-day refetches don't reset the viewer's
+	 *  pan/zoom. */
+	readonly dayKey = input<string>("");
 	/** Two-way: snap walking legs onto the pavement network (pedestrian
 	 *  map-matching). Off renders the raw walks. The dashboard owns the velocity
 	 *  fetch, so toggling this refetches the day's data. */
@@ -113,9 +117,11 @@ export class MapComponent implements OnDestroy {
 	 *  what KIND of point it is (raw GPS fix vs a derived stay centre or gap
 	 *  connector). Rebuilt on every render. */
 	private inspectPoints: { lat: number; lon: number; ts?: number; mode: string; kind: string; place?: string }[] = [];
-	/** The `data` reference the view was last fitted to — guards against
-	 *  re-fitting (and yanking the view) on every 15s poll. */
-	private fittedTo: VelocityData | null | undefined = undefined;
+	/** The day key the view was last fitted to. Keyed on the DAY (not the data
+	 *  object), so refetching the same day — toggling walk-snap, pull-to-refresh,
+	 *  the 5-min recompute, a 15s poll — preserves the viewer's pan/zoom; only a
+	 *  day change (or first render) re-fits. */
+	private fittedKey: string | undefined = undefined;
 
 	constructor() {
 		// Redraw when the day's data or the live fix changes.
@@ -298,12 +304,16 @@ export class MapComponent implements OnDestroy {
 		// `haveView` guards the very first render: panTo needs a map that
 		// already has a view, so the first placement always goes through
 		// the fit branch below.
-		const haveView = this.fittedTo !== undefined;
+		const key = this.dayKey();
+		const haveView = this.fittedKey !== undefined;
 		if (this.follow() && fix && haveView) {
 			map.panTo([fix.lat, fix.lon], { animate: true });
-			this.fittedTo = data;
-		} else if (data !== this.fittedTo) {
-			this.fittedTo = data;
+			this.fittedKey = key;
+		} else if (key !== this.fittedKey) {
+			// New day (or first render): fit the track. Same-day refetches —
+			// walk-snap toggle, pull-to-refresh, the 5-min recompute, a poll —
+			// keep the same key, so the viewer's pan/zoom is preserved.
+			this.fittedKey = key;
 			if (allCoords.length > 0) {
 				map.fitBounds(L.latLngBounds(allCoords), { padding: [24, 24] });
 			} else if (pos) {

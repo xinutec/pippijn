@@ -167,7 +167,7 @@
 					<div class="day-body-wrap">
 						<div class="day-body" [class.stale]="dayLoading()">
 							<div class="section">
-								<app-map [data]="velocity()" [live]="isToday()" [liveFix]="liveFix()" [liveTail]="liveTail()" [(walkMatch)]="walkMatch" />
+								<app-map [data]="velocity()" [live]="isToday()" [liveFix]="liveFix()" [liveTail]="liveTail()" [dayKey]="displayedDate()" [(walkMatch)]="walkMatch" />
 							</div>
 						</div>
 						@if (dayLoading() && !pullRefreshing()) {
