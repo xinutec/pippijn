@@ -46,6 +46,9 @@ export class PullToRefreshComponent implements OnDestroy {
 	readonly disabled = input(false);
 	/** Fired once per armed release: the parent should reload its data. */
 	readonly refresh = output<void>();
+	/** Mirrors the in-progress state so the parent can hide its own redundant
+	 *  loading overlays while this component's spinner is showing. */
+	readonly refreshingChange = output<boolean>();
 
 	/** Current revealed pull distance in px (0 = closed). Drives the transform. */
 	readonly pull = signal(0);
@@ -82,6 +85,10 @@ export class PullToRefreshComponent implements OnDestroy {
 				this.pull.set(0);
 			}
 		});
+
+		// Mirror the in-progress state out so the parent can suppress its own
+		// loading overlays while this spinner owns the feedback.
+		effect(() => this.refreshingChange.emit(this.refreshing()));
 	}
 
 	ngOnDestroy(): void {

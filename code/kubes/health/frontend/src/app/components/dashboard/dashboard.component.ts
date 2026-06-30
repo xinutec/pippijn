@@ -286,6 +286,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
 	/** Any data resource in flight — drives the pull-to-refresh spinner so it
 	 *  holds until the reload settles. */
 	readonly dataLoading = computed(() => this.dayData.isLoading() || this.windowData.isLoading());
+	/** True while a pull-to-refresh is showing its own spinner — used to hide
+	 *  the in-body day-loading overlays so the gesture shows just one spinner. */
+	readonly pullRefreshing = signal(false);
 
 	/** Pull-to-refresh handler: refetch the data behind the current view. The
 	 *  day resource backs Day + Map + summary; the Trends tab also reads the

@@ -15,7 +15,10 @@
 		<a mat-raised-button color="primary" href="/fitbit/auth">Link Fitbit</a>
 	</div>
 } @else {
-	<app-pull-to-refresh [busy]="dataLoading()" (refresh)="reloadCurrent()">
+	<app-pull-to-refresh
+		[busy]="dataLoading()"
+		(refresh)="reloadCurrent()"
+		(refreshingChange)="pullRefreshing.set($event)">
 	<mat-tab-group
 		[selectedIndex]="tabIndex()"
 		(selectedIndexChange)="changeTab($event)"
@@ -107,7 +110,7 @@
 							</div>
 						</details>
 					</div>
-					@if (dayLoading()) {
+					@if (dayLoading() && !pullRefreshing()) {
 						<div class="day-body-overlay" aria-hidden="true">
 							<mat-spinner diameter="32"></mat-spinner>
 						</div>
@@ -167,7 +170,7 @@
 								<app-map [data]="velocity()" [live]="isToday()" [liveFix]="liveFix()" [(walkMatch)]="walkMatch" />
 							</div>
 						</div>
-						@if (dayLoading()) {
+						@if (dayLoading() && !pullRefreshing()) {
 							<div class="day-body-overlay" aria-hidden="true">
 								<mat-spinner diameter="32"></mat-spinner>
 							</div>
