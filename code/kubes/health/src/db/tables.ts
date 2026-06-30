@@ -178,8 +178,23 @@ export interface DevicesTable {
 	device_version: string | null;
 	type: string | null;
 	battery: string | null;
+	/** Numeric battery percent (0–100) from the Fitbit devices endpoint;
+	 *  null for devices/older syncs that didn't report it. */
+	battery_level: number | null;
 	last_sync_time: string | null;
 	updated_at: Generated<Date>;
+}
+
+/** Per-sync watch-battery history — one timestamped reading per Fitbit
+ *  device sync, keyed by `last_sync_time` for idempotency. Plotted as the
+ *  watch series on the day-view battery chart. */
+export interface DeviceBatteryLogTable {
+	user_id: string;
+	device_id: string;
+	last_sync_time: string;
+	battery_level: number;
+	device_version: string | null;
+	recorded_at: Generated<Date>;
 }
 
 export interface SchemaMigrationsTable {
@@ -457,6 +472,7 @@ export interface Database {
 	skin_temperature: SkinTemperatureTable;
 	cardio_fitness: CardioFitnessTable;
 	devices: DevicesTable;
+	device_battery_log: DeviceBatteryLogTable;
 	sessions: SessionsTable;
 	nc_tokens: NcTokensTable;
 	nc_credentials: NcCredentialsTable;

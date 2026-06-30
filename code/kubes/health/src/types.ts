@@ -131,6 +131,11 @@ export interface FitbitDevice {
 	id: string;
 	deviceVersion: string;
 	type: string;
+	/** Coarse battery state: "High" | "Medium" | "Low" | "Empty". */
 	battery: string;
+	/** Battery charge as an integer percent (0–100). Newer Fitbit field;
+	 *  present for hardware trackers (the Inspire 3), absent on some
+	 *  device types — hence optional. */
+	batteryLevel?: number;
 	lastSyncTime: string;
 }

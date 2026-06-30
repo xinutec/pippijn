@@ -637,6 +637,28 @@ const MIGRATIONS: readonly string[] = [
     lf DECIMAL(12,4),
     PRIMARY KEY (user_id, ts)
   )`,
+
+	// Numeric battery percentage for the current device snapshot. The
+	// `devices.battery` column keeps only Fitbit's coarse string
+	// (High/Medium/Low/Empty); `batteryLevel` is the 0–100 percent the
+	// devices endpoint also returns (the Inspire 3 reports it).
+	`ALTER TABLE devices ADD COLUMN battery_level TINYINT UNSIGNED NULL`,
+
+	// Per-sync watch-battery history. Fitbit's devices endpoint reports
+	// only the CURRENT level at the device's last sync, so each Fitbit
+	// sync contributes one timestamped reading (keyed by last_sync_time
+	// for idempotency). Read back for the day's watch-battery trace,
+	// plotted alongside the PhoneTrack phone-battery series. `last_sync_time`
+	// is the Fitbit wall-clock (no offset), like heart_rate_intraday.
+	`CREATE TABLE IF NOT EXISTS device_battery_log (
+    user_id        VARCHAR(64) NOT NULL,
+    device_id      VARCHAR(64) NOT NULL,
+    last_sync_time DATETIME NOT NULL,
+    battery_level  TINYINT UNSIGNED NOT NULL,
+    device_version VARCHAR(64),
+    recorded_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, device_id, last_sync_time)
+  )`,
 ];
 
 export async function migrate(conn: mariadb.Connection): Promise<void> {

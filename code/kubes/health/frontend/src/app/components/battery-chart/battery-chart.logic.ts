@@ -26,6 +26,23 @@ export function batteryXRange(battery: readonly BatterySample[]): BatteryXRange 
 }
 
 /**
+ * The horizontal span covering ALL series (phone + watch), so both plot on a
+ * shared time axis. Empty series are ignored; null when every series is empty.
+ * Each series is assumed sorted ascending by `ts` (as the server emits them).
+ */
+export function batteryXRangeMulti(series: readonly (readonly BatterySample[])[]): BatteryXRange | null {
+	let firstTs = Number.POSITIVE_INFINITY;
+	let lastTs = Number.NEGATIVE_INFINITY;
+	for (const s of series) {
+		if (s.length === 0) continue;
+		firstTs = Math.min(firstTs, s[0].ts);
+		lastTs = Math.max(lastTs, s[s.length - 1].ts);
+	}
+	if (!Number.isFinite(firstTs)) return null;
+	return { firstTs, lastTs, totalDuration: lastTs - firstTs || 1 };
+}
+
+/**
  * `count + 1` evenly-spaced HH:MM labels across `[firstTs, lastTs]`, rendered in
  * `tz`. Used for the timeline along the bottom of the chart. Rendering through
  * `Intl` with an explicit `timeZone` (rather than the host's local time) keeps

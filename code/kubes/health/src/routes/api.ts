@@ -3,7 +3,8 @@ import { z } from "zod";
 import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
 import { getConnectionStatus as getFitbitConnectionStatus } from "../fitbit/token-manager.js";
-import { isValidTimezone } from "../geo/timezone.js";
+import { loadWatchBattery } from "../fitbit/watch-battery.js";
+import { dateBoundsUtc, isValidTimezone } from "../geo/timezone.js";
 import { computeVelocity } from "../geo/velocity.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requireOwnerOnly } from "../middleware/share-auth.js";
@@ -353,7 +354,15 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			// empty-day) to the current moment. Cache holds the full
 			// deterministic result; the clip is per-request so "now" advances.
 			const states = clipInferredFuture(result.states, Math.floor(Date.now() / 1000));
-			return c.json({ ...result, states });
+			// Watch-battery series for the same day, plotted alongside the phone
+			// battery. Loaded here (not in computeVelocity) so it stays out of the
+			// golden/velocity path; a DB hiccup degrades to no watch series.
+			const bounds = dateBoundsUtc(date, tz);
+			const watchBattery = await loadWatchBattery(uid, tz ?? "UTC", bounds.startUtc, bounds.endUtc).catch((e) => {
+				console.error(`watch battery load failed for user=${uid} date=${date}:`, e);
+				return [];
+			});
+			return c.json({ ...result, states, watchBattery });
 		} catch (e) {
 			// Graceful degradation: unlinked → empty timeline (200).
 			// Reauth required → 409 with structured error so the SPA

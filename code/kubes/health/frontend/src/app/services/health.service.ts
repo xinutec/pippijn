@@ -151,6 +151,10 @@ export interface VelocityData {
    *  Optional so an older backend that omits it doesn't break the
    *  client — the battery chart just shows "no data". */
   battery?: BatterySample[];
+  /** The day's watch (Fitbit device) battery trace — one point per device
+   *  sync, from `device_battery_log`. Plotted as a second series on the same
+   *  chart. Optional + possibly empty (history builds going forward). */
+  watchBattery?: BatterySample[];
   /** Per-phase wall-clock ms from the server-side classification pipeline. */
   timing?: Record<string, number>;
 }
