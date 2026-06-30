@@ -31,12 +31,39 @@ export interface Furniture {
   color?: string | null;
 }
 
-/** Hand-authored house geometry (scenes/house.json). Walls are a perimeter
- *  walk: each [turn_deg, length_m]. See scenes/README.md. */
+/** An opening (doorway / window / wide cased passage) cut into one of a room's
+ *  walls (`wall` = index into that room's `walls`), leaving a lintel above (and a
+ *  sill below, for windows). `offset` is metres from the wall's start to the near
+ *  edge; `width`×`height` size the hole; `sill` lifts the bottom off the floor
+ *  (0/omitted = floor-level). A doorway between two rooms is just an opening in
+ *  each room's copy of the shared wall. `depth`/`leads` are informational. */
+export interface WallOpening {
+  wall: number;
+  offset: number;
+  width: number;
+  height: number;
+  sill?: number;
+  depth?: number;
+  leads?: string;
+}
+
+/** One room: its own closed outline, walked turtle-style from `start` (world XZ
+ *  of the first corner) at `heading` degrees — each wall is [turn_deg, length_m].
+ *  Rooms that adjoin simply repeat the shared wall in each of their outlines. */
+export interface Room {
+  name?: string;
+  start: [number, number];
+  heading?: number;
+  walls: [number, number][];
+  openings?: WallOpening[];
+}
+
+/** Hand-authored house geometry (scenes/house.json): a set of rooms (each its own
+ *  outline) plus furniture. See scenes/README.md. */
 export interface HouseScene {
   height: number;
-  walls: [number, number][];
+  rooms: Room[];
   furniture: Furniture[];
-  highlight: number | null;
+  highlight?: number | null;
   question?: string;
 }

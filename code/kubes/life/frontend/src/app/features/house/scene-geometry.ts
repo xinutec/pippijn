@@ -1,8 +1,8 @@
 // Pure geometry for the house scene — no three.js, so it's testable.
-// Mirrors lares' room.rs `perimeter()`: walk the wall list, turning then
-// stepping, to produce the corner points and wall segments.
+// A room is a turtle walk: from a start corner + heading, each wall turns then
+// steps, producing the corner points and wall segments.
 
-import { HouseScene } from '../../models';
+import { Room } from '../../models';
 
 export interface Pt {
   x: number;
@@ -16,13 +16,13 @@ export interface WallSeg {
   bz: number;
 }
 
-/** Corner points of the perimeter walk. Starts at the origin heading +X; each
- *  wall is `[turn_deg, length_m]` — turn the heading, then step. */
-export function perimeter(walls: [number, number][]): Pt[] {
-  const pts: Pt[] = [{ x: 0, z: 0 }];
-  let x = 0;
-  let z = 0;
-  let heading = 0;
+/** Corner points of a room's outline. Starts at `start` heading `heading0`
+ *  degrees; each wall is `[turn_deg, length_m]` — turn the heading, then step. */
+export function perimeter(walls: [number, number][], start: Pt = { x: 0, z: 0 }, heading0 = 0): Pt[] {
+  const pts: Pt[] = [{ x: start.x, z: start.z }];
+  let x = start.x;
+  let z = start.z;
+  let heading = heading0;
   for (const [turn, len] of walls) {
     heading += turn;
     const r = (heading * Math.PI) / 180;
@@ -33,9 +33,13 @@ export function perimeter(walls: [number, number][]): Pt[] {
   return pts;
 }
 
-/** Consecutive wall segments from the perimeter points. */
-export function wallSegments(scene: HouseScene): WallSeg[] {
-  const pts = perimeter(scene.walls);
+/** A room's corner points, from its start/heading. */
+export function roomPerimeter(room: Room): Pt[] {
+  return perimeter(room.walls, { x: room.start[0], z: room.start[1] }, room.heading ?? 0);
+}
+
+/** Consecutive wall segments from a list of perimeter points. */
+export function segments(pts: Pt[]): WallSeg[] {
   const segs: WallSeg[] = [];
   for (let i = 0; i < pts.length - 1; i++) {
     segs.push({ ax: pts[i].x, az: pts[i].z, bx: pts[i + 1].x, bz: pts[i + 1].z });
@@ -43,9 +47,8 @@ export function wallSegments(scene: HouseScene): WallSeg[] {
   return segs;
 }
 
-/** Axis-aligned XZ bounds of the perimeter, for camera framing. */
-export function bounds(scene: HouseScene): { cx: number; cz: number; span: number } | null {
-  const pts = perimeter(scene.walls);
+/** Axis-aligned XZ bounds over a set of points (all rooms), for camera framing. */
+export function bounds(pts: Pt[]): { cx: number; cz: number; span: number } | null {
   if (pts.length === 0) return null;
   let minX = Infinity;
   let maxX = -Infinity;
