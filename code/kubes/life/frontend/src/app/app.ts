@@ -7,6 +7,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { LifeApi } from './life-api';
 import { Me } from './models';
+import { SwUpdates } from './sw-updates';
 
 interface NavItem {
   path: string;
@@ -30,6 +31,7 @@ interface NavItem {
 })
 export class App {
   private api = inject(LifeApi);
+  private swUpdates = inject(SwUpdates);
 
   readonly me = signal<Me | null>(null);
   readonly loading = signal(true);
@@ -48,6 +50,7 @@ export class App {
   readonly more: NavItem[] = [{ path: '/items', icon: 'inventory_2', label: 'All items' }];
 
   constructor() {
+    this.swUpdates.start();
     this.api.me().subscribe({
       next: (m) => {
         this.me.set(m);
