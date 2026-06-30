@@ -32,5 +32,10 @@ export const routes: Routes = [
     title: 'Life · all items',
     loadComponent: () => import('./features/items/items').then((m) => m.Items),
   },
+  {
+    path: 'todo',
+    title: 'Life · to-do',
+    loadComponent: () => import('./features/todo/todo').then((m) => m.Todo),
+  },
   { path: '**', redirectTo: 'search' },
 ];

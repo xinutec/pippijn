@@ -1,12 +1,12 @@
 //! Persistence for the offline-first sync protocol. The revision counter is
 //! shared by every syncable table; the pull/push handlers are per collection
-//! (shopping first — see `docs/proposals/offline-first.md`).
+//! (shopping + to-do — see `docs/proposals/offline-first.md`).
 
 use anyhow::Result;
 use sqlx::{MySqlConnection, MySqlPool};
 use ulid::Ulid;
 
-use super::types::{Checkpoint, PullResponse, PushEntry, ShoppingDoc};
+use super::types::{Checkpoint, PullResponse, PushEntry, ShoppingDoc, TodoDoc};
 
 /// Allocate the next global revision, **inside the caller's transaction**. The
 /// `LAST_INSERT_ID(val + 1)` trick bumps and returns the counter atomically; the
@@ -21,8 +21,10 @@ pub async fn next_rev(conn: &mut MySqlConnection) -> sqlx::Result<u64> {
     Ok(res.last_insert_id())
 }
 
+// ---- shopping ---------------------------------------------------------------
+
 #[derive(sqlx::FromRow)]
-struct DocRow {
+struct ShoppingDocRow {
     id: u64,
     ulid: String,
     name: String,
@@ -35,8 +37,8 @@ struct DocRow {
     rev: u64,
 }
 
-impl From<DocRow> for ShoppingDoc {
-    fn from(r: DocRow) -> Self {
+impl From<ShoppingDocRow> for ShoppingDoc {
+    fn from(r: ShoppingDocRow) -> Self {
         ShoppingDoc {
             ulid: r.ulid,
             id: Some(r.id),
@@ -90,8 +92,8 @@ pub async fn pull_shopping(
     user_id: &str,
     since: u64,
     limit: u64,
-) -> Result<PullResponse> {
-    let rows: Vec<DocRow> = sqlx::query_as(
+) -> Result<PullResponse<ShoppingDoc>> {
+    let rows: Vec<ShoppingDocRow> = sqlx::query_as(
         "SELECT id, ulid, name, quantity, unit, barcode, done, \
          CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
          FROM shopping_items WHERE user_id = ? AND rev > ? ORDER BY rev ASC LIMIT ?",
@@ -118,7 +120,7 @@ pub async fn pull_shopping(
 pub async fn push_shopping(
     pool: &MySqlPool,
     user_id: &str,
-    entries: Vec<PushEntry>,
+    entries: Vec<PushEntry<ShoppingDoc>>,
 ) -> Result<Vec<ShoppingDoc>> {
     let mut conflicts = Vec::new();
     for entry in entries {
@@ -127,7 +129,7 @@ pub async fn push_shopping(
 
         let mut tx = pool.begin().await?;
         // Lock this user's row (if any) for the rest of the transaction.
-        let current: Option<DocRow> = sqlx::query_as(
+        let current: Option<ShoppingDocRow> = sqlx::query_as(
             "SELECT id, ulid, name, quantity, unit, barcode, done, \
              CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
              FROM shopping_items WHERE ulid = ? AND user_id = ? FOR UPDATE",
@@ -139,8 +141,6 @@ pub async fn push_shopping(
 
         if let Some(cur) = current {
             if assumed_rev != Some(cur.rev) {
-                // Stale write — reject and hand back the current master state.
-                // Dropping `tx` rolls back (only a SELECT ran), releasing the lock.
                 conflicts.push(cur.into());
                 continue;
             }
@@ -176,6 +176,126 @@ pub async fn push_shopping(
             .bind(&new.unit)
             .bind(&new.barcode)
             .bind(new.done)
+            .bind(new.deleted)
+            .bind(rev)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+    }
+    Ok(conflicts)
+}
+
+// ---- to-do ------------------------------------------------------------------
+
+#[derive(sqlx::FromRow)]
+struct TodoDocRow {
+    id: u64,
+    ulid: String,
+    title: String,
+    todo_type: String,
+    status: String,
+    notes: Option<String>,
+    deleted: i64,
+    rev: u64,
+}
+
+impl From<TodoDocRow> for TodoDoc {
+    fn from(r: TodoDocRow) -> Self {
+        TodoDoc {
+            ulid: r.ulid,
+            id: Some(r.id),
+            title: r.title,
+            todo_type: r.todo_type,
+            status: r.status,
+            notes: r.notes,
+            deleted: r.deleted != 0,
+            rev: r.rev,
+        }
+    }
+}
+
+pub async fn pull_todo(
+    pool: &MySqlPool,
+    user_id: &str,
+    since: u64,
+    limit: u64,
+) -> Result<PullResponse<TodoDoc>> {
+    let rows: Vec<TodoDocRow> = sqlx::query_as(
+        "SELECT id, ulid, title, todo_type, status, notes, \
+         CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
+         FROM todos WHERE user_id = ? AND rev > ? ORDER BY rev ASC LIMIT ?",
+    )
+    .bind(user_id)
+    .bind(since)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    let checkpoint = Checkpoint {
+        rev: rows.last().map_or(since, |r| r.rev),
+    };
+    Ok(PullResponse {
+        documents: rows.into_iter().map(Into::into).collect(),
+        checkpoint,
+    })
+}
+
+pub async fn push_todo(
+    pool: &MySqlPool,
+    user_id: &str,
+    entries: Vec<PushEntry<TodoDoc>>,
+) -> Result<Vec<TodoDoc>> {
+    let mut conflicts = Vec::new();
+    for entry in entries {
+        let new = entry.new_document_state;
+        let assumed_rev = entry.assumed_master_state.map(|d| d.rev);
+
+        let mut tx = pool.begin().await?;
+        let current: Option<TodoDocRow> = sqlx::query_as(
+            "SELECT id, ulid, title, todo_type, status, notes, \
+             CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
+             FROM todos WHERE ulid = ? AND user_id = ? FOR UPDATE",
+        )
+        .bind(&new.ulid)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(cur) = current {
+            if assumed_rev != Some(cur.rev) {
+                conflicts.push(cur.into());
+                continue;
+            }
+            let rev = next_rev(&mut tx).await?;
+            sqlx::query(
+                "UPDATE todos SET title = ?, todo_type = ?, status = ?, notes = ?, \
+                 deleted_at = IF(?, COALESCE(deleted_at, NOW()), NULL), \
+                 rev = ?, updated_at = NOW() WHERE ulid = ? AND user_id = ?",
+            )
+            .bind(&new.title)
+            .bind(&new.todo_type)
+            .bind(&new.status)
+            .bind(&new.notes)
+            .bind(new.deleted)
+            .bind(rev)
+            .bind(&new.ulid)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            let rev = next_rev(&mut tx).await?;
+            sqlx::query(
+                "INSERT INTO todos \
+                 (user_id, ulid, title, todo_type, status, notes, deleted_at, rev, \
+                  created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, IF(?, NOW(), NULL), ?, NOW(), NOW())",
+            )
+            .bind(user_id)
+            .bind(&new.ulid)
+            .bind(&new.title)
+            .bind(&new.todo_type)
+            .bind(&new.status)
+            .bind(&new.notes)
             .bind(new.deleted)
             .bind(rev)
             .execute(&mut *tx)

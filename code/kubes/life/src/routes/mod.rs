@@ -7,6 +7,7 @@ pub mod products;
 pub mod recipes;
 pub mod shopping;
 pub mod sync;
+pub mod todo;
 
 use axum::Router;
 use axum::routing::{delete, get, patch, post};
@@ -57,6 +58,12 @@ pub fn router(state: AppState) -> Router {
             "/sync/shopping",
             get(sync::pull_shopping).post(sync::push_shopping),
         )
+        .route("/todo", get(todo::list).post(todo::create))
+        .route(
+            "/todo/{id}",
+            patch(todo::update).delete(todo::delete),
+        )
+        .route("/sync/todo", get(sync::pull_todo).post(sync::push_todo))
         .route("/products/{barcode}", get(products::lookup))
         .route("/products/{barcode}/image", get(products::image))
         // One INFO line per API request (method, path, status, latency). Scoped to

@@ -47,7 +47,10 @@ export class App {
   ];
 
   // Less-common destinations live behind the hamburger menu.
-  readonly more: NavItem[] = [{ path: '/items', icon: 'inventory_2', label: 'All items' }];
+  readonly more: NavItem[] = [
+    { path: '/todo', icon: 'checklist', label: 'To-do' },
+    { path: '/items', icon: 'inventory_2', label: 'All items' },
+  ];
 
   constructor() {
     this.swUpdates.start();

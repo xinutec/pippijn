@@ -1,15 +1,16 @@
-//! HTTP surface for the offline-first sync protocol (RxDB pull/push). Shopping
-//! first; other collections follow the same shape.
+//! HTTP surface for the offline-first sync protocol (RxDB pull/push). One
+//! pull/push pair per collection (shopping, to-do); they share the generic
+//! envelope and the same shape.
 
-use axum::Json;
 use axum::extract::{Query, State};
+use axum::Json;
 use serde::Deserialize;
 
 use crate::error::AppError;
 use crate::session::AuthUser;
 use crate::state::AppState;
 use crate::sync::repo;
-use crate::sync::types::{PullResponse, PushEntry, ShoppingDoc};
+use crate::sync::types::{PullResponse, PushEntry, ShoppingDoc, TodoDoc};
 
 #[derive(Debug, Deserialize)]
 pub struct PullQuery {
@@ -29,7 +30,7 @@ pub async fn pull_shopping(
     State(app): State<AppState>,
     AuthUser(user): AuthUser,
     Query(q): Query<PullQuery>,
-) -> Result<Json<PullResponse>, AppError> {
+) -> Result<Json<PullResponse<ShoppingDoc>>, AppError> {
     let limit = q.limit.clamp(1, 1000);
     let res = repo::pull_shopping(&app.pool, &user.user_id, q.since, limit).await?;
     tracing::debug!(
@@ -47,15 +48,40 @@ pub async fn pull_shopping(
 pub async fn push_shopping(
     State(app): State<AppState>,
     AuthUser(user): AuthUser,
-    Json(entries): Json<Vec<PushEntry>>,
+    Json(entries): Json<Vec<PushEntry<ShoppingDoc>>>,
 ) -> Result<Json<Vec<ShoppingDoc>>, AppError> {
     let pushed = entries.len();
     let conflicts = repo::push_shopping(&app.pool, &user.user_id, entries).await?;
+    tracing::debug!(user = %user.user_id, pushed, conflicts = conflicts.len(), "sync push shopping");
+    Ok(Json(conflicts))
+}
+
+/// GET /api/sync/todo?since=<rev>&limit=<n>
+pub async fn pull_todo(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Query(q): Query<PullQuery>,
+) -> Result<Json<PullResponse<TodoDoc>>, AppError> {
+    let limit = q.limit.clamp(1, 1000);
+    let res = repo::pull_todo(&app.pool, &user.user_id, q.since, limit).await?;
     tracing::debug!(
         user = %user.user_id,
-        pushed,
-        conflicts = conflicts.len(),
-        "sync push shopping"
+        since = q.since,
+        returned = res.documents.len(),
+        checkpoint = res.checkpoint.rev,
+        "sync pull todo"
     );
+    Ok(Json(res))
+}
+
+/// POST /api/sync/todo — body: array of `{newDocumentState, assumedMasterState}`.
+pub async fn push_todo(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(entries): Json<Vec<PushEntry<TodoDoc>>>,
+) -> Result<Json<Vec<TodoDoc>>, AppError> {
+    let pushed = entries.len();
+    let conflicts = repo::push_todo(&app.pool, &user.user_id, entries).await?;
+    tracing::debug!(user = %user.user_id, pushed, conflicts = conflicts.len(), "sync push todo");
     Ok(Json(conflicts))
 }

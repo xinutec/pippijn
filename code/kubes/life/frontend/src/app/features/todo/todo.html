@@ -1,0 +1,67 @@
+<h2>To-do</h2>
+
+@if (syncError(); as err) {
+  <p class="sync-warn">{{ err }}</p>
+}
+
+<div class="add">
+  <mat-form-field appearance="outline" class="grow">
+    <mat-label>New to-do…</mat-label>
+    <input matInput [ngModel]="title()" (ngModelChange)="title.set($event)" (keyup.enter)="add()" placeholder="e.g. Buy milk" />
+  </mat-form-field>
+  <mat-form-field appearance="outline" class="type">
+    <mat-label>Type</mat-label>
+    <mat-select [ngModel]="newType()" (ngModelChange)="newType.set($event)">
+      @for (t of types; track t.value) {
+        <mat-option [value]="t.value">
+          <mat-icon>{{ t.icon }}</mat-icon>
+          {{ t.label }}
+        </mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+  <mat-form-field appearance="outline" class="grow">
+    <mat-label>Notes (optional)</mat-label>
+    <input matInput [ngModel]="notes()" (ngModelChange)="notes.set($event)" (keyup.enter)="add()" />
+  </mat-form-field>
+  <button mat-flat-button color="primary" (click)="add()" [disabled]="!title().trim()">Add</button>
+</div>
+
+<mat-button-toggle-group
+  class="filter"
+  [ngModel]="filter()"
+  (ngModelChange)="filter.set($event)"
+  hideSingleSelectionIndicator
+>
+  <mat-button-toggle [value]="null">All</mat-button-toggle>
+  @for (t of types; track t.value) {
+    <mat-button-toggle [value]="t.value">{{ t.label }}</mat-button-toggle>
+  }
+</mat-button-toggle-group>
+
+@if (visible().length === 0) {
+  <p class="empty">No to-dos{{ filter() ? ' of this type' : '' }} yet. Add one above.</p>
+}
+
+<mat-list>
+  @for (it of visible(); track it.ulid) {
+    <mat-list-item>
+      <mat-checkbox
+        matListItemIcon
+        [checked]="it.status === 'done'"
+        (change)="toggle(it)"
+        [attr.aria-label]="'Done ' + it.title"
+      ></mat-checkbox>
+      <span matListItemTitle [class.done]="it.status === 'done'">{{ it.title }}</span>
+      <span matListItemLine class="meta">
+        <mat-icon class="type-icon" [attr.aria-label]="typeLabel(it.type)">{{ typeIcon(it.type) }}</mat-icon>
+        @if (it.notes) {
+          <span class="note" [class.done]="it.status === 'done'">{{ it.notes }}</span>
+        }
+      </span>
+      <button matListItemMeta mat-icon-button (click)="remove(it.ulid)" aria-label="Delete">
+        <mat-icon>close</mat-icon>
+      </button>
+    </mat-list-item>
+  }
+</mat-list>

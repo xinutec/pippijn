@@ -15,6 +15,9 @@ export type { SearchHit } from './generated/SearchHit';
 export type { ShoppingItem } from './generated/ShoppingItem';
 export type { RecipeIngredient } from './generated/RecipeIngredient';
 export type { Recipe } from './generated/Recipe';
+export type { Todo } from './generated/Todo';
+export type { TodoType } from './generated/TodoType';
+export type { TodoStatus } from './generated/TodoStatus';
 
 // Scene-file types are frontend-owned: /api/house streams scenes/house.json
 // through as raw JSON (no Rust struct), so these aren't generated.

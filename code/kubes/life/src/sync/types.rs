@@ -2,7 +2,8 @@
 //!
 //! A *document* is the canonical synced shape of a row, keyed by its `ulid` and
 //! carrying the server `rev` (version) plus RxDB's `_deleted` tombstone flag. The
-//! checkpoint is simply the highest `rev` the client has pulled.
+//! checkpoint is simply the highest `rev` the client has pulled. The page/entry
+//! envelopes are generic over the document type so each collection reuses them.
 //! See `docs/proposals/offline-first.md`.
 
 use serde::{Deserialize, Serialize};
@@ -30,10 +31,29 @@ pub struct ShoppingDoc {
     pub rev: u64,
 }
 
+/// One to-do row as it travels over sync. The type/status enums ride as their
+/// snake_case strings (the raw row shape), parsed to enums only at the typed API
+/// boundary — exactly as the DB stores them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoDoc {
+    pub ulid: String,
+    #[serde(default)]
+    pub id: Option<u64>,
+    pub title: String,
+    #[serde(rename = "type")]
+    pub todo_type: String,
+    pub status: String,
+    pub notes: Option<String>,
+    #[serde(rename = "_deleted", default)]
+    pub deleted: bool,
+    #[serde(default)]
+    pub rev: u64,
+}
+
 /// A page of pulled documents plus the advanced checkpoint.
 #[derive(Debug, Serialize)]
-pub struct PullResponse {
-    pub documents: Vec<ShoppingDoc>,
+pub struct PullResponse<D> {
+    pub documents: Vec<D>,
     pub checkpoint: Checkpoint,
 }
 
@@ -45,11 +65,14 @@ pub struct Checkpoint {
 
 /// One change pushed by the client: the desired new state, plus the master state
 /// the client assumed (null for a fresh insert) — used for optimistic-concurrency
-/// conflict detection.
+/// conflict detection. The explicit `DeserializeOwned` bound (rather than serde's
+/// inferred `Deserialize<'de>`) keeps the doc type usable as a `Json` body — the
+/// inferred higher-ranked bound otherwise fails to satisfy axum's extractor.
 #[derive(Debug, Deserialize)]
-pub struct PushEntry {
+#[serde(bound(deserialize = "D: serde::de::DeserializeOwned"))]
+pub struct PushEntry<D> {
     #[serde(rename = "newDocumentState")]
-    pub new_document_state: ShoppingDoc,
+    pub new_document_state: D,
     #[serde(rename = "assumedMasterState", default)]
-    pub assumed_master_state: Option<ShoppingDoc>,
+    pub assumed_master_state: Option<D>,
 }

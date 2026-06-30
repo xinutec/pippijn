@@ -1,0 +1,48 @@
+.add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+
+  .grow {
+    flex: 1 1 100%;
+  }
+  .type {
+    flex: 1 1 140px;
+  }
+}
+
+.filter {
+  margin-bottom: 0.75rem;
+}
+
+.empty {
+  opacity: 0.7;
+}
+
+.done {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+
+  .type-icon {
+    font-size: 1.05rem;
+    width: 1.05rem;
+    height: 1.05rem;
+    opacity: 0.8;
+  }
+  .note {
+    opacity: 0.8;
+  }
+}
+
+mat-select mat-icon {
+  vertical-align: middle;
+  margin-right: 0.35rem;
+}
