@@ -144,6 +144,35 @@ item → layer → cupboard → room → house
   All fields optional/forward-compatible — the renderer skips nodes without a
   usable box.
 
+### To-do — typed tasks + a connection graph
+
+A **strongly-managed** to-do list: not a flat checklist but *typed* tasks that
+can be **connected** to each other and to the rest of life's data.
+
+- **`todo`** — `title`, `type`, `status` (`open` / `done`), optional `notes`.
+  - `type` is a **curated enum** that starts minimal — `purchase`, `call` — and
+    grows a variant at a time as real kinds appear, not up front.
+  - Offline-first exactly like shopping: its own RxDB collection synced through
+    `/api/sync/todo`, soft-deleted (tombstones), client-minted `ulid` identity.
+- **`todo_link`** — a **typed, directional** edge from one to-do to a target:
+  ```
+  todo ──kind──▶ target        kind ∈ depends-on | subtask | related
+  ```
+  - `target` is **polymorphic**: another `todo`, or an app entity —
+    `item` / `recipe` / `shopping` / `place` (DB ids) or a house `room` (the room
+    *name*, since rooms live in `scenes/house.json`, not the DB).
+  - Stored as `(from_ulid, kind, target_kind, target_ref)`, its own synced
+    collection (`/api/sync/todo-link`) so links travel offline too.
+  - Directionality carries meaning: `depends-on` / blocks (ordering), `subtask`
+    (parent → child hierarchy), `related` (plain association).
+- **Why a graph, not flags:** "fix the bay-window latch" → `related` to the
+  *bay/living room*; "buy a smoke alarm" → `depends-on` the *smoke-alarm item*.
+  Modelling each connection as an edge row (rather than baking relationships into
+  the to-do) keeps every kind of link uniform and queryable from either end —
+  the same "one generic engine" instinct as the inventory model above.
+- **Build status:** the `todo` entity ships first (typed list, offline-first);
+  the `todo_link` connections layer on top in the following increment.
+
 ---
 
 ## 5. Scheduling — delegated to NC Calendar

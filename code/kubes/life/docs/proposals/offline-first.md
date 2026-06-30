@@ -360,3 +360,20 @@ K2 durability framing, K3 observability, K4 delete-vs-update rule — all in §1
 Kept as-is (review endorsed): local-first-over-outbox, ULID-as-prerequisite,
 rev-over-wallclock, soft-delete tombstones, RxDB checkpoint protocol, Background-Sync
 realism, shopping_items-first rollout, recall carve-out.
+
+## 15. As built — collections beyond shopping (2026-06-30)
+
+Shopping was the first collection; the machinery generalised cleanly as more were
+added:
+- **`todo`** is the second synced collection (typed tasks — see overview §4).
+  Same shape as shopping: `ulid` identity, global `rev`, soft-delete tombstones,
+  `/api/sync/todo` pull/push.
+- The pull/push **envelope is now generic** over the document type
+  (`PullResponse<D>` / `PushEntry<D>` in `src/sync/types.rs`), so each collection
+  reuses it instead of copying the wire structs. The per-collection part is just
+  the doc shape + its pull/push repo functions.
+- The to-do **connections** (`todo_link`) are a further collection that stores
+  cross-row links **by ULID / soft ref** — another instance of the §6 / C2
+  "soft FK at sync time" rule: a link references its target by `ulid`/`target_ref`
+  (never a hard FK against sync input), so links and their endpoints sync on
+  independent streams without ordering hazards.
