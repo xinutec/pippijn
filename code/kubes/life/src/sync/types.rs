@@ -50,6 +50,25 @@ pub struct TodoDoc {
     pub rev: u64,
 }
 
+/// One to-do connection as it travels over sync. The kind/target_kind enums ride
+/// as their snake_case strings; the endpoints are soft refs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoLinkDoc {
+    pub ulid: String,
+    #[serde(default)]
+    pub id: Option<u64>,
+    pub from: String,
+    pub kind: String,
+    #[serde(rename = "targetKind")]
+    pub target_kind: String,
+    #[serde(rename = "targetRef")]
+    pub target_ref: String,
+    #[serde(rename = "_deleted", default)]
+    pub deleted: bool,
+    #[serde(default)]
+    pub rev: u64,
+}
+
 /// A page of pulled documents plus the advanced checkpoint.
 #[derive(Debug, Serialize)]
 pub struct PullResponse<D> {

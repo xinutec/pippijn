@@ -10,7 +10,7 @@ use crate::error::AppError;
 use crate::session::AuthUser;
 use crate::state::AppState;
 use crate::sync::repo;
-use crate::sync::types::{PullResponse, PushEntry, ShoppingDoc, TodoDoc};
+use crate::sync::types::{PullResponse, PushEntry, ShoppingDoc, TodoDoc, TodoLinkDoc};
 
 #[derive(Debug, Deserialize)]
 pub struct PullQuery {
@@ -83,5 +83,35 @@ pub async fn push_todo(
     let pushed = entries.len();
     let conflicts = repo::push_todo(&app.pool, &user.user_id, entries).await?;
     tracing::debug!(user = %user.user_id, pushed, conflicts = conflicts.len(), "sync push todo");
+    Ok(Json(conflicts))
+}
+
+/// GET /api/sync/todo-link?since=<rev>&limit=<n>
+pub async fn pull_todo_link(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Query(q): Query<PullQuery>,
+) -> Result<Json<PullResponse<TodoLinkDoc>>, AppError> {
+    let limit = q.limit.clamp(1, 1000);
+    let res = repo::pull_todo_link(&app.pool, &user.user_id, q.since, limit).await?;
+    tracing::debug!(
+        user = %user.user_id,
+        since = q.since,
+        returned = res.documents.len(),
+        checkpoint = res.checkpoint.rev,
+        "sync pull todo-link"
+    );
+    Ok(Json(res))
+}
+
+/// POST /api/sync/todo-link — body: array of `{newDocumentState, assumedMasterState}`.
+pub async fn push_todo_link(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(entries): Json<Vec<PushEntry<TodoLinkDoc>>>,
+) -> Result<Json<Vec<TodoLinkDoc>>, AppError> {
+    let pushed = entries.len();
+    let conflicts = repo::push_todo_link(&app.pool, &user.user_id, entries).await?;
+    tracing::debug!(user = %user.user_id, pushed, conflicts = conflicts.len(), "sync push todo-link");
     Ok(Json(conflicts))
 }

@@ -18,6 +18,9 @@ export type { Recipe } from './generated/Recipe';
 export type { Todo } from './generated/Todo';
 export type { TodoType } from './generated/TodoType';
 export type { TodoStatus } from './generated/TodoStatus';
+export type { TodoLink } from './generated/TodoLink';
+export type { LinkKind } from './generated/LinkKind';
+export type { TargetKind } from './generated/TargetKind';
 
 // Scene-file types are frontend-owned: /api/house streams scenes/house.json
 // through as raw JSON (no Rust struct), so these aren't generated.

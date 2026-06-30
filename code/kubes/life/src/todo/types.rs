@@ -102,3 +102,109 @@ pub struct UpdateTodo {
     #[serde(default)]
     pub notes: Option<String>,
 }
+
+/// How a to-do connects to its target. Directional: the edge runs *from* the
+/// to-do *to* the target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum LinkKind {
+    /// The to-do depends on the target (target should come first / blocks it).
+    DependsOn,
+    /// The target is a sub-task of the to-do (parent → child).
+    Subtask,
+    /// A plain association, no ordering implied.
+    Related,
+}
+
+impl fmt::Display for LinkKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            LinkKind::DependsOn => "depends_on",
+            LinkKind::Subtask => "subtask",
+            LinkKind::Related => "related",
+        })
+    }
+}
+
+impl FromStr for LinkKind {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "depends_on" => Ok(LinkKind::DependsOn),
+            "subtask" => Ok(LinkKind::Subtask),
+            "related" => Ok(LinkKind::Related),
+            other => Err(format!("unknown link kind {other:?}")),
+        }
+    }
+}
+
+/// What a connection points at. A target is referenced *softly* — by `ulid`
+/// (another to-do), DB id (an app entity), or room name (a house room) — never a
+/// hard FK, so links sync independently of their endpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum TargetKind {
+    Todo,
+    Item,
+    Recipe,
+    Room,
+    Shopping,
+    Place,
+}
+
+impl fmt::Display for TargetKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            TargetKind::Todo => "todo",
+            TargetKind::Item => "item",
+            TargetKind::Recipe => "recipe",
+            TargetKind::Room => "room",
+            TargetKind::Shopping => "shopping",
+            TargetKind::Place => "place",
+        })
+    }
+}
+
+impl FromStr for TargetKind {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "todo" => Ok(TargetKind::Todo),
+            "item" => Ok(TargetKind::Item),
+            "recipe" => Ok(TargetKind::Recipe),
+            "room" => Ok(TargetKind::Room),
+            "shopping" => Ok(TargetKind::Shopping),
+            "place" => Ok(TargetKind::Place),
+            other => Err(format!("unknown target kind {other:?}")),
+        }
+    }
+}
+
+/// A typed, directional connection as returned by the API.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(export)]
+pub struct TodoLink {
+    #[ts(type = "number")]
+    pub id: u64,
+    /// `ulid` of the source to-do.
+    pub from: String,
+    pub kind: LinkKind,
+    #[serde(rename = "targetKind")]
+    pub target_kind: TargetKind,
+    /// The target's ulid / id-string / room name (per `target_kind`).
+    #[serde(rename = "targetRef")]
+    pub target_ref: String,
+}
+
+/// Request body for creating a connection.
+#[derive(Debug, Deserialize)]
+pub struct NewTodoLink {
+    pub from: String,
+    pub kind: LinkKind,
+    #[serde(rename = "targetKind")]
+    pub target_kind: TargetKind,
+    #[serde(rename = "targetRef")]
+    pub target_ref: String,
+}

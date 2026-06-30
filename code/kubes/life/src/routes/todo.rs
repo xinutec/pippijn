@@ -9,8 +9,8 @@ use axum::Json;
 use crate::error::AppError;
 use crate::session::AuthUser;
 use crate::state::AppState;
-use crate::todo::repo;
-use crate::todo::types::{NewTodo, Todo, UpdateTodo};
+use crate::todo::types::{NewTodo, NewTodoLink, Todo, TodoLink, UpdateTodo};
+use crate::todo::{links, repo};
 
 pub async fn list(
     State(app): State<AppState>,
@@ -45,6 +45,35 @@ pub async fn delete(
     Path(id): Path<u64>,
 ) -> Result<StatusCode, AppError> {
     if repo::delete(&app.pool, &user.user_id, id).await? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(AppError::NotFound)
+    }
+}
+
+// --- connections (todo_link) ---
+
+pub async fn list_links(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<Vec<TodoLink>>, AppError> {
+    Ok(Json(links::list(&app.pool, &user.user_id).await?))
+}
+
+pub async fn create_link(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(body): Json<NewTodoLink>,
+) -> Result<Json<TodoLink>, AppError> {
+    Ok(Json(links::create(&app.pool, &user.user_id, body).await?))
+}
+
+pub async fn delete_link(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<u64>,
+) -> Result<StatusCode, AppError> {
+    if links::delete(&app.pool, &user.user_id, id).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(AppError::NotFound)

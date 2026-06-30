@@ -64,6 +64,15 @@ pub fn router(state: AppState) -> Router {
             patch(todo::update).delete(todo::delete),
         )
         .route("/sync/todo", get(sync::pull_todo).post(sync::push_todo))
+        .route(
+            "/todo-links",
+            get(todo::list_links).post(todo::create_link),
+        )
+        .route("/todo-links/{id}", delete(todo::delete_link))
+        .route(
+            "/sync/todo-link",
+            get(sync::pull_todo_link).post(sync::push_todo_link),
+        )
         .route("/products/{barcode}", get(products::lookup))
         .route("/products/{barcode}/image", get(products::image))
         // One INFO line per API request (method, path, status, latency). Scoped to

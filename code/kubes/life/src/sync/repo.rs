@@ -6,7 +6,7 @@ use anyhow::Result;
 use sqlx::{MySqlConnection, MySqlPool};
 use ulid::Ulid;
 
-use super::types::{Checkpoint, PullResponse, PushEntry, ShoppingDoc, TodoDoc};
+use super::types::{Checkpoint, PullResponse, PushEntry, ShoppingDoc, TodoDoc, TodoLinkDoc};
 
 /// Allocate the next global revision, **inside the caller's transaction**. The
 /// `LAST_INSERT_ID(val + 1)` trick bumps and returns the counter atomically; the
@@ -296,6 +296,126 @@ pub async fn push_todo(
             .bind(&new.todo_type)
             .bind(&new.status)
             .bind(&new.notes)
+            .bind(new.deleted)
+            .bind(rev)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+    }
+    Ok(conflicts)
+}
+
+// ---- to-do links ------------------------------------------------------------
+
+#[derive(sqlx::FromRow)]
+struct TodoLinkDocRow {
+    id: u64,
+    ulid: String,
+    from_ulid: String,
+    kind: String,
+    target_kind: String,
+    target_ref: String,
+    deleted: i64,
+    rev: u64,
+}
+
+impl From<TodoLinkDocRow> for TodoLinkDoc {
+    fn from(r: TodoLinkDocRow) -> Self {
+        TodoLinkDoc {
+            ulid: r.ulid,
+            id: Some(r.id),
+            from: r.from_ulid,
+            kind: r.kind,
+            target_kind: r.target_kind,
+            target_ref: r.target_ref,
+            deleted: r.deleted != 0,
+            rev: r.rev,
+        }
+    }
+}
+
+pub async fn pull_todo_link(
+    pool: &MySqlPool,
+    user_id: &str,
+    since: u64,
+    limit: u64,
+) -> Result<PullResponse<TodoLinkDoc>> {
+    let rows: Vec<TodoLinkDocRow> = sqlx::query_as(
+        "SELECT id, ulid, from_ulid, kind, target_kind, target_ref, \
+         CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
+         FROM todo_links WHERE user_id = ? AND rev > ? ORDER BY rev ASC LIMIT ?",
+    )
+    .bind(user_id)
+    .bind(since)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    let checkpoint = Checkpoint {
+        rev: rows.last().map_or(since, |r| r.rev),
+    };
+    Ok(PullResponse {
+        documents: rows.into_iter().map(Into::into).collect(),
+        checkpoint,
+    })
+}
+
+pub async fn push_todo_link(
+    pool: &MySqlPool,
+    user_id: &str,
+    entries: Vec<PushEntry<TodoLinkDoc>>,
+) -> Result<Vec<TodoLinkDoc>> {
+    let mut conflicts = Vec::new();
+    for entry in entries {
+        let new = entry.new_document_state;
+        let assumed_rev = entry.assumed_master_state.map(|d| d.rev);
+
+        let mut tx = pool.begin().await?;
+        let current: Option<TodoLinkDocRow> = sqlx::query_as(
+            "SELECT id, ulid, from_ulid, kind, target_kind, target_ref, \
+             CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
+             FROM todo_links WHERE ulid = ? AND user_id = ? FOR UPDATE",
+        )
+        .bind(&new.ulid)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(cur) = current {
+            if assumed_rev != Some(cur.rev) {
+                conflicts.push(cur.into());
+                continue;
+            }
+            let rev = next_rev(&mut tx).await?;
+            sqlx::query(
+                "UPDATE todo_links SET from_ulid = ?, kind = ?, target_kind = ?, target_ref = ?, \
+                 deleted_at = IF(?, COALESCE(deleted_at, NOW()), NULL), \
+                 rev = ?, updated_at = NOW() WHERE ulid = ? AND user_id = ?",
+            )
+            .bind(&new.from)
+            .bind(&new.kind)
+            .bind(&new.target_kind)
+            .bind(&new.target_ref)
+            .bind(new.deleted)
+            .bind(rev)
+            .bind(&new.ulid)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            let rev = next_rev(&mut tx).await?;
+            sqlx::query(
+                "INSERT INTO todo_links \
+                 (user_id, ulid, from_ulid, kind, target_kind, target_ref, deleted_at, rev, \
+                  created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, IF(?, NOW(), NULL), ?, NOW(), NOW())",
+            )
+            .bind(user_id)
+            .bind(&new.ulid)
+            .bind(&new.from)
+            .bind(&new.kind)
+            .bind(&new.target_kind)
+            .bind(&new.target_ref)
             .bind(new.deleted)
             .bind(rev)
             .execute(&mut *tx)
