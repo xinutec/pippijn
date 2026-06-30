@@ -15,6 +15,12 @@ export const PTR_MIN_SPIN_MS = 500;
 /** Finger travel → pull distance before the cap (a gentle rubber-band). */
 const RESISTANCE = 0.5;
 
+/** A touch that starts inside an element matching this selector belongs to that
+ *  element's own drag gesture (e.g. panning the Leaflet map), not a
+ *  pull-to-refresh — so the gesture is not armed there. Any other element can
+ *  opt out the same way with a `data-no-pull-refresh` attribute. */
+export const PTR_EXCLUDE_SELECTOR = ".leaflet-container, [data-no-pull-refresh]";
+
 /**
  * Visible pull distance for a raw downward finger delta, with rubber-band
  * resistance and a hard cap. A non-positive delta (finger moving up, or not

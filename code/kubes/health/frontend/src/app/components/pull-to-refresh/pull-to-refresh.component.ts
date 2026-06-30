@@ -14,6 +14,7 @@ import {
 import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";
 import {
 	isArmed,
+	PTR_EXCLUDE_SELECTOR,
 	PTR_MIN_SPIN_MS,
 	PTR_REST_PX,
 	pullDistance,
@@ -102,6 +103,14 @@ export class PullToRefreshComponent implements OnDestroy {
 	private readonly onStart = (e: TouchEvent): void => {
 		// Only arm at the very top of the page, with a single finger, when idle.
 		if (this.disabled() || this.refreshing() || e.touches.length !== 1 || window.scrollY > 0) {
+			this.active = false;
+			return;
+		}
+		// Don't steal the gesture from an element that handles its own drag —
+		// the Leaflet map (pan) or anything that opts out with the attribute.
+		// A downward drag there is panning, not a pull-to-refresh.
+		const target = e.target as Element | null;
+		if (target?.closest(PTR_EXCLUDE_SELECTOR)) {
 			this.active = false;
 			return;
 		}
