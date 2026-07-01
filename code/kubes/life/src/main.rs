@@ -24,7 +24,11 @@ async fn main() -> Result<()> {
     db::migrate(&pool).await?;
     sync::backfill(&pool).await?;
 
-    let http = reqwest::Client::builder().build()?;
+    // Bound every outbound call (Nextcloud identity/login-flow, Open Food Facts
+    // metadata) so a hung upstream can't tie up the pod.
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
     let bind_addr = cfg.bind_addr.clone();
     let app = routes::router(AppState::new(pool, cfg, http));
 

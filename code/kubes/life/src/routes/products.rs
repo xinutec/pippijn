@@ -28,7 +28,7 @@ pub async fn lookup(
     };
     tracing::debug!(%barcode, name = ?found.name, has_image = found.image_url.is_some(), "product fetched from Open Food Facts");
     let image = match &found.image_url {
-        Some(url) => off::fetch_image(&app.http, url).await.ok().flatten(),
+        Some(url) => off::fetch_image(url).await.ok().flatten(),
         None => None,
     };
     repo::upsert(
