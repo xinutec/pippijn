@@ -63,6 +63,14 @@ far more probable than any invented triangle, because it is the route he takes
 almost every time. For a single user with a small set of repeated journeys this
 is the highest-ROI signal available, and the data already exists.
 
+**Measured caveat (2026-07-01):** a coarse POINT-familiarity prior — "has he been
+near this cell before?" — is NOT enough. Validated on the 30-06 13:20 triangle
+over 60 days of history: the invented apex has 67 nearby historical points, the
+same order as the real corridor (54–121), because the whole home↔station area is
+daily turf. The prior must be at the **path / edge level** — his habitual
+*polyline through each junction*, so many noisy passes average to a clean median
+route that a single-pass triangle deviates from — not mere presence density.
+
 ### 4. Story anchoring — reconstruct between known truths (#244, #257)
 
 The day is a story: home → walk → board → ride → alight → walk → hospital. Each
