@@ -120,6 +120,17 @@ async function truthReport(date: string, tz: string, states: readonly StateWindo
 		if (verdict === "cleared")
 			lines.push(`      ✓ cleared    ${row.windowText}: known error "${row.blessedText}" is fixed`);
 	}
+	// Per-journey failure diagnostic: expected vs reconstructed mode shape — the
+	// signal that says WHICH factor (corridor / kinematic / cadence) each broken
+	// journey needs. Only shown with GOLDEN_JOURNEY_DEBUG to keep the report terse.
+	if (process.env.GOLDEN_JOURNEY_DEBUG) {
+		for (const r of j.journeyResults.filter((x) => !x.matched)) {
+			const at = new Date(r.startTs * 1000).toISOString().slice(11, 16);
+			lines.push(
+				`      ✗ journey @${at}Z  expected [${r.expectedShape.join(",")}]  got [${(r.actualShape ?? []).join(",")}]`,
+			);
+		}
+	}
 	return { text: lines.join("\n"), journeyMatched };
 }
 
