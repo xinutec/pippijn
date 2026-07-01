@@ -83,12 +83,11 @@
   padding: 0.4rem 0.6rem;
   border-radius: 0.5rem;
   background: rgba(0, 0, 0, 0.05);
-  // Off-screen messages within the rendered window skip layout/paint, so the
-  // window stays smooth; the window itself is capped in thread.ts so the DOM
-  // node count stays bounded. `auto` remembers each message's real height once
-  // rendered; 60px is the first guess.
-  content-visibility: auto;
-  contain-intrinsic-size: auto 60px;
+  // NB no `content-visibility: auto` here: the window is capped (thread.ts), so
+  // the bubbles are cheap to render in full. content-visibility would render
+  // off-screen rows at a GUESSED height and resize them to real when scrolled
+  // into view — and with native scroll-anchoring disabled that resize shifts the
+  // viewport (the "history jumps as you scroll up" bug).
 
   &.out {
     margin-left: auto;

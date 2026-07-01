@@ -40,6 +40,17 @@ interface Chunk {
 const sumCount = (cs: Chunk[]): number => cs.reduce((a, c) => a + c.count, 0);
 const sumHeight = (cs: Chunk[]): number => cs.reduce((a, c) => a + c.height, 0);
 
+/** Whether to emit scroll-jump diagnostics. Off unless explicitly enabled, and
+ *  guarded because localStorage/location can throw (SSR, sandboxed iframes). */
+function readDebugFlag(): boolean {
+  try {
+    if (/(?:^|[?&])scrolldebug\b/.test(location.search)) return true;
+    return localStorage.getItem('threadScrollDebug') === '1';
+  } catch {
+    return false;
+  }
+}
+
 @Component({
   selector: 'app-thread',
   templateUrl: './thread.html',
@@ -108,6 +119,15 @@ export class Thread {
   private adjusting = false;
   private fromTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Optional scroll-jump instrumentation (off by default). Enable at runtime with
+  // `localStorage.threadScrollDebug = '1'` or a `?scrolldebug` URL param, then
+  // read the `[thread-scroll]` console.debug lines: a `jump` line = already-
+  // visible content shifted on its own (the symptom); an op line (`revealTop`,
+  // `fetchOlder`, …) shows how far that step had to re-anchor the viewport.
+  private dbg = false;
+  private lastAnchor: { id: string; top: number } | null = null;
+  private lastScrollTop = 0;
+
   /** Rendered messages bucketed by calendar day, so each day renders as a section
    *  with a sticky date header (the header pins only within its own day → it
    *  shows the current top message's date and is replaced by the next day, never
@@ -128,6 +148,7 @@ export class Thread {
   });
 
   constructor() {
+    this.dbg = readDebugFlag();
     // (Re)load whenever the routed conversation changes — deep link, switching
     // conversations (Angular reuses this instance, just updates the inputs),
     // Back/forward.
@@ -207,6 +228,7 @@ export class Thread {
     if (this.adjusting || this.loadingThread() || this.threadError() || !this.routed()) return;
     const el = this.messagesEl()?.nativeElement;
     if (!el) return;
+    if (this.dbg) this.detectJump();
     // Proximity to the message block's edges, measured from viewport rects (the
     // host's offsetParent isn't guaranteed to be the host, so offsetTop is not).
     const hostRect = this.host.getBoundingClientRect();
@@ -226,7 +248,32 @@ export class Thread {
       this.revealBottom();
       this.enforceMax('top');
     }
+    // Re-baseline after any windowing so the next jump check compares like frames
+    // (a windowing step legitimately re-anchors; that isn't a jump).
+    if (this.dbg) {
+      this.lastAnchor = this.topAnchor();
+      this.lastScrollTop = this.host.scrollTop;
+    }
     this.scheduleFromParam();
+  }
+
+  /** Log when already-visible content shifts on its own — i.e. between two user
+   *  scroll frames the top message moved by more than the scroll delta explains.
+   *  That residual IS the visible jump. */
+  private detectJump(): void {
+    const a = this.topAnchor();
+    const top = this.host.scrollTop;
+    if (a && this.lastAnchor?.id === a.id) {
+      const expected = this.lastAnchor.top - (top - this.lastScrollTop);
+      const shift = a.top - expected;
+      if (Math.abs(shift) > 1) {
+        this.log('jump', { shift: +shift.toFixed(1), anchor: a.id, renderCount: this.renderCount() });
+      }
+    }
+  }
+
+  private log(op: string, data: Record<string, unknown>): void {
+    if (this.dbg) console.debug('[thread-scroll]', op, data);
   }
 
   private fetchOlder(): void {
@@ -239,7 +286,7 @@ export class Thread {
         // Prepend; the window starts at index 0 (above is empty when we fetch),
         // so the new page becomes rendered at the top. Anchor keeps the viewport
         // on the same message despite the added height.
-        this.mutateWithAnchor(() => {
+        this.mutateWithAnchor('fetchOlder', () => {
           this.messages.update((cur) => [...page.messages, ...cur]);
           this.hasMore.set(page.has_more);
           this.cursor = page.next_before;
@@ -255,27 +302,27 @@ export class Thread {
   private revealTop(): void {
     const cs = this.above();
     if (!cs.length) return;
-    this.mutateWithAnchor(() => this.above.set(cs.slice(0, -1)));
+    this.mutateWithAnchor('revealTop', () => this.above.set(cs.slice(0, -1)));
   }
 
   private revealBottom(): void {
     const cs = this.below();
     if (!cs.length) return;
-    this.mutateWithAnchor(() => this.below.set(cs.slice(0, -1)));
+    this.mutateWithAnchor('revealBottom', () => this.below.set(cs.slice(0, -1)));
   }
 
   private collapseTop(count: number): void {
     const n = Math.min(count, this.renderCount());
     if (n <= 0) return;
     const height = this.avgRowH() * n;
-    this.mutateWithAnchor(() => this.above.update((c) => [...c, { count: n, height }]));
+    this.mutateWithAnchor('collapseTop', () => this.above.update((c) => [...c, { count: n, height }]));
   }
 
   private collapseBottom(count: number): void {
     const n = Math.min(count, this.renderCount());
     if (n <= 0) return;
     const height = this.avgRowH() * n;
-    this.mutateWithAnchor(() => this.below.update((c) => [...c, { count: n, height }]));
+    this.mutateWithAnchor('collapseBottom', () => this.below.update((c) => [...c, { count: n, height }]));
   }
 
   /** Keep the DOM bounded by collapsing the end away from the viewport. Called
@@ -329,17 +376,27 @@ export class Thread {
   /** Run a window mutation while keeping the viewport pinned to whatever message
    *  is at the top of it — the estimated spacer heights don't have to be exact
    *  because the anchor, not the geometry, decides what the user sees. */
-  private mutateWithAnchor(mutate: () => void): void {
+  private mutateWithAnchor(label: string, mutate: () => void): void {
     const anchor = this.topAnchor();
     this.withScrollLock(() => {
       mutate();
       this.appRef.tick();
+      let reanchor = 0;
       if (anchor) {
         const el = this.msgEls().find((e) => e.dataset['id'] === anchor.id);
         if (el) {
           const now = el.getBoundingClientRect().top - this.host.getBoundingClientRect().top;
-          this.host.scrollTop += now - anchor.top;
+          reanchor = now - anchor.top;
+          this.host.scrollTop += reanchor;
         }
+      }
+      if (this.dbg) {
+        this.log(label, {
+          reanchor: +reanchor.toFixed(1),
+          renderCount: this.renderCount(),
+          above: this.above().length,
+          below: this.below().length,
+        });
       }
     });
   }

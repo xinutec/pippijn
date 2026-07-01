@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- messages app icon: blue rounded square + white speech bubble with an
+     ellipsis. Source of truth; a PNG/favicon set can be generated from this
+     later (cf. the home app's gen-icons.sh). Blue (#1e88e5) matches the
+     outgoing-bubble accent and distinguishes messages from life/home/health. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1e88e5"/>
+  <path d="M140 128 H372 a44 44 0 0 1 44 44 V276 a44 44 0 0 1 -44 44 H236 l-64 56 v-56 h-32 a44 44 0 0 1 -44 -44 V172 a44 44 0 0 1 44 -44 Z" fill="#ffffff"/>
+  <g fill="#1e88e5">
+    <circle cx="192" cy="224" r="22"/>
+    <circle cx="256" cy="224" r="22"/>
+    <circle cx="320" cy="224" r="22"/>
+  </g>
+</svg>

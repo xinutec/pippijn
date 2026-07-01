@@ -67,6 +67,31 @@ test("message body has no spurious leading/trailing whitespace", async ({ page }
   expect(await body.textContent()).toBe("Hello world");
 });
 
+test("favicon is linked and served", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/");
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "icon.svg");
+  // Served from public/ via the assets glob (same wiring as the other apps).
+  const resp = await page.request.get("/icon.svg");
+  expect(resp.status()).toBe(200);
+  expect(resp.headers()["content-type"]).toContain("svg");
+});
+
+test("message bubbles are not content-visibility:auto (would jump on scroll-up)", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/conversations/**/messages**", (r) =>
+    r.fulfill({ json: { messages: multiDayThread(), has_more: false, next_before: null } }),
+  );
+  await page.goto("/conversation/signal/dm:a");
+  await page.locator(".msg").first().waitFor();
+  // The rendered window is capped in thread.ts, so bubbles render in full.
+  // content-visibility:auto would render off-screen rows at a guessed height and
+  // resize them when scrolled into view — shifting the viewport (the reported
+  // "history jumps as you scroll up" bug).
+  const cv = await page.locator(".msg").first().evaluate((e) => getComputedStyle(e).contentVisibility);
+  expect(cv).not.toBe("auto");
+});
+
 test("a scrolled multi-day thread does not stack date separators", async ({ page }) => {
   await mockApi(page);
   await page.route("**/api/conversations/**/messages**", (r) =>
