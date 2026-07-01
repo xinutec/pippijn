@@ -1,0 +1,113 @@
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.25rem 0.25rem 1rem;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+
+  .title-field {
+    flex: 1 1 auto;
+  }
+}
+
+.type {
+  align-self: flex-start;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+
+  mat-icon {
+    flex: 0 0 auto;
+  }
+  &.blocked {
+    background: color-mix(in srgb, var(--mat-sys-error) 18%, transparent);
+    color: var(--mat-sys-on-error-container);
+  }
+  &.ready {
+    background: color-mix(in srgb, var(--mat-sys-primary) 20%, transparent);
+    color: var(--mat-sys-on-primary-container);
+  }
+  .wait {
+    display: inline-block;
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
+    font-size: 0.8rem;
+  }
+}
+
+.notes-field {
+  width: 100%;
+}
+
+.group {
+  h4 {
+    margin: 0.25rem 0 0;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.6;
+  }
+}
+
+.kindlabel {
+  opacity: 0.6;
+  font-size: 0.75rem;
+  text-transform: capitalize;
+}
+
+.tappable {
+  cursor: pointer;
+  &:hover {
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 6%, transparent);
+  }
+}
+
+.add-link {
+  h4 {
+    margin: 0.5rem 0 0.35rem;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.6;
+  }
+  .kind {
+    margin-bottom: 0.5rem;
+  }
+  .search {
+    width: 100%;
+  }
+  .results {
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  .empty {
+    opacity: 0.6;
+    font-size: 0.85rem;
+  }
+}
+
+.delete {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+}
+
+.gone {
+  padding: 1.5rem;
+  text-align: center;
+  opacity: 0.7;
+}

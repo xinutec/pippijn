@@ -27,39 +27,68 @@
   <button mat-flat-button color="primary" (click)="add()" [disabled]="!title().trim()">Add</button>
 </div>
 
-<mat-button-toggle-group
-  class="filter"
-  [ngModel]="filter()"
-  (ngModelChange)="filter.set($event)"
-  hideSingleSelectionIndicator
->
-  <mat-button-toggle [value]="null">All</mat-button-toggle>
-  @for (t of types; track t.value) {
-    <mat-button-toggle [value]="t.value">{{ t.label }}</mat-button-toggle>
+<div class="filters">
+  <mat-button-toggle-group
+    class="type-filter"
+    [ngModel]="filter()"
+    (ngModelChange)="filter.set($event)"
+    hideSingleSelectionIndicator
+  >
+    <mat-button-toggle [value]="null">All</mat-button-toggle>
+    @for (t of types; track t.value) {
+      <mat-button-toggle [value]="t.value">{{ t.label }}</mat-button-toggle>
+    }
+  </mat-button-toggle-group>
+  @if (readyCount() > 0) {
+    <button
+      mat-stroked-button
+      class="ready-toggle"
+      [class.on]="readyOnly()"
+      (click)="readyOnly.set(!readyOnly())"
+    >
+      <mat-icon>bolt</mat-icon> Ready {{ readyCount() }}
+    </button>
   }
-</mat-button-toggle-group>
+</div>
 
 @if (visible().length === 0) {
-  <p class="empty">No to-dos{{ filter() ? ' of this type' : '' }} yet. Add one above.</p>
+  <p class="empty">
+    @if (readyOnly()) {
+      Nothing ready right now.
+    } @else {
+      No to-dos{{ filter() ? ' of this type' : '' }} yet. Add one above.
+    }
+  </p>
 }
 
 <mat-list>
   @for (it of visible(); track it.ulid) {
-    <mat-list-item>
+    @let st = stateOf(it);
+    <mat-list-item [class.blocked-row]="st === 'blocked'">
       <mat-checkbox
         matListItemIcon
         [checked]="it.status === 'done'"
         (change)="toggle(it)"
         [attr.aria-label]="'Done ' + it.title"
       ></mat-checkbox>
-      <span matListItemTitle [class.done]="it.status === 'done'">{{ it.title }}</span>
+      <span matListItemTitle class="tappable" (click)="openDetail(it)" [class.done]="it.status === 'done'">
+        {{ it.title }}
+      </span>
       <span matListItemLine class="meta">
         <mat-icon class="type-icon" [attr.aria-label]="typeLabel(it.type)">{{ typeIcon(it.type) }}</mat-icon>
+        @if (st === 'blocked') {
+          <span class="pill blocked"><mat-icon>lock</mat-icon> waiting on {{ blockerCount(it) }}</span>
+        } @else if (st === 'ready') {
+          <span class="pill ready"><mat-icon>bolt</mat-icon> ready</span>
+        }
+        @if (linkCount(it) > 0) {
+          <span class="pill links" (click)="openDetail(it)"><mat-icon>hub</mat-icon> {{ linkCount(it) }}</span>
+        }
         @if (it.notes) {
           <span class="note" [class.done]="it.status === 'done'">{{ it.notes }}</span>
         }
       </span>
-      <button matListItemMeta mat-icon-button (click)="remove(it.ulid)" aria-label="Delete">
+      <button matListItemMeta mat-icon-button (click)="remove(it)" aria-label="Delete">
         <mat-icon>close</mat-icon>
       </button>
     </mat-list-item>

@@ -1,0 +1,119 @@
+@if (todo(); as td) {
+  <div class="detail">
+    <div class="head">
+      <mat-checkbox [checked]="td.status === 'done'" (change)="toggleDone()" aria-label="Done"></mat-checkbox>
+      <mat-form-field appearance="outline" class="title-field" subscriptSizing="dynamic">
+        <input
+          matInput
+          [ngModel]="title()"
+          (ngModelChange)="title.set($event)"
+          (blur)="saveTitle()"
+          (keyup.enter)="saveTitle()"
+          aria-label="Title"
+        />
+      </mat-form-field>
+      <button mat-icon-button (click)="close()" aria-label="Close"><mat-icon>close</mat-icon></button>
+    </div>
+
+    <mat-button-toggle-group
+      class="type"
+      [ngModel]="td.type"
+      (ngModelChange)="setType($event)"
+      hideSingleSelectionIndicator
+    >
+      @for (t of types; track t.value) {
+        <mat-button-toggle [value]="t.value"><mat-icon>{{ t.icon }}</mat-icon> {{ t.label }}</mat-button-toggle>
+      }
+    </mat-button-toggle-group>
+
+    @if (state() === 'blocked') {
+      <div class="banner blocked">
+        <mat-icon>lock</mat-icon>
+        <span>Blocked — waiting on
+          @for (b of blockers(); track b.ulid) {
+            <span class="wait">{{ b.title }}</span>
+          }
+        </span>
+      </div>
+    } @else if (state() === 'ready') {
+      <div class="banner ready"><mat-icon>bolt</mat-icon> <span>Ready to do</span></div>
+    }
+
+    <mat-form-field appearance="outline" class="notes-field" subscriptSizing="dynamic">
+      <mat-label>Notes</mat-label>
+      <textarea
+        matInput
+        rows="2"
+        [ngModel]="notes()"
+        (ngModelChange)="notes.set($event)"
+        (blur)="saveNotes()"
+      ></textarea>
+    </mat-form-field>
+
+    @for (grp of groups(); track grp.heading) {
+      <div class="group">
+        <h4>{{ grp.heading }}</h4>
+        <mat-list>
+          @for (row of grp.rows; track row.edge) {
+            <mat-list-item [class.tappable]="row.todoRef" (click)="row.todoRef && openTodo(row.todoRef)">
+              <mat-icon matListItemIcon>{{ row.target.icon }}</mat-icon>
+              <span matListItemTitle>{{ row.target.label }}</span>
+              <span matListItemLine class="kindlabel">{{ row.target.kind }}</span>
+              <button
+                matListItemMeta
+                mat-icon-button
+                (click)="$event.stopPropagation(); removeLink(row.edge)"
+                aria-label="Remove connection"
+              >
+                <mat-icon>link_off</mat-icon>
+              </button>
+            </mat-list-item>
+          }
+        </mat-list>
+      </div>
+    }
+
+    <div class="add-link">
+      <h4>Add connection</h4>
+      <mat-button-toggle-group
+        class="kind"
+        [ngModel]="addKind()"
+        (ngModelChange)="addKind.set($event)"
+        hideSingleSelectionIndicator
+      >
+        @for (k of kinds; track k.value) {
+          <mat-button-toggle [value]="k.value">{{ k.label }}</mat-button-toggle>
+        }
+      </mat-button-toggle-group>
+      <mat-form-field appearance="outline" class="search" subscriptSizing="dynamic">
+        <mat-icon matPrefix>search</mat-icon>
+        <mat-label>Link to…</mat-label>
+        <input
+          matInput
+          [ngModel]="query()"
+          (ngModelChange)="query.set($event)"
+          placeholder="a to-do, item, room, recipe…"
+        />
+      </mat-form-field>
+      @if (results().length > 0) {
+        <mat-list class="results">
+          @for (r of results(); track r.kind + ':' + r.ref) {
+            <mat-list-item class="tappable" (click)="addLink(r)">
+              <mat-icon matListItemIcon>{{ r.icon }}</mat-icon>
+              <span matListItemTitle>{{ r.label }}</span>
+              <span matListItemLine class="kindlabel">{{ r.kind }}</span>
+            </mat-list-item>
+          }
+        </mat-list>
+      } @else if (query().trim()) {
+        <p class="empty">No matches for "{{ query() }}".</p>
+      }
+    </div>
+
+    <button mat-button color="warn" class="delete" (click)="remove()">
+      <mat-icon>delete</mat-icon> Delete to-do
+    </button>
+  </div>
+} @else {
+  <p class="gone">This to-do was deleted.</p>
+}

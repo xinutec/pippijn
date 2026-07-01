@@ -1,10 +1,12 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { BehaviorSubject } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 
 import { TodoDoc, TodoStore } from '../../sync/todo-store';
 import { Todo } from './todo';
+import { TodoGraph } from './todo-graph';
 
 const doc = (over: Partial<TodoDoc>): TodoDoc => ({
   ulid: 'u',
@@ -28,11 +30,24 @@ describe('Todo', () => {
       setStatus: vi.fn(),
       remove: vi.fn(),
     };
+    const graph = {
+      statusOf: vi.fn(() => 'open'),
+      blockers: vi.fn(() => []),
+      linkCount: vi.fn(() => 0),
+      removeLinksForTodo: vi.fn(),
+    };
+    const sheet = { open: vi.fn() };
     TestBed.configureTestingModule({
       imports: [Todo],
-      providers: [{ provide: TodoStore, useValue: store }],
+      providers: [
+        { provide: TodoStore, useValue: store },
+        { provide: TodoGraph, useValue: graph },
+      ],
     });
-    return { fixture: TestBed.createComponent(Todo), store };
+    // Todo imports MatBottomSheetModule, which re-provides MatBottomSheet at the
+    // component injector — overrideProvider forces our stub everywhere.
+    TestBed.overrideProvider(MatBottomSheet, { useValue: sheet });
+    return { fixture: TestBed.createComponent(Todo), store, graph, sheet };
   }
 
   it('adds a typed to-do and clears the form', () => {
@@ -58,6 +73,19 @@ describe('Todo', () => {
     const { fixture, store } = setup();
     fixture.componentInstance.toggle(doc({ ulid: 'a', status: 'open' }));
     expect(store.setStatus).toHaveBeenCalledWith('a', 'done');
+  });
+
+  it('opens the detail sheet on a to-do', () => {
+    const { fixture, sheet } = setup();
+    fixture.componentInstance.openDetail(doc({ ulid: 'a' }));
+    expect(sheet.open).toHaveBeenCalled();
+  });
+
+  it('deleting a to-do also clears its links', () => {
+    const { fixture, store, graph } = setup();
+    fixture.componentInstance.remove(doc({ ulid: 'a' }));
+    expect(graph.removeLinksForTodo).toHaveBeenCalledWith('a');
+    expect(store.remove).toHaveBeenCalledWith('a');
   });
 
   it('filters the visible list by type', () => {
