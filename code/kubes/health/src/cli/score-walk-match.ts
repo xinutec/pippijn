@@ -18,7 +18,7 @@
  */
 
 import { readdirSync, readFileSync } from "node:fs";
-import { scoreWalk } from "../eval/walk-score.js";
+import { walkPlausibility } from "../eval/walk-plausibility.js";
 import { FixtureOsmAdapter } from "../geo/osm-adapter-fixture.js";
 import type { OsmRoadWay, RoadGeometry } from "../geo/road-match.js";
 import { computeVelocityFromInputs } from "../geo/velocity.js";
@@ -47,6 +47,8 @@ interface WalkVerdict {
 	candidateKind: string;
 	baselineP90: number | null;
 	candidateP90: number | null;
+	/** Raw-vs-matched over-route metric on the drawn candidate line (m). */
+	candidateStallM: number;
 }
 
 async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
@@ -67,7 +69,13 @@ async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
 		const onE = on.episodes[i];
 		const offE = off.episodes[i];
 		if (onE.mode !== "walking" || onE.points.length < 2) continue;
-		const candidate = scoreWalk(
+		// The raw GPS corridor the drawn line is measured against — needed for the
+		// over-route (corridor-stall) witness `scoreWalk` alone cannot see.
+		const raw = on.rawFixes
+			.filter((f) => f.ts >= onE.startTs && f.ts <= onE.endTs)
+			.map((f) => ({ lat: f.lat, lon: f.lon }));
+		const candidate = walkPlausibility(
+			raw,
 			onE.points.map((p) => ({ lat: p.lat, lon: p.lon })),
 			onE.startTs,
 			onE.endTs,
@@ -76,7 +84,8 @@ async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
 		);
 		const baseline =
 			offE && offE.points.length >= 2
-				? scoreWalk(
+				? walkPlausibility(
+						raw,
 						offE.points.map((p) => ({ lat: p.lat, lon: p.lon })),
 						offE.startTs,
 						offE.endTs,
@@ -91,6 +100,7 @@ async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
 			candidateKind: onE.kind,
 			baselineP90: baseline?.offWalkableP90M ?? null,
 			candidateP90: candidate.offWalkableP90M,
+			candidateStallM: candidate.corridorStallM,
 		});
 	}
 	return verdicts;
@@ -127,7 +137,10 @@ async function main(): Promise<void> {
 			const tag = classify(v).toUpperCase().padEnd(9);
 			const b = v.baselineP90 === null ? "  -" : `${v.baselineP90.toFixed(0).padStart(3)}m`;
 			const c = v.candidateP90 === null ? "  -" : `${v.candidateP90.toFixed(0).padStart(3)}m`;
-			console.log(`  ${tag} @${hhmm(v.startTs)}Z  offWalkP90 ${b} → ${c}   (${v.baselineKind} → ${v.candidateKind})`);
+			const stallFlag = v.candidateStallM >= 80 ? " ⚠over-route" : "";
+			console.log(
+				`  ${tag} @${hhmm(v.startTs)}Z  offWalkP90 ${b} → ${c}  stall ${v.candidateStallM.toFixed(0).padStart(4)}m${stallFlag}   (${v.baselineKind} → ${v.candidateKind})`,
+			);
 		}
 	}
 

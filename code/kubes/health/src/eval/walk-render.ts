@@ -8,7 +8,12 @@
  * line that leaves them and returns is an invented detour with or without
  * street context. Pure (geometry → SVG string), no DB / tiles / deps.
  */
+import { maxCorridorStall } from "./walk-plausibility.js";
 import type { LatLon } from "./walk-score.js";
+
+// Re-exported so existing importers (render CLI) can pull the triage metric and
+// the renderer from one place; it now lives in walk-plausibility.
+export { maxCorridorStall };
 
 export interface WalkPanel {
 	label: string;
@@ -20,58 +25,6 @@ export interface WalkPanel {
 	smoothed: LatLon[];
 	/** Triage metric (corridor stall, m) shown in the panel header. */
 	stallM: number;
-}
-
-const m = (a: LatLon, b: LatLon): number => {
-	const dLat = (b.lat - a.lat) * 111_320;
-	const dLon = (b.lon - a.lon) * 111_320 * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
-	return Math.hypot(dLat, dLon);
-};
-
-/**
- * The longest run of `path` that travels far while its monotone projection onto
- * the time-ordered `fixes` polyline barely advances — an out-and-back that makes
- * no corridor progress. A triage signal only (confounded by genuine
- * there-and-back walks), used to sort the worst-looking panels to the top.
- */
-export function maxCorridorStall(fixes: readonly LatLon[], path: readonly LatLon[], tolM = 15): number {
-	if (path.length < 2 || fixes.length < 2) return 0;
-	const fArc = [0];
-	for (let i = 1; i < fixes.length; i++) fArc.push(fArc[i - 1] + m(fixes[i - 1], fixes[i]));
-	const pArc = [0];
-	for (let i = 1; i < path.length; i++) pArc.push(pArc[i - 1] + m(path[i - 1], path[i]));
-	const cp: number[] = [];
-	let minS = 0;
-	for (const v of path) {
-		let best = Number.POSITIVE_INFINITY;
-		let bestS = minS;
-		for (let i = 0; i < fixes.length - 1; i++) {
-			const a = fixes[i];
-			const b = fixes[i + 1];
-			const cosLat = Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
-			const bx = (b.lon - a.lon) * 111_320 * cosLat;
-			const by = (b.lat - a.lat) * 111_320;
-			const px = (v.lon - a.lon) * 111_320 * cosLat;
-			const py = (v.lat - a.lat) * 111_320;
-			const l2 = bx * bx + by * by || 1e-9;
-			const t = Math.max(0, Math.min(1, (px * bx + py * by) / l2));
-			const d = Math.hypot(px - t * bx, py - t * by);
-			const s = fArc[i] + t * (fArc[i + 1] - fArc[i]);
-			if (d < best && s >= minS - 1) {
-				best = d;
-				bestS = s;
-			}
-		}
-		cp.push(bestS);
-		minS = bestS;
-	}
-	let j = 0;
-	let worst = 0;
-	for (let k = 0; k < path.length; k++) {
-		while (cp[k] - cp[j] > tolM) j++;
-		worst = Math.max(worst, pArc[k] - pArc[j]);
-	}
-	return worst;
 }
 
 const PANEL = Number(process.env.WALK_RENDER_PANEL ?? 260);
