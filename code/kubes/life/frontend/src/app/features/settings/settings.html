@@ -1,0 +1,27 @@
+<h2>Settings</h2>
+
+<mat-card>
+  <mat-card-header>
+    <mat-card-title>About</mat-card-title>
+    <mat-card-subtitle>Life — your home, organised.</mat-card-subtitle>
+  </mat-card-header>
+  <mat-card-content>
+    <dl class="about">
+      <dt>Version</dt>
+      <dd class="mono">{{ build.sha }}</dd>
+      @if (builtAt) {
+        <dt>Built</dt>
+        <dd>{{ builtAt }}</dd>
+      }
+    </dl>
+    <p class="hint">
+      This is the build running in this tab. If it looks out of date, check for updates.
+    </p>
+  </mat-card-content>
+  <mat-card-actions align="end">
+    <button mat-stroked-button [disabled]="checking()" (click)="checkForUpdates()">
+      <mat-icon>refresh</mat-icon>
+      Check for updates
+    </button>
+  </mat-card-actions>
+</mat-card>

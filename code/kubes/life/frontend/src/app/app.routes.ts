@@ -5,6 +5,7 @@ import { Inventory } from './features/inventory/inventory';
 import { Items } from './features/items/items';
 import { Recipes } from './features/recipes/recipes';
 import { Search } from './features/search/search';
+import { Settings } from './features/settings/settings';
 import { Shopping } from './features/shopping/shopping';
 import { Todo } from './features/todo/todo';
 
@@ -17,5 +18,6 @@ export const routes: Routes = [
   { path: 'house', title: 'Life · house', component: House },
   { path: 'items', title: 'Life · all items', component: Items },
   { path: 'todo', title: 'Life · to-do', component: Todo },
+  { path: 'settings', title: 'Life · settings', component: Settings },
   { path: '**', redirectTo: 'search' },
 ];

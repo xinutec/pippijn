@@ -7,3 +7,6 @@
 /test-results/
 /playwright-report/
 /.playwright/
+
+# Generated at build time by scripts/stamp-version.mjs
+/src/app/build-info.ts

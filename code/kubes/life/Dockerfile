@@ -8,6 +8,11 @@ WORKDIR /fe
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ .
+# Stamp the build version into the bundle (see scripts/stamp-version.mjs). The
+# build context has no .git, so the commit comes from GIT_SHA (passed by CI —
+# .github/workflows/docker.yml); it defaults to 'dev' for a plain local build.
+ARG GIT_SHA=dev
+RUN GIT_SHA="$GIT_SHA" node scripts/stamp-version.mjs
 RUN npx ng build --configuration production
 
 # --- backend: build the Rust binary (deps cached in their own layer) ---

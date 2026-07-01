@@ -50,6 +50,7 @@ export class App {
   readonly more: NavItem[] = [
     { path: '/house', icon: 'home', label: 'House' },
     { path: '/items', icon: 'inventory_2', label: 'All items' },
+    { path: '/settings', icon: 'settings', label: 'Settings' },
   ];
 
   constructor() {

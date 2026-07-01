@@ -23,4 +23,16 @@ export class SwUpdates {
   applyUpdate(): void {
     void this.sw.activateUpdate().then(() => document.location.reload());
   }
+
+  /** Manual "Check for updates" (Settings). Resolves to:
+   *  - `'updating'`: a newer build was found — the `versionUpdates` handler
+   *    above activates it and reloads, so the page is about to refresh.
+   *  - `'current'`: already on the latest build.
+   *  - `'unsupported'`: no service worker (dev build). */
+  async checkNow(): Promise<'updating' | 'current' | 'unsupported'> {
+    if (!this.sw.isEnabled) return 'unsupported';
+    // checkForUpdate() resolves true when a new version was discovered; the
+    // VERSION_READY subscription then drives activate + reload.
+    return (await this.sw.checkForUpdate()) ? 'updating' : 'current';
+  }
 }

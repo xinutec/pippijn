@@ -43,6 +43,10 @@ jobs:
           context: ${{ inputs.path }}
           push: true
           tags: xinutec/${{ inputs.image }}:latest
+          # Commit stamp for images that surface a build version (unused ARGs are
+          # ignored by Dockerfiles that don't declare GIT_SHA).
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           cache-from: type=registry,ref=xinutec/${{ inputs.image }}:cache
           cache-to: type=registry,ref=xinutec/${{ inputs.image }}:cache
       - name: Build only
@@ -51,3 +55,5 @@ jobs:
         with:
           context: ${{ inputs.path }}
           tags: xinutec/${{ inputs.image }}:latest
+          build-args: |
+            GIT_SHA=${{ github.sha }}
