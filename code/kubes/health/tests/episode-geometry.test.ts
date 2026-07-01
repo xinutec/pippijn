@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type CapturedDay, inputsFromFixture, parseCapturedDay } from "../src/cli/fixture-day.js";
-import { buildEpisodes } from "../src/geo/episode-geometry.js";
+import { buildEpisodes, type RawFix } from "../src/geo/episode-geometry.js";
 import type { FilteredPoint } from "../src/geo/kalman.js";
 import { computeVelocityFromInputs, type EnrichedSegment, type VelocityResult } from "../src/geo/velocity.js";
 import type { DayState, DayStateMode } from "../src/sleep/day-state.js";
@@ -12,6 +12,9 @@ import { describeWithFixture } from "./helpers/describe-with-fixture.js";
 // exactly what the geometry layer depends on.
 function fix(ts: number, lat: number, lon: number, speed_kmh: number): FilteredPoint {
 	return { ts, lat, lon, speed_kmh, bearing: 0 };
+}
+function raw(ts: number, lat: number, lon: number, accuracy = 25): RawFix {
+	return { ts, lat, lon, accuracy };
 }
 function state(startTs: number, endTs: number, mode: DayStateMode): DayState {
 	return { startTs, endTs, mode };
@@ -49,6 +52,43 @@ describe("buildEpisodes — per-mode speed-plausibility filter", () => {
 		const [ep] = buildEpisodes([state(0, 100, "driving")], [], fixes);
 		expect(ep.kind).toBe("raw");
 		expect(ep.points).toHaveLength(3); // none dropped
+	});
+
+	// The RAW-fixes fallback (rawFixes present) is what draws a walk when the
+	// matcher bails. Its fixes carry no `speed_kmh`, so the km/h ceiling above —
+	// which reads `speed_kmh` off the Kalman points — never applied here, and an
+	// underground teleport run (good self-reported accuracy, 28–54 km/h) was drawn
+	// as a real walk (2026-06-16 15:48). The kinematic HOLD collapses it.
+	it("holds an underground teleport run in the raw-fixes walk fallback", () => {
+		// Slow real cluster near Euston, then jumps west — each > 12 km/h from the
+		// last kept fix, all reporting good accuracy (the phone lies underground).
+		const rawFixes = [
+			raw(0, 51.53, -0.124, 26),
+			raw(30, 51.53, -0.124, 23),
+			raw(60, 51.5298, -0.1242, 28), // ~25 m, ~3 km/h — kept
+			raw(240, 51.5239, -0.1434, 30), // +1490 m / 180 s ≈ 30 km/h — hold
+			raw(320, 51.5226, -0.1563, 28), // further jump — hold
+			raw(600, 51.5363, -0.176, 27), // further jump — hold
+		];
+		const [ep] = buildEpisodes([state(0, 700, "walking")], [], [], rawFixes);
+		expect(ep.kind).toBe("raw");
+		// Only the slow start cluster survives; no teleport vertex is drawn.
+		expect(ep.points).toHaveLength(3);
+		expect(ep.points.every((p) => p.lon > -0.125)).toBe(true);
+	});
+
+	it("keeps a genuine brisk walk with mild GPS jitter in the raw-fixes fallback", () => {
+		// ~6 km/h walk (each ~50 m / 30 s) with one 14 km/h jitter step — the run
+		// stays; only the lone spike beyond ceiling is held, not the whole walk.
+		const rawFixes = [
+			raw(0, 51.5, -0.1),
+			raw(30, 51.50045, -0.1), // ~50 m, 6 km/h
+			raw(60, 51.5009, -0.1),
+			raw(90, 51.50155, -0.1), // ~72 m, ~8.7 km/h — still under 12
+			raw(120, 51.5014, -0.1),
+		];
+		const [ep] = buildEpisodes([state(0, 200, "walking")], [], [], rawFixes);
+		expect(ep.points.length).toBeGreaterThanOrEqual(4);
 	});
 });
 

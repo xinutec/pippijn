@@ -192,9 +192,15 @@ function resolveEpisode(
 		// map bridges the gap with a straight chord through buildings. The raw
 		// fixes sit within a few metres of where the phone actually was and run
 		// the full length of the leg. (rawFixes absent — legacy callers, tests
-		// — falls to the speed-filtered fixes below.) rejectSpikes drops lone teleports.
+		// — falls to the speed-filtered fixes below.) rejectSpikes drops lone
+		// teleports; holdImplausibleSpeed then collapses a monotonic teleport RUN
+		// (underground/indoor fixes that report good accuracy but imply impossible
+		// walking speed) that both rejectSpikes and the accuracy field miss.
 		if (rawFixes) {
-			const rawWin = rejectSpikes(samplesInWindow(rawFixes, state));
+			const rawWin = holdImplausibleSpeed(
+				rejectSpikes(samplesInWindow(rawFixes, state)),
+				MAX_SPEED_FOR_MODE[mode] ?? Number.POSITIVE_INFINITY,
+			);
 			if (rawWin.length >= 2) {
 				return { ...base, kind: "raw", points: rawWin.map((p) => ({ lat: p.lat, lon: p.lon, ts: p.ts })) };
 			}
@@ -291,6 +297,31 @@ function equirectMeters(aLat: number, aLon: number, bLat: number, bLon: number):
  * here from the frontend `map.component`, which used to do this; the
  * geometry layer now owns it so both renderers cannot diverge.)
  */
+/** Kinematic hold for a drawn moving-leg line: keep a fix only if its implied
+ *  speed from the last KEPT fix is within `capKmh`. A run of fixes that each
+ *  require impossible speed — an underground / indoor GPS teleport, which
+ *  reports GOOD self-reported accuracy (measured: 28–54 km/h "walks" at
+ *  accuracy 26–30 m) — is held at the last plausible position, so the leg
+ *  collapses toward stationary instead of drawing an impossible sprint.
+ *  Complements `rejectSpikes` (lone geometric detours): this catches a
+ *  MONOTONIC teleport run, and unlike an accuracy filter it does not trust the
+ *  phone's number — the physics of the mode is the constraint (#265 Phase 1). */
+export function holdImplausibleSpeed<T extends { lat: number; lon: number; ts: number }>(
+	fixes: readonly T[],
+	capKmh: number,
+): T[] {
+	if (fixes.length < 2 || !Number.isFinite(capKmh)) return [...fixes];
+	const keep: T[] = [fixes[0]];
+	for (let i = 1; i < fixes.length; i++) {
+		const last = keep[keep.length - 1];
+		const dt = fixes[i].ts - last.ts;
+		if (dt <= 0) continue;
+		const kmh = (equirectMeters(last.lat, last.lon, fixes[i].lat, fixes[i].lon) / dt) * 3.6;
+		if (kmh <= capKmh) keep.push(fixes[i]);
+	}
+	return keep;
+}
+
 export function rejectSpikes<T extends { lat: number; lon: number }>(pts: readonly T[]): T[] {
 	if (pts.length < 3) return [...pts];
 	const keep: T[] = [pts[0]];
