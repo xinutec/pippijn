@@ -87,25 +87,33 @@ async function truthReport(date: string, tz: string, states: readonly StateWindo
 		return null; // no ground-truth file for this day
 	}
 	const gt = parseGroundTruth(md, date, tz);
+
+	// Journey-level score of the DRAWN timeline (not just the HSMM decoder):
+	// does the day read as the right sequence of trips? Built from `correct`
+	// rows only (same gate as the decoder scorer) — NOT provenance-gated: a
+	// `correct` row is a user assertion whether or not the older narrative
+	// tagged its provenance, and the journey ratchet must see those days too.
+	const j = scoreJourneys(gt.rows, statesToMinutes(states));
+	const journeyMatched = j.journeyResults.filter((r) => r.matched).map((r) => r.startTs);
+
+	// Per-row truth verdicts are provenance-gated (regressed/known-error need a
+	// trusted provenance) — a stricter bar than journeys, so kept separate.
 	const stateAt = (startTs: number, endTs: number): StateWindow | null => {
 		const mid = (startTs + endTs) / 2;
 		return states.find((s) => s.startTs <= mid && mid < s.endTs) ?? null;
 	};
 	const res = classifyDay(gt.rows, (row) => parsePipelineState(stateAt(row.startTs, row.endTs)));
 	const enforceable = res.verified + res.regressed + res.knownError + res.cleared;
-	if (enforceable === 0) return null; // nothing the ground truth can enforce yet
+	if (enforceable === 0 && j.journeysExpected === 0) return null; // nothing to enforce or score
 
-	// Journey-level score of the DRAWN timeline (not just the HSMM decoder):
-	// does the day read as the right sequence of trips? This is the metric the
-	// ratchet gate tracks.
-	const j = scoreJourneys(gt.rows, statesToMinutes(states));
-	const journeyMatched = j.journeyResults.filter((r) => r.matched).map((r) => r.startTs);
-
-	const lines: string[] = [
-		`    truth: ${res.verified} verified · ${res.knownError} known-error · ${res.cleared} cleared · ` +
-			`${res.regressed} regressed  (${res.unverified} unverified)`,
-		`    journeys: ${j.journeysModeSequenceMatched}/${j.journeysExpected} reconstructed`,
-	];
+	const lines: string[] = [];
+	if (enforceable > 0)
+		lines.push(
+			`    truth: ${res.verified} verified · ${res.knownError} known-error · ${res.cleared} cleared · ` +
+				`${res.regressed} regressed  (${res.unverified} unverified)`,
+		);
+	if (j.journeysExpected > 0)
+		lines.push(`    journeys: ${j.journeysModeSequenceMatched}/${j.journeysExpected} reconstructed`);
 	for (const { row, verdict } of res.verdicts) {
 		if (verdict === "regressed")
 			lines.push(`      ✗ REGRESSED ${row.windowText}: confirmed "${row.blessedText}" no longer holds`);
