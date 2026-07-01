@@ -26,7 +26,9 @@
   // treats two pinned/sticky elements sharing pixels as a stacked-header bug).
   height: 3rem;
   box-sizing: border-box;
-  background: var(--mat-sys-surface, #fff);
+  // The theme surface (never a hardcoded fallback — `mat.theme` always defines
+  // the sys tokens, and they adapt to dark mode), so messages scroll under it.
+  background: var(--mat-sys-surface);
   .back {
     display: none; // desktop: two-pane, no back needed
   }
@@ -42,7 +44,7 @@
 }
 
 .error {
-  color: var(--mat-sys-error, #b00020);
+  color: var(--mat-sys-error);
 }
 
 .loading-older {
