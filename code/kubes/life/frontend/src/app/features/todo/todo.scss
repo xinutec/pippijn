@@ -30,10 +30,14 @@
       display: none;
     }
 
-    &.fade-right {
-      mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
-      -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
-    }
+    // Right-edge fade hint driven purely by scroll position (no JS). The mask's
+    // fade width animates from 28px to 0 as the row reaches its end, so the fade
+    // vanishes exactly when the last chip is fully in view. When the row isn't
+    // scrollable its scroll timeline is inactive, so --fade-w keeps its 0 initial
+    // value and no fade shows.
+    mask-image: linear-gradient(to right, black calc(100% - var(--fade-w, 0px)), transparent);
+    animation: type-filter-fade linear both;
+    animation-timeline: scroll(self inline);
   }
 
   .type-filter {
@@ -125,4 +129,22 @@
 mat-select mat-icon {
   vertical-align: middle;
   margin-right: 0.35rem;
+}
+
+// Typed so it interpolates as a length (an unregistered custom property would
+// snap instead of animate). Drives the type-filter row's right-edge fade.
+@property --fade-w {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes type-filter-fade {
+  0%,
+  96% {
+    --fade-w: 28px;
+  }
+  100% {
+    --fade-w: 0px;
+  }
 }

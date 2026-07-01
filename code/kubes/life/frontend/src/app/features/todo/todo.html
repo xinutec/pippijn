@@ -37,12 +37,7 @@
 </div>
 
 <div class="filters">
-  <div
-    class="type-filter-scroll"
-    [class.fade-right]="filterCanScrollRight()"
-    #filterScroll
-    (scroll)="onFilterScroll()"
-  >
+  <div class="type-filter-scroll">
     <mat-button-toggle-group
       class="type-filter"
       [ngModel]="filter()"
