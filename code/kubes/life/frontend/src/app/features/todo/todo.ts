@@ -1,4 +1,12 @@
-import { afterNextRender, Component, computed, inject, signal, viewChild } from '@angular/core';
+import {
+  afterNextRender,
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatBottomSheet, MatBottomSheetModule } from '@angular/material/bottom-sheet';
@@ -76,7 +84,7 @@ export class Todo {
 
   // Type-filter row fade hint: only show the right-edge fade while there's
   // more to scroll to, not once the last chip is fully in view.
-  private readonly filterScroll = viewChild<{ nativeElement: HTMLDivElement }>('filterScroll');
+  private readonly filterScroll = viewChild<ElementRef<HTMLDivElement>>('filterScroll');
   readonly filterCanScrollRight = signal(false);
 
   constructor() {
