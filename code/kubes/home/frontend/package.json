@@ -39,5 +39,10 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "8.60.1",
     "vitest": "^4.0.8"
+  },
+  "overrides": {
+    "piscina": "^5.2.0",
+    "esbuild": "^0.28.1",
+    "@babel/core": "^7.29.6"
   }
 }
