@@ -8,6 +8,9 @@ import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 /**
  * A full-screen [WebView] onto the home environment dashboard — the Angular app
@@ -17,11 +20,12 @@ import android.webkit.WebViewClient
  * Deliberately tiny — a plain Activity holding one WebView, no Compose/AppCompat.
  * `configChanges` keeps the WebView (and its route + scroll) across rotation.
  *
- * Edge-to-edge by design: the dashboard handles the system-bar insets itself via
- * CSS `env(safe-area-inset-*)` (viewport-fit=cover), so the wrapper adds no padding.
+ * The WebView is inset from the system bars by padding a wrapper (see onCreate),
+ * and the strips behind the bars are painted with the page's own surface colour.
  */
 class MainActivity : Activity() {
     private lateinit var web: WebView
+    private lateinit var root: FrameLayout
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,12 +57,36 @@ class MainActivity : Activity() {
                                 prefs.edit().putString(KEY_LAST_URL, url).apply()
                             }
                         }
+
+                        // Paint the strips behind the system bars with the web UI's
+                        // own surface colour instead of a hardcoded black; it follows
+                        // the page's light/dark theme, so read its body background.
+                        override fun onPageFinished(view: WebView, url: String) {
+                            super.onPageFinished(view, url)
+                            view.evaluateJavascript(
+                                "getComputedStyle(document.body).backgroundColor",
+                            ) { result -> parseCssColor(result)?.let(root::setBackgroundColor) }
+                        }
                     }
-                // The page is dark; black avoids a white flash and fills the strips
-                // behind the (transparent, edge-to-edge) system bars.
+                // Black until the page loads and reports its surface colour; avoids a
+                // white flash on launch.
                 setBackgroundColor(Color.BLACK)
             }
-        setContentView(web)
+        // Inset the WebView from the system bars by padding a wrapper ViewGroup
+        // (WebView.setPadding() doesn't offset content under wide-viewport mode).
+        // Once the WebView no longer underlaps the bars its env(safe-area-inset-*)
+        // collapse to 0, so the page's own safe-area CSS adds nothing on top.
+        root =
+            FrameLayout(this).apply {
+                addView(web)
+                setBackgroundColor(Color.BLACK)
+            }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
+        setContentView(root)
         // Reopen where we left off; the hardcoded URL is only the first-run default.
         web.loadUrl(prefs.getString(KEY_LAST_URL, null) ?: HOME_URL)
     }
@@ -69,6 +97,15 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
         if (web.canGoBack()) web.goBack() else super.onBackPressed()
+    }
+
+    // evaluateJavascript hands back the JSON-encoded result, e.g. the string
+    // "rgb(18, 18, 18)" (with quotes) or "rgba(18, 18, 18, 1)". Pull out the RGB
+    // triple; alpha is ignored (the surface is opaque). null if it can't be read.
+    private fun parseCssColor(raw: String?): Int? {
+        val m = raw?.let { Regex("""rgba?\((\d+),\s*(\d+),\s*(\d+)""").find(it) } ?: return null
+        val (r, g, b) = m.destructured
+        return Color.rgb(r.toInt(), g.toInt(), b.toInt())
     }
 
     companion object {
