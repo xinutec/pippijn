@@ -1,4 +1,4 @@
-import { Directive, output, signal } from '@angular/core';
+import { Directive, input, output, signal } from '@angular/core';
 
 /** Client-side ceiling, mirrors the backend's 5 MiB cap so we reject early. */
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -21,12 +21,13 @@ function firstImage(files: Iterable<File> | undefined): File | undefined {
  *  keyboard-reachable and screen-reader announced. */
 @Directive({
   selector: '[appImagePicker]',
+  exportAs: 'imagePicker',
   host: {
     role: 'button',
     tabindex: '0',
     'aria-label': 'Replace image',
     '[class.drag-over]': 'dragOver()',
-    '(click)': 'openDialog()',
+    '(click)': 'onActivate()',
     '(keydown.enter)': 'onKey($event)',
     '(keydown.space)': 'onKey($event)',
     '(paste)': 'onPaste($event)',
@@ -40,6 +41,14 @@ export class ImagePickerDirective {
   readonly pickError = output<string>();
   /** True while a file is dragged over the host — drives a drop-zone outline. */
   readonly dragOver = signal(false);
+  /** When false, a tap/Enter doesn't open the file dialog — the host drives it
+   *  another way (e.g. a menu whose "Choose photo" item calls `openDialog()`).
+   *  Paste and drag-and-drop still work regardless. */
+  readonly clickToOpen = input(true);
+
+  onActivate(): void {
+    if (this.clickToOpen()) this.openDialog();
+  }
 
   openDialog(): void {
     const input = document.createElement('input');
@@ -56,7 +65,7 @@ export class ImagePickerDirective {
 
   onKey(e: Event): void {
     e.preventDefault();
-    this.openDialog();
+    this.onActivate();
   }
 
   onPaste(e: ClipboardEvent): void {

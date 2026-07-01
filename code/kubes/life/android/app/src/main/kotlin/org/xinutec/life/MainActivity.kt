@@ -4,21 +4,26 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.util.Base64
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
@@ -60,6 +65,11 @@ class MainActivity : Activity() {
                 settings.domStorageEnabled = true // localStorage / sessionStorage
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
+                // Expose the system clipboard's image to the web app (its "Paste
+                // copied image" action — e.g. an image copied in Chrome). Only our
+                // own https site loads here (navigation is kept in-app), and the
+                // bridge only reads the clipboard when the user taps that action.
+                addJavascriptInterface(ClipboardImageBridge(), "AndroidClipboard")
                 // Keep every navigation inside this WebView — never hand off to a
                 // browser — and remember the current in-app page so a cold reopen
                 // returns to it (SPA route changes fire doUpdateVisitedHistory too).
@@ -182,6 +192,39 @@ class MainActivity : Activity() {
     private fun hasCameraPermission() =
         checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
+    /**
+     * Bridge for the web app's "Paste copied image": returns the image on the
+     * system clipboard as a `data:` URL, or null if there's no image. A WebView
+     * can't read a clipboard image itself, so the page asks us. Reading happens
+     * on the UI thread (ClipboardManager requires it) even though @JavascriptInterface
+     * calls arrive on a binder thread.
+     */
+    inner class ClipboardImageBridge {
+        @JavascriptInterface
+        fun readImage(): String? {
+            val task = FutureTask { readClipboardImageDataUrl() }
+            runOnUiThread(task)
+            return try {
+                task.get(2, TimeUnit.SECONDS)
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    private fun readClipboardImageDataUrl(): String? {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = clipboard.primaryClip ?: return null
+        for (i in 0 until clip.itemCount) {
+            val uri = clip.getItemAt(i).uri ?: continue
+            val mime = contentResolver.getType(uri)?.takeIf { it.startsWith("image/") } ?: continue
+            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: continue
+            if (bytes.size > MAX_PASTE_BYTES) return null // let the backend cap stand
+            return "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+        }
+        return null
+    }
+
     // Resolve the held web camera request once the user answers the OS dialog.
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -211,6 +254,8 @@ class MainActivity : Activity() {
     companion object {
         private const val CAMERA_REQ = 1
         private const val FILE_REQ = 2
+        // Skip pasting anything larger than the backend's 5 MiB image cap.
+        private const val MAX_PASTE_BYTES = 5 * 1024 * 1024
         // The life app (HTTPS, behind a Nextcloud-identity login).
         private const val LIFE_URL = "https://life.xinutec.org/"
         private const val KEY_LAST_URL = "last_url"
