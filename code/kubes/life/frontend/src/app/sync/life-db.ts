@@ -2,6 +2,7 @@ import { Injectable, isDevMode } from '@angular/core';
 import {
   addRxPlugin,
   createRxDatabase,
+  type MigrationStrategies,
   type RxCollection,
   type RxConflictHandler,
   type RxDatabase,
@@ -30,6 +31,10 @@ export class LifeDb {
           const { RxDBDevModePlugin } = await import('rxdb/plugins/dev-mode');
           addRxPlugin(RxDBDevModePlugin);
         }
+        // Schema migrations (e.g. the todo `type` enum widening) run at collection
+        // add-time, so the plugin must be registered in prod too, not just dev.
+        const { RxDBMigrationSchemaPlugin } = await import('rxdb/plugins/migration-schema');
+        addRxPlugin(RxDBMigrationSchemaPlugin);
         // THE single place the shared 'lifedb' is created; every store goes
         // through this service's collection(). Exempt from the singleton rule:
         // ast-grep-ignore: life-single-rxdb
@@ -50,12 +55,15 @@ export class LifeDb {
     name: string,
     schema: RxJsonSchema<T>,
     conflictHandler: RxConflictHandler<T>,
+    migrationStrategies?: MigrationStrategies,
   ): Promise<RxCollection<T>> {
     const result = this.chain.then(async () => {
       const db = await this.db();
       const existing = db.collections[name] as RxCollection<T> | undefined;
       if (existing) return existing;
-      const added = await db.addCollections({ [name]: { schema, conflictHandler } });
+      const added = await db.addCollections({
+        [name]: { schema, conflictHandler, ...(migrationStrategies ? { migrationStrategies } : {}) },
+      });
       return added[name] as RxCollection<T>;
     });
     // Keep the chain alive even if this add fails, so later adds still run.

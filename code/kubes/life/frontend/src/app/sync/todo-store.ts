@@ -25,7 +25,9 @@ export interface TodoDoc {
 type TodoCollection = RxCollection<TodoDoc>;
 
 const schema: RxJsonSchema<TodoDoc> = {
-  version: 0,
+  // v1: the `type` enum was widened (appointment/admin/task). Any schema change
+  // needs a version bump + migration, else existing local DBs hit a hash mismatch.
+  version: 1,
   primaryKey: 'ulid',
   type: 'object',
   properties: {
@@ -107,7 +109,11 @@ export class TodoStore {
   }
 
   private async init(): Promise<TodoCollection> {
-    const col = await this.lifeDb.collection('todo', schema, conflictHandler);
+    // v0→v1 migration is a passthrough — the enum only widened, so existing docs
+    // are already valid under the new schema.
+    const col = await this.lifeDb.collection('todo', schema, conflictHandler, {
+      1: (doc) => doc,
+    });
     this.startReplication(col);
     return col;
   }
