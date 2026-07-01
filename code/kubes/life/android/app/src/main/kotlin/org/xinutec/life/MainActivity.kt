@@ -3,14 +3,18 @@ package org.xinutec.life
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -37,6 +41,9 @@ class MainActivity : Activity() {
 
     // A pending web camera request, held while the OS permission dialog is up.
     private var pendingCameraRequest: PermissionRequest? = null
+
+    // A pending <input type=file> result callback, held while the picker is open.
+    private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,6 +111,29 @@ class MainActivity : Activity() {
                                 requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_REQ)
                             }
                         }
+
+                        // A WebView ignores <input type=file> unless we launch the
+                        // picker ourselves and hand the chosen URIs back — without
+                        // this, tapping the app's image picker does nothing (it works
+                        // in Chrome, which supplies its own file dialog). The intent
+                        // from createIntent() honours the input's `accept` (image/*)
+                        // and `multiple`, so it opens straight to the photo picker.
+                        override fun onShowFileChooser(
+                            webView: WebView,
+                            filePathCallback: ValueCallback<Array<Uri>>,
+                            fileChooserParams: FileChooserParams,
+                        ): Boolean {
+                            // Abandon any earlier pick that never resolved.
+                            fileChooserCallback?.onReceiveValue(null)
+                            fileChooserCallback = filePathCallback
+                            return try {
+                                startActivityForResult(fileChooserParams.createIntent(), FILE_REQ)
+                                true
+                            } catch (_: ActivityNotFoundException) {
+                                fileChooserCallback = null
+                                false // let the WebView know no chooser was shown
+                            }
+                        }
                     }
                 // Black until the page loads and reports its surface colour; avoids a
                 // white flash on launch.
@@ -134,6 +164,19 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
         if (web.canGoBack()) web.goBack() else super.onBackPressed()
+    }
+
+    // Deliver the picked image URIs back to the waiting <input type=file>. The
+    // callback MUST be answered even on cancel (null), or the input stays blocked
+    // and won't reopen the picker on the next tap.
+    @Deprecated("Deprecated in Java")
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != FILE_REQ) return
+        val callback = fileChooserCallback ?: return
+        fileChooserCallback = null
+        callback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data))
     }
 
     private fun hasCameraPermission() =
@@ -167,6 +210,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val CAMERA_REQ = 1
+        private const val FILE_REQ = 2
         // The life app (HTTPS, behind a Nextcloud-identity login).
         private const val LIFE_URL = "https://life.xinutec.org/"
         private const val KEY_LAST_URL = "last_url"
