@@ -15,6 +15,23 @@ import { airSeries, climateSeries } from './series';
 import { ThemeService } from './theme.service';
 import { TrendChart } from './trend-chart/trend-chart';
 
+// localStorage can be unavailable or non-functional (private mode, SSR, and the
+// jsdom test env, whose opaque-origin Storage lacks a callable getItem) — guard it.
+function readLocal(key: string): string | null {
+	try {
+		return localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+function writeLocal(key: string, value: string): void {
+	try {
+		localStorage.setItem(key, value);
+	} catch {
+		/* no persistent storage available */
+	}
+}
+
 @Component({
 	selector: 'app-root',
 	imports: [
@@ -70,7 +87,7 @@ export class App implements OnInit, OnDestroy {
 
 	// Apply per-device calibration offsets client-side; toggleable, on by default,
 	// remembered across reloads. The DB and API are raw.
-	protected readonly calibrated = signal(localStorage.getItem('calibrated') !== 'off');
+	protected readonly calibrated = signal(readLocal('calibrated') !== 'off');
 
 	// Temperature & humidity: one coloured line per device, for room comparison.
 	protected readonly tempSeries = computed(() =>
@@ -132,7 +149,7 @@ export class App implements OnInit, OnDestroy {
 	protected toggleCalibrated(): void {
 		const v = !this.calibrated();
 		this.calibrated.set(v);
-		localStorage.setItem('calibrated', v ? 'on' : 'off');
+		writeLocal('calibrated', v ? 'on' : 'off');
 	}
 
 	/** Offset to add to a device's reading for `key`; 0 when calibration is off/absent. */
