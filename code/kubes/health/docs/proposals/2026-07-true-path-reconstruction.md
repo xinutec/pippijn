@@ -46,6 +46,19 @@ a second, uncorrelated motion estimate breaks it. `steps_intraday` is already
 captured; heading/accelerometer would need the capture apps (Owntracks / lares)
 to log it. This is the single biggest lever.
 
+**Measured caveat — steps ALONE (no heading) are not enough (2026-07-01).** A
+whole-walk step-distance gate ("reject the match when drawn length > steps ×
+stride × factor → draw raw") was built and calibrated against `score-walk-match`.
+Result: to catch the 13:20 triangle (drawn 918 m vs a ~720 m step budget = 1.24×)
+the factor must drop to ~1.2, which also rejects **27 of ~63 good golden matches**
+— because a ~25 % over-length sits inside the ±20 % stride-estimate noise, and GPS
+noise already inflates even the raw track. A corpus-safe factor (~2.0) only
+catches gross 2×+ over-routes (a real but small physical guardrail, benefit
+invisible to the off-walkable scorer) and does nothing for the triangle. Reverted
+— not shipped. Conclusion: steps give a coarse GLOBAL magnitude check, not a local
+scalpel; the disambiguation must come from **per-fix heading** (the direction the
+step budget lacks), fused — not steps as a standalone gate.
+
 ### 2. Map + physics as first-class constraints, not a post-hoc snap
 
 Model the leg as a trajectory *on* the pedestrian network where buildings are
