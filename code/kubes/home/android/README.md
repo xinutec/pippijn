@@ -14,9 +14,10 @@ The dashboard is **public over HTTPS** (reads need no auth), so the app needs on
   app is single-purpose.
 - JavaScript + DOM storage on (Angular), all navigation kept in-app, Back walks the
   SPA history.
-- Edge-to-edge: the dashboard handles the system-bar inset itself via CSS
-  `env(safe-area-inset-top)` (`viewport-fit=cover`), so the wrapper adds no padding;
-  the area behind the status bar is black to match the dark UI.
+- Insets the WebView from the system bars by padding a wrapper, and paints the
+  strips behind the bars with the page's own surface colour (read on load, so it
+  tracks the Material light/dark theme). The WebView no longer underlaps the bars,
+  so the page's own `env(safe-area-inset-*)` collapse to 0 and add nothing on top.
 
 Runs on any Android 8+ (minSdk 26) device.
 
