@@ -1,9 +1,9 @@
 //! Product lookup: cache-first, Open Food Facts on a miss; plus image serving.
 
 use axum::Json;
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
-use axum::http::header;
+use axum::http::{StatusCode, header};
 use axum::response::Response;
 
 use crate::error::AppError;
@@ -44,6 +44,43 @@ pub async fn lookup(
         .await?
         .map(Json)
         .ok_or(AppError::NotFound)
+}
+
+/// PUT /api/products/{barcode}/image → replace the cached image with the raw
+/// bytes in the request body (Content-Type names the mime). The frontend sends
+/// the picked/pasted/dropped blob straight through, so there's no multipart to
+/// parse. Body size is bounded by a per-route `DefaultBodyLimit` (see the router)
+/// and re-checked here. Returns 204 on success.
+pub async fn set_image(
+    State(app): State<AppState>,
+    AuthUser(_user): AuthUser,
+    Path(barcode): Path<String>,
+    headers: axum::http::HeaderMap,
+    body: Bytes,
+) -> Result<StatusCode, AppError> {
+    if !off::is_valid_barcode(&barcode) {
+        return Err(AppError::BadRequest(
+            "barcode must be up to 14 digits".into(),
+        ));
+    }
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let Some(mime) = off::accept_upload_mime(content_type) else {
+        return Err(AppError::BadRequest(
+            "Content-Type must be an image/* type".into(),
+        ));
+    };
+    if body.is_empty() {
+        return Err(AppError::BadRequest("empty image".into()));
+    }
+    if body.len() > off::MAX_UPLOAD_BYTES {
+        return Err(AppError::BadRequest("image exceeds 5 MiB".into()));
+    }
+    repo::set_image(&app.pool, &barcode, &body, &mime).await?;
+    tracing::info!(%barcode, bytes = body.len(), %mime, "product image replaced");
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// GET /api/products/{barcode}/image → the cached image bytes.

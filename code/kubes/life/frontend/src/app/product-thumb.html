@@ -1,0 +1,18 @@
+@if (barcode(); as barcode) {
+  <span
+    class="picker"
+    appImagePicker
+    [class.busy]="busy()"
+    (imagePicked)="onPicked($event)"
+    (pickError)="onPickError($event)"
+  >
+    @if (src(); as url) {
+      <img class="thumb" [src]="url" alt="" (error)="onError()" />
+      <mat-icon class="badge">photo_camera</mat-icon>
+    } @else {
+      <mat-icon class="placeholder">add_a_photo</mat-icon>
+    }
+  </span>
+} @else {
+  <mat-icon>label</mat-icon>
+}

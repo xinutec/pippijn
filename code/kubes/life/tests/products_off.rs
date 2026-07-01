@@ -29,6 +29,58 @@ async fn image_proxy_refuses_non_off_and_non_https_urls() {
     }
 }
 
+#[test]
+fn upload_mime_accepts_only_image_types() {
+    // Accepted: any image/* subtype, with parameters and casing normalized away.
+    assert_eq!(
+        off::accept_upload_mime("image/jpeg").as_deref(),
+        Some("image/jpeg")
+    );
+    assert_eq!(
+        off::accept_upload_mime("image/png").as_deref(),
+        Some("image/png")
+    );
+    assert_eq!(
+        off::accept_upload_mime("image/webp").as_deref(),
+        Some("image/webp")
+    );
+    assert_eq!(
+        off::accept_upload_mime("IMAGE/JPEG; charset=binary").as_deref(),
+        Some("image/jpeg"),
+    );
+    assert_eq!(
+        off::accept_upload_mime("  image/gif ").as_deref(),
+        Some("image/gif")
+    );
+
+    // Rejected: non-image types, the bare prefix with no subtype, and empties.
+    for bad in [
+        "",
+        "application/octet-stream",
+        "text/html",
+        "image/",
+        "imageX/png",
+        "application/json",
+    ] {
+        assert!(
+            off::accept_upload_mime(bad).is_none(),
+            "expected {bad:?} to be rejected as an upload mime",
+        );
+    }
+}
+
+#[test]
+fn upload_barcode_guard_matches_lookup() {
+    // The upload handler reuses the lookup barcode guard: numeric, 1..=14 digits.
+    assert!(off::is_valid_barcode("5000112548167"));
+    for bad in ["", "abc", "12345678901234567", "12/34", "../x"] {
+        assert!(
+            !off::is_valid_barcode(bad),
+            "expected {bad:?} to be rejected"
+        );
+    }
+}
+
 #[tokio::test]
 async fn lookup_ignores_non_numeric_barcodes() {
     // A non-numeric/oversized barcode must not be spliced into the OFF URL: the

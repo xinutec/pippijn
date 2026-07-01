@@ -1,0 +1,74 @@
+:host {
+  display: inline-flex;
+}
+
+.picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 50%;
+  outline: none;
+
+  // Drag-over and keyboard focus both show the same drop-target ring.
+  &.drag-over,
+  &:focus-visible {
+    box-shadow: 0 0 0 2px var(--mat-sys-primary, #6750a4);
+  }
+
+  &.busy {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+}
+
+.thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+// Small "replace" affordance over an existing image — subtle, stronger on hover.
+.badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
+  line-height: 14px;
+  padding: 2px;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0.85;
+}
+
+.picker:hover .badge,
+.picker:focus-visible .badge {
+  opacity: 1;
+}
+
+.placeholder {
+  color: var(--mat-sys-on-surface-variant, #757575);
+}
+
+// Compact square variant for the Buy list, matching its original inline thumb.
+:host(.inline-thumb) {
+  .picker,
+  .thumb {
+    border-radius: 6px;
+  }
+  .thumb {
+    width: 32px;
+    height: 32px;
+  }
+  .placeholder {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+}

@@ -50,4 +50,29 @@ async fn product_cache_against_real_db() {
     let p2 = repo::get(&pool, bc).await.unwrap().expect("cached");
     assert_eq!(p2.name.as_deref(), Some("Test Yog 2"));
     assert!(!p2.has_image);
+
+    // A user upload replaces ONLY the image, leaving metadata untouched.
+    repo::set_image(&pool, bc, &[9, 8, 7], "image/webp")
+        .await
+        .unwrap();
+    let p3 = repo::get(&pool, bc).await.unwrap().expect("cached");
+    assert_eq!(p3.name.as_deref(), Some("Test Yog 2"), "name preserved");
+    assert!(p3.has_image);
+    let (bytes, mime) = repo::get_image(&pool, bc).await.unwrap().expect("image");
+    assert_eq!(bytes, vec![9, 8, 7]);
+    assert_eq!(mime, "image/webp");
+
+    // set_image on an unknown barcode creates a bare catalog row with the image.
+    let fresh = "test-barcode-upload-only";
+    sqlx::query("DELETE FROM products WHERE barcode = ?")
+        .bind(fresh)
+        .execute(&pool)
+        .await
+        .unwrap();
+    repo::set_image(&pool, fresh, &[1], "image/png")
+        .await
+        .unwrap();
+    let pf = repo::get(&pool, fresh).await.unwrap().expect("created");
+    assert!(pf.name.is_none(), "no metadata, just an image");
+    assert!(pf.has_image);
 }

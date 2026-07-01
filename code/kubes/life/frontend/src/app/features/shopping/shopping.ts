@@ -10,7 +10,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
 
 import { LifeApi } from '../../life-api';
-import { showThumb } from '../../product-image';
+import { ProductThumb } from '../../product-thumb';
 import { ScannerDialog } from '../scanner/scanner-dialog';
 import { ShoppingDoc, ShoppingStore } from '../../sync/shopping-store';
 
@@ -27,6 +27,7 @@ import { ShoppingDoc, ShoppingStore } from '../../sync/shopping-store';
     MatFormFieldModule,
     MatInputModule,
     MatDialogModule,
+    ProductThumb,
   ],
 })
 export class Shopping {
@@ -38,7 +39,6 @@ export class Shopping {
   readonly items = toSignal(this.store.items$, { initialValue: [] as ShoppingDoc[] });
   readonly doneCount = computed(() => this.items().filter((i) => i.done).length);
   readonly syncError = this.store.syncError;
-  private readonly imgFailed = signal<Set<string>>(new Set());
 
   // Form fields are signals: the app is zoneless, so a signal write (incl. from
   // an async scan/lookup callback) is what schedules the view refresh.
@@ -115,14 +115,6 @@ export class Shopping {
 
   clearDone(): void {
     void this.store.clearDone();
-  }
-
-  /** Thumbnail URL for an item with a barcode, unless the image failed to load. */
-  imageUrl(it: ShoppingDoc): string | null {
-    return showThumb(it, this.imgFailed().has(it.ulid)) ? this.api.productImageUrl(it.barcode!) : null;
-  }
-  onImgError(key: string): void {
-    this.imgFailed.update((s) => new Set(s).add(key));
   }
 
   label(it: ShoppingDoc): string {

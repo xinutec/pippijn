@@ -10,7 +10,10 @@ pub mod sync;
 pub mod todo;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, patch, post};
+
+use crate::products::off;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
@@ -65,7 +68,15 @@ pub fn router(state: AppState) -> Router {
             get(sync::pull_todo_link).post(sync::push_todo_link),
         )
         .route("/products/{barcode}", get(products::lookup))
-        .route("/products/{barcode}/image", get(products::image))
+        .route(
+            "/products/{barcode}/image",
+            // Image uploads can be a few MiB; raise the default 2 MiB body limit
+            // for THIS route only (the handler re-checks the real 5 MiB cap). The
+            // GET side has no request body, so the raised limit is harmless there.
+            get(products::image)
+                .put(products::set_image)
+                .layer(DefaultBodyLimit::max(off::MAX_UPLOAD_BYTES + 64 * 1024)),
+        )
         // One INFO line per API request (method, path, status, latency). Scoped to
         // /api so static-asset serving and the k8s /healthz probe don't spam it.
         .layer(

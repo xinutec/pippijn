@@ -3,7 +3,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
 
 import { LifeApi } from '../../life-api';
-import { showThumb } from '../../product-image';
+import { ProductThumb } from '../../product-thumb';
 import { Item, Loc } from '../../models';
 
 /** The complete, flat list of every item that exists — display fields resolved
@@ -13,7 +13,7 @@ import { Item, Loc } from '../../models';
   selector: 'app-items',
   templateUrl: './items.html',
   styleUrl: './items.scss',
-  imports: [MatListModule, MatIconModule],
+  imports: [MatListModule, MatIconModule, ProductThumb],
 })
 export class Items {
   private api = inject(LifeApi);
@@ -22,18 +22,10 @@ export class Items {
   readonly locations = signal<Loc[]>([]);
   readonly count = computed(() => this.items().length);
   private readonly byId = computed(() => new Map(this.locations().map((l) => [l.id, l] as const)));
-  private readonly imgFailed = signal<Set<number>>(new Set());
 
   constructor() {
     this.api.items().subscribe((i) => this.items.set(i));
     this.api.locations().subscribe((l) => this.locations.set(l));
-  }
-
-  imageUrl(it: Item): string | null {
-    return showThumb(it, this.imgFailed().has(it.id)) ? this.api.productImageUrl(it.barcode!) : null;
-  }
-  onImgError(id: number): void {
-    this.imgFailed.update((s) => new Set(s).add(id));
   }
 
   /** Last two segments of the location path, or '' when unplaced. */

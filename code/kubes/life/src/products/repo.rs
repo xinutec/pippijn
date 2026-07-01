@@ -47,6 +47,26 @@ pub async fn get_image(pool: &MySqlPool, barcode: &str) -> Result<Option<(Vec<u8
     })
 }
 
+/// Replace just the image bytes for a barcode, leaving name/brand/quantity as
+/// they are. Creates a bare catalog row if the barcode was never looked up (so
+/// you can give an image to a product OFF has never heard of); `source='user'`
+/// marks a hand-uploaded image, but only on insert — a later OFF metadata
+/// refresh keeps its own `source`. The unique `barcode` key drives the upsert.
+pub async fn set_image(pool: &MySqlPool, barcode: &str, bytes: &[u8], mime: &str) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO products (barcode, image, image_mime, source) \
+         VALUES (?, ?, ?, 'user') \
+         ON DUPLICATE KEY UPDATE image = VALUES(image), \
+         image_mime = VALUES(image_mime), fetched_at = CURRENT_TIMESTAMP",
+    )
+    .bind(barcode)
+    .bind(bytes)
+    .bind(mime)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Insert or refresh a cached product (with optional image).
 pub async fn upsert(
     pool: &MySqlPool,

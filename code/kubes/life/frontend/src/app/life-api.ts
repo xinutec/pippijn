@@ -80,9 +80,18 @@ export class LifeApi {
   lookupProduct(barcode: string): Observable<Product> {
     return this.http.get<Product>(`/api/products/${encodeURIComponent(barcode)}`);
   }
-  /** URL of the cached product image (use directly as <img src>). */
-  productImageUrl(barcode: string): string {
-    return `/api/products/${encodeURIComponent(barcode)}/image`;
+  /** URL of the cached product image (use directly as <img src>). Pass a
+   *  `version` after a replace to bust the browser/service-worker cache. */
+  productImageUrl(barcode: string, version?: number): string {
+    const base = `/api/products/${encodeURIComponent(barcode)}/image`;
+    return version ? `${base}?v=${version}` : base;
+  }
+  /** Replace the cached image for a barcode with raw image bytes. The blob's
+   *  own mime rides along as Content-Type; the backend re-validates it. */
+  uploadProductImage(barcode: string, blob: Blob): Observable<void> {
+    return this.http.put<void>(`/api/products/${encodeURIComponent(barcode)}/image`, blob, {
+      headers: { 'Content-Type': blob.type },
+    });
   }
 
   recipes(): Observable<Recipe[]> {

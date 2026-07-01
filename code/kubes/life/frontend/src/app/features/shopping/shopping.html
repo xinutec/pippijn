@@ -44,8 +44,8 @@
         [attr.aria-label]="'Bought ' + it.name"
       ></mat-checkbox>
       <span matListItemTitle class="row-title">
-        @if (imageUrl(it); as url) {
-          <img class="thumb" [src]="url" alt="" (error)="onImgError(it.ulid)" />
+        @if (it.barcode) {
+          <app-product-thumb class="inline-thumb" [barcode]="it.barcode" />
         }
         <span [class.done]="it.done">{{ it.name }}</span>
       </span>

@@ -13,6 +13,10 @@ pub enum AppError {
     #[error("not found")]
     NotFound,
 
+    /// Client sent something we can't accept (bad mime, empty/oversized upload).
+    #[error("{0}")]
+    BadRequest(String),
+
     // Constructed by the CalDAV layer once it reads nc_credentials; the
     // response mapping is wired up already.
     #[error("nextcloud not linked")]
@@ -43,6 +47,7 @@ impl IntoResponse for AppError {
         let (status, msg) = match &self {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
+            AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::NcNotLinked => (StatusCode::CONFLICT, self.to_string()),
             AppError::NcReauthRequired => (StatusCode::CONFLICT, self.to_string()),
             AppError::Other(e) => {

@@ -7,11 +7,7 @@
   <mat-list>
     @for (it of items(); track it.id) {
       <mat-list-item lines="2">
-        @if (imageUrl(it); as url) {
-          <img matListItemAvatar class="thumb" [src]="url" alt="" (error)="onImgError(it.id)" />
-        } @else {
-          <mat-icon matListItemIcon>label</mat-icon>
-        }
+        <app-product-thumb matListItemAvatar [barcode]="it.barcode" [hasImage]="it.has_image" />
         <span matListItemTitle>
           {{ it.name }}@if (it.brand) {<span class="brand"> · {{ it.brand }}</span>}
         </span>

@@ -11,7 +11,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
 
 import { LifeApi } from '../../life-api';
-import { showThumb } from '../../product-image';
+import { ProductThumb } from '../../product-thumb';
 import { Item, ItemCategory, Loc, LocationKind } from '../../models';
 import { ScannerDialog } from '../scanner/scanner-dialog';
 
@@ -49,6 +49,7 @@ interface ItemForm {
     MatSelectModule,
     MatMenuModule,
     MatDialogModule,
+    ProductThumb,
   ],
 })
 export class Inventory {
@@ -125,14 +126,6 @@ export class Inventory {
   qty(item: Item): string {
     if (item.quantity == null) return '';
     return item.unit ? `${item.quantity} ${item.unit}` : `${item.quantity}`;
-  }
-
-  private readonly imgFailed = signal<Set<number>>(new Set());
-  imageUrl(it: Item): string | null {
-    return showThumb(it, this.imgFailed().has(it.id)) ? this.api.productImageUrl(it.barcode!) : null;
-  }
-  onImgError(id: number): void {
-    this.imgFailed.update((s) => new Set(s).add(id));
   }
 
   /** The actionable tail of the location path (e.g. "Spice cupboard › Top shelf"). */

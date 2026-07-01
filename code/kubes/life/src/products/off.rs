@@ -38,8 +38,34 @@ fn non_empty(s: Option<String>) -> Option<String> {
 /// Barcodes are numeric (EAN/UPC), at most 14 digits. Validate before we splice
 /// the value into the outbound OFF URL, so it can't add path segments or query
 /// params. (DB lookups are parameterized; this is purely about the outbound URL.)
-fn is_valid_barcode(barcode: &str) -> bool {
+pub fn is_valid_barcode(barcode: &str) -> bool {
     !barcode.is_empty() && barcode.len() <= 14 && barcode.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// The image column caps `image_mime` at 64 chars.
+pub const MAX_MIME_LEN: usize = 64;
+
+/// Same size cap as the OFF proxy, reused for user uploads. Public so the upload
+/// handler and its tests share one number.
+pub const MAX_UPLOAD_BYTES: usize = MAX_IMAGE_BYTES;
+
+/// Validate a user-uploaded image's `Content-Type`. Returns the normalized mime
+/// (parameters like `; charset=…` stripped, lowercased) only if it names an
+/// image type — mirrors the `image/*` check the OFF proxy applies to fetched
+/// bytes, so hand-uploaded and crowd-sourced images share the same rule.
+pub fn accept_upload_mime(content_type: &str) -> Option<String> {
+    let mime = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    // Require a subtype after "image/" and keep it inside the column width.
+    if mime.starts_with("image/") && mime.len() > "image/".len() && mime.len() <= MAX_MIME_LEN {
+        Some(mime)
+    } else {
+        None
+    }
 }
 
 /// Look up a barcode. `Ok(None)` = OFF has no such product.
