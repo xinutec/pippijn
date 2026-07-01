@@ -19,4 +19,9 @@ body {
 
 body {
   font-family: Roboto, sans-serif;
+  // Paint the page with the theme surface (like the sibling viewers) rather than
+  // relying on the UA canvas colour — the native app reads this to colour the
+  // strips behind the system bars.
+  background-color: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
 }
