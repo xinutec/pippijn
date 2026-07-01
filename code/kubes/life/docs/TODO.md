@@ -77,6 +77,13 @@ add new ones under the right section. Architecture/rationale lives in
 - [ ] **Shopping list refinements** — add a recipe's missing ingredients to the
       Buy list in one tap; low-stock auto-suggestions; carry category through
       buy→inventory (currently defaults to `other`).
+- [ ] **Parsed net weight/volume → "how much is left at home"** — today the
+      product's pack size is stored only as OFF's free-text `quantity_label`
+      (e.g. `"950g"`), which is the right call *for now* (no parsing, no calc).
+      Later, parse it into a numeric value + canonical unit so we can track
+      **remaining amount** of an owned item (open a 950g tub, deduct as it's
+      used) — and, as a side benefit, price-per-unit. Deferred until we actually
+      want consumption tracking; keep storing the raw OFF label until then.
 - [ ] **Whole-house inventory** — surface non-food categories in the UI (tools,
       documents, meds); the engine is already generic.
 - [ ] **Meds / supplements** — expiry + refill-soon (fits the generic engine).
