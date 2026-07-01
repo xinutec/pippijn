@@ -195,6 +195,7 @@ struct TodoDocRow {
     title: String,
     todo_type: String,
     status: String,
+    priority: Option<String>,
     notes: Option<String>,
     deleted: i64,
     rev: u64,
@@ -208,6 +209,7 @@ impl From<TodoDocRow> for TodoDoc {
             title: r.title,
             todo_type: r.todo_type,
             status: r.status,
+            priority: r.priority,
             notes: r.notes,
             deleted: r.deleted != 0,
             rev: r.rev,
@@ -222,7 +224,7 @@ pub async fn pull_todo(
     limit: u64,
 ) -> Result<PullResponse<TodoDoc>> {
     let rows: Vec<TodoDocRow> = sqlx::query_as(
-        "SELECT id, ulid, title, todo_type, status, notes, \
+        "SELECT id, ulid, title, todo_type, status, priority, notes, \
          CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
          FROM todos WHERE user_id = ? AND rev > ? ORDER BY rev ASC LIMIT ?",
     )
@@ -252,7 +254,7 @@ pub async fn push_todo(
 
         let mut tx = pool.begin().await?;
         let current: Option<TodoDocRow> = sqlx::query_as(
-            "SELECT id, ulid, title, todo_type, status, notes, \
+            "SELECT id, ulid, title, todo_type, status, priority, notes, \
              CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
              FROM todos WHERE ulid = ? AND user_id = ? FOR UPDATE",
         )
@@ -268,13 +270,14 @@ pub async fn push_todo(
             }
             let rev = next_rev(&mut tx).await?;
             sqlx::query(
-                "UPDATE todos SET title = ?, todo_type = ?, status = ?, notes = ?, \
+                "UPDATE todos SET title = ?, todo_type = ?, status = ?, priority = ?, notes = ?, \
                  deleted_at = IF(?, COALESCE(deleted_at, NOW()), NULL), \
                  rev = ?, updated_at = NOW() WHERE ulid = ? AND user_id = ?",
             )
             .bind(&new.title)
             .bind(&new.todo_type)
             .bind(&new.status)
+            .bind(&new.priority)
             .bind(&new.notes)
             .bind(new.deleted)
             .bind(rev)
@@ -286,15 +289,16 @@ pub async fn push_todo(
             let rev = next_rev(&mut tx).await?;
             sqlx::query(
                 "INSERT INTO todos \
-                 (user_id, ulid, title, todo_type, status, notes, deleted_at, rev, \
+                 (user_id, ulid, title, todo_type, status, priority, notes, deleted_at, rev, \
                   created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, IF(?, NOW(), NULL), ?, NOW(), NOW())",
+                 VALUES (?, ?, ?, ?, ?, ?, ?, IF(?, NOW(), NULL), ?, NOW(), NOW())",
             )
             .bind(user_id)
             .bind(&new.ulid)
             .bind(&new.title)
             .bind(&new.todo_type)
             .bind(&new.status)
+            .bind(&new.priority)
             .bind(&new.notes)
             .bind(new.deleted)
             .bind(rev)

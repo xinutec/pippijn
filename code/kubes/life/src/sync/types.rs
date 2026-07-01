@@ -43,6 +43,8 @@ pub struct TodoDoc {
     #[serde(rename = "type")]
     pub todo_type: String,
     pub status: String,
+    #[serde(default)]
+    pub priority: Option<String>,
     pub notes: Option<String>,
     #[serde(rename = "_deleted", default)]
     pub deleted: bool,

@@ -20,6 +20,15 @@
       }
     </mat-select>
   </mat-form-field>
+  <mat-form-field appearance="outline" class="type">
+    <mat-label>Priority</mat-label>
+    <mat-select [ngModel]="newPriority()" (ngModelChange)="newPriority.set($event)">
+      <mat-option [value]="null">None</mat-option>
+      @for (p of priorities; track p.value) {
+        <mat-option [value]="p.value">{{ p.label }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
   <mat-form-field appearance="outline" class="grow">
     <mat-label>Notes (optional)</mat-label>
     <input matInput [ngModel]="notes()" (ngModelChange)="notes.set($event)" (keyup.enter)="add()" />
@@ -75,6 +84,9 @@
         {{ it.title }}
       </span>
       <span matListItemLine class="meta">
+        @if (it.priority) {
+          <span class="pill prio-{{ it.priority }}">{{ priorityLabel(it.priority) }}</span>
+        }
         <mat-icon class="type-icon" [attr.aria-label]="typeLabel(it.type)">{{ typeIcon(it.type) }}</mat-icon>
         @if (st === 'blocked') {
           <span class="pill blocked"><mat-icon>lock</mat-icon> waiting on {{ blockerCount(it) }}</span>

@@ -14,6 +14,7 @@ const todo = (over: Partial<TodoDoc>): TodoDoc => ({
   title: 't',
   type: 'purchase',
   status: 'open',
+  priority: null,
   notes: null,
   rev: 0,
   ...over,

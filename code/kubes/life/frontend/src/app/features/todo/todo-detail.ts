@@ -13,7 +13,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
 
-import { LinkKind, TodoType } from '../../models';
+import { LinkKind, TodoPriority, TodoType } from '../../models';
 import { TodoStore } from '../../sync/todo-store';
 import { LinkTarget, TodoGraph } from './todo-graph';
 
@@ -29,6 +29,12 @@ const KINDS: readonly { value: LinkKind; label: string }[] = [
   { value: 'depends_on', label: 'Depends on' },
   { value: 'subtask', label: 'Subtask' },
   { value: 'related', label: 'Related' },
+];
+
+const PRIORITIES: readonly { value: TodoPriority; label: string }[] = [
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' },
 ];
 
 /** A connection group for display: a heading + its resolved rows. Each row is an
@@ -63,6 +69,7 @@ export class TodoDetail {
 
   readonly types = TYPES;
   readonly kinds = KINDS;
+  readonly priorities = PRIORITIES;
   readonly ulid = signal(this.data.ulid);
 
   /** The live to-do (may update while the sheet is open). */
@@ -138,6 +145,10 @@ export class TodoDetail {
 
   setType(type: TodoType): void {
     void this.store.patch(this.ulid(), { type });
+  }
+
+  setPriority(priority: TodoPriority | null): void {
+    void this.store.patch(this.ulid(), { priority });
   }
 
   toggleDone(): void {

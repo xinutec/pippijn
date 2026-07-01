@@ -59,6 +59,18 @@
     background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
     cursor: pointer;
   }
+  &.prio-high {
+    background: color-mix(in srgb, var(--mat-sys-error) 24%, transparent);
+    color: var(--mat-sys-on-error-container);
+    font-weight: 600;
+  }
+  &.prio-medium {
+    background: color-mix(in srgb, #e65100 32%, transparent);
+    font-weight: 600;
+  }
+  &.prio-low {
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
+  }
 }
 
 .empty {

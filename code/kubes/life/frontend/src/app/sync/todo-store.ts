@@ -5,7 +5,7 @@ import { ulid } from 'ulid';
 import { type RxCollection, type RxConflictHandler, type RxJsonSchema } from 'rxdb';
 import { replicateRxCollection } from 'rxdb/plugins/replication';
 
-import { TodoStatus, TodoType } from '../models';
+import { TodoPriority, TodoStatus, TodoType } from '../models';
 import { LifeDb } from './life-db';
 
 /** A to-do row as stored locally. `ulid` is the stable identity; `rev` is the
@@ -18,6 +18,7 @@ export interface TodoDoc {
   title: string;
   type: TodoType;
   status: TodoStatus;
+  priority: TodoPriority | null;
   notes: string | null;
   rev: number;
 }
@@ -25,9 +26,9 @@ export interface TodoDoc {
 type TodoCollection = RxCollection<TodoDoc>;
 
 const schema: RxJsonSchema<TodoDoc> = {
-  // v1: the `type` enum was widened (appointment/admin/task). Any schema change
-  // needs a version bump + migration, else existing local DBs hit a hash mismatch.
-  version: 1,
+  // Bump the version + add a migration on ANY schema change, else existing local
+  // DBs hit a hash mismatch. v1: `type` enum widened. v2: `priority` added.
+  version: 2,
   primaryKey: 'ulid',
   type: 'object',
   properties: {
@@ -40,6 +41,7 @@ const schema: RxJsonSchema<TodoDoc> = {
       maxLength: 16,
     },
     status: { type: 'string', enum: ['open', 'done'], maxLength: 8 },
+    priority: { type: ['string', 'null'], maxLength: 8 },
     notes: { type: ['string', 'null'] },
     rev: { type: 'number' },
   },
@@ -73,7 +75,12 @@ export class TodoStore {
     shareReplay({ bufferSize: 1, refCount: false }),
   );
 
-  async add(input: { title: string; type: TodoType; notes: string | null }): Promise<void> {
+  async add(input: {
+    title: string;
+    type: TodoType;
+    priority: TodoPriority | null;
+    notes: string | null;
+  }): Promise<void> {
     const col = await this.collection;
     await col.insert({
       ulid: ulid(),
@@ -81,6 +88,7 @@ export class TodoStore {
       title: input.title,
       type: input.type,
       status: 'open',
+      priority: input.priority,
       notes: input.notes,
       rev: 0,
     });
@@ -88,7 +96,7 @@ export class TodoStore {
 
   async patch(
     key: string,
-    fields: Partial<Pick<TodoDoc, 'title' | 'type' | 'status' | 'notes'>>,
+    fields: Partial<Pick<TodoDoc, 'title' | 'type' | 'status' | 'priority' | 'notes'>>,
   ): Promise<void> {
     const doc = await this.find(key);
     await doc?.incrementalPatch(fields);
@@ -109,10 +117,9 @@ export class TodoStore {
   }
 
   private async init(): Promise<TodoCollection> {
-    // v0→v1 migration is a passthrough — the enum only widened, so existing docs
-    // are already valid under the new schema.
     const col = await this.lifeDb.collection('todo', schema, conflictHandler, {
-      1: (doc) => doc,
+      1: (doc) => doc, // enum widened; existing docs already valid
+      2: (doc) => ({ ...doc, priority: doc.priority ?? null }), // add priority field
     });
     this.startReplication(col);
     return col;

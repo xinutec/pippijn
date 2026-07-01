@@ -14,6 +14,7 @@ const doc = (over: Partial<TodoDoc>): TodoDoc => ({
   title: 't',
   type: 'purchase',
   status: 'open',
+  priority: null,
   notes: null,
   rev: 0,
   ...over,
@@ -57,7 +58,12 @@ describe('Todo', () => {
     c.newType.set('call');
     c.notes.set('leaky tap');
     c.add();
-    expect(store.add).toHaveBeenCalledWith({ title: 'Call plumber', type: 'call', notes: 'leaky tap' });
+    expect(store.add).toHaveBeenCalledWith({
+      title: 'Call plumber',
+      type: 'call',
+      priority: null,
+      notes: 'leaky tap',
+    });
     expect(c.title()).toBe('');
     expect(c.notes()).toBe('');
   });

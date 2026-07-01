@@ -78,6 +78,38 @@ impl FromStr for TodoStatus {
     }
 }
 
+/// Triage priority. Optional on a to-do (`None` = unprioritised, sorts last).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum TodoPriority {
+    High,
+    Medium,
+    Low,
+}
+
+impl fmt::Display for TodoPriority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            TodoPriority::High => "high",
+            TodoPriority::Medium => "medium",
+            TodoPriority::Low => "low",
+        })
+    }
+}
+
+impl FromStr for TodoPriority {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "high" => Ok(TodoPriority::High),
+            "medium" => Ok(TodoPriority::Medium),
+            "low" => Ok(TodoPriority::Low),
+            other => Err(format!("unknown todo priority {other:?}")),
+        }
+    }
+}
+
 /// A to-do as returned by the API.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(export)]
@@ -88,6 +120,7 @@ pub struct Todo {
     #[serde(rename = "type")]
     pub todo_type: TodoType,
     pub status: TodoStatus,
+    pub priority: Option<TodoPriority>,
     pub notes: Option<String>,
 }
 
@@ -98,16 +131,20 @@ pub struct NewTodo {
     #[serde(rename = "type")]
     pub todo_type: TodoType,
     #[serde(default)]
+    pub priority: Option<TodoPriority>,
+    #[serde(default)]
     pub notes: Option<String>,
 }
 
-/// Full update (edits, the type, and the open/done toggle).
+/// Full update (edits, the type, the priority, and the open/done toggle).
 #[derive(Debug, Deserialize)]
 pub struct UpdateTodo {
     pub title: String,
     #[serde(rename = "type")]
     pub todo_type: TodoType,
     pub status: TodoStatus,
+    #[serde(default)]
+    pub priority: Option<TodoPriority>,
     #[serde(default)]
     pub notes: Option<String>,
 }

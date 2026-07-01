@@ -6,7 +6,7 @@ use life::db;
 use life::sync::repo as sync_repo;
 use life::sync::types::{PushEntry, TodoDoc};
 use life::todo::repo;
-use life::todo::types::{NewTodo, TodoStatus, TodoType, UpdateTodo};
+use life::todo::types::{NewTodo, TodoPriority, TodoStatus, TodoType, UpdateTodo};
 
 #[tokio::test]
 async fn todo_crud_and_sync_against_real_db() {
@@ -28,7 +28,12 @@ async fn todo_crud_and_sync_against_real_db() {
     let milk = repo::create(
         &pool,
         user,
-        NewTodo { title: "Buy milk".into(), todo_type: TodoType::Purchase, notes: None },
+        NewTodo {
+            title: "Buy milk".into(),
+            todo_type: TodoType::Purchase,
+            priority: None,
+            notes: None,
+        },
     )
     .await
     .unwrap();
@@ -38,6 +43,7 @@ async fn todo_crud_and_sync_against_real_db() {
         NewTodo {
             title: "Call dentist".into(),
             todo_type: TodoType::Call,
+            priority: Some(TodoPriority::High),
             notes: Some("re-book cleaning".into()),
         },
     )
@@ -48,8 +54,11 @@ async fn todo_crud_and_sync_against_real_db() {
     assert_eq!(all.len(), 2);
     assert_eq!(milk.status, TodoStatus::Open);
     assert_eq!(milk.todo_type, TodoType::Purchase);
+    assert_eq!(milk.priority, None);
+    let dentist = all.iter().find(|t| t.title == "Call dentist").unwrap();
+    assert_eq!(dentist.priority, Some(TodoPriority::High));
 
-    // Update: mark done, keep the type, change notes.
+    // Update: mark done, set a priority, change notes.
     let done = repo::update(
         &pool,
         user,
@@ -58,6 +67,7 @@ async fn todo_crud_and_sync_against_real_db() {
             title: milk.title.clone(),
             todo_type: TodoType::Purchase,
             status: TodoStatus::Done,
+            priority: Some(TodoPriority::Medium),
             notes: Some("got oat milk".into()),
         },
     )
@@ -65,6 +75,7 @@ async fn todo_crud_and_sync_against_real_db() {
     .unwrap()
     .expect("exists");
     assert_eq!(done.status, TodoStatus::Done);
+    assert_eq!(done.priority, Some(TodoPriority::Medium));
     assert_eq!(done.notes.as_deref(), Some("got oat milk"));
 
     // Soft delete hides it from reads.
@@ -86,6 +97,7 @@ async fn todo_crud_and_sync_against_real_db() {
             title: "Pay rent".into(),
             todo_type: "call".into(),
             status: "open".into(),
+            priority: Some("low".into()),
             notes: None,
             deleted: false,
             rev: 0,
@@ -95,5 +107,7 @@ async fn todo_crud_and_sync_against_real_db() {
     let conflicts = sync_repo::push_todo(&pool, user, vec![entry]).await.unwrap();
     assert!(conflicts.is_empty());
     let after_push = repo::list(&pool, user).await.unwrap();
-    assert!(after_push.iter().any(|t| t.title == "Pay rent" && t.todo_type == TodoType::Call));
+    assert!(after_push
+        .iter()
+        .any(|t| t.title == "Pay rent" && t.todo_type == TodoType::Call && t.priority == Some(TodoPriority::Low)));
 }

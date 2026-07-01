@@ -26,6 +26,18 @@
       }
     </mat-button-toggle-group>
 
+    <mat-button-toggle-group
+      class="type"
+      [ngModel]="td.priority"
+      (ngModelChange)="setPriority($event)"
+      hideSingleSelectionIndicator
+    >
+      <mat-button-toggle [value]="null">No priority</mat-button-toggle>
+      @for (p of priorities; track p.value) {
+        <mat-button-toggle [value]="p.value">{{ p.label }}</mat-button-toggle>
+      }
+    </mat-button-toggle-group>
+
     @if (state() === 'blocked') {
       <div class="banner blocked">
         <mat-icon>lock</mat-icon>

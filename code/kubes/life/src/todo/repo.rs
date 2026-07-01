@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use sqlx::MySqlPool;
 use ulid::Ulid;
 
-use super::types::{NewTodo, Todo, TodoStatus, TodoType, UpdateTodo};
+use super::types::{NewTodo, Todo, TodoPriority, TodoStatus, TodoType, UpdateTodo};
 use crate::sync::repo::next_rev;
 
 #[derive(sqlx::FromRow)]
@@ -18,6 +18,7 @@ struct Row {
     title: String,
     todo_type: String,
     status: String,
+    priority: Option<String>,
     notes: Option<String>,
 }
 
@@ -29,6 +30,11 @@ impl TryFrom<Row> for Todo {
             title: r.title,
             todo_type: r.todo_type.parse::<TodoType>().map_err(anyhow::Error::msg)?,
             status: r.status.parse::<TodoStatus>().map_err(anyhow::Error::msg)?,
+            priority: r
+                .priority
+                .map(|p| p.parse::<TodoPriority>())
+                .transpose()
+                .map_err(anyhow::Error::msg)?,
             notes: r.notes,
         })
     }
@@ -37,7 +43,7 @@ impl TryFrom<Row> for Todo {
 /// To-dos: open first, then by title. Tombstoned rows are hidden.
 pub async fn list(pool: &MySqlPool, user_id: &str) -> Result<Vec<Todo>> {
     let rows: Vec<Row> = sqlx::query_as(
-        "SELECT id, title, todo_type, status, notes FROM todos \
+        "SELECT id, title, todo_type, status, priority, notes FROM todos \
          WHERE user_id = ? AND deleted_at IS NULL ORDER BY status DESC, title",
     )
     .bind(user_id)
@@ -48,7 +54,7 @@ pub async fn list(pool: &MySqlPool, user_id: &str) -> Result<Vec<Todo>> {
 
 pub async fn get(pool: &MySqlPool, user_id: &str, id: u64) -> Result<Option<Todo>> {
     let row: Option<Row> = sqlx::query_as(
-        "SELECT id, title, todo_type, status, notes FROM todos \
+        "SELECT id, title, todo_type, status, priority, notes FROM todos \
          WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
     )
     .bind(id)
@@ -63,13 +69,14 @@ pub async fn create(pool: &MySqlPool, user_id: &str, new: NewTodo) -> Result<Tod
     let mut tx = pool.begin().await?;
     let rev = next_rev(&mut tx).await?;
     let res = sqlx::query(
-        "INSERT INTO todos (user_id, ulid, title, todo_type, status, notes, rev, \
-         created_at, updated_at) VALUES (?, ?, ?, ?, 'open', ?, ?, NOW(), NOW())",
+        "INSERT INTO todos (user_id, ulid, title, todo_type, status, priority, notes, rev, \
+         created_at, updated_at) VALUES (?, ?, ?, ?, 'open', ?, ?, ?, NOW(), NOW())",
     )
     .bind(user_id)
     .bind(&ulid)
     .bind(&new.title)
     .bind(new.todo_type.to_string())
+    .bind(new.priority.map(|p| p.to_string()))
     .bind(&new.notes)
     .bind(rev)
     .execute(&mut *tx)
@@ -81,6 +88,7 @@ pub async fn create(pool: &MySqlPool, user_id: &str, new: NewTodo) -> Result<Tod
         title: new.title,
         todo_type: new.todo_type,
         status: TodoStatus::Open,
+        priority: new.priority,
         notes: new.notes,
     })
 }
@@ -94,12 +102,13 @@ pub async fn update(
     let mut tx = pool.begin().await?;
     let rev = next_rev(&mut tx).await?;
     let res = sqlx::query(
-        "UPDATE todos SET title = ?, todo_type = ?, status = ?, notes = ?, \
+        "UPDATE todos SET title = ?, todo_type = ?, status = ?, priority = ?, notes = ?, \
          rev = ?, updated_at = NOW() WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
     )
     .bind(&upd.title)
     .bind(upd.todo_type.to_string())
     .bind(upd.status.to_string())
+    .bind(upd.priority.map(|p| p.to_string()))
     .bind(&upd.notes)
     .bind(rev)
     .bind(id)
