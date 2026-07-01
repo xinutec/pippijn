@@ -71,6 +71,41 @@ export interface JourneyScore {
 	legLineMatching: number;
 	/** Per-leg outcomes, for human inspection. */
 	legResults: LegResult[];
+	/** Per-GT-journey reconstruction outcome, keyed by the (narrative-stable)
+	 *  journey start time — the identity the ratchet gate tracks so a specific
+	 *  previously-reconstructed journey breaking is a failure, not just a count
+	 *  dropping. */
+	journeyResults: JourneyResult[];
+}
+
+export interface JourneyResult {
+	/** GT journey start (unix seconds) — stable across pipeline changes because
+	 *  it is anchored to the fixed narrative window. */
+	startTs: number;
+	endTs: number;
+	/** The trip's expected deduped mode shape (e.g. ["walking","train","walking"]). */
+	expectedShape: string[];
+	/** The reconstructed shape of the best-overlapping output journey, or null
+	 *  when nothing overlapped. */
+	actualShape: string[] | null;
+	/** True when `actualShape` equals `expectedShape`. */
+	matched: boolean;
+}
+
+/** Expand a coarse state timeline (contiguous start/end/mode windows — the
+ *  drawn "Your Day" timeline) into the per-minute stream {@link scoreJourneys}
+ *  consumes, so the PIPELINE output can be journey-scored, not only the HSMM
+ *  decoder. Emits one entry per top-of-minute inside each window; line/place
+ *  are not carried (mode-shape scoring needs only mode — line fidelity uses the
+ *  decoder path). */
+export function statesToMinutes(states: readonly { startTs: number; endTs: number; mode: string }[]): DecoderMinute[] {
+	const minutes: DecoderMinute[] = [];
+	for (const s of states) {
+		for (let t = Math.ceil(s.startTs / 60) * 60; t < s.endTs; t += 60) {
+			minutes.push({ ts: t, mode: s.mode as DecoderMinute["mode"], placeId: null, lineName: null });
+		}
+	}
+	return minutes;
 }
 
 export interface LegResult {
@@ -274,6 +309,7 @@ export function scoreJourneys(rows: readonly GroundTruthRow[], decoder: readonly
 	let legLineMatching = 0;
 	let journeysModeSequenceMatched = 0;
 	const legResults: LegResult[] = [];
+	const journeyResults: JourneyResult[] = [];
 
 	for (const gtJ of gtJourneys) {
 		for (const leg of gtJ.legs) {
@@ -305,9 +341,11 @@ export function scoreJourneys(rows: readonly GroundTruthRow[], decoder: readonly
 		}
 
 		const match = bestOverlap(gtJ, decJourneys);
-		if (match !== null && arraysEqual(modeShape(gtJ), modeShape(match))) {
-			journeysModeSequenceMatched++;
-		}
+		const expectedShape = modeShape(gtJ);
+		const actualShape = match !== null ? modeShape(match) : null;
+		const matched = actualShape !== null && arraysEqual(expectedShape, actualShape);
+		if (matched) journeysModeSequenceMatched++;
+		journeyResults.push({ startTs: gtJ.startTs, endTs: gtJ.endTs, expectedShape, actualShape, matched });
 	}
 
 	return {
@@ -318,6 +356,7 @@ export function scoreJourneys(rows: readonly GroundTruthRow[], decoder: readonly
 		legLineScorable,
 		legLineMatching,
 		legResults,
+		journeyResults,
 	};
 }
 

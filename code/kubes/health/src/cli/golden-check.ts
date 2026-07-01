@@ -40,6 +40,8 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseGroundTruth } from "../eval/ground-truth.js";
+import { gateJourneys, type JourneyBaseline } from "../eval/journey-gate.js";
+import { scoreJourneys, statesToMinutes } from "../eval/journey-score.js";
 import { classifyDay, parsePipelineState } from "../eval/truth-check.js";
 import { checkWorldlineFeasibility } from "../eval/worldline-feasibility.js";
 import { computeVelocityFromInputs } from "../geo/velocity.js";
@@ -70,7 +72,14 @@ interface StateWindow {
  * the truth layer is how a frozen-but-wrong day (e.g. the LSHTM / hospital
  * mislabels the deterministic capture preserves) stays honestly visible.
  */
-async function truthReport(date: string, tz: string, states: readonly StateWindow[]): Promise<string | null> {
+interface TruthResult {
+	text: string;
+	/** Start times (unix seconds) of the ground-truth journeys the PIPELINE
+	 *  reconstructed with the correct mode shape — the ratchet's per-day set. */
+	journeyMatched: number[];
+}
+
+async function truthReport(date: string, tz: string, states: readonly StateWindow[]): Promise<TruthResult | null> {
 	let md: string;
 	try {
 		md = await readFile(path.join(GROUND_TRUTH_DIR, `${date}.md`), "utf8");
@@ -86,9 +95,16 @@ async function truthReport(date: string, tz: string, states: readonly StateWindo
 	const enforceable = res.verified + res.regressed + res.knownError + res.cleared;
 	if (enforceable === 0) return null; // nothing the ground truth can enforce yet
 
+	// Journey-level score of the DRAWN timeline (not just the HSMM decoder):
+	// does the day read as the right sequence of trips? This is the metric the
+	// ratchet gate tracks.
+	const j = scoreJourneys(gt.rows, statesToMinutes(states));
+	const journeyMatched = j.journeyResults.filter((r) => r.matched).map((r) => r.startTs);
+
 	const lines: string[] = [
 		`    truth: ${res.verified} verified · ${res.knownError} known-error · ${res.cleared} cleared · ` +
 			`${res.regressed} regressed  (${res.unverified} unverified)`,
+		`    journeys: ${j.journeysModeSequenceMatched}/${j.journeysExpected} reconstructed`,
 	];
 	for (const { row, verdict } of res.verdicts) {
 		if (verdict === "regressed")
@@ -96,12 +112,15 @@ async function truthReport(date: string, tz: string, states: readonly StateWindo
 		if (verdict === "cleared")
 			lines.push(`      ✓ cleared    ${row.windowText}: known error "${row.blessedText}" is fixed`);
 	}
-	return lines.join("\n");
+	return { text: lines.join("\n"), journeyMatched };
 }
+
+const JOURNEY_BASELINE_PATH = path.join(GOLDEN_DIR, "journey-baseline.json");
 
 const args = process.argv.slice(2);
 let bless = false;
 let blessDate: string | null = null;
+let blessJourneys = false;
 for (let i = 0; i < args.length; i++) {
 	if (args[i] === "--bless") {
 		bless = true;
@@ -110,9 +129,22 @@ for (let i = 0; i < args.length; i++) {
 			blessDate = next;
 			i++;
 		}
+	} else if (args[i] === "--bless-journeys") {
+		// Ratchet the journey floor UP to the current run: record which
+		// ground-truth journeys the pipeline now reconstructs. Run after a
+		// change that fixes a journey (the run prints it as an improvement).
+		blessJourneys = true;
 	} else {
 		console.error(`unknown argument: ${args[i]}`);
 		process.exit(2);
+	}
+}
+
+async function loadJourneyBaseline(): Promise<JourneyBaseline> {
+	try {
+		return JSON.parse(await readFile(JOURNEY_BASELINE_PATH, "utf8")) as JourneyBaseline;
+	} catch {
+		return {}; // no baseline yet — first run bootstraps
 	}
 }
 
@@ -139,6 +171,9 @@ let checked = 0;
 // the regression baseline the migration drives to zero.
 let infeasibleDays = 0;
 let totalViolations = 0;
+// Per-day set of ground-truth journeys the pipeline reconstructs this run —
+// compared against the committed baseline by the journey ratchet gate below.
+const journeysNow: JourneyBaseline = {};
 
 for (const file of files) {
 	const full = path.join(DAYS_DIR, file);
@@ -188,9 +223,12 @@ for (const file of files) {
 		);
 	}
 
-	// Provenance-aware truth report (informational, on top of the diff).
+	// Provenance-aware truth report + journey score (on top of the diff).
 	const truth = await truthReport(captured.meta.date, captured.meta.tz, states as StateWindow[]);
-	if (truth) console.log(truth);
+	if (truth) {
+		console.log(truth.text);
+		journeysNow[captured.meta.date] = truth.journeyMatched;
+	}
 
 	// Worldline-feasibility report (informational): physically-impossible
 	// outputs the cascade emitted on this day's timeline.
@@ -223,4 +261,44 @@ console.log(
 		? `worldline-feasibility: FAIL — ${totalViolations} impossible leg(s) across ${infeasibleDays}/${checked} day(s).`
 		: `worldline-feasibility: all ${checked} day(s) physically consistent.`,
 );
-process.exit(regressions > 0 || totalViolations > 0 ? 1 : 0);
+
+// --- journey ratchet -----------------------------------------------------
+// Ratchet the story-correctness of the drawn timeline: a ground-truth journey
+// the pipeline USED to reconstruct correctly (in the committed baseline) that
+// no longer does is a hard failure, mirroring worldline-feasibility. The
+// baseline is the current non-zero set of working journeys (most are not yet
+// correct), so this makes the standing failures a floor that can only shrink —
+// the measurement the joint mode+position model (#257) is built against.
+const totalReconstructed = Object.values(journeysNow).reduce((n, a) => n + a.length, 0);
+if (blessJourneys) {
+	const ordered: JourneyBaseline = {};
+	for (const date of Object.keys(journeysNow).sort()) ordered[date] = [...journeysNow[date]].sort((a, b) => a - b);
+	await writeFile(JOURNEY_BASELINE_PATH, `${JSON.stringify(ordered, null, "\t")}\n`, "utf8");
+	console.log(
+		`journeys: blessed baseline — ${totalReconstructed} reconstructed journey(s) across ${Object.keys(ordered).length} day(s).`,
+	);
+	process.exit(0);
+}
+
+const baseline = await loadJourneyBaseline();
+const gate = gateJourneys(baseline, journeysNow);
+if (Object.keys(baseline).length === 0) {
+	console.log(
+		`journeys: no baseline yet — ${totalReconstructed} reconstructed. Establish the floor with: npm run golden -- --bless-journeys`,
+	);
+} else if (gate.regressed.length > 0) {
+	console.log(`journeys: FAIL — ${gate.regressed.length} previously-reconstructed journey(s) regressed:`);
+	for (const r of gate.regressed)
+		console.log(`      ✗ ${r.date} @${new Date(r.startTs * 1000).toISOString().slice(11, 16)}Z`);
+} else {
+	console.log(`journeys: ${totalReconstructed} reconstructed, no regressions.`);
+}
+if (gate.improved.length > 0) {
+	console.log(
+		`journeys: ${gate.improved.length} newly reconstructed — re-bless to ratchet the floor up (--bless-journeys):`,
+	);
+	for (const im of gate.improved)
+		console.log(`      ✓ ${im.date} @${new Date(im.startTs * 1000).toISOString().slice(11, 16)}Z`);
+}
+
+process.exit(regressions > 0 || totalViolations > 0 || gate.regressed.length > 0 ? 1 : 0);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GroundTruthMode, GroundTruthRow, ParsedBlessed } from "../src/eval/ground-truth.js";
-import { decoderJourneys, groundTruthJourneys, scoreJourneys } from "../src/eval/journey-score.js";
+import { decoderJourneys, groundTruthJourneys, scoreJourneys, statesToMinutes } from "../src/eval/journey-score.js";
 import type { DecoderMinute } from "../src/eval/score-day.js";
 
 /**
@@ -45,6 +45,51 @@ function dec(
 	for (let m = startMin; m < endMin; m++) out.push({ ts: T0 + m * 60, mode, placeId: null, lineName: line });
 	return out;
 }
+
+describe("statesToMinutes + pipeline journey scoring", () => {
+	/** A drawn "Your Day" timeline: contiguous start/end/mode windows. */
+	const st = (startMin: number, endMin: number, mode: string) => ({
+		startTs: T0 + startMin * 60,
+		endTs: T0 + endMin * 60,
+		mode,
+	});
+
+	it("expands a state window into one entry per top-of-minute", () => {
+		// Real ground-truth windows are HH:MM → always minute-aligned; align the
+		// synthetic base too so the top-of-minute stepping is exact.
+		const base = Math.ceil(T0 / 60) * 60;
+		const mins = statesToMinutes([{ startTs: base, endTs: base + 180, mode: "walking" }]);
+		expect(mins.map((m) => m.ts)).toEqual([base, base + 60, base + 120]);
+		expect(mins.every((m) => m.mode === "walking")).toBe(true);
+	});
+
+	// The whole point of the journey gate: score the PIPELINE (drawn timeline),
+	// not just the HSMM decoder. A tube leg drawn as walking (the underground
+	// mislabel) must fail journey reconstruction.
+	const gtRows = [gtRow(0, 10, "walking"), gtRow(10, 30, "train", "Metropolitan Line"), gtRow(30, 40, "walking")];
+
+	it("scores a faithfully-drawn journey as reconstructed", () => {
+		const states = [
+			st(-10, 0, "stationary"),
+			st(0, 10, "walking"),
+			st(10, 30, "train"),
+			st(30, 40, "walking"),
+			st(40, 100, "stationary"),
+		];
+		const score = scoreJourneys(gtRows, statesToMinutes(states));
+		expect(score.journeyResults).toHaveLength(1);
+		expect(score.journeyResults[0].matched).toBe(true);
+		expect(score.journeyResults[0].expectedShape).toEqual(["walking", "train", "walking"]);
+		expect(score.journeyResults[0].startTs).toBe(T0);
+	});
+
+	it("fails a journey whose tube leg is drawn as walking (the underground mislabel)", () => {
+		const states = [st(-10, 0, "stationary"), st(0, 40, "walking"), st(40, 100, "stationary")]; // train drawn as walking → one walk leg
+		const score = scoreJourneys(gtRows, statesToMinutes(states));
+		expect(score.journeyResults[0].matched).toBe(false);
+		expect(score.journeyResults[0].actualShape).toEqual(["walking"]);
+	});
+});
 
 describe("groundTruthJourneys", () => {
 	it("groups consecutive movement rows into one journey, split by a stay", () => {
