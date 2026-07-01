@@ -37,19 +37,17 @@
 </div>
 
 <div class="filters">
-  <div class="type-filter-scroll">
-    <mat-button-toggle-group
-      class="type-filter"
-      [ngModel]="filter()"
-      (ngModelChange)="filter.set($event)"
-      hideSingleSelectionIndicator
-    >
-      <mat-button-toggle [value]="null">All</mat-button-toggle>
-      @for (t of types; track t.value) {
-        <mat-button-toggle [value]="t.value">{{ t.label }}</mat-button-toggle>
-      }
-    </mat-button-toggle-group>
-  </div>
+  <mat-chip-listbox
+    class="type-filter"
+    [ngModel]="filter()"
+    (ngModelChange)="filter.set($event)"
+    aria-label="Filter by type"
+  >
+    <mat-chip-option [value]="null">All</mat-chip-option>
+    @for (t of types; track t.value) {
+      <mat-chip-option [value]="t.value">{{ t.label }}</mat-chip-option>
+    }
+  </mat-chip-listbox>
   @if (readyCount() > 0) {
     <button
       mat-stroked-button

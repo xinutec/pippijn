@@ -3,8 +3,8 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatBottomSheet, MatBottomSheetModule } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
-import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -45,10 +45,10 @@ export const prioRank = (p: TodoPriority | null): number => (p ? PRIO_RANK[p] : 
     MatIconModule,
     MatButtonModule,
     MatCheckboxModule,
+    MatChipsModule,
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
-    MatButtonToggleModule,
     MatBottomSheetModule,
   ],
 })
