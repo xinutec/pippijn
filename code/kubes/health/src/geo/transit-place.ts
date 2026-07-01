@@ -37,10 +37,16 @@ export async function stationAtTrainAlight(
 	return nearest.distanceM <= radiusM ? nearest.name : null;
 }
 
-/** A platform-to-platform interchange walk is brief — a few minutes inside the
- *  station. A walk longer than this is a real walk to somewhere, so the stay it
- *  precedes/follows is a genuine destination, not a change of trains. */
-export const INTERCHANGE_WALK_MAX_S = 360;
+/** A platform-to-platform interchange walk inside a large station complex. Set to
+ *  cover genuine long transfers — King's Cross Victoria→Met (the 2026-06-16
+ *  phantom "Megaro Hotel") is a ~10-min concourse walk between separate stations
+ *  of one interchange. Longer than this is a walk to somewhere. This is a WEAK
+ *  discriminator: the venue-vs-interchange call rests on the stay being short
+ *  (`INTERCHANGE_DWELL_MAX_S`) AND within station range (`STATION_AT_ALIGHT_RADIUS_M`),
+ *  which is what the stay being labelled must satisfy — so a short station-sited
+ *  stay bracketed by trains is a change of trains regardless of the transfer
+ *  walk's exact length. */
+export const INTERCHANGE_WALK_MAX_S = 720;
 
 /** A change of trains is a short wait — a few minutes on the platform. A stay
  *  longer than this, even bracketed by trains, is a genuine destination reached

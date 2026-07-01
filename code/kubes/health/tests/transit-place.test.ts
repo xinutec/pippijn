@@ -98,12 +98,28 @@ describe("stationAtTransitInterchange", () => {
 		expect(await stationAtTransitInterchange(segs, 1, LAT, LON, bakerOsm)).toBeNull();
 	});
 
-	it("does NOT fire across a long walk — a real walk to a venue, not a platform change", async () => {
+	it("names the station across a long large-station transfer walk (King's Cross Victoria→Met, ~10 min)", async () => {
+		// The 2026-06-16 phantom "Megaro Hotel": a short station-sited wait during
+		// a change between separate stations of the King's Cross complex, reached
+		// across a genuine ~10-min concourse walk.
+		const segs = [
+			seg("train", 0, 11), // Victoria → King's Cross (Victoria Line)
+			seg("walking", 11, 2),
+			seg("stationary", 13, 5), // the wait — i=2
+			seg("walking", 18, 10), // ~10-min concourse transfer to the Met platforms
+			seg("train", 28, 4), // King's Cross → Wembley Park (Met Line)
+		];
+		expect(await stationAtTransitInterchange(segs, 2, LAT, LON, bakerOsm)).toBe("Baker Street");
+	});
+
+	it("does NOT fire across a genuinely long walk with a short stay — a real walk to a venue", async () => {
+		// Short stay (so the dwell guard doesn't decide it) but a 15-min walk — you
+		// went somewhere, this is not a platform-to-platform transfer.
 		const segs = [
 			seg("train", 0, 2),
-			seg("walking", 2, 12), // 12-min walk: you went somewhere
-			seg("stationary", 14, 20),
-			seg("train", 34, 8),
+			seg("walking", 2, 15), // 15-min walk: beyond any concourse transfer
+			seg("stationary", 17, 5),
+			seg("train", 22, 8),
 		];
 		expect(await stationAtTransitInterchange(segs, 2, LAT, LON, bakerOsm)).toBeNull();
 	});
