@@ -57,7 +57,7 @@ describe('Shopping — barcode scan', () => {
     expect(fixture.componentInstance.name()).toBe('Nomadic');
 
     // Rendered view reflects it (this is what the zoneless bug broke).
-    const input = fixture.nativeElement.querySelector('input[inputmode="numeric"]') as HTMLInputElement;
+    const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input[inputmode="numeric"]')!;
     expect(input.value).toBe('5029617001045');
   });
 

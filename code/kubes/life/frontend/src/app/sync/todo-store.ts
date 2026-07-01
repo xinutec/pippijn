@@ -118,8 +118,8 @@ export class TodoStore {
 
   private async init(): Promise<TodoCollection> {
     const col = await this.lifeDb.collection('todo', schema, conflictHandler, {
-      1: (doc) => doc, // enum widened; existing docs already valid
-      2: (doc) => ({ ...doc, priority: doc.priority ?? null }), // add priority field
+      1: (doc: Record<string, unknown>) => doc, // enum widened; existing docs already valid
+      2: (doc: Record<string, unknown>) => ({ ...doc, priority: doc['priority'] ?? null }), // add priority field
     });
     this.startReplication(col);
     return col;

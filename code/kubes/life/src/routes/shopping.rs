@@ -1,8 +1,8 @@
 //! Shopping-list HTTP surface, plus the buy→inventory conversion.
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 
 use crate::error::AppError;
 use crate::inventory::repo as inventory_repo;

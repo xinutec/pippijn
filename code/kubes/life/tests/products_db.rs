@@ -24,9 +24,16 @@ async fn product_cache_against_real_db() {
     assert!(repo::get(&pool, bc).await.unwrap().is_none());
 
     // Cache with an image.
-    repo::upsert(&pool, bc, Some("Test Yog"), Some("BrandX"), Some("950g"), Some((vec![1, 2, 3, 4], "image/png".into())))
-        .await
-        .unwrap();
+    repo::upsert(
+        &pool,
+        bc,
+        Some("Test Yog"),
+        Some("BrandX"),
+        Some("950g"),
+        Some((vec![1, 2, 3, 4], "image/png".into())),
+    )
+    .await
+    .unwrap();
     let p = repo::get(&pool, bc).await.unwrap().expect("cached");
     assert_eq!(p.name.as_deref(), Some("Test Yog"));
     assert_eq!(p.quantity_label.as_deref(), Some("950g"));
@@ -37,7 +44,9 @@ async fn product_cache_against_real_db() {
     assert_eq!(mime, "image/png");
 
     // Re-cache without an image overwrites in place.
-    repo::upsert(&pool, bc, Some("Test Yog 2"), None, None, None).await.unwrap();
+    repo::upsert(&pool, bc, Some("Test Yog 2"), None, None, None)
+        .await
+        .unwrap();
     let p2 = repo::get(&pool, bc).await.unwrap().expect("cached");
     assert_eq!(p2.name.as_deref(), Some("Test Yog 2"));
     assert!(!p2.has_image);

@@ -2,9 +2,9 @@
 //! served offline via the RxDB sync endpoints (`/api/sync/todo`); these REST
 //! routes are the online CRUD surface.
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 
 use crate::error::AppError;
 use crate::session::AuthUser;

@@ -28,7 +28,10 @@ impl TryFrom<Row> for Todo {
         Ok(Todo {
             id: r.id,
             title: r.title,
-            todo_type: r.todo_type.parse::<TodoType>().map_err(anyhow::Error::msg)?,
+            todo_type: r
+                .todo_type
+                .parse::<TodoType>()
+                .map_err(anyhow::Error::msg)?,
             status: r.status.parse::<TodoStatus>().map_err(anyhow::Error::msg)?,
             priority: r
                 .priority

@@ -8,7 +8,8 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test --watch=false",
-    "e2e": "ng build && playwright test"
+    "e2e": "ng build && playwright test",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@angular/cdk": "^22.0.1",
@@ -33,8 +34,11 @@
     "@angular/compiler-cli": "^22.0.0",
     "@playwright/test": "^1.61.1",
     "@types/three": "^0.185.0",
+    "angular-eslint": "^22.0.0",
+    "eslint": "^10.3.0",
     "jsdom": "^29.1.1",
     "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.3",
     "vitest": "^4.1.9"
   },
   "overrides": {

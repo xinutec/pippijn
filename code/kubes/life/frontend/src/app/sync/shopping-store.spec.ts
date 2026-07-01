@@ -19,7 +19,7 @@ const base: MasterDoc = {
 // RxDB passes more fields; the handler only reads these.
 function resolve(realMasterState: MasterDoc, newDocumentState: MasterDoc) {
   return conflictHandler.resolve(
-    { realMasterState, newDocumentState, assumedMasterState: realMasterState } as never,
+    { realMasterState, newDocumentState, assumedMasterState: realMasterState },
     'test',
   );
 }

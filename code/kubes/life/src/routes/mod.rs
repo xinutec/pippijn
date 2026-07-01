@@ -45,10 +45,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/recipes/{id}/shopping-list", get(recipes::shopping_list))
         .route("/cookable", get(recipes::cookable))
-        .route(
-            "/shopping",
-            get(shopping::list).post(shopping::create),
-        )
+        .route("/shopping", get(shopping::list).post(shopping::create))
         .route(
             "/shopping/{id}",
             patch(shopping::update).delete(shopping::delete),
@@ -59,15 +56,9 @@ pub fn router(state: AppState) -> Router {
             get(sync::pull_shopping).post(sync::push_shopping),
         )
         .route("/todo", get(todo::list).post(todo::create))
-        .route(
-            "/todo/{id}",
-            patch(todo::update).delete(todo::delete),
-        )
+        .route("/todo/{id}", patch(todo::update).delete(todo::delete))
         .route("/sync/todo", get(sync::pull_todo).post(sync::push_todo))
-        .route(
-            "/todo-links",
-            get(todo::list_links).post(todo::create_link),
-        )
+        .route("/todo-links", get(todo::list_links).post(todo::create_link))
         .route("/todo-links/{id}", delete(todo::delete_link))
         .route(
             "/sync/todo-link",

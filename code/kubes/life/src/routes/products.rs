@@ -1,10 +1,10 @@
 //! Product lookup: cache-first, Open Food Facts on a miss; plus image serving.
 
+use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::header;
 use axum::response::Response;
-use axum::Json;
 
 use crate::error::AppError;
 use crate::products::{off, repo, types::Product};
@@ -40,7 +40,10 @@ pub async fn lookup(
         image,
     )
     .await?;
-    repo::get(&app.pool, &barcode).await?.map(Json).ok_or(AppError::NotFound)
+    repo::get(&app.pool, &barcode)
+        .await?
+        .map(Json)
+        .ok_or(AppError::NotFound)
 }
 
 /// GET /api/products/{barcode}/image → the cached image bytes.
@@ -49,7 +52,9 @@ pub async fn image(
     AuthUser(_user): AuthUser,
     Path(barcode): Path<String>,
 ) -> Result<Response, AppError> {
-    let (bytes, mime) = repo::get_image(&app.pool, &barcode).await?.ok_or(AppError::NotFound)?;
+    let (bytes, mime) = repo::get_image(&app.pool, &barcode)
+        .await?
+        .ok_or(AppError::NotFound)?;
     Response::builder()
         .header(header::CONTENT_TYPE, mime)
         .header(header::CACHE_CONTROL, "private, max-age=86400")

@@ -63,7 +63,9 @@ async fn todo_link_crud_and_sync_against_real_db() {
     assert_eq!(links::list(&pool, user).await.unwrap().len(), 1);
 
     // Sync pull includes the tombstone; push lands an offline-created link.
-    let pulled = sync_repo::pull_todo_link(&pool, user, 0, 100).await.unwrap();
+    let pulled = sync_repo::pull_todo_link(&pool, user, 0, 100)
+        .await
+        .unwrap();
     assert!(pulled.documents.iter().any(|d| d.deleted));
 
     let entry = PushEntry {
@@ -79,12 +81,12 @@ async fn todo_link_crud_and_sync_against_real_db() {
         },
         assumed_master_state: None,
     };
-    let conflicts = sync_repo::push_todo_link(&pool, user, vec![entry]).await.unwrap();
+    let conflicts = sync_repo::push_todo_link(&pool, user, vec![entry])
+        .await
+        .unwrap();
     assert!(conflicts.is_empty());
     let after = links::list(&pool, user).await.unwrap();
-    assert!(
-        after
-            .iter()
-            .any(|l| l.target_kind == TargetKind::Room && l.target_ref == "kitchen" && l.kind == LinkKind::Subtask)
-    );
+    assert!(after.iter().any(|l| l.target_kind == TargetKind::Room
+        && l.target_ref == "kitchen"
+        && l.kind == LinkKind::Subtask));
 }

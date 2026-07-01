@@ -86,8 +86,18 @@ async fn todo_crud_and_sync_against_real_db() {
 
     // Sync pull surfaces every row including the tombstone, in rev order.
     let pulled = sync_repo::pull_todo(&pool, user, 0, 100).await.unwrap();
-    assert!(pulled.documents.iter().any(|d| d.title == "Buy milk" && d.deleted));
-    assert!(pulled.documents.iter().any(|d| d.title == "Call dentist" && !d.deleted));
+    assert!(
+        pulled
+            .documents
+            .iter()
+            .any(|d| d.title == "Buy milk" && d.deleted)
+    );
+    assert!(
+        pulled
+            .documents
+            .iter()
+            .any(|d| d.title == "Call dentist" && !d.deleted)
+    );
 
     // Sync push: a to-do created offline (client-minted ulid) lands on the server.
     let entry = PushEntry {
@@ -104,10 +114,12 @@ async fn todo_crud_and_sync_against_real_db() {
         },
         assumed_master_state: None,
     };
-    let conflicts = sync_repo::push_todo(&pool, user, vec![entry]).await.unwrap();
+    let conflicts = sync_repo::push_todo(&pool, user, vec![entry])
+        .await
+        .unwrap();
     assert!(conflicts.is_empty());
     let after_push = repo::list(&pool, user).await.unwrap();
-    assert!(after_push
-        .iter()
-        .any(|t| t.title == "Pay rent" && t.todo_type == TodoType::Call && t.priority == Some(TodoPriority::Low)));
+    assert!(after_push.iter().any(|t| t.title == "Pay rent"
+        && t.todo_type == TodoType::Call
+        && t.priority == Some(TodoPriority::Low)));
 }

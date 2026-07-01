@@ -51,7 +51,11 @@ pub async fn fetch(http: &reqwest::Client, barcode: &str) -> Result<Option<OffPr
         "https://world.openfoodfacts.org/api/v2/product/{barcode}.json\
          ?fields=product_name,brands,quantity,image_front_url"
     );
-    let res = http.get(&url).header("User-Agent", USER_AGENT).send().await?;
+    let res = http
+        .get(&url)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await?;
     if !res.status().is_success() {
         return Ok(None);
     }
@@ -59,7 +63,9 @@ pub async fn fetch(http: &reqwest::Client, barcode: &str) -> Result<Option<OffPr
     if env.status != 1 {
         return Ok(None);
     }
-    let Some(p) = env.product else { return Ok(None) };
+    let Some(p) = env.product else {
+        return Ok(None);
+    };
     Ok(Some(OffProduct {
         name: non_empty(p.product_name),
         brand: non_empty(p.brands),
@@ -100,7 +106,11 @@ pub async fn fetch_image(url: &str) -> Result<Option<(Vec<u8>, String)>> {
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
-    let mut res = client.get(url).header("User-Agent", USER_AGENT).send().await?;
+    let mut res = client
+        .get(url)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await?;
     if !res.status().is_success() {
         return Ok(None);
     }
@@ -114,7 +124,10 @@ pub async fn fetch_image(url: &str) -> Result<Option<(Vec<u8>, String)>> {
         tracing::warn!(%url, %mime, "refusing product image: response is not an image");
         return Ok(None);
     }
-    if res.content_length().is_some_and(|n| n > MAX_IMAGE_BYTES as u64) {
+    if res
+        .content_length()
+        .is_some_and(|n| n > MAX_IMAGE_BYTES as u64)
+    {
         tracing::warn!(%url, "refusing product image: declared size over cap");
         return Ok(None);
     }

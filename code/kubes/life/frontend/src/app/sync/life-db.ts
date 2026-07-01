@@ -25,27 +25,25 @@ export class LifeDb {
   private chain: Promise<unknown> = Promise.resolve();
 
   private db(): Promise<RxDatabase> {
-    if (!this.dbPromise) {
-      this.dbPromise = (async () => {
-        if (isDevMode()) {
-          const { RxDBDevModePlugin } = await import('rxdb/plugins/dev-mode');
-          addRxPlugin(RxDBDevModePlugin);
-        }
-        // Schema migrations (e.g. the todo `type` enum widening) run at collection
-        // add-time, so the plugin must be registered in prod too, not just dev.
-        const { RxDBMigrationSchemaPlugin } = await import('rxdb/plugins/migration-schema');
-        addRxPlugin(RxDBMigrationSchemaPlugin);
-        // THE single place the shared 'lifedb' is created; every store goes
-        // through this service's collection(). Exempt from the singleton rule:
-        // ast-grep-ignore: life-single-rxdb
-        return createRxDatabase({
-          name: 'lifedb',
-          storage: getRxStorageDexie(),
-          multiInstance: true,
-          ignoreDuplicate: isDevMode(),
-        });
-      })();
-    }
+    this.dbPromise ??= (async () => {
+      if (isDevMode()) {
+        const { RxDBDevModePlugin } = await import('rxdb/plugins/dev-mode');
+        addRxPlugin(RxDBDevModePlugin);
+      }
+      // Schema migrations (e.g. the todo `type` enum widening) run at collection
+      // add-time, so the plugin must be registered in prod too, not just dev.
+      const { RxDBMigrationSchemaPlugin } = await import('rxdb/plugins/migration-schema');
+      addRxPlugin(RxDBMigrationSchemaPlugin);
+      // THE single place the shared 'lifedb' is created; every store goes
+      // through this service's collection(). Exempt from the singleton rule:
+      // ast-grep-ignore: life-single-rxdb
+      return createRxDatabase({
+        name: 'lifedb',
+        storage: getRxStorageDexie(),
+        multiInstance: true,
+        ignoreDuplicate: isDevMode(),
+      });
+    })();
     return this.dbPromise;
   }
 

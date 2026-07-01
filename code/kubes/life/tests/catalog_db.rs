@@ -32,25 +32,50 @@ async fn item_resolves_through_catalog_product() {
     let user = "catalog-test-user";
     let barcode = "cat-test-9999";
     // Clean any prior run.
-    sqlx::query("DELETE FROM items WHERE user_id = ?").bind(user).execute(&pool).await.unwrap();
-    sqlx::query("DELETE FROM products WHERE barcode = ?").bind(barcode).execute(&pool).await.unwrap();
-
-    // A catalog product (as the OFF lookup would cache it), with an image.
-    prod::upsert(&pool, barcode, Some("Catalog Yoghurt"), Some("BrandY"), Some("950g"), Some((vec![1, 2, 3], "image/png".into())))
+    sqlx::query("DELETE FROM items WHERE user_id = ?")
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM products WHERE barcode = ?")
+        .bind(barcode)
+        .execute(&pool)
         .await
         .unwrap();
 
+    // A catalog product (as the OFF lookup would cache it), with an image.
+    prod::upsert(
+        &pool,
+        barcode,
+        Some("Catalog Yoghurt"),
+        Some("BrandY"),
+        Some("950g"),
+        Some((vec![1, 2, 3], "image/png".into())),
+    )
+    .await
+    .unwrap();
+
     // An item scanned to that barcode — its own name is a scribble that the
     // product name should override on read.
-    let linked = inv::create_item(&pool, user, new_item("scribble", Some(barcode))).await.unwrap();
-    assert!(linked.product_id.is_some(), "barcoded item links to the catalog product");
-    assert_eq!(linked.name, "Catalog Yoghurt", "display name comes from the product");
+    let linked = inv::create_item(&pool, user, new_item("scribble", Some(barcode)))
+        .await
+        .unwrap();
+    assert!(
+        linked.product_id.is_some(),
+        "barcoded item links to the catalog product"
+    );
+    assert_eq!(
+        linked.name, "Catalog Yoghurt",
+        "display name comes from the product"
+    );
     assert_eq!(linked.brand.as_deref(), Some("BrandY"));
     assert_eq!(linked.barcode.as_deref(), Some(barcode));
     assert!(linked.has_image, "product image surfaces on the item");
 
     // A barcode-less one-off stands alone on its own name.
-    let loose = inv::create_item(&pool, user, new_item("Loose soup", None)).await.unwrap();
+    let loose = inv::create_item(&pool, user, new_item("Loose soup", None))
+        .await
+        .unwrap();
     assert!(loose.product_id.is_none());
     assert_eq!(loose.name, "Loose soup");
     assert!(!loose.has_image);

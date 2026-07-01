@@ -80,7 +80,7 @@
         (change)="toggle(it)"
         [attr.aria-label]="'Done ' + it.title"
       ></mat-checkbox>
-      <span matListItemTitle class="tappable" (click)="openDetail(it)" [class.done]="it.status === 'done'">
+      <span matListItemTitle class="tappable" role="button" tabindex="0" (click)="openDetail(it)" (keydown.enter)="openDetail(it)" [class.done]="it.status === 'done'">
         {{ it.title }}
       </span>
       <span matListItemLine class="meta">
@@ -94,7 +94,7 @@
           <span class="pill ready"><mat-icon>bolt</mat-icon> ready</span>
         }
         @if (linkCount(it) > 0) {
-          <span class="pill links" (click)="openDetail(it)"><mat-icon>hub</mat-icon> {{ linkCount(it) }}</span>
+          <span class="pill links" role="button" tabindex="0" (click)="openDetail(it)" (keydown.enter)="openDetail(it)"><mat-icon>hub</mat-icon> {{ linkCount(it) }}</span>
         }
         @if (it.notes) {
           <span class="note" [class.done]="it.status === 'done'">{{ it.notes }}</span>

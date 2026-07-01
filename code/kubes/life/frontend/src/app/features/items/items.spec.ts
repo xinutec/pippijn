@@ -51,7 +51,7 @@ describe('Items — complete list', () => {
     await fixture.whenStable();
 
     expect(fixture.componentInstance.count()).toBe(2);
-    const text = fixture.nativeElement.textContent as string;
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Yeo Valley Yoghurt'); // catalog-linked
     expect(text).toContain('Leftover soup'); // freeform
   });

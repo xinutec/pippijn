@@ -128,5 +128,11 @@ async fn shopping_sync_pull_push_conflict_tombstone() {
         .find(|d| d.ulid == m.ulid)
         .unwrap();
     assert!(tomb.deleted);
-    assert!(shop::list(&pool, user).await.unwrap().iter().all(|s| s.id != milk.id));
+    assert!(
+        shop::list(&pool, user)
+            .await
+            .unwrap()
+            .iter()
+            .all(|s| s.id != milk.id)
+    );
 }

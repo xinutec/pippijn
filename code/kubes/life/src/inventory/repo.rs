@@ -139,11 +139,13 @@ pub async fn create_location(
 }
 
 pub async fn list_items(pool: &MySqlPool, user_id: &str) -> Result<Vec<Item>> {
-    let rows: Vec<ItemRow> =
-        sqlx::query_as(concat!(item_select!(), " WHERE i.user_id = ? ORDER BY name"))
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?;
+    let rows: Vec<ItemRow> = sqlx::query_as(concat!(
+        item_select!(),
+        " WHERE i.user_id = ? ORDER BY name"
+    ))
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
     rows.into_iter().map(ItemRow::into_item).collect()
 }
 

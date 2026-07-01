@@ -161,7 +161,8 @@ export class Inventory {
     const body = { ...this.item() };
     const id = this.editingId();
     const req = id ? this.api.updateItem(id, body) : this.api.createItem(body);
-    const barcode = this.item().barcode?.trim() || null;
+    const trimmed = this.item().barcode?.trim();
+    const barcode = trimmed !== undefined && trimmed !== '' ? trimmed : null;
     req.subscribe(() => {
       this.cancelEdit();
       // Cache the product image (if a barcode was set) before refreshing.

@@ -50,11 +50,12 @@ export class Shopping {
   add(): void {
     if (!this.name().trim()) return;
     const barcode = this.barcode().trim() || null;
+    const unit = this.unit()?.trim();
     // Optimistic, local — succeeds offline.
     void this.store.add({
       name: this.name().trim(),
       quantity: this.quantity(),
-      unit: this.unit()?.trim() || null,
+      unit: unit !== undefined && unit !== '' ? unit : null,
       barcode,
     });
     // Best-effort online: warm the product (image) cache for the thumbnail.
@@ -105,7 +106,7 @@ export class Shopping {
    *  remove locally for immediacy. */
   buyDone(): void {
     for (const it of this.items().filter((i) => i.done && i.id != null)) {
-      this.api.buyShopping(it.id as number).subscribe({
+      this.api.buyShopping(it.id!).subscribe({
         next: () => void this.store.remove(it.ulid),
         error: () => {},
       });

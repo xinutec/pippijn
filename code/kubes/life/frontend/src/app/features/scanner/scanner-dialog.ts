@@ -3,9 +3,16 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatDialogRef } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 
-// BarcodeDetector is a browser global (Chromium) with no TS lib types.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-declare const BarcodeDetector: any;
+// BarcodeDetector is a browser global (Chromium) with no TS lib types, so give
+// it the minimal shape we use — typed, not `any`, so the call sites stay safe.
+interface DetectedBarcode {
+  readonly rawValue: string;
+  readonly format: string;
+}
+interface BarcodeDetectorInstance {
+  detect(source: HTMLVideoElement): Promise<DetectedBarcode[]>;
+}
+declare const BarcodeDetector: new (options?: { formats?: string[] }) => BarcodeDetectorInstance;
 
 const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'qr_code'];
 
@@ -27,8 +34,7 @@ export class ScannerDialog implements OnDestroy {
   private raf = 0;
   private frames = 0;
   private detectErrorLogged = false;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private detector?: any;
+  private detector?: BarcodeDetectorInstance;
 
   constructor() {
     afterNextRender(() => void this.start());
@@ -55,7 +61,7 @@ export class ScannerDialog implements OnDestroy {
       video.srcObject = this.stream;
       await video.play();
       this.log('camera opened', `${video.videoWidth}x${video.videoHeight}`);
-      this.scanLoop();
+      void this.scanLoop();
     } catch (e) {
       this.log('camera error', String(e));
       this.error.set('Couldn’t access the camera.');
@@ -70,7 +76,7 @@ export class ScannerDialog implements OnDestroy {
         const codes = await this.detector.detect(video);
         if (codes.length && codes[0].rawValue) {
           this.log('decoded', codes[0].rawValue, codes[0].format, `after ${this.frames} frames`);
-          this.finish(codes[0].rawValue as string);
+          this.finish(codes[0].rawValue);
           return;
         }
       } catch (e) {

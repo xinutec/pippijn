@@ -27,7 +27,10 @@ pub struct Me {
 }
 
 /// GET /api/me → who am I, and is the calendar (CalDAV) link active.
-pub async fn me(State(app): State<AppState>, AuthUser(user): AuthUser) -> Result<Json<Me>, AppError> {
+pub async fn me(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> Result<Json<Me>, AppError> {
     let nextcloud = credentials::status(&app.pool, &user.user_id).await?;
     Ok(Json(Me {
         avatar_url: format!("{}/avatar/{}/64", app.cfg.nc_base_url, user.user_id),

@@ -26,7 +26,10 @@ impl TryFrom<Row> for TodoLink {
             id: r.id,
             from: r.from_ulid,
             kind: r.kind.parse::<LinkKind>().map_err(anyhow::Error::msg)?,
-            target_kind: r.target_kind.parse::<TargetKind>().map_err(anyhow::Error::msg)?,
+            target_kind: r
+                .target_kind
+                .parse::<TargetKind>()
+                .map_err(anyhow::Error::msg)?,
             target_ref: r.target_ref,
         })
     }
