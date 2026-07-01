@@ -61,6 +61,7 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { Config } from "../config.js";
+import { db } from "../db/pool.js";
 import type { AppEnv } from "../env.js";
 import { haversineMeters } from "../geo/place-snap.js";
 import { fetchTrackPoints, NextcloudNotLinkedError, NextcloudReauthRequiredError } from "../nextcloud/phonetrack.js";
@@ -188,6 +189,9 @@ interface OwntracksLocation {
 	tst?: number;
 	t?: string;
 	m?: number;
+	/** Course over ground, degrees (0-359); Owntracks sends -1 / omits it when
+	 *  the OS has no heading. The independent direction signal for PDR (#296). */
+	cog?: number;
 }
 
 interface OwntracksCommand {
@@ -719,6 +723,17 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 			const messages = Array.isArray(payload) ? payload : [payload];
 			const stateKey = `${token}/${device}`;
 			const newFixes: FixRecord[] = [];
+			// Per-fix motion witness (heading/vel/acc) to persist for PDR (#296) —
+			// `device` is the user_id by Owntracks-config convention.
+			const motionRows: Array<{
+				user_id: string;
+				ts: number;
+				lat: number;
+				lon: number;
+				cog: number | null;
+				vel: number | null;
+				acc: number | null;
+			}> = [];
 			for (const msg of messages) {
 				if (msg.lat !== undefined && msg.lon !== undefined && msg.tst !== undefined) {
 					newFixes.push({
@@ -729,6 +744,32 @@ export function owntracksRoutes(config: Config): Hono<AppEnv> {
 						trigger: msg.t ?? null,
 						monitoringMode: msg.m ?? null,
 					});
+					motionRows.push({
+						user_id: device,
+						ts: msg.tst,
+						lat: msg.lat,
+						lon: msg.lon,
+						cog: typeof msg.cog === "number" && msg.cog >= 0 ? Math.round(msg.cog) : null,
+						vel: typeof msg.vel === "number" ? Math.round(msg.vel) : null,
+						acc: typeof msg.acc === "number" ? Math.round(msg.acc) : null,
+					});
+				}
+			}
+			// Persist the motion witness — best-effort so nothing here (a DB hiccup,
+			// or no pool at all in a unit test) can break the fix forward or the
+			// load-bearing mode decision. The try/catch guards a synchronous throw
+			// from `db()`; the `.catch` guards async rejection. Duplicate
+			// (user_id, ts) rows are ignored (Owntracks can re-POST a fix).
+			if (motionRows.length > 0) {
+				try {
+					void db()
+						.insertInto("motion_log")
+						.values(motionRows)
+						.ignore()
+						.execute()
+						.catch((e: unknown) => console.warn(`motion_log persist failed: ${(e as Error).message}`));
+				} catch (e) {
+					console.warn(`motion_log persist skipped: ${(e as Error).message}`);
 				}
 			}
 			const nowTs = newFixes.length > 0 ? newFixes[newFixes.length - 1].ts : Math.floor(Date.now() / 1000);

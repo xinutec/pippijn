@@ -659,6 +659,24 @@ const MIGRATIONS: readonly string[] = [
     recorded_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, device_id, last_sync_time)
   )`,
+	// Per-fix motion witness captured at the Owntracks ingest — the heading /
+	// velocity / accuracy the phone reports alongside each position, which
+	// PhoneTrack does not retain. `cog` (course over ground, degrees) is the
+	// independent direction signal pedestrian dead-reckoning needs to tell an
+	// out-and-back from a straight walk (#296). Keyed by (user_id, ts) so it
+	// joins the GPS fixes by timestamp. Rows accumulate from deploy; a null cog
+	// means the phone did not report a heading for that fix.
+	`CREATE TABLE IF NOT EXISTS motion_log (
+    user_id     VARCHAR(64) NOT NULL,
+    ts          INT UNSIGNED NOT NULL,
+    lat         DOUBLE NOT NULL,
+    lon         DOUBLE NOT NULL,
+    cog         SMALLINT,
+    vel         SMALLINT,
+    acc         SMALLINT,
+    recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, ts)
+  )`,
 ];
 
 export async function migrate(conn: mariadb.Connection): Promise<void> {

@@ -197,6 +197,20 @@ export interface DeviceBatteryLogTable {
 	recorded_at: Generated<Date>;
 }
 
+/** Per-fix motion witness (heading / velocity / accuracy) captured at the
+ *  Owntracks ingest — the direction signal PhoneTrack drops but pedestrian
+ *  dead-reckoning needs (#296). `cog` is course over ground in degrees. */
+export interface MotionLogTable {
+	user_id: string;
+	ts: number;
+	lat: number;
+	lon: number;
+	cog: number | null;
+	vel: number | null;
+	acc: number | null;
+	recorded_at: Generated<Date>;
+}
+
 export interface SchemaMigrationsTable {
 	version: number;
 	applied_at: Generated<Date>;
@@ -473,6 +487,7 @@ export interface Database {
 	cardio_fitness: CardioFitnessTable;
 	devices: DevicesTable;
 	device_battery_log: DeviceBatteryLogTable;
+	motion_log: MotionLogTable;
 	sessions: SessionsTable;
 	nc_tokens: NcTokensTable;
 	nc_credentials: NcCredentialsTable;
