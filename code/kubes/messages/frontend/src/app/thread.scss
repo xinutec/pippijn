@@ -1,22 +1,38 @@
 // The Thread host is the right-hand pane and the scroll container (the shell's
-// grid places it; App owns the grid + mobile show/hide).
+// grid places it; App owns the grid + mobile show/hide). Vertical padding lives
+// on the head/messages, not the host, so the sticky head pins flush to the top.
 :host {
   display: block;
   height: 100%;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 1rem 1.5rem;
+  padding: 0 1.5rem;
+  // We anchor the viewport ourselves when prepending/collapsing (thread.ts);
+  // the browser's native scroll-anchoring would compound with that.
+  overflow-anchor: none;
 }
 
+// Pinned so the conversation title stays visible even though we open scrolled to
+// the latest message. Opaque + above the day headers so messages scroll under it.
 .thread-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  // Fixed, border-box height so the day headers can be offset just below it with
+  // a known clearance (they must never overlap the head — the overlap check
+  // treats two pinned/sticky elements sharing pixels as a stacked-header bug).
+  height: 3rem;
+  box-sizing: border-box;
+  background: var(--mat-sys-surface, #fff);
   .back {
     display: none; // desktop: two-pane, no back needed
   }
   h2 {
-    margin: 0 0 1rem;
+    margin: 0;
+    font-size: 1.1rem;
   }
 }
 
@@ -29,17 +45,23 @@
   color: var(--mat-sys-error, #b00020);
 }
 
-.load-older {
-  text-align: center;
-  margin: 0.25rem 0 0.5rem;
+.loading-older {
+  padding: 0.25rem 0;
+}
+
+// Height-only stand-ins for messages collapsed out of the DOM; they keep the
+// scrollbar geometry roughly right while the viewport is kept correct by the
+// anchor logic in thread.ts.
+.spacer {
+  flex: none;
 }
 
 // Each day is its own section, so its sticky header pins ONLY within that day's
 // messages and is replaced by the next day's header — the "current top message's
-// date" behaviour, with no stacking.
+// date" behaviour, with no stacking. Offset below the pinned head.
 .day {
   position: sticky;
-  top: 0.25rem;
+  top: 3.25rem;
   z-index: 2;
   text-align: center;
   margin: 0.5rem 0;
@@ -61,9 +83,10 @@
   padding: 0.4rem 0.6rem;
   border-radius: 0.5rem;
   background: rgba(0, 0, 0, 0.05);
-  // Off-screen messages skip layout/paint, so a long thread stays smooth without
-  // virtualization or cutting messages off. `auto` remembers each message's real
-  // height once it's been rendered; 60px is the first guess.
+  // Off-screen messages within the rendered window skip layout/paint, so the
+  // window stays smooth; the window itself is capped in thread.ts so the DOM
+  // node count stays bounded. `auto` remembers each message's real height once
+  // rendered; 60px is the first guess.
   content-visibility: auto;
   contain-intrinsic-size: auto 60px;
 
@@ -129,14 +152,10 @@
 // Phone: full-width pane with a working back button and roomier bubbles.
 @media (max-width: 767px) {
   :host {
-    padding: 0.75rem 0.9rem;
+    padding: 0 0.9rem;
   }
   .thread-head .back {
     display: inline-flex;
-  }
-  .thread-head h2 {
-    margin: 0;
-    font-size: 1.1rem;
   }
   .msg {
     max-width: 85%;

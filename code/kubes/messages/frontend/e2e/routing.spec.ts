@@ -57,37 +57,64 @@ function m(ts: number, body: string) {
   return { id: String(ts), ts, sender: "s", is_outgoing: false, body, deleted: false, edited: false, reactions: [], attachments: [] };
 }
 
-// Paged mock: the recent page (no `before`) has more; one older page below it.
+function bulk(prefix: string, startTs: number, n: number) {
+  return Array.from({ length: n }, (_, k) => m(startTs + k * 10, `${prefix}${k}`));
+}
+
+const scrollThreadTop = (page: Page) =>
+  page.evaluate(() => {
+    const t = document.querySelector(".thread");
+    if (t) t.scrollTop = 0;
+  });
+
+// Paged mock: a tall recent page (enough rows to scroll) that has an older page
+// below it. `before` present → the older page; absent → the fresh page.
 async function mockApiPaged(page: Page): Promise<void> {
   await page.route("**/api/**", (r) => r.fulfill({ status: 204, body: "" }));
   await page.route("**/api/me", (r) => r.fulfill({ json: ME }));
   await page.route("**/api/conversations", (r) => r.fulfill({ json: CONVERSATIONS }));
   await page.route("**/api/conversations/**/messages**", (route) => {
-    // Distinct bodies that don't substring-collide with UI text like
-    // "Load older messages" (getByText is case-insensitive substring).
     const before = new URL(route.request().url()).searchParams.get("before");
     if (before) {
-      route.fulfill({ json: { messages: [m(1000, "antiquemsg")], has_more: false, next_before: null } });
+      route.fulfill({ json: { messages: bulk("antique", 1000, 30), has_more: false, next_before: null } });
     } else {
-      route.fulfill({ json: { messages: [m(2000, "freshmsg")], has_more: true, next_before: 2000 } });
+      route.fulfill({ json: { messages: bulk("fresh", 5000, 30), has_more: true, next_before: 5000 } });
     }
   });
 }
 
-test("loading older messages is reflected in the URL", async ({ page }) => {
+test("scrolling to the top auto-loads older messages (no button)", async ({ page }) => {
   await mockApiPaged(page);
   await page.goto("/conversation/signal/dm:a");
-  await page.getByText("freshmsg", { exact: true }).waitFor();
-  await page.getByRole("button", { name: /Load older/ }).click();
-  await page.getByText("antiquemsg", { exact: true }).waitFor();
-  await expect(page).toHaveURL(/[?&]from=1000\b/);
+  await page.getByText("fresh29", { exact: true }).waitFor();
+  // Chat-style: the manual "Load older" button is gone; older pages load on
+  // scroll-up.
+  await expect(page.getByRole("button", { name: /Load older/ })).toHaveCount(0);
+  await scrollThreadTop(page);
+  // The older page is fetched and rendered (it lands above the viewport, so
+  // assert it's in the DOM rather than in view).
+  await page.getByText("antique0", { exact: true }).waitFor({ state: "attached" });
+});
+
+test("scroll position is reflected in ?from", async ({ page }) => {
+  await mockApi(page);
+  // One tall page (oldest ts = 1000), no older pages.
+  await page.route("**/api/conversations/**/messages**", (r) =>
+    r.fulfill({ json: { messages: bulk("only", 1000, 40), has_more: false, next_before: null } }),
+  );
+  await page.goto("/conversation/signal/dm:a");
+  await page.getByText("only39", { exact: true }).waitFor();
+  await scrollThreadTop(page);
+  // The message at the top of the viewport (ts 1000) is written to ?from
+  // (debounced), so a refresh returns here.
+  await page.waitForURL(/[?&]from=1000\b/);
 });
 
 test("reloading restores the older messages that were paged in", async ({ page }) => {
   await mockApiPaged(page);
-  await page.goto("/conversation/signal/dm:a?from=1000"); // as if reloaded after paging
-  await page.getByText("antiquemsg", { exact: true }).waitFor(); // restored, no click
-  await page.getByText("freshmsg", { exact: true }).waitFor();
+  await page.goto("/conversation/signal/dm:a?from=1000"); // as if reloaded after scrolling back
+  await page.getByText("antique0", { exact: true }).waitFor({ state: "attached" }); // restored, no scroll
+  await page.getByText("fresh0", { exact: true }).waitFor({ state: "attached" });
 });
 
 test("Back returns from a conversation to the list", async ({ page }) => {

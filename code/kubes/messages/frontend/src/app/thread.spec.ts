@@ -1,5 +1,5 @@
-import { provideZonelessChangeDetection } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { ComponentRef, provideZonelessChangeDetection } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
@@ -22,7 +22,7 @@ function makeApi() {
   } as unknown as MessagesApi;
 }
 
-function setup(): { thread: Thread; router: Router } {
+function setup(): { thread: Thread; ref: ComponentRef<Thread>; fixture: ComponentFixture<Thread>; router: Router } {
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
@@ -30,21 +30,33 @@ function setup(): { thread: Thread; router: Router } {
       { provide: MessagesApi, useValue: makeApi() },
     ],
   });
-  const thread = TestBed.runInInjectionContext(() => new Thread());
-  return { thread, router: TestBed.inject(Router) };
+  // createComponent (not `new Thread()`): the component injects ElementRef, which
+  // only exists for a real component instance.
+  const fixture = TestBed.createComponent(Thread);
+  return { thread: fixture.componentInstance, ref: fixture.componentRef, fixture, router: TestBed.inject(Router) };
 }
 
 describe('Thread', () => {
-  it('dayGroups buckets consecutive messages by calendar day', () => {
+  it('dayGroups buckets consecutive rendered messages by calendar day', () => {
     const { thread } = setup();
     const d1 = new Date(2026, 5, 1, 9, 0, 0).getTime();
     const d1b = new Date(2026, 5, 1, 18, 0, 0).getTime();
     const d2 = new Date(2026, 5, 2, 9, 0, 0).getTime();
+    // With nothing collapsed, the rendered window is the whole retained list.
     thread.messages.set([msg('a', d1), msg('b', d1b), msg('c', d2)]);
     const groups = thread.dayGroups();
     expect(groups.length).toBe(2);
     expect(groups[0].items.map((m) => m.id)).toEqual(['a', 'b']);
     expect(groups[1].items.map((m) => m.id)).toEqual(['c']);
+  });
+
+  it('rendered window equals retained messages when nothing is collapsed', () => {
+    const { thread } = setup();
+    thread.messages.set([msg('a', 1), msg('b', 2), msg('c', 3)]);
+    expect(thread.renderCount()).toBe(3);
+    expect(thread.rendered().map((m) => m.id)).toEqual(['a', 'b', 'c']);
+    expect(thread.topSpacer()).toBe(0);
+    expect(thread.bottomSpacer()).toBe(0);
   });
 
   it('back returns to the list route, dropping the paged depth', () => {

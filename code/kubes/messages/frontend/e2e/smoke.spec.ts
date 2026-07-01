@@ -97,12 +97,13 @@ test("the current day's date stays pinned at the top while scrolling", async ({ 
     if (t) t.scrollTop = 400;
   });
   await page.waitForTimeout(150);
-  // Day 1's header is pinned at the top of the thread (visible, near the top),
-  // not scrolled away above it (which would read as a large negative offset).
+  // Day 1's header is pinned just below the sticky conversation head (~3.25rem),
+  // not scrolled away above it (large negative offset) nor sitting at its far-down
+  // in-flow position.
   const threadTop = await page.locator(".thread").evaluate((e) => e.getBoundingClientRect().top);
   const box = await page.getByText("Thursday, January 1, 2026", { exact: true }).boundingBox();
   expect(box).not.toBeNull();
   const offset = (box?.y ?? -999) - threadTop;
-  expect(offset).toBeGreaterThanOrEqual(-2); // still visible at the top, not scrolled off
-  expect(offset).toBeLessThan(48); // pinned, not at its in-flow position far down
+  expect(offset).toBeGreaterThanOrEqual(40); // pinned below the sticky head, not scrolled off
+  expect(offset).toBeLessThan(90); // pinned, not at its in-flow position far down
 });
