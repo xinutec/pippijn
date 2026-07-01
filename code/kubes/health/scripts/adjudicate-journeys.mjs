@@ -13,7 +13,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { parseGroundTruth } from "../dist/eval/ground-truth.js";
-import { groundTruthJourneys, scoreJourneys, statesToMinutes } from "../dist/eval/journey-score.js";
+import { groundTruthJourneys, journeyShapeResults, statesToJourneys } from "../dist/eval/journey-score.js";
 import { FixtureOsmAdapter } from "../dist/geo/osm-adapter-fixture.js";
 import { computeVelocityFromInputs } from "../dist/geo/velocity.js";
 import { inputsFromFixture, parseCapturedDay } from "../dist/cli/fixture-day.js";
@@ -40,9 +40,9 @@ for (const date of days) {
 	const v = await computeVelocityFromInputs(inp, { walkMatch: true });
 	const gt = parseGroundTruth(md, date, cap.meta.tz);
 	const gtJourneys = groundTruthJourneys(gt.rows);
-	const score = scoreJourneys(gt.rows, statesToMinutes(v.states));
+	const results = journeyShapeResults(gtJourneys, statesToJourneys(v.states));
 
-	const broken = score.journeyResults.filter((r) => !r.matched);
+	const broken = results.filter((r) => !r.matched);
 	if (broken.length === 0) continue;
 	console.log(`\n==================== ${date} : ${broken.length} broken journey(s) ====================`);
 

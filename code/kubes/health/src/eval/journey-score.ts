@@ -138,17 +138,24 @@ const JOURNEY_PAUSE_MAX_S = 5 * 60;
 export function groundTruthJourneys(rows: readonly GroundTruthRow[]): Journey[] {
 	const journeys: Journey[] = [];
 	let current: Leg[] = [];
+	// A journey must be anchored by ≥1 `correct` leg to be demanded. A `partial`
+	// row EXTENDS a journey (a partial train mid-trip keeps it one journey — only
+	// a detail like line/exact station is imperfect, the MODE is right) but does
+	// not SEED one: a run of only-partial movement is too uncertain to assert.
+	let currentHasCorrect = false;
 	const flush = (): void => {
-		if (current.length > 0) {
+		if (current.length > 0 && currentHasCorrect) {
 			journeys.push({ startTs: current[0].startTs, endTs: current[current.length - 1].endTs, legs: current });
-			current = [];
 		}
+		current = [];
+		currentHasCorrect = false;
 	};
 	for (const row of rows) {
 		const b = row.blessed;
-		if (row.status !== "correct" || b === null) {
-			// An unscorable row breaks journey continuity — we can't assert
-			// the trip is contiguous across a stretch we don't trust.
+		// Usable for journey SHAPE when the MODE is trustworthy: `correct` and
+		// `partial` both name the right mode; `wrong` / `unclear` / unparsed are a
+		// stretch we can't assert continuity across, so they break the journey.
+		if ((row.status !== "correct" && row.status !== "partial") || b === null) {
 			flush();
 			continue;
 		}
@@ -163,9 +170,67 @@ export function groundTruthJourneys(rows: readonly GroundTruthRow[]): Journey[] 
 			mode: canonicalMode(b.mode),
 			line: lineOf(b.mode, b.lineName),
 		});
+		if (row.status === "correct") currentHasCorrect = true;
 	}
 	flush();
 	return journeys;
+}
+
+/** Build movement journeys directly from a coarse state timeline (the drawn
+ *  "Your Day" windows), WITHOUT quantising to minutes. This is the pipeline
+ *  analogue of {@link groundTruthJourneys}: it preserves a sub-minute leg (a
+ *  brief station-change train `10:34–10:34`) that `statesToMinutes` silently
+ *  drops — the bug that scored a correct 06-22 reconstruction as broken.
+ *  Consecutive same-mode movement windows merge; a stay / gap of
+ *  `pauseMaxS`+ ends the journey. */
+export function statesToJourneys(
+	states: readonly { startTs: number; endTs: number; mode: string }[],
+	pauseMaxS = JOURNEY_PAUSE_MAX_S,
+): Journey[] {
+	const legs: Leg[] = [];
+	for (const s of states) {
+		const sMode = s.mode as DecoderMinute["mode"];
+		if (!isMovementMode(sMode)) continue;
+		const mode = canonicalMode(sMode);
+		const last = legs[legs.length - 1];
+		if (last !== undefined && last.mode === mode && s.startTs <= last.endTs + 1) last.endTs = s.endTs;
+		else legs.push({ startTs: s.startTs, endTs: s.endTs, mode, line: null });
+	}
+	const journeys: Journey[] = [];
+	let current: Leg[] = [];
+	for (const leg of legs) {
+		const last = current[current.length - 1];
+		if (last !== undefined && leg.startTs - last.endTs > pauseMaxS) {
+			journeys.push({ startTs: current[0].startTs, endTs: last.endTs, legs: current });
+			current = [];
+		}
+		current.push(leg);
+	}
+	if (current.length > 0)
+		journeys.push({ startTs: current[0].startTs, endTs: current[current.length - 1].endTs, legs: current });
+	return journeys;
+}
+
+/** Per-GT-journey reconstruction outcome comparing ground-truth journeys to the
+ *  pipeline's (mode-shape equality on the best temporally-overlapping journey).
+ *  The gate's referee — decoupled from the lossy minute path {@link scoreJourneys}
+ *  uses for the decoder's leg-fidelity scores. */
+export function journeyShapeResults(
+	gtJourneys: readonly Journey[],
+	pipelineJourneys: readonly Journey[],
+): JourneyResult[] {
+	return gtJourneys.map((gt) => {
+		const match = bestOverlap(gt, pipelineJourneys);
+		const expectedShape = modeShape(gt);
+		const actualShape = match !== null ? modeShape(match) : null;
+		return {
+			startTs: gt.startTs,
+			endTs: gt.endTs,
+			expectedShape,
+			actualShape,
+			matched: actualShape !== null && arraysEqual(expectedShape, actualShape),
+		};
+	});
 }
 
 /** A line only attaches to transit legs. */

@@ -41,7 +41,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseGroundTruth } from "../eval/ground-truth.js";
 import { gateJourneys, type JourneyBaseline } from "../eval/journey-gate.js";
-import { scoreJourneys, statesToMinutes } from "../eval/journey-score.js";
+import { groundTruthJourneys, journeyShapeResults, statesToJourneys } from "../eval/journey-score.js";
 import { classifyDay, parsePipelineState } from "../eval/truth-check.js";
 import { checkWorldlineFeasibility } from "../eval/worldline-feasibility.js";
 import { computeVelocityFromInputs } from "../geo/velocity.js";
@@ -89,12 +89,14 @@ async function truthReport(date: string, tz: string, states: readonly StateWindo
 	const gt = parseGroundTruth(md, date, tz);
 
 	// Journey-level score of the DRAWN timeline (not just the HSMM decoder):
-	// does the day read as the right sequence of trips? Built from `correct`
-	// rows only (same gate as the decoder scorer) — NOT provenance-gated: a
-	// `correct` row is a user assertion whether or not the older narrative
-	// tagged its provenance, and the journey ratchet must see those days too.
-	const j = scoreJourneys(gt.rows, statesToMinutes(states));
-	const journeyMatched = j.journeyResults.filter((r) => r.matched).map((r) => r.startTs);
+	// does the day read as the right sequence of trips? Ground-truth journeys use
+	// `correct`+`partial` rows (NOT provenance-gated); the pipeline side is built
+	// from the drawn state legs directly (minute-free, so a sub-minute leg is not
+	// dropped). The ratchet tracks per-journey matches.
+	const gtJourneys = groundTruthJourneys(gt.rows);
+	const journeyResults = journeyShapeResults(gtJourneys, statesToJourneys(states));
+	const journeyMatched = journeyResults.filter((r) => r.matched).map((r) => r.startTs);
+	const journeysMatchedCount = journeyResults.filter((r) => r.matched).length;
 
 	// Per-row truth verdicts are provenance-gated (regressed/known-error need a
 	// trusted provenance) — a stricter bar than journeys, so kept separate.
@@ -104,7 +106,7 @@ async function truthReport(date: string, tz: string, states: readonly StateWindo
 	};
 	const res = classifyDay(gt.rows, (row) => parsePipelineState(stateAt(row.startTs, row.endTs)));
 	const enforceable = res.verified + res.regressed + res.knownError + res.cleared;
-	if (enforceable === 0 && j.journeysExpected === 0) return null; // nothing to enforce or score
+	if (enforceable === 0 && gtJourneys.length === 0) return null; // nothing to enforce or score
 
 	const lines: string[] = [];
 	if (enforceable > 0)
@@ -112,8 +114,7 @@ async function truthReport(date: string, tz: string, states: readonly StateWindo
 			`    truth: ${res.verified} verified · ${res.knownError} known-error · ${res.cleared} cleared · ` +
 				`${res.regressed} regressed  (${res.unverified} unverified)`,
 		);
-	if (j.journeysExpected > 0)
-		lines.push(`    journeys: ${j.journeysModeSequenceMatched}/${j.journeysExpected} reconstructed`);
+	if (gtJourneys.length > 0) lines.push(`    journeys: ${journeysMatchedCount}/${gtJourneys.length} reconstructed`);
 	for (const { row, verdict } of res.verdicts) {
 		if (verdict === "regressed")
 			lines.push(`      ✗ REGRESSED ${row.windowText}: confirmed "${row.blessedText}" no longer holds`);
@@ -124,7 +125,7 @@ async function truthReport(date: string, tz: string, states: readonly StateWindo
 	// signal that says WHICH factor (corridor / kinematic / cadence) each broken
 	// journey needs. Only shown with GOLDEN_JOURNEY_DEBUG to keep the report terse.
 	if (process.env.GOLDEN_JOURNEY_DEBUG) {
-		for (const r of j.journeyResults.filter((x) => !x.matched)) {
+		for (const r of journeyResults.filter((x) => !x.matched)) {
 			const at = new Date(r.startTs * 1000).toISOString().slice(11, 16);
 			lines.push(
 				`      ✗ journey @${at}Z  expected [${r.expectedShape.join(",")}]  got [${(r.actualShape ?? []).join(",")}]`,

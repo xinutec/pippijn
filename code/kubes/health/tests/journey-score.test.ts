@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { GroundTruthMode, GroundTruthRow, ParsedBlessed } from "../src/eval/ground-truth.js";
-import { decoderJourneys, groundTruthJourneys, scoreJourneys, statesToMinutes } from "../src/eval/journey-score.js";
+import {
+	decoderJourneys,
+	groundTruthJourneys,
+	journeyShapeResults,
+	scoreJourneys,
+	statesToJourneys,
+	statesToMinutes,
+} from "../src/eval/journey-score.js";
 import type { DecoderMinute } from "../src/eval/score-day.js";
 
 /**
@@ -12,7 +19,13 @@ import type { DecoderMinute } from "../src/eval/score-day.js";
 
 const T0 = 1_700_000_000;
 
-function gtRow(startMin: number, endMin: number, mode: GroundTruthMode, line: string | null = null): GroundTruthRow {
+function gtRow(
+	startMin: number,
+	endMin: number,
+	mode: GroundTruthMode,
+	line: string | null = null,
+	status: GroundTruthRow["status"] = "correct",
+): GroundTruthRow {
 	const blessed: ParsedBlessed = {
 		mode,
 		place: null,
@@ -27,9 +40,9 @@ function gtRow(startMin: number, endMin: number, mode: GroundTruthMode, line: st
 		endTs: T0 + endMin * 60,
 		blessedText: "(synthetic)",
 		blessed,
-		status: "correct",
+		status,
 		provenance: "user",
-		statusText: "correct",
+		statusText: status,
 		correctVersionText: null,
 	};
 }
@@ -105,6 +118,80 @@ describe("groundTruthJourneys", () => {
 		expect(journeys).toHaveLength(2);
 		expect(journeys[0].legs.map((l) => l.mode)).toEqual(["walking", "train", "walking"]);
 		expect(journeys[1].legs.map((l) => l.mode)).toEqual(["walking", "bus"]);
+	});
+
+	// A `partial` movement row names the right MODE — it must EXTEND a journey,
+	// not shatter it (the 2026-05-22 walk→train→train→walk case).
+	it("keeps a partial movement row in the journey (does not flush)", () => {
+		const rows = [
+			gtRow(0, 14, "walking"),
+			gtRow(14, 24, "train", "Metropolitan Line", "partial"),
+			gtRow(24, 33, "train", "Jubilee Line"),
+			gtRow(33, 49, "walking"),
+			gtRow(50, 130, "stationary"),
+		];
+		const journeys = groundTruthJourneys(rows);
+		expect(journeys).toHaveLength(1);
+		expect(journeys[0].legs.map((l) => l.mode)).toEqual(["walking", "train", "train", "walking"]);
+	});
+
+	it("does NOT seed a journey from partial rows alone (needs a correct anchor)", () => {
+		const rows = [
+			gtRow(0, 10, "stationary"),
+			gtRow(10, 12, "driving", null, "wrong"),
+			gtRow(12, 15, "train", "Metropolitan Line", "partial"),
+			gtRow(15, 20, "stationary", null, "wrong"),
+		];
+		expect(groundTruthJourneys(rows)).toHaveLength(0);
+	});
+});
+
+describe("statesToJourneys + journeyShapeResults (pipeline gate, minute-free)", () => {
+	const st = (startTs: number, endTs: number, mode: string) => ({ startTs, endTs, mode });
+
+	it("preserves a sub-minute leg that minute-quantisation would drop (the 06-22 bug)", () => {
+		// A zero-duration train between two walks: the pipeline drew the right
+		// shape; statesToMinutes dropped the instant train → [walking].
+		const base = Math.ceil(T0 / 60) * 60;
+		const states = [
+			st(base, base + 540, "walking"),
+			st(base + 540, base + 540, "train"), // zero-duration station change
+			st(base + 540, base + 1020, "walking"),
+		];
+		const journeys = statesToJourneys(states);
+		expect(journeys).toHaveLength(1);
+		expect(journeys[0].legs.map((l) => l.mode)).toEqual(["walking", "train", "walking"]);
+	});
+
+	it("matches a GT journey to the pipeline journey of the same shape", () => {
+		const gt = groundTruthJourneys([
+			gtRow(0, 10, "walking"),
+			gtRow(10, 30, "train", "Metropolitan Line"),
+			gtRow(30, 40, "walking"),
+			gtRow(41, 130, "stationary"),
+		]);
+		const pipe = statesToJourneys([
+			st(T0, T0 + 600, "walking"),
+			st(T0 + 600, T0 + 1800, "train"),
+			st(T0 + 1800, T0 + 2400, "walking"),
+		]);
+		const res = journeyShapeResults(gt, pipe);
+		expect(res).toHaveLength(1);
+		expect(res[0].matched).toBe(true);
+		expect(res[0].expectedShape).toEqual(["walking", "train", "walking"]);
+	});
+
+	it("fails a GT journey whose tube leg the pipeline drew as one long walk", () => {
+		const gt = groundTruthJourneys([
+			gtRow(0, 10, "walking"),
+			gtRow(10, 30, "train", "Metropolitan Line"),
+			gtRow(30, 40, "walking"),
+			gtRow(41, 130, "stationary"),
+		]);
+		const pipe = statesToJourneys([st(T0, T0 + 2400, "walking")]);
+		const res = journeyShapeResults(gt, pipe);
+		expect(res[0].matched).toBe(false);
+		expect(res[0].actualShape).toEqual(["walking"]);
 	});
 });
 
