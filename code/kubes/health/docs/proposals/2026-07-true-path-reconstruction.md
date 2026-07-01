@@ -63,13 +63,18 @@ far more probable than any invented triangle, because it is the route he takes
 almost every time. For a single user with a small set of repeated journeys this
 is the highest-ROI signal available, and the data already exists.
 
-**Measured caveat (2026-07-01):** a coarse POINT-familiarity prior — "has he been
-near this cell before?" — is NOT enough. Validated on the 30-06 13:20 triangle
-over 60 days of history: the invented apex has 67 nearby historical points, the
-same order as the real corridor (54–121), because the whole home↔station area is
-daily turf. The prior must be at the **path / edge level** — his habitual
-*polyline through each junction*, so many noisy passes average to a clean median
-route that a single-pass triangle deviates from — not mere presence density.
+**Measured caveat (2026-07-01):** familiarity priors of any granularity do NOT
+fix the hardest case. Validated on the 30-06 13:20 triangle over 60 days of
+history at radii 10/15/20/25 m: the invented apex is *familiar at every scale* —
+at 10 m it is even a LOCAL MAXIMUM (27 pts vs corridor neighbours 8–15), because
+it sits at a junction he genuinely frequents. History says "yes he goes there";
+only *this walk's* evidence says "but not this time." So a route prior helps only
+where a detour leaves genuinely-unvisited ground; it cannot disambiguate a
+plausible movement through familiar territory. That needs **per-walk motion
+evidence (Pillar 1, PDR: steps + heading)** — the independent witness of whether
+he actually stepped out-and-back or straight. Re-order accordingly: PDR is the
+only lever with a real chance on the triangle class; the route prior is a
+general-quality improvement, not a fix for this case.
 
 ### 4. Story anchoring — reconstruct between known truths (#244, #257)
 
