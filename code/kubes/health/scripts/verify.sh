@@ -1,13 +1,11 @@
-#!/usr/bin/env nix-shell
-#!nix-shell -i bash -p nodejs_24
+#!/usr/bin/env bash
 # Run the full pre-commit verification — one command, no wrapper.
 #
 # `npm run verify` chains: typecheck (backend + frontend) →
 # schema-types drift check → format → Biome lint (backend) →
-# ESLint (frontend) → the vitest suite. This wrapper exists only so
-# the check runs directly on a machine without npm on PATH (e.g. the
-# Mac mini) — the nix-shell shebang brings its own nodejs, same as
-# golden.sh and deploy.sh.
+# ESLint (frontend) → the vitest suite. The toolchain (nodejs) comes
+# from the flake devshell — rev-pinned via flake.lock and available
+# without npm on PATH (e.g. the Mac mini), same as deploy.sh.
 #
 # Usage:
 #   scripts/verify.sh          # run the full verify
@@ -22,4 +20,4 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-exec npm run verify "$@"
+exec nix develop -c npm run verify "$@"
