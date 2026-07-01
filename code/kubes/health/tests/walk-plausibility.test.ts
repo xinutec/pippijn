@@ -49,4 +49,16 @@ describe("walkPlausibility", () => {
 		expect(p.corridorStallM).toBeLessThan(10);
 		expect(p.drawnLengthM).toBeCloseTo(p.rawLengthM, 0);
 	});
+
+	it("flags an implausible walking speed the off-walkable score can't see", () => {
+		// ~1386 m drawn E over a 131 s leg = ~38 km/h — the underground-teleport
+		// signature (a real walk is < ~9). All on the walkable way, so p90 is fine.
+		const far = at(51.5, 0.02);
+		const teleport = walkPlausibility([A, far], [A, far], 0, 131, [], WALKABLE);
+		expect(teleport.avgDrawnSpeedKmh).toBeGreaterThan(20);
+
+		// 83 m over a 300 s (5 min) stroll = ~1 km/h — a plausible walk.
+		const stroll = walkPlausibility([A, B, C], [A, B, C], 0, 300, [], WALKABLE);
+		expect(stroll.avgDrawnSpeedKmh).toBeLessThan(7);
+	});
 });

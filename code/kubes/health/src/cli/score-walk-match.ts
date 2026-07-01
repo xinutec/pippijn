@@ -49,7 +49,14 @@ interface WalkVerdict {
 	candidateP90: number | null;
 	/** Raw-vs-matched over-route metric on the drawn candidate line (m). */
 	candidateStallM: number;
+	/** Mean walking speed the drawn candidate line implies (km/h). Flags the
+	 *  underground/indoor teleport class the off-walkable p90 is blind to. */
+	candidateSpeedKmh: number;
 }
+
+/** A drawn walk above this mean speed (km/h) is physically implausible on foot —
+ *  the signature of low-accuracy fixes drawn as real motion. */
+const WALK_SPEED_CEIL_KMH = 12;
 
 async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
 	const captured = parseCapturedDay(readFileSync(`tests/golden/days/${date}-${user}.json`, "utf8"));
@@ -101,6 +108,7 @@ async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
 			baselineP90: baseline?.offWalkableP90M ?? null,
 			candidateP90: candidate.offWalkableP90M,
 			candidateStallM: candidate.corridorStallM,
+			candidateSpeedKmh: candidate.avgDrawnSpeedKmh,
 		});
 	}
 	return verdicts;
@@ -138,8 +146,10 @@ async function main(): Promise<void> {
 			const b = v.baselineP90 === null ? "  -" : `${v.baselineP90.toFixed(0).padStart(3)}m`;
 			const c = v.candidateP90 === null ? "  -" : `${v.candidateP90.toFixed(0).padStart(3)}m`;
 			const stallFlag = v.candidateStallM >= 80 ? " ⚠over-route" : "";
+			const spd = v.candidateSpeedKmh;
+			const spdFlag = spd > WALK_SPEED_CEIL_KMH ? " ⚠impossible-walk" : "";
 			console.log(
-				`  ${tag} @${hhmm(v.startTs)}Z  offWalkP90 ${b} → ${c}  stall ${v.candidateStallM.toFixed(0).padStart(4)}m${stallFlag}   (${v.baselineKind} → ${v.candidateKind})`,
+				`  ${tag} @${hhmm(v.startTs)}Z  offWalkP90 ${b} → ${c}  stall ${v.candidateStallM.toFixed(0).padStart(4)}m${stallFlag}  ${spd.toFixed(1).padStart(5)}km/h${spdFlag}   (${v.baselineKind} → ${v.candidateKind})`,
 			);
 		}
 	}
@@ -147,7 +157,14 @@ async function main(): Promise<void> {
 	const improved = all.filter((v) => classify(v) === "improved").length;
 	const regressed = all.filter((v) => classify(v) === "regressed").length;
 	const neutral = all.filter((v) => classify(v) === "neutral" || classify(v) === "n/a").length;
+	const impossible = all.filter((v) => v.candidateSpeedKmh > WALK_SPEED_CEIL_KMH);
 	console.log(`\nSUMMARY: ${all.length} walks — improved ${improved}, regressed ${regressed}, neutral ${neutral}`);
+	console.log(
+		`PLAUSIBILITY: ${impossible.length} walk(s) drawn above ${WALK_SPEED_CEIL_KMH} km/h (implausible on foot)`,
+	);
+	for (const v of impossible.sort((a, b) => b.candidateSpeedKmh - a.candidateSpeedKmh)) {
+		console.log(`  ${v.date} @${hhmm(v.startTs)}Z  ${v.candidateSpeedKmh.toFixed(1)} km/h  (${v.candidateKind})`);
+	}
 	if (regressed > 0) {
 		console.log("REGRESSIONS:");
 		for (const v of all.filter((x) => classify(x) === "regressed")) {

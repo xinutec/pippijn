@@ -79,6 +79,12 @@ export interface WalkPlausibility extends WalkScore {
 	/** Length of the raw GPS track (m) — the honest baseline the drawn line is
 	 *  measured against. */
 	rawLengthM: number;
+	/** Mean speed implied by the DRAWN line over the leg window (km/h): drawn
+	 *  length ÷ (endTs − startTs). The off-walkable/stall witnesses are blind to a
+	 *  path that sprints along a pavement — a run of low-accuracy fixes drawn as
+	 *  real motion (underground tube, indoor GPS) shows here as an impossible
+	 *  walking speed (a real walk is < ~9). 0 when the leg has no duration. */
+	avgDrawnSpeedKmh: number;
 }
 
 /**
@@ -97,5 +103,7 @@ export function walkPlausibility(
 	const base = scoreWalk(drawn, startTs, endTs, steps, walkable);
 	let rawLengthM = 0;
 	for (let i = 1; i < fixes.length; i++) rawLengthM += m(fixes[i - 1], fixes[i]);
-	return { ...base, corridorStallM: maxCorridorStall(fixes, drawn), rawLengthM };
+	const spanSec = endTs - startTs;
+	const avgDrawnSpeedKmh = spanSec > 0 ? (base.drawnLengthM / spanSec) * 3.6 : 0;
+	return { ...base, corridorStallM: maxCorridorStall(fixes, drawn), rawLengthM, avgDrawnSpeedKmh };
 }
