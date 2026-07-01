@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * The router contract: navigation state lives in the URL, so it's bookmarkable/
  * shareable, survives refresh, and the browser Back button works. The open
- * conversation is a real route — `/c/:origin/:id` — and the origin filter and
+ * conversation is a real route — `/conversation/:origin/:id` — and the origin filter and
  * paged-back depth are query params (`?origin` / `?from`). Behavioural, because
  * "is the router used correctly?" is a render/navigation fact a static rule
  * can't see.
@@ -42,7 +42,7 @@ test("opening a conversation is reflected in the URL", async ({ page }) => {
   await mockApi(page);
   await page.goto("/");
   await page.getByRole("button", { name: /Alice/ }).click();
-  await expect(page).toHaveURL(/\/c\/signal\/dm:a/);
+  await expect(page).toHaveURL(/\/conversation\/signal\/dm:a/);
 });
 
 test("deep-linking an origin filter restores it on load", async ({ page }) => {
@@ -76,7 +76,7 @@ async function mockApiPaged(page: Page): Promise<void> {
 
 test("loading older messages is reflected in the URL", async ({ page }) => {
   await mockApiPaged(page);
-  await page.goto("/c/signal/dm:a");
+  await page.goto("/conversation/signal/dm:a");
   await page.getByText("freshmsg", { exact: true }).waitFor();
   await page.getByRole("button", { name: /Load older/ }).click();
   await page.getByText("antiquemsg", { exact: true }).waitFor();
@@ -85,7 +85,7 @@ test("loading older messages is reflected in the URL", async ({ page }) => {
 
 test("reloading restores the older messages that were paged in", async ({ page }) => {
   await mockApiPaged(page);
-  await page.goto("/c/signal/dm:a?from=1000"); // as if reloaded after paging
+  await page.goto("/conversation/signal/dm:a?from=1000"); // as if reloaded after paging
   await page.getByText("antiquemsg", { exact: true }).waitFor(); // restored, no click
   await page.getByText("freshmsg", { exact: true }).waitFor();
 });
@@ -94,8 +94,8 @@ test("Back returns from a conversation to the list", async ({ page }) => {
   await mockApi(page);
   await page.goto("/");
   await page.getByRole("button", { name: /Alice/ }).click();
-  await expect(page).toHaveURL(/\/c\/signal\/dm:a/);
+  await expect(page).toHaveURL(/\/conversation\/signal\/dm:a/);
   await page.goBack();
-  await expect(page).not.toHaveURL(/\/c\//);
+  await expect(page).not.toHaveURL(/\/conversation\//);
   await page.getByPlaceholder("Search messages").waitFor();
 });

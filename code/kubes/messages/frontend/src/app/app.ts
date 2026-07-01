@@ -101,7 +101,7 @@ export class App {
   /** Open a conversation = route to it; keep the origin filter, reset ?from so a
    *  freshly-opened conversation starts at the most recent page. */
   open(c: Conversation): void {
-    void this.router.navigate(['/c', c.origin, c.id], {
+    void this.router.navigate(['/conversation', c.origin, c.id], {
       queryParams: { from: null },
       queryParamsHandling: 'merge',
     });

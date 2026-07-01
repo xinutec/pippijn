@@ -7,8 +7,8 @@ import { Thread } from './thread';
  * catch-all. The open conversation is a routed resource rendered in the shell's
  * `<router-outlet>`:
  *
- *   /                   → the shell with an empty thread pane ("pick a conversation")
- *   /c/:origin/:id      → that conversation's thread
+ *   /                            → the shell with an empty thread pane ("pick a conversation")
+ *   /conversation/:origin/:id    → that conversation's thread
  *
  * Both map to the same `Thread` component (empty → placeholder), the way health
  * shares one component across `''` and `share/:token`. The origin filter and the
@@ -17,7 +17,7 @@ import { Thread } from './thread';
  * binds `:origin`/`:id` straight to the Thread's inputs.
  */
 export const routes: Routes = [
-  { path: 'c/:origin/:id', component: Thread },
+  { path: 'conversation/:origin/:id', component: Thread },
   { path: '', component: Thread },
   { path: '**', redirectTo: '' },
 ];

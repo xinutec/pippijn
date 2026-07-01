@@ -59,7 +59,7 @@ test("message body has no spurious leading/trailing whitespace", async ({ page }
       },
     }),
   );
-  await page.goto("/c/signal/dm:a");
+  await page.goto("/conversation/signal/dm:a");
   const body = page.locator(".msg .body").first();
   await body.waitFor();
   // pre-wrap preserves whitespace, so any template-introduced leading space
@@ -72,7 +72,7 @@ test("a scrolled multi-day thread does not stack date separators", async ({ page
   await page.route("**/api/conversations/**/messages**", (r) =>
     r.fulfill({ json: { messages: multiDayThread(), has_more: false, next_before: null } }),
   );
-  await page.goto("/c/signal/dm:a");
+  await page.goto("/conversation/signal/dm:a");
   await page.getByText("msg 1-24", { exact: true }).waitFor();
   // Scroll the thread to the bottom — where the sticky bug piled the dates up,
   // and where the last day's header now floats (sticky) over its messages.
@@ -89,7 +89,7 @@ test("the current day's date stays pinned at the top while scrolling", async ({ 
   await page.route("**/api/conversations/**/messages**", (r) =>
     r.fulfill({ json: { messages: multiDayThread(), has_more: false, next_before: null } }),
   );
-  await page.goto("/c/signal/dm:a");
+  await page.goto("/conversation/signal/dm:a");
   await page.getByText("msg 0-0", { exact: true }).waitFor();
   // Scroll down within the first (tall) day so its header has scrolled past.
   await page.evaluate(() => {

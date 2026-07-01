@@ -81,14 +81,14 @@ describe('App', () => {
     const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     app.open(CONVS[0]);
     // from: null resets paged-back depth; origin filter is preserved (merge).
-    expect(nav).toHaveBeenCalledWith(['/c', 'signal', 'dm:a'], expect.objectContaining({ queryParams: { from: null }, queryParamsHandling: 'merge' }));
+    expect(nav).toHaveBeenCalledWith(['/conversation', 'signal', 'dm:a'], expect.objectContaining({ queryParams: { from: null }, queryParamsHandling: 'merge' }));
   });
 
   it('openHit routes to the conversation a search hit belongs to', () => {
     const { app, router } = setup(makeApi());
     const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     app.openHit({ origin: 'gchat', conversation_id: 'gc1', conversation_name: 'Bob', ts: 1, sender: 's', snippet: 'x' });
-    expect(nav).toHaveBeenCalledWith(['/c', 'gchat', 'gc1'], expect.objectContaining({ queryParams: { from: null } }));
+    expect(nav).toHaveBeenCalledWith(['/conversation', 'gchat', 'gc1'], expect.objectContaining({ queryParams: { from: null } }));
   });
 
   it('runs a search and clears it', () => {
