@@ -1,19 +1,12 @@
-import { Injectable, isDevMode, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { Observable, from } from 'rxjs';
 import { map, shareReplay, switchMap } from 'rxjs/operators';
 import { ulid } from 'ulid';
-import {
-  addRxPlugin,
-  createRxDatabase,
-  type RxCollection,
-  type RxConflictHandler,
-  type RxDatabase,
-  type RxJsonSchema,
-} from 'rxdb';
-import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
+import { type RxCollection, type RxConflictHandler, type RxJsonSchema } from 'rxdb';
 import { replicateRxCollection } from 'rxdb/plugins/replication';
 
 import { LinkKind, TargetKind } from '../models';
+import { LifeDb } from './life-db';
 
 /** A to-do connection stored locally. `from` is the source to-do's ulid; the
  *  target is a soft ref (`targetRef` interpreted per `targetKind`). Mirrors the
@@ -29,7 +22,6 @@ export interface TodoLinkDoc {
 }
 
 type LinkCollection = RxCollection<TodoLinkDoc>;
-type LinkDatabase = RxDatabase<{ todo_link: LinkCollection }>;
 
 const schema: RxJsonSchema<TodoLinkDoc> = {
   version: 0,
@@ -63,11 +55,12 @@ const conflictHandler: RxConflictHandler<TodoLinkDoc> = {
 export class TodoLinkStore {
   readonly syncError = signal<string | null>(null);
 
-  private readonly db = this.init();
+  private lifeDb = inject(LifeDb);
+  private readonly collection = this.init();
 
   /** Live, non-deleted connection edges. */
-  readonly links$: Observable<TodoLinkDoc[]> = from(this.db).pipe(
-    switchMap((db) => db.todo_link.find().$),
+  readonly links$: Observable<TodoLinkDoc[]> = from(this.collection).pipe(
+    switchMap((col) => col.find().$),
     map((docs) => docs.map((d) => d.toJSON() as TodoLinkDoc)),
     shareReplay({ bufferSize: 1, refCount: false }),
   );
@@ -78,9 +71,8 @@ export class TodoLinkStore {
     targetKind: TargetKind;
     targetRef: string;
   }): Promise<void> {
-    const db = await this.db;
-    // Skip an exact duplicate edge.
-    const dup = await db.todo_link
+    const col = await this.collection;
+    const dup = await col
       .findOne({
         selector: {
           from: input.from,
@@ -91,20 +83,20 @@ export class TodoLinkStore {
       })
       .exec();
     if (dup) return;
-    await db.todo_link.insert({ ulid: ulid(), id: null, rev: 0, ...input });
+    await col.insert({ ulid: ulid(), id: null, rev: 0, ...input });
   }
 
   async remove(key: string): Promise<void> {
-    const db = await this.db;
-    const doc = await db.todo_link.findOne(key).exec();
+    const col = await this.collection;
+    const doc = await col.findOne(key).exec();
     await doc?.remove();
   }
 
   /** Remove every edge touching a to-do (from OR target) — used when a to-do is
    *  deleted so it leaves no dangling connections. */
   async removeForTodo(todoUlid: string): Promise<void> {
-    const db = await this.db;
-    await db.todo_link
+    const col = await this.collection;
+    await col
       .find({
         selector: {
           $or: [{ from: todoUlid }, { targetKind: 'todo', targetRef: todoUlid }],
@@ -113,20 +105,10 @@ export class TodoLinkStore {
       .remove();
   }
 
-  private async init(): Promise<LinkDatabase> {
-    if (isDevMode()) {
-      const { RxDBDevModePlugin } = await import('rxdb/plugins/dev-mode');
-      addRxPlugin(RxDBDevModePlugin);
-    }
-    const db = await createRxDatabase<{ todo_link: LinkCollection }>({
-      name: 'lifedb',
-      storage: getRxStorageDexie(),
-      multiInstance: true,
-      ignoreDuplicate: isDevMode(),
-    });
-    await db.addCollections({ todo_link: { schema, conflictHandler } });
-    this.startReplication(db.todo_link);
-    return db;
+  private async init(): Promise<LinkCollection> {
+    const col = await this.lifeDb.collection('todo_link', schema, conflictHandler);
+    this.startReplication(col);
+    return col;
   }
 
   private startReplication(collection: LinkCollection): void {

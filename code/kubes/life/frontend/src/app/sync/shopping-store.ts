@@ -1,17 +1,11 @@
-import { Injectable, isDevMode, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { Observable, from } from 'rxjs';
 import { map, shareReplay, switchMap } from 'rxjs/operators';
 import { ulid } from 'ulid';
-import {
-  addRxPlugin,
-  createRxDatabase,
-  type RxCollection,
-  type RxConflictHandler,
-  type RxDatabase,
-  type RxJsonSchema,
-} from 'rxdb';
-import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
+import { type RxCollection, type RxConflictHandler, type RxJsonSchema } from 'rxdb';
 import { replicateRxCollection } from 'rxdb/plugins/replication';
+
+import { LifeDb } from './life-db';
 
 /** A shopping row as stored locally. `ulid` is the stable identity; `rev` is the
  *  last server revision seen (set by sync, not by local edits); `id` is the
@@ -29,7 +23,6 @@ export interface ShoppingDoc {
 }
 
 type ShoppingCollection = RxCollection<ShoppingDoc>;
-type ShoppingDatabase = RxDatabase<{ shopping: ShoppingCollection }>;
 
 const schema: RxJsonSchema<ShoppingDoc> = {
   version: 0,
@@ -66,13 +59,12 @@ export class ShoppingStore {
   /** null = ok; a string = a sync problem to surface (e.g. login required). */
   readonly syncError = signal<string | null>(null);
 
-  private readonly db = this.init();
+  private lifeDb = inject(LifeDb);
+  private readonly collection = this.init();
 
   /** Live, sorted, non-deleted shopping rows (RxDB filters tombstones). */
-  readonly items$: Observable<ShoppingDoc[]> = from(this.db).pipe(
-    switchMap((db) =>
-      db.shopping.find({ sort: [{ done: 'asc' }, { name: 'asc' }] }).$,
-    ),
+  readonly items$: Observable<ShoppingDoc[]> = from(this.collection).pipe(
+    switchMap((col) => col.find({ sort: [{ done: 'asc' }, { name: 'asc' }] }).$),
     map((docs) => docs.map((d) => d.toJSON() as ShoppingDoc)),
     shareReplay({ bufferSize: 1, refCount: false }),
   );
@@ -83,8 +75,8 @@ export class ShoppingStore {
     unit: string | null;
     barcode: string | null;
   }): Promise<void> {
-    const db = await this.db;
-    await db.shopping.insert({
+    const col = await this.collection;
+    await col.insert({
       ulid: ulid(),
       id: null,
       name: input.name,
@@ -108,30 +100,19 @@ export class ShoppingStore {
 
   /** Remove every ticked-off row (local; syncs as tombstones). */
   async clearDone(): Promise<void> {
-    const db = await this.db;
-    await db.shopping.find({ selector: { done: true } }).remove();
+    const col = await this.collection;
+    await col.find({ selector: { done: true } }).remove();
   }
 
   private async find(key: string) {
-    const db = await this.db;
-    return db.shopping.findOne(key).exec();
+    const col = await this.collection;
+    return col.findOne(key).exec();
   }
 
-  private async init(): Promise<ShoppingDatabase> {
-    if (isDevMode()) {
-      const { RxDBDevModePlugin } = await import('rxdb/plugins/dev-mode');
-      addRxPlugin(RxDBDevModePlugin);
-    }
-    const db = await createRxDatabase<{ shopping: ShoppingCollection }>({
-      name: 'lifedb',
-      storage: getRxStorageDexie(),
-      multiInstance: true,
-      // Tolerate hot-reload re-creates in dev; harmless in prod (single instance).
-      ignoreDuplicate: isDevMode(),
-    });
-    await db.addCollections({ shopping: { schema, conflictHandler } });
-    this.startReplication(db.shopping);
-    return db;
+  private async init(): Promise<ShoppingCollection> {
+    const col = await this.lifeDb.collection('shopping', schema, conflictHandler);
+    this.startReplication(col);
+    return col;
   }
 
   private startReplication(collection: ShoppingCollection): void {

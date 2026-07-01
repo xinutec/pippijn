@@ -1,19 +1,12 @@
-import { Injectable, isDevMode, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { Observable, from } from 'rxjs';
 import { map, shareReplay, switchMap } from 'rxjs/operators';
 import { ulid } from 'ulid';
-import {
-  addRxPlugin,
-  createRxDatabase,
-  type RxCollection,
-  type RxConflictHandler,
-  type RxDatabase,
-  type RxJsonSchema,
-} from 'rxdb';
-import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
+import { type RxCollection, type RxConflictHandler, type RxJsonSchema } from 'rxdb';
 import { replicateRxCollection } from 'rxdb/plugins/replication';
 
 import { TodoStatus, TodoType } from '../models';
+import { LifeDb } from './life-db';
 
 /** A to-do row as stored locally. `ulid` is the stable identity; `rev` is the
  *  last server revision seen (set by sync, not local edits); `id` is the server
@@ -30,7 +23,6 @@ export interface TodoDoc {
 }
 
 type TodoCollection = RxCollection<TodoDoc>;
-type TodoDatabase = RxDatabase<{ todo: TodoCollection }>;
 
 const schema: RxJsonSchema<TodoDoc> = {
   version: 0,
@@ -65,18 +57,19 @@ export class TodoStore {
   /** null = ok; a string = a sync problem to surface (e.g. login required). */
   readonly syncError = signal<string | null>(null);
 
-  private readonly db = this.init();
+  private lifeDb = inject(LifeDb);
+  private readonly collection = this.init();
 
   /** Live, sorted, non-deleted to-dos: open before done, then by title. */
-  readonly items$: Observable<TodoDoc[]> = from(this.db).pipe(
-    switchMap((db) => db.todo.find({ sort: [{ status: 'desc' }, { title: 'asc' }] }).$),
+  readonly items$: Observable<TodoDoc[]> = from(this.collection).pipe(
+    switchMap((col) => col.find({ sort: [{ status: 'desc' }, { title: 'asc' }] }).$),
     map((docs) => docs.map((d) => d.toJSON() as TodoDoc)),
     shareReplay({ bufferSize: 1, refCount: false }),
   );
 
   async add(input: { title: string; type: TodoType; notes: string | null }): Promise<void> {
-    const db = await this.db;
-    await db.todo.insert({
+    const col = await this.collection;
+    await col.insert({
       ulid: ulid(),
       id: null,
       title: input.title,
@@ -105,24 +98,14 @@ export class TodoStore {
   }
 
   private async find(key: string) {
-    const db = await this.db;
-    return db.todo.findOne(key).exec();
+    const col = await this.collection;
+    return col.findOne(key).exec();
   }
 
-  private async init(): Promise<TodoDatabase> {
-    if (isDevMode()) {
-      const { RxDBDevModePlugin } = await import('rxdb/plugins/dev-mode');
-      addRxPlugin(RxDBDevModePlugin);
-    }
-    const db = await createRxDatabase<{ todo: TodoCollection }>({
-      name: 'lifedb',
-      storage: getRxStorageDexie(),
-      multiInstance: true,
-      ignoreDuplicate: isDevMode(),
-    });
-    await db.addCollections({ todo: { schema, conflictHandler } });
-    this.startReplication(db.todo);
-    return db;
+  private async init(): Promise<TodoCollection> {
+    const col = await this.lifeDb.collection('todo', schema, conflictHandler);
+    this.startReplication(col);
+    return col;
   }
 
   private startReplication(collection: TodoCollection): void {
