@@ -20,6 +20,9 @@ import { LinkTarget, TodoGraph } from './todo-graph';
 const TYPES: readonly { value: TodoType; label: string; icon: string }[] = [
   { value: 'purchase', label: 'Purchase', icon: 'shopping_bag' },
   { value: 'call', label: 'Call', icon: 'call' },
+  { value: 'appointment', label: 'Appointment', icon: 'event' },
+  { value: 'admin', label: 'Admin', icon: 'description' },
+  { value: 'task', label: 'Task', icon: 'task_alt' },
 ];
 
 const KINDS: readonly { value: LinkKind; label: string }[] = [

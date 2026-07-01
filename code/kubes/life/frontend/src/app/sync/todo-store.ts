@@ -32,7 +32,11 @@ const schema: RxJsonSchema<TodoDoc> = {
     ulid: { type: 'string', maxLength: 26 },
     id: { type: ['integer', 'null'] },
     title: { type: 'string' },
-    type: { type: 'string', enum: ['purchase', 'call'], maxLength: 16 },
+    type: {
+      type: 'string',
+      enum: ['purchase', 'call', 'appointment', 'admin', 'task'],
+      maxLength: 16,
+    },
     status: { type: 'string', enum: ['open', 'done'], maxLength: 8 },
     notes: { type: ['string', 'null'] },
     rev: { type: 'number' },

@@ -4,4 +4,4 @@
  * The kind of to-do. Add a variant here (plus its `Display`/`FromStr` arm) when
  * a new kind earns its place — the set is deliberately small to start.
  */
-export type TodoType = "purchase" | "call";
+export type TodoType = "purchase" | "call" | "appointment" | "admin" | "task";

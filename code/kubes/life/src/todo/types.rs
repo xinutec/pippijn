@@ -17,6 +17,9 @@ use ts_rs::TS;
 pub enum TodoType {
     Purchase,
     Call,
+    Appointment,
+    Admin,
+    Task,
 }
 
 impl fmt::Display for TodoType {
@@ -24,6 +27,9 @@ impl fmt::Display for TodoType {
         f.write_str(match self {
             TodoType::Purchase => "purchase",
             TodoType::Call => "call",
+            TodoType::Appointment => "appointment",
+            TodoType::Admin => "admin",
+            TodoType::Task => "task",
         })
     }
 }
@@ -34,6 +40,9 @@ impl FromStr for TodoType {
         match s {
             "purchase" => Ok(TodoType::Purchase),
             "call" => Ok(TodoType::Call),
+            "appointment" => Ok(TodoType::Appointment),
+            "admin" => Ok(TodoType::Admin),
+            "task" => Ok(TodoType::Task),
             other => Err(format!("unknown todo type {other:?}")),
         }
     }
