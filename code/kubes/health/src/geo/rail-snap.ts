@@ -36,6 +36,8 @@
  * path between the correct two stations.
  */
 
+import { parseLineMemberships } from "./route-graph.js";
+
 /** A rail way from the OSM mirror. `coords` is an ordered `[lat, lon]`
  *  polyline. */
 export interface OsmLine {
@@ -501,4 +503,60 @@ export function snapTrainSegment(
 
 	const coords = idPath.map((i) => graph.vertices[i]);
 	return { board, alight, line: parsed.line, path: interpolateTimes(coords, seg.startTs, seg.endTs) };
+}
+
+/** True when an OSM way's name places it on `line` — the canonical
+ *  `"<Name> Line"` form. Handles shared-track ways tagged with several lines
+ *  ("Circle, Hammersmith & City and Metropolitan Lines") and directional
+ *  suffixes ("Metropolitan Line Westbound") via {@link parseLineMemberships}. */
+function wayOnLine(osmName: string | null, line: string): boolean {
+	return parseLineMemberships(osmName).has(line);
+}
+
+/**
+ * Snap a confident train leg onto its KNOWN line, routing between the two
+ * named stations over ONLY that line's ways — with NO historic fix cloud.
+ *
+ * {@link snapTrainSegment} needs a dense pooled fix cloud
+ * ({@link MIN_CLOUD_FIXES}) both to trust the run and to disambiguate parallel
+ * lines. When the leg's label carries a line name (e.g. from underground-run
+ * reconstruction), the LINE itself is the disambiguator: restrict the graph to
+ * that line's ways and the geometric shortest path between the two stations IS
+ * the ridden route. This lets a thin / one-off underground ride still render on
+ * the track (the map's dotted "snapped" style), which the cloud-gated snap
+ * refuses. It is the intended v2 refinement flagged in this module's header.
+ *
+ * Returns null when the label has no line, a station is unknown or off the
+ * line-restricted network, or the two stations are disconnected on that line —
+ * i.e. "draw the raw fixes", never a guessed path.
+ */
+export function snapTrainSegmentOnLine(seg: TrainSegment, geo: RailGeometry): SnapResult | null {
+	const parsed = parseRailWayName(seg.wayName);
+	if (!parsed || !parsed.line) return null;
+	const line = parsed.line;
+
+	const board = resolveStation(parsed.board, geo.stations);
+	const alight = resolveStation(parsed.alight, geo.stations);
+	if (!board || !alight || board.name === alight.name) return null;
+
+	const lineLines = geo.lines.filter((l) => wayOnLine(l.name, line));
+	if (lineLines.length === 0) return null;
+
+	// Empty fix cloud → every edge carries the same uniform penalty, so Dijkstra
+	// returns the geometric shortest path; within a single line's ways that is
+	// the route between the two stations.
+	const graph = buildRailGraph(lineLines, new FixCloud([]));
+	if (graph.vertices.length === 0) return null;
+
+	const fromV = nearestVertex(graph, board);
+	const toV = nearestVertex(graph, alight);
+	if (!fromV || !toV) return null;
+	if (fromV.distM > MAX_STATION_TO_RAIL_M || toV.distM > MAX_STATION_TO_RAIL_M) return null;
+	if (fromV.id === toV.id) return null;
+
+	const idPath = shortestPath(graph, fromV.id, toV.id);
+	if (!idPath || idPath.length < 2) return null;
+
+	const coords = idPath.map((i) => graph.vertices[i]);
+	return { board, alight, line, path: interpolateTimes(coords, seg.startTs, seg.endTs) };
 }

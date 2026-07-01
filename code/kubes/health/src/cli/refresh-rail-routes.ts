@@ -30,8 +30,9 @@ import { z } from "zod";
 import { db, destroyPool, initPool, withConnection } from "../db/pool.js";
 import { migrate } from "../db/schema.js";
 import { getSyncState } from "../db/sync-state.js";
+import { stationsOnLine } from "../geo/line-stations.js";
 import { queryRailCorridor } from "../geo/osm-local.js";
-import { snapTrainSegment } from "../geo/rail-snap.js";
+import { parseRailWayName, snapTrainSegment, snapTrainSegmentOnLine } from "../geo/rail-snap.js";
 import { computeVelocity } from "../geo/velocity.js";
 
 const config = z
@@ -151,6 +152,33 @@ for (const u of users) {
 	}
 }
 
+/**
+ * Fallback for a route the fix-cloud snap left un-snapped (thin / one-off
+ * underground ride): if the route label names a LINE, route between its two
+ * stations over ONLY that line's ways — no fix cloud needed. The line name is
+ * the disambiguator instead of a dense corridor, so a confident tube renders
+ * on-track even on the first ride. Uses a STATION-anchored OSM query (the two
+ * stations + the thin fixes) rather than the fix-cloud corridor, which for a
+ * one-off ride may not span board→alight. Returns null → keep un-snapped.
+ */
+async function snapKnownLine(key: string, acc: RouteAccumulator): Promise<Array<{ lat: number; lon: number }> | null> {
+	const parsed = parseRailWayName(key);
+	if (!parsed?.line) return null;
+	const stns = await stationsOnLine(parsed.line);
+	const board = stns.find((s) => s.name === parsed.board);
+	const alight = stns.find((s) => s.name === parsed.alight);
+	if (!board || !alight) return null;
+	// Bbox spanning the two stations (+ the thin ride fixes) so the OSM scan
+	// returns the line's full geometry between them.
+	const geo = await queryRailCorridor([
+		{ lat: board.lat, lon: board.lon },
+		{ lat: alight.lat, lon: alight.lon },
+		...acc.fixes,
+	]);
+	const snapped = snapTrainSegmentOnLine(acc.seg, geo);
+	return snapped ? snapped.path.map((p) => ({ lat: p.lat, lon: p.lon })) : null;
+}
+
 // Pass 2: snap each route along its pooled historic corridor.
 const routes = new Map<string, Geometry>();
 for (const [key, acc] of byRoute) {
@@ -162,6 +190,14 @@ for (const [key, acc] of byRoute) {
 			snapped.path.map((p) => ({ lat: p.lat, lon: p.lon })),
 		);
 		console.log(`  resolved route → ${snapped.path.length} pts (${acc.fixes.length} historic fixes)`);
+		continue;
+	}
+	// Thin / one-off corridor: if the label names a line, snap to that line's
+	// route between the stations directly (no fix cloud).
+	const lineRoute = await snapKnownLine(key, acc);
+	if (lineRoute && lineRoute.length >= 2) {
+		routes.set(key, lineRoute);
+		console.log(`  resolved route via known-line fallback → ${lineRoute.length} pts (${acc.fixes.length} thin fixes)`);
 	} else {
 		console.log(`  route left un-snapped (${acc.fixes.length} historic fixes — thin or disconnected)`);
 	}
