@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Run the full pre-commit verification — one command, no wrapper.
+# Run the full pre-commit verification.
 #
 # `npm run verify` chains: typecheck (backend + frontend) →
 # schema-types drift check → format → Biome lint (backend) →
-# ESLint (frontend) → the vitest suite. The toolchain (nodejs) comes
-# from the flake devshell — rev-pinned via flake.lock and available
-# without npm on PATH (e.g. the Mac mini), same as deploy.sh.
+# ESLint (frontend) → the vitest suite; then the shared dev-lint rules.
+# The toolchain (nodejs) comes from the flake devshell — rev-pinned via
+# flake.lock and available without npm on PATH (e.g. the Mac mini),
+# same as deploy.sh.
 #
 # Usage:
 #   scripts/verify.sh          # run the full verify
@@ -20,4 +21,5 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-exec nix develop -c npm run verify "$@"
+nix develop -c npm run verify "$@"
+nix run "$HOME/Code/dev-lint" -- src frontend/src
