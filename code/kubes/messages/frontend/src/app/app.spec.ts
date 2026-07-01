@@ -44,7 +44,7 @@ function setup(api: MessagesApi): { app: App; router: Router } {
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
-      provideRouter([{ path: '**', children: [] }]),
+      provideRouter([]),
       { provide: MessagesApi, useValue: api },
     ],
   });
@@ -76,26 +76,19 @@ describe('App', () => {
     expect(nav).toHaveBeenLastCalledWith([], expect.objectContaining({ queryParams: { origin: null } }));
   });
 
-  it('open navigates with the chat query param', () => {
+  it('open routes to the conversation as a path', () => {
     const { app, router } = setup(makeApi());
     const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     app.open(CONVS[0]);
-    // from: null resets paged-back depth for a freshly-opened conversation.
-    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: 'signal:dm:a', from: null } }));
+    // from: null resets paged-back depth; origin filter is preserved (merge).
+    expect(nav).toHaveBeenCalledWith(['/c', 'signal', 'dm:a'], expect.objectContaining({ queryParams: { from: null }, queryParamsHandling: 'merge' }));
   });
 
-  it('back navigates by dropping the chat (and from) query params', () => {
-    const { app, router } = setup(makeApi());
-    const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
-    app.back();
-    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: null, from: null } }));
-  });
-
-  it('openHit navigates to the conversation a search hit belongs to', () => {
+  it('openHit routes to the conversation a search hit belongs to', () => {
     const { app, router } = setup(makeApi());
     const nav = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     app.openHit({ origin: 'gchat', conversation_id: 'gc1', conversation_name: 'Bob', ts: 1, sender: 's', snippet: 'x' });
-    expect(nav).toHaveBeenCalledWith([], expect.objectContaining({ queryParams: { chat: 'gchat:gc1', from: null } }));
+    expect(nav).toHaveBeenCalledWith(['/c', 'gchat', 'gc1'], expect.objectContaining({ queryParams: { from: null } }));
   });
 
   it('runs a search and clears it', () => {
@@ -117,18 +110,6 @@ describe('App', () => {
     app.runSearch();
     expect(search).not.toHaveBeenCalled();
     expect(app.results()).toBeNull();
-  });
-
-  it('dayGroups buckets consecutive messages by calendar day', () => {
-    const { app } = setup(makeApi());
-    const d1 = new Date(2026, 5, 1, 9, 0, 0).getTime();
-    const d1b = new Date(2026, 5, 1, 18, 0, 0).getTime();
-    const d2 = new Date(2026, 5, 2, 9, 0, 0).getTime();
-    app.messages.set([msg('a', d1), msg('b', d1b), msg('c', d2)]);
-    const groups = app.dayGroups();
-    expect(groups.length).toBe(2);
-    expect(groups[0].items.map((m) => m.id)).toEqual(['a', 'b']);
-    expect(groups[1].items.map((m) => m.id)).toEqual(['c']);
   });
 
   it('title falls back when a conversation is unnamed', () => {

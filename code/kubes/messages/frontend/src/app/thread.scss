@@ -1,0 +1,144 @@
+// The Thread host is the right-hand pane and the scroll container (the shell's
+// grid places it; App owns the grid + mobile show/hide).
+:host {
+  display: block;
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 1rem 1.5rem;
+}
+
+.thread-head {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  .back {
+    display: none; // desktop: two-pane, no back needed
+  }
+  h2 {
+    margin: 0 0 1rem;
+  }
+}
+
+.placeholder {
+  opacity: 0.5;
+  padding-top: 2rem;
+}
+
+.error {
+  color: var(--mat-sys-error, #b00020);
+}
+
+.load-older {
+  text-align: center;
+  margin: 0.25rem 0 0.5rem;
+}
+
+// Each day is its own section, so its sticky header pins ONLY within that day's
+// messages and is replaced by the next day's header — the "current top message's
+// date" behaviour, with no stacking.
+.day {
+  position: sticky;
+  top: 0.25rem;
+  z-index: 2;
+  text-align: center;
+  margin: 0.5rem 0;
+  pointer-events: none; // a floating label; let clicks reach messages beneath
+
+  span {
+    display: inline-block;
+    background: rgba(0, 0, 0, 0.58); // translucent pill, legible over content in either theme
+    color: #fff;
+    font-size: 0.7rem;
+    padding: 0.1rem 0.6rem;
+    border-radius: 1rem;
+  }
+}
+
+.msg {
+  max-width: 70%;
+  margin: 0.4rem 0;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.05);
+  // Off-screen messages skip layout/paint, so a long thread stays smooth without
+  // virtualization or cutting messages off. `auto` remembers each message's real
+  // height once it's been rendered; 60px is the first guess.
+  content-visibility: auto;
+  contain-intrinsic-size: auto 60px;
+
+  &.out {
+    margin-left: auto;
+    background: rgba(33, 150, 243, 0.15);
+  }
+  .meta {
+    font-size: 0.75rem;
+    opacity: 0.7;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .body {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    &.deleted {
+      font-style: italic;
+      opacity: 0.6;
+    }
+  }
+  .tag {
+    font-style: italic;
+  }
+  .attach {
+    margin-top: 0.3rem;
+    img {
+      max-width: min(320px, 100%);
+      max-height: 320px;
+      border-radius: 0.4rem;
+      display: block;
+    }
+    a,
+    .unavailable {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      font-size: 0.85rem;
+    }
+    .unavailable {
+      opacity: 0.6;
+    }
+    mat-icon {
+      font-size: 1rem;
+      width: 1rem;
+      height: 1rem;
+    }
+  }
+  .reactions {
+    margin-top: 0.25rem;
+    .chip {
+      font-size: 0.8rem;
+      background: rgba(0, 0, 0, 0.08);
+      border-radius: 1rem;
+      padding: 0 0.4rem;
+      margin-right: 0.25rem;
+    }
+  }
+}
+
+// Phone: full-width pane with a working back button and roomier bubbles.
+@media (max-width: 767px) {
+  :host {
+    padding: 0.75rem 0.9rem;
+  }
+  .thread-head .back {
+    display: inline-flex;
+  }
+  .thread-head h2 {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+  .msg {
+    max-width: 85%;
+  }
+}
