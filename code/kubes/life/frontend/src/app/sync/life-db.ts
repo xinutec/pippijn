@@ -30,6 +30,9 @@ export class LifeDb {
           const { RxDBDevModePlugin } = await import('rxdb/plugins/dev-mode');
           addRxPlugin(RxDBDevModePlugin);
         }
+        // THE single place the shared 'lifedb' is created; every store goes
+        // through this service's collection(). Exempt from the singleton rule:
+        // ast-grep-ignore: life-single-rxdb
         return createRxDatabase({
           name: 'lifedb',
           storage: getRxStorageDexie(),

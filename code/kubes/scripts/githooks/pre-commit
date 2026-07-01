@@ -5,6 +5,9 @@
 # is fast (~0.3s) so it gates at commit; it lints the whole app dir (not just
 # staged files) because the Angular rule is cross-file (component + template).
 # dev-lint is a local flake; if it's missing the hook skips rather than blocking.
+# It also runs an app's OWN ast-grep rules if it ships frontend/sgconfig.yml —
+# project-specific invariants (e.g. life's single-RxDB rule) that don't belong in
+# the shared, generic dev-lint.
 #
 # Add an app by listing it in APPS and its dev-lint targets in targets_for().
 # Installed by code/kubes/scripts/setup-hooks.sh (symlinked into .git/hooks).
@@ -46,4 +49,11 @@ for app in $changed; do
 	echo "pre-commit: dev-lint on ${app}…" >&2
 	# shellcheck disable=SC2046,SC2086
 	nix run "$DEVLINT" -- $(targets_for "$app")
+	# App-local ast-grep rules: project-specific invariants the generic dev-lint
+	# rules don't cover (e.g. life's single-RxDB rule). Opt-in — an app enables
+	# them by adding frontend/sgconfig.yml + ast-grep-rules/.
+	if [ -f "$app/frontend/sgconfig.yml" ]; then
+		echo "pre-commit: ast-grep local rules on ${app}/frontend…" >&2
+		( cd "$app/frontend" && nix run nixpkgs#ast-grep -- scan src )
+	fi
 done

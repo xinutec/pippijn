@@ -1,0 +1,5 @@
+# Project-local ast-grep rules for the life frontend — invariants specific to
+# this app that dev-lint's generic cross-project rules don't cover. Run by the
+# kubes pre-commit hook (code/kubes/scripts/githooks/pre-commit) alongside dev-lint.
+ruleDirs:
+  - ast-grep-rules
