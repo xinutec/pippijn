@@ -77,6 +77,23 @@ describe("buildEpisodes — per-mode speed-plausibility filter", () => {
 		expect(ep.points.every((p) => p.lon > -0.125)).toBe(true);
 	});
 
+	it("drops a LEADING straggler and keeps the real cluster (today's Baker St green-jump)", () => {
+		// First fix is a stray underground tube-tail fix at Baker St; the rest are
+		// the real walk at Euston (~1.4 km east). The hold must not anchor on the
+		// straggler and hold away every good fix — it must drop the straggler.
+		const rawFixes = [
+			raw(0, 51.5235, -0.1573, 26), // Baker St straggler
+			raw(103, 51.525, -0.1369, 19), // real walk at Euston (+1.4 km = 49 km/h)
+			raw(118, 51.5248, -0.1371, 17),
+			raw(178, 51.5247, -0.1374, 7),
+			raw(300, 51.5247, -0.1374, 13),
+		];
+		const [ep] = buildEpisodes([state(0, 700, "walking")], [], [], rawFixes);
+		expect(ep.kind).toBe("raw");
+		expect(ep.points.length).toBeGreaterThanOrEqual(2);
+		expect(ep.points.every((p) => p.lon > -0.14)).toBe(true); // no Baker St point drawn
+	});
+
 	it("keeps a genuine brisk walk with mild GPS jitter in the raw-fixes fallback", () => {
 		// ~6 km/h walk (each ~50 m / 30 s) with one 14 km/h jitter step — the run
 		// stays; only the lone spike beyond ceiling is held, not the whole walk.

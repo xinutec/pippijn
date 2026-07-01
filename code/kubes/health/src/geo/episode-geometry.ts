@@ -311,15 +311,30 @@ export function holdImplausibleSpeed<T extends { lat: number; lon: number; ts: n
 	capKmh: number,
 ): T[] {
 	if (fixes.length < 2 || !Number.isFinite(capKmh)) return [...fixes];
-	const keep: T[] = [fixes[0]];
-	for (let i = 1; i < fixes.length; i++) {
-		const last = keep[keep.length - 1];
-		const dt = fixes[i].ts - last.ts;
-		if (dt <= 0) continue;
-		const kmh = (equirectMeters(last.lat, last.lon, fixes[i].lat, fixes[i].lon) / dt) * 3.6;
-		if (kmh <= capKmh) keep.push(fixes[i]);
+	// A sequential hold anchors on its start fix — but if that start is itself the
+	// outlier (a stray underground tube-tail fix LEADING the leg), it holds every
+	// good fix (all implausibly fast FROM the straggler) and collapses to the
+	// straggler alone, which then falls through to a fallback that draws the jump
+	// (today's Baker-St green-jump: a lone Baker St fix ahead of the Euston walk).
+	// So take the LONGEST plausible-speed run over all start points: a leading or
+	// trailing straggler is excluded, a mid-run teleport is still held within the
+	// chosen run, and the real cluster is what's drawn.
+	const runFrom = (s: number): T[] => {
+		const keep: T[] = [fixes[s]];
+		for (let i = s + 1; i < fixes.length; i++) {
+			const last = keep[keep.length - 1];
+			const dt = fixes[i].ts - last.ts;
+			if (dt <= 0) continue;
+			if ((equirectMeters(last.lat, last.lon, fixes[i].lat, fixes[i].lon) / dt) * 3.6 <= capKmh) keep.push(fixes[i]);
+		}
+		return keep;
+	};
+	let best: T[] = [];
+	for (let s = 0; s < fixes.length; s++) {
+		const run = runFrom(s);
+		if (run.length > best.length) best = run; // strict → earliest longest run (deterministic)
 	}
-	return keep;
+	return best;
 }
 
 export function rejectSpikes<T extends { lat: number; lon: number }>(pts: readonly T[]): T[] {
