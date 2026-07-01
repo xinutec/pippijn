@@ -818,6 +818,72 @@ export function trimOverRouteExcursions(
 	return out;
 }
 
+/** Perpendicular distance (m) from `p` to the infinite line through `a`–`b`. */
+function perpDistM(p: Pt, a: Pt, b: Pt): number {
+	const cosLat = Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+	const bx = (b.lon - a.lon) * 111_320 * cosLat;
+	const by = (b.lat - a.lat) * 111_320;
+	const px = (p.lon - a.lon) * 111_320 * cosLat;
+	const py = (p.lat - a.lat) * 111_320;
+	const len = Math.hypot(bx, by);
+	if (len < 1e-6) return Math.hypot(px, py);
+	return Math.abs(px * by - py * bx) / len;
+}
+
+/**
+ * Drop matched vertices where the snapper amplified GPS jitter into a spike (a
+ * tight out-and-back triangle) the raw track never made (#295): the loop hugs
+ * the noisy fixes closely and keeps advancing, so the corridor tests can't see
+ * it — but its APEX juts much further off the chord between its neighbours than
+ * any raw fix in the same span did.
+ *
+ * Three conditions together isolate the artifact from a real corner:
+ *  - the apex nearly DOUBLES BACK (turn ≥ `minTurnDeg`) — a corner turns ~90°,
+ *    an invented out-and-back reverses ~180°;
+ *  - it sticks out ≥ `minApexM` off the chord; and
+ *  - it sticks out ≥ `excessM` further than the raw GPS did there — so a tight
+ *    turn the raw fixes also round (the whole point of snapping to a pavement)
+ *    survives. When no raw fix falls in the span the vertex is kept.
+ */
+export function despikeUnsupportedApexes(
+	path: readonly MatchedPoint[],
+	rawFixes: readonly RoadFix[],
+	minApexM = 15,
+	excessM = 12,
+	minTurnDeg = 140,
+): MatchedPoint[] {
+	if (path.length < 3) return [...path];
+	const cosLatOf = (p: Pt) => Math.cos((p.lat * Math.PI) / 180);
+	const keep = new Array<boolean>(path.length).fill(true);
+	for (let i = 1; i < path.length - 1; i++) {
+		const apexH = perpDistM(path[i], path[i - 1], path[i + 1]);
+		if (apexH < minApexM) continue;
+		// Turn angle at the apex: 0° straight, 90° a corner, ~180° a reversal.
+		const cl = cosLatOf(path[i]);
+		const ux = (path[i].lon - path[i - 1].lon) * cl;
+		const uy = path[i].lat - path[i - 1].lat;
+		const vx = (path[i + 1].lon - path[i].lon) * cl;
+		const vy = path[i + 1].lat - path[i].lat;
+		const un = Math.hypot(ux, uy);
+		const vn = Math.hypot(vx, vy);
+		if (un < 1e-12 || vn < 1e-12) continue;
+		const turnDeg = (Math.acos(Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (un * vn)))) * 180) / Math.PI;
+		if (turnDeg < minTurnDeg) continue;
+		const t0 = Math.min(path[i - 1].ts, path[i + 1].ts);
+		const t1 = Math.max(path[i - 1].ts, path[i + 1].ts);
+		let rawH = 0;
+		let nRaw = 0;
+		for (const f of rawFixes) {
+			if (f.ts >= t0 && f.ts <= t1) {
+				rawH = Math.max(rawH, perpDistM(f, path[i - 1], path[i + 1]));
+				nRaw++;
+			}
+		}
+		if (nRaw > 0 && apexH - rawH >= excessM) keep[i] = false;
+	}
+	return path.filter((_, i) => keep[i]);
+}
+
 /** Gaussian emission log-likelihood for a snap distance. */
 function emission(distM: number, sigmaZ: number): number {
 	const z = distM / sigmaZ;

@@ -24,6 +24,7 @@
  */
 
 import {
+	despikeUnsupportedApexes,
 	type MatchProfile,
 	type MatchResult,
 	matchTrajectory,
@@ -87,9 +88,10 @@ export function matchWalkSegment(
 	const profile = opts.matchRadiusM !== undefined ? { ...WALK_PROFILE, matchRadiusM: opts.matchRadiusM } : WALK_PROFILE;
 	const result = matchTrajectory(fixes, geo, profile);
 	if (result === null) return null;
-	// Remove over-route detours the corridor-weighted router invented — a loop
-	// out and back that the raw GPS never took (#293). Cross-track gates can't
-	// see these (every loop point is still on a pavement); this is the only pass
-	// that does, by comparing path progress to GPS-corridor progress.
-	return { ...result, path: trimOverRouteExcursions(fixes, result.path) };
+	// Clean the matched line of two artifacts the raw GPS never made (#293/#295):
+	// wide over-route detours (a loop out and back the corridor tests catch), then
+	// tight apex spikes where the snapper amplified GPS jitter into a triangle that
+	// hugs the noisy fixes too closely for the corridor tests to see.
+	const trimmed = trimOverRouteExcursions(fixes, result.path);
+	return { ...result, path: despikeUnsupportedApexes(trimmed, fixes) };
 }
