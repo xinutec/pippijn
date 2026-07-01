@@ -43,12 +43,12 @@ export class App {
     { path: '/shopping', icon: 'shopping_cart', label: 'Buy' },
     { path: '/inventory', icon: 'kitchen', label: 'Inventory' },
     { path: '/recipes', icon: 'menu_book', label: 'Recipes' },
-    { path: '/house', icon: 'home', label: 'House' },
+    { path: '/todo', icon: 'checklist', label: 'To-do' },
   ];
 
   // Less-common destinations live behind the hamburger menu.
   readonly more: NavItem[] = [
-    { path: '/todo', icon: 'checklist', label: 'To-do' },
+    { path: '/house', icon: 'home', label: 'House' },
     { path: '/items', icon: 'inventory_2', label: 'All items' },
   ];
 
