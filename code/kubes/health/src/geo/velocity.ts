@@ -80,7 +80,12 @@ import { DRIVABLE_HIGHWAY_SUBTYPES, RAIL_ONLY_SUBTYPES } from "./rail-road-proxi
 import { annotateRoadMatches } from "./road-match-annotate.js";
 import { effectiveMode, samplesInWindow } from "./segment-util.js";
 import type { TransportMode } from "./segments.js";
-import { classifySegments, enforcePhysicalConstraints, isStationaryIncoherent } from "./segments.js";
+import {
+	classifySegments,
+	enforcePhysicalConstraints,
+	isStationaryIncoherent,
+	roadSupportedConfidence,
+} from "./segments.js";
 import {
 	reassignWalkTailToVehicle,
 	splitStaysOnEvidence,
@@ -963,6 +968,10 @@ export async function computeVelocityFromInputs(
 			const movingCity = commonCity(startPlace, endPlace);
 			return {
 				...seg,
+				// Temper motion-only confidence by the road-corridor evidence: a
+				// "driving" leg the GPS shows off any road is ambiguous (could be
+				// rail), so it shouldn't read a confident 100% car (#296).
+				confidence: roadSupportedConfidence(plausible.mode as TransportMode, seg.confidence, roadCorridorFraction),
 				refinedMode: plausible.mode as TransportMode,
 				refinedReason: plausible.reason ?? refined.reason,
 				wayName: plausible.wayName,

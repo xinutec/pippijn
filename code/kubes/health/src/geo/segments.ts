@@ -318,6 +318,32 @@ export function scoreWindow(f: WindowFeatures): ModeScore[] {
 	return scores.sort((a, b) => b.score - a.score);
 }
 
+/**
+ * Temper a road-vehicle segment's confidence by whether the GPS actually
+ * followed a road (#296 → joint decision). `scoreWindow` picks the mode from
+ * MOTION alone, so a fast, straight leg scores as "driving" with high
+ * confidence even when it's a Tube — a train and a car are identical at 40-90
+ * km/h. The corridor evidence (`roadCorridorFraction` — the share of the track
+ * that hugs a drivable road) is the missing input: a "driving" leg that hugs no
+ * road is genuinely ambiguous (could be rail), so its confidence should not be
+ * a motion-only 100%.
+ *
+ * Only road vehicles (`driving`; buses are `driving` too) are affected — train /
+ * walk / cycle are untouched. `null` fraction (no road data) leaves it unchanged.
+ * At full road support (fraction ≥ 0.5) confidence is unchanged; with no road
+ * under the track it is halved. Measured safe on the golden corpus: real driving
+ * sits at fraction ~1.0, trains at ~0.2.
+ */
+export function roadSupportedConfidence(
+	mode: TransportMode,
+	confidence: number,
+	roadCorridorFraction: number | null,
+): number {
+	if (mode !== "driving" || roadCorridorFraction === null) return confidence;
+	const support = 0.5 + Math.min(0.5, Math.max(0, roadCorridorFraction));
+	return Math.round(confidence * support * 100) / 100;
+}
+
 // Gaussian-like scoring: how well does the value match the expected range?
 function rangeScore(value: number, ideal: number, tolerance: number): number {
 	return Math.exp(-0.5 * ((value - ideal) / tolerance) ** 2);
