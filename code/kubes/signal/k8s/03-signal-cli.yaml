@@ -34,6 +34,14 @@ spec:
               value: json-rpc
           ports:
             - containerPort: 8080
+          # tcpSocket (not httpGet): the json-rpc daemon listens on 8080 when it's
+          # up — this makes a rollout wait for it instead of flipping Ready instantly
+          # (the missing probe that hid a crash-loop during the 2026-07 hardening).
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
           volumeMounts:
             - name: data
               mountPath: /home/.local/share/signal-cli

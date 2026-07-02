@@ -26,6 +26,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
+        # dev-lint: allow-no-probe (headless archiver: a websocket client with no server port to probe)
         - name: ingester
           image: xinutec/signal-archiver:latest
           # No readOnlyRootFilesystem: it writes downloaded blobs under /attachments

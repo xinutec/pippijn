@@ -30,6 +30,11 @@ spec:
               drop: ["ALL"]
           ports:
             - containerPort: 3000
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 10
           env:
             - name: AUTH_PORT
               value: "3000"
