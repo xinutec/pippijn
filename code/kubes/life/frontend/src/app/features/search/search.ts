@@ -6,6 +6,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatSnackBar } from '@angular/material/snack-bar';
 
 import { LifeApi } from '../../life-api';
 import { Loc, SearchHit } from '../../models';
@@ -26,6 +27,7 @@ import { Loc, SearchHit } from '../../models';
 })
 export class Search {
   private api = inject(LifeApi);
+  private snack = inject(MatSnackBar);
 
   query = '';
   readonly hits = signal<SearchHit[]>([]);
@@ -38,9 +40,12 @@ export class Search {
       this.searched.set(false);
       return;
     }
-    this.api.search(q).subscribe((h) => {
-      this.hits.set(h);
-      this.searched.set(true);
+    this.api.search(q).subscribe({
+      next: (h) => {
+        this.hits.set(h);
+        this.searched.set(true);
+      },
+      error: () => this.snack.open('Search failed — are you online?', 'OK', { duration: 4000 }),
     });
   }
 

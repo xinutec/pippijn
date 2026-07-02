@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -6,6 +7,7 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatSnackBar } from '@angular/material/snack-bar';
 
 import { LifeApi } from '../../life-api';
 import { Recipe, RecipeIngredient } from '../../models';
@@ -33,6 +35,15 @@ interface RecipeForm {
 })
 export class Recipes {
   private api = inject(LifeApi);
+  private snack = inject(MatSnackBar);
+
+  /** Online-only writes must not fail into silence: announce and move on. */
+  private failed(what: string) {
+    return (e: HttpErrorResponse) => {
+      const hint = e.status === 0 ? ' — are you online?' : '';
+      this.snack.open(`Could not ${what}${hint}`, 'OK', { duration: 4000 });
+    };
+  }
 
   readonly recipes = signal<Recipe[]>([]);
   readonly cookableIds = signal<Set<number>>(new Set());
@@ -90,15 +101,21 @@ export class Recipes {
       ...form,
       ingredients: form.ingredients.filter((g) => g.name.trim()),
     };
-    this.api.createRecipe(body).subscribe(() => {
-      this.form.set(this.emptyForm());
-      this.showForm.set(false);
-      this.reload();
+    this.api.createRecipe(body).subscribe({
+      next: () => {
+        this.form.set(this.emptyForm());
+        this.showForm.set(false);
+        this.reload();
+      },
+      error: this.failed('save the recipe'),
     });
   }
 
   deleteRecipe(id: number): void {
-    this.api.deleteRecipe(id).subscribe(() => this.reload());
+    this.api.deleteRecipe(id).subscribe({
+      next: () => this.reload(),
+      error: this.failed('delete the recipe'),
+    });
   }
 
   isCookable(id: number): boolean {
@@ -106,10 +123,13 @@ export class Recipes {
   }
 
   loadShoppingList(id: number): void {
-    this.api.shoppingList(id).subscribe((list) => {
-      const next = new Map(this.shopping());
-      next.set(id, list);
-      this.shopping.set(next);
+    this.api.shoppingList(id).subscribe({
+      next: (list) => {
+        const next = new Map(this.shopping());
+        next.set(id, list);
+        this.shopping.set(next);
+      },
+      error: this.failed('load the shopping list'),
     });
   }
 

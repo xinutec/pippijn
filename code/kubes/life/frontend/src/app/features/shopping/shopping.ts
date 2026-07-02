@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -8,6 +9,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { catchError, forkJoin, map, of, tap } from 'rxjs';
 
 import { LifeApi } from '../../life-api';
 import { ProductThumb } from '../../product-thumb';
@@ -34,6 +37,7 @@ export class Shopping {
   private store = inject(ShoppingStore);
   private api = inject(LifeApi);
   private dialog = inject(MatDialog);
+  private snack = inject(MatSnackBar);
 
   // Local-first: the list is the live RxDB query — instant, offline, reactive.
   readonly items = toSignal(this.store.items$, { initialValue: [] as ShoppingDoc[] });
@@ -80,15 +84,30 @@ export class Shopping {
       });
   }
 
-  /** Look up the typed barcode on Open Food Facts; prefill the name if empty. */
+  /** True while a barcode lookup is in flight — dims the field's search icon. */
+  readonly lookingUp = signal(false);
+
+  /** Look up the typed barcode on Open Food Facts; prefill the name if empty.
+   *  Every outcome is announced — a scan that ends in silence reads as "the
+   *  scanner is broken". */
   lookup(): void {
     const code = this.barcode().trim();
     if (!code) return;
+    this.lookingUp.set(true);
     this.api.lookupProduct(code).subscribe({
       next: (p) => {
+        this.lookingUp.set(false);
         if (!this.name().trim() && p.name) this.name.set(p.name);
+        this.snack.open(p.name ? `Found: ${p.name}` : 'Product found', undefined, { duration: 2500 });
       },
-      error: () => {},
+      error: (e: HttpErrorResponse) => {
+        this.lookingUp.set(false);
+        this.snack.open(
+          e.status === 404 ? `No product found for ${code}.` : 'Lookup failed — are you online?',
+          'OK',
+          { duration: 4000 },
+        );
+      },
     });
   }
 
@@ -103,14 +122,32 @@ export class Shopping {
   /** Convert ticked-off rows into inventory items. Online-only (needs the
    *  inventory backend) and only for already-synced rows (those have a server
    *  id); the server soft-deletes them, which syncs back as a tombstone — we also
-   *  remove locally for immediacy. */
+   *  remove locally for immediacy. Rows whose call fails STAY on the list (no
+   *  silent local removal for something the server never inventoried), and the
+   *  outcome is summarised either way. */
   buyDone(): void {
-    for (const it of this.items().filter((i) => i.done && i.id != null)) {
-      this.api.buyShopping(it.id!).subscribe({
-        next: () => void this.store.remove(it.ulid),
-        error: () => {},
-      });
-    }
+    const done = this.items().filter((i) => i.done && i.id != null);
+    if (done.length === 0) return;
+    const buys = done.map((it) =>
+      this.api.buyShopping(it.id!).pipe(
+        tap(() => void this.store.remove(it.ulid)), // remove as each one lands
+        map(() => true),
+        catchError(() => of(false)),
+      ),
+    );
+    forkJoin(buys).subscribe((flags) => {
+      const ok = flags.filter(Boolean).length;
+      const failed = flags.length - ok;
+      if (failed > 0) {
+        this.snack.open(`${ok} added to inventory; ${failed} failed and stayed on the list.`, 'OK', {
+          duration: 5000,
+        });
+      } else {
+        this.snack.open(ok === 1 ? 'Added to inventory.' : `${ok} added to inventory.`, undefined, {
+          duration: 2500,
+        });
+      }
+    });
   }
 
   clearDone(): void {

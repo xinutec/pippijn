@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -9,6 +10,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSelectModule } from '@angular/material/select';
+import { MatSnackBar } from '@angular/material/snack-bar';
 
 import { LifeApi } from '../../life-api';
 import { ProductThumb } from '../../product-thumb';
@@ -55,6 +57,15 @@ interface ItemForm {
 export class Inventory {
   private api = inject(LifeApi);
   private dialog = inject(MatDialog);
+  private snack = inject(MatSnackBar);
+
+  /** Online-only writes must not fail into silence: announce and move on. */
+  private failed(what: string) {
+    return (e: HttpErrorResponse) => {
+      const hint = e.status === 0 ? ' — are you online?' : '';
+      this.snack.open(`Could not ${what}${hint}`, 'OK', { duration: 4000 });
+    };
+  }
 
   readonly kinds = KINDS;
   readonly categories = CATEGORIES;
@@ -136,16 +147,22 @@ export class Inventory {
 
   addPlace(): void {
     if (!this.place().name.trim()) return;
-    this.api.createLocation({ ...this.place() }).subscribe(() => {
-      this.place.set(this.emptyPlace());
-      this.reloadLocations();
+    this.api.createLocation({ ...this.place() }).subscribe({
+      next: () => {
+        this.place.set(this.emptyPlace());
+        this.reloadLocations();
+      },
+      error: this.failed('add the place'),
     });
   }
 
   deletePlace(id: number): void {
-    this.api.deleteLocation(id).subscribe(() => {
-      this.reloadLocations();
-      this.reloadItems(); // items there are now unplaced
+    this.api.deleteLocation(id).subscribe({
+      next: () => {
+        this.reloadLocations();
+        this.reloadItems(); // items there are now unplaced
+      },
+      error: this.failed('delete the place'),
     });
   }
 
@@ -156,14 +173,19 @@ export class Inventory {
     const req = id ? this.api.updateItem(id, body) : this.api.createItem(body);
     const trimmed = this.item().barcode?.trim();
     const barcode = trimmed !== undefined && trimmed !== '' ? trimmed : null;
-    req.subscribe(() => {
-      this.cancelEdit();
-      // Cache the product image (if a barcode was set) before refreshing.
-      if (barcode) {
-        this.api.lookupProduct(barcode).subscribe({ next: () => this.reloadItems(), error: () => this.reloadItems() });
-      } else {
-        this.reloadItems();
-      }
+    req.subscribe({
+      next: () => {
+        this.cancelEdit();
+        // Cache the product image (if a barcode was set) before refreshing.
+        if (barcode) {
+          this.api
+            .lookupProduct(barcode)
+            .subscribe({ next: () => this.reloadItems(), error: () => this.reloadItems() });
+        } else {
+          this.reloadItems();
+        }
+      },
+      error: this.failed('save the item'),
     });
   }
 
@@ -186,7 +208,9 @@ export class Inventory {
     this.editingId.set(null);
   }
 
-  /** Scan a barcode into the item form; look up to cache + prefill the name. */
+  /** Scan a barcode into the item form; look up to cache + prefill the name.
+   *  Every outcome is announced — a scan that ends in silence reads as "the
+   *  scanner is broken". */
   scan(): void {
     this.dialog
       .open<ScannerDialog, unknown, string | null>(ScannerDialog, { panelClass: 'scanner-pane' })
@@ -197,13 +221,23 @@ export class Inventory {
         this.api.lookupProduct(code).subscribe({
           next: (p) => {
             if (!this.item().name.trim() && p.name) this.patchItem({ name: p.name });
+            this.snack.open(p.name ? `Found: ${p.name}` : 'Product found', undefined, { duration: 2500 });
           },
-          error: () => {},
+          error: (e: HttpErrorResponse) => {
+            this.snack.open(
+              e.status === 404 ? `No product found for ${code}.` : 'Lookup failed — are you online?',
+              'OK',
+              { duration: 4000 },
+            );
+          },
         });
       });
   }
 
   deleteItem(id: number): void {
-    this.api.deleteItem(id).subscribe(() => this.reloadItems());
+    this.api.deleteItem(id).subscribe({
+      next: () => this.reloadItems(),
+      error: this.failed('delete the item'),
+    });
   }
 }
