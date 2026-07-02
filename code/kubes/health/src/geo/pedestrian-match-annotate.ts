@@ -17,14 +17,14 @@
  */
 
 import type { EnrichedSegment } from "./enriched-segment.js";
-import { rejectSpikes } from "./episode-geometry.js";
+import { holdImplausibleSpeed, rejectSpikes } from "./episode-geometry.js";
 import type { FilteredPoint } from "./kalman.js";
 import { matchImprovesDisplay, type RoadFix } from "./map-match-core.js";
 import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import { matchWalkSegment } from "./pedestrian-match.js";
 import { effectiveMode } from "./segment-util.js";
-import { escapeBuildings } from "./walk-building-escape.js";
+import { correctWalkPath } from "./walk-building-escape.js";
 import { countSharpTurns, refineMatchedPath, type WalkFix } from "./walk-smooth-map.js";
 
 /** A raw GPS fix as drawn — the same set the raw renderer uses. */
@@ -135,45 +135,68 @@ export async function annotateWalkMatches(
 		}
 		const fixes: RoadFix[] = clean.map((p) => ({ lat: p.lat, lon: p.lon, ts: p.ts }));
 		const result = matchWalkSegment(fixes, { ways });
-		if (!result) {
-			out.push(seg);
-			continue;
-		}
-		const decision = matchImprovesDisplay(fixes, result.path, { ways }, WALK_NEEDS_MATCH_M, WALK_MATCH_MAX_STRAY_M);
-		if (process.env.WALK_MATCH_DEBUG === "1") {
+		const decision = result
+			? matchImprovesDisplay(fixes, result.path, { ways }, WALK_NEEDS_MATCH_M, WALK_MATCH_MAX_STRAY_M)
+			: null;
+		if (process.env.WALK_MATCH_DEBUG === "1" && result && decision) {
 			const t = (ts: number): string => new Date(ts * 1000).toISOString().slice(11, 16);
 			console.error(
 				`[walk-match] ${t(seg.startTs)}-${t(seg.endTs)} use=${decision.use} rawOff=${decision.rawOffRoadM.toFixed(0)} matchedOff=${decision.matchedOffRoadM.toFixed(0)} stray=${decision.strayM.toFixed(0)} (needs>${WALK_NEEDS_MATCH_M}, stray≤${WALK_MATCH_MAX_STRAY_M})`,
 			);
 		}
-		if (!decision.use) {
-			out.push(seg);
-			continue;
+		const useMatch = decision?.use === true;
+
+		let drawn: Array<{ lat: number; lon: number; ts: number }>;
+		if (useMatch && result) {
+			// De-box the matched line: round its boxy ~90° graph corners toward the
+			// raw GPS with the continuous MAP refinement, keeping the vetted matched
+			// line as the single corridor (so it can't stray off-route; the clamp
+			// bounds it). Applied only when it actually reduces sharp turns — else the
+			// matched line is already smooth and is kept as-is. `WALK_REFINE_DISABLE=1`
+			// opts out.
+			drawn = result.path;
+			if (process.env.WALK_REFINE_DISABLE !== "1") {
+				const walkFixes: WalkFix[] = clean.map((p) => ({
+					lat: p.lat,
+					lon: p.lon,
+					ts: p.ts,
+					accuracyM: p.accuracy ?? undefined,
+				}));
+				const refined = refineMatchedPath(walkFixes, result.path);
+				if (refined && countSharpTurns(refined) < countSharpTurns(result.path)) drawn = refined;
+			}
+		} else {
+			// Matcher bailed or the gate rejected: the leg draws as raw GPS — which
+			// on house-lined streets can itself run through buildings. The corrector
+			// below fixes exactly that. Start from EXACTLY the line the raw renderer
+			// draws (rejectSpikes + holdImplausibleSpeed, `episode-geometry.ts`) —
+			// starting from the un-collapsed fixes would hand the corrector an
+			// indoor-smear teleport zigzag the renderer never shows, and attaching
+			// its "correction" would replace a short honest line with a long noisy
+			// one (measured: the 2026-07-01 10:44 leg, 1908 m of jitter in 10 min).
+			drawn = holdImplausibleSpeed(clean, WALK_SPEED_CAP_KMH).map((p) => ({ lat: p.lat, lon: p.lon, ts: p.ts }));
 		}
-		// De-box the matched line: round its boxy ~90° graph corners toward the raw
-		// GPS with the continuous MAP refinement, keeping the vetted matched line as
-		// the single corridor (so it can't stray off-route; the clamp bounds it).
-		// Applied only when it actually reduces sharp turns — else the matched line
-		// is already smooth and is kept as-is. `WALK_REFINE_DISABLE=1` opts out.
-		let drawn = result.path;
-		if (process.env.WALK_REFINE_DISABLE !== "1") {
-			const walkFixes: WalkFix[] = clean.map((p) => ({
-				lat: p.lat,
-				lon: p.lon,
-				ts: p.ts,
-				accuracyM: p.accuracy ?? undefined,
-			}));
-			const refined = refineMatchedPath(walkFixes, result.path);
-			if (refined && countSharpTurns(refined) < countSharpTurns(result.path)) drawn = refined;
-		}
-		// Building-escape corrector (Pippijn's case-based design): move any vertex
-		// that lands inside a house out onto the nearest street on that side. Gated
-		// while it is tuned against the referee + a real building-carrying fixture;
-		// the buildings query above always runs so capture records them.
+
+		// Building corrector (Pippijn's case-based design): densify → route a gap
+		// that crosses a block around it along the streets (case 2) → escape a lone
+		// vertex inside a house to its near-side street (case 1) → no streets, trust
+		// GPS (case 3). Honesty guards inside `correctWalkPath` (detour ratio,
+		// crossing must reduce, never worse than the input). Gated while tuned
+		// against the referee; the buildings query above always runs so capture
+		// records footprints regardless.
+		let corrected = false;
 		if (process.env.WALK_BUILDING_ESCAPE === "1" && buildings.length > 0) {
-			drawn = escapeBuildings(drawn, { ways }, buildings);
+			const fixed = correctWalkPath(drawn, { ways }, buildings);
+			corrected =
+				fixed.length !== drawn.length || fixed.some((p, k) => p.lat !== drawn[k].lat || p.lon !== drawn[k].lon);
+			if (corrected) drawn = fixed;
 		}
-		out.push({ ...seg, walkMatchedPath: drawn });
+
+		// Attach the drawn line when it is a vetted match, or when the corrector
+		// actually changed an (otherwise raw) leg — an unchanged raw leg keeps its
+		// existing raw rendering path untouched.
+		if (useMatch || corrected) out.push({ ...seg, walkMatchedPath: drawn });
+		else out.push(seg);
 	}
 	return out;
 }

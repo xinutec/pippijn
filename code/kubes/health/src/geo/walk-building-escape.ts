@@ -23,6 +23,7 @@
 
 import { metersBetween, projectPointToSegment, type RoadGeometry } from "./map-match-core.js";
 import type { BuildingFootprint } from "./osm-local.js";
+import { routeOnWalkable } from "./walkable-route.js";
 
 export interface EscapeOptions {
 	/** Step (m) past the escaped wall, so the point clears the footprint before it
@@ -154,6 +155,244 @@ export function escapeBuildings<T extends { lat: number; lon: number }>(
 		const moved = escapedPosition(p, walkable, buildings, opts);
 		return moved ? { ...p, lat: moved.lat, lon: moved.lon } : { ...p };
 	});
+}
+
+/** One corrected walk vertex. */
+export interface CorrectedPoint {
+	lat: number;
+	lon: number;
+	ts: number;
+}
+
+export interface CorrectOptions extends EscapeOptions {
+	/** Densify chords longer than this (m) before escaping, so a sparse gap has
+	 *  vertices the buildings can push (the precondition for case 1 to see a
+	 *  crossing at all). */
+	densifyStepM: number;
+	/** Honesty guard for case 2: refuse a street route longer than this multiple
+	 *  of the gap's straight-line distance — a longer "route around" is an
+	 *  invented detour, not a plausible walk. */
+	maxDetourRatio: number;
+	/** Only route when both gap anchors have a walkable way within this (m). */
+	routeSnapRadiusM: number;
+	/** Ignore residual crossings shorter than this (m) — clipping a mis-mapped
+	 *  porch corner is not worth a reroute. */
+	minCrossingM: number;
+	/** Whole-leg honesty budget: all accepted reroutes together may lengthen the
+	 *  drawn leg by at most this fraction of its original length. A single block
+	 *  detour fits comfortably; a smeared indoor leg whose every jitter would
+	 *  route around shelves exhausts the budget immediately and stays honest raw
+	 *  GPS. (This is what the per-gap ratio alone cannot bound: many small gaps,
+	 *  each individually plausible, compounding into an invented hike.) */
+	maxLegInflation: number;
+	/** Budget floor (m): a short leg that IS one block detour still gets to make
+	 *  it — the budget exists to stop compounding, not to forbid the single
+	 *  honest reroute. The per-gap `maxDetourRatio` still bounds that one route. */
+	minRouteBudgetM: number;
+}
+
+export const DEFAULT_CORRECT_OPTIONS: CorrectOptions = {
+	...DEFAULT_ESCAPE_OPTIONS,
+	densifyStepM: 6,
+	maxDetourRatio: 2.5,
+	routeSnapRadiusM: 35,
+	minCrossingM: 3,
+	maxLegInflation: 0.5,
+	minRouteBudgetM: 150,
+};
+
+/** Length (m) of the segment a→b lying inside any building (2 m midpoint
+ *  sampling — the geo-side twin of the eval metric, kept local so geo does not
+ *  depend on eval). */
+function crossedLengthM(
+	a: { lat: number; lon: number },
+	b: { lat: number; lon: number },
+	buildings: readonly BuildingFootprint[],
+): number {
+	const segLen = metersBetween(a.lat, a.lon, b.lat, b.lon);
+	if (segLen === 0 || buildings.length === 0) return 0;
+	const steps = Math.max(1, Math.ceil(segLen / 2));
+	let crossed = 0;
+	for (let k = 0; k < steps; k++) {
+		const f = (k + 0.5) / steps;
+		const mid = { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f };
+		if (containingBuilding(mid, buildings)) crossed += segLen / steps;
+	}
+	return crossed;
+}
+
+/** Total crossed length (m) over a polyline. */
+function pathCrossedM(
+	pts: ReadonlyArray<{ lat: number; lon: number }>,
+	buildings: readonly BuildingFootprint[],
+): number {
+	let total = 0;
+	for (let i = 1; i < pts.length; i++) total += crossedLengthM(pts[i - 1], pts[i], buildings);
+	return total;
+}
+
+/** Insert intermediate vertices so no chord exceeds `stepM`; timestamps are
+ *  interpolated linearly along each chord. Original vertices are kept exactly. */
+function densify(drawn: readonly CorrectedPoint[], stepM: number): CorrectedPoint[] {
+	const out: CorrectedPoint[] = [];
+	for (let i = 0; i < drawn.length; i++) {
+		if (i > 0) {
+			const a = drawn[i - 1];
+			const b = drawn[i];
+			const len = metersBetween(a.lat, a.lon, b.lat, b.lon);
+			const extra = Math.floor(len / stepM);
+			for (let k = 1; k <= extra; k++) {
+				const f = k / (extra + 1);
+				out.push({ lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f, ts: a.ts + (b.ts - a.ts) * f });
+			}
+		}
+		out.push({ ...drawn[i] });
+	}
+	return out;
+}
+
+/**
+ * The full case-based corrector for a drawn walk line:
+ *
+ *   densify → case-1 escape each vertex off a building onto its near-side street
+ *   → where a gap STILL crosses a block (no vertex inside it, or no near street
+ *   for the escape), case-2 route the gap along the walkable streets around the
+ *   block → case-3 everywhere else: trust the GPS.
+ *
+ * Honesty invariants, all enforced here:
+ *   - a reroute happens only when a street route exists, is at most
+ *     `maxDetourRatio`× the gap's straight line, AND reduces that gap's
+ *     building-crossing — otherwise the original chord is kept;
+ *   - the corrected line as a whole must cross LESS building than the input, or
+ *     the input is returned unchanged;
+ *   - timestamps are preserved on original vertices and interpolated
+ *     monotonically on inserted ones.
+ *
+ * Pure and deterministic. Returns a new array; input untouched.
+ */
+export function correctWalkPath(
+	drawn: readonly CorrectedPoint[],
+	walkable: RoadGeometry,
+	buildings: readonly BuildingFootprint[],
+	opts: CorrectOptions = DEFAULT_CORRECT_OPTIONS,
+): CorrectedPoint[] {
+	if (drawn.length < 2 || buildings.length === 0) return drawn.map((p) => ({ ...p }));
+	// Fast path: nothing crosses → nothing to do (the common clean walk pays one
+	// sampling sweep and is returned untouched, un-densified).
+	const originalCrossM = pathCrossedM(drawn, buildings);
+	if (originalCrossM < opts.minCrossingM) return drawn.map((p) => ({ ...p }));
+
+	// Densify so a crossing run has enough vertices for anchors + the escape
+	// fallback, then find each maximal run of building-crossing segments.
+	const pts = densify(drawn, opts.densifyStepM);
+	const segCross: number[] = [];
+	for (let k = 1; k < pts.length; k++) segCross.push(crossedLengthM(pts[k - 1], pts[k], buildings));
+
+	// Whole-leg reroute budget (m): total added length across ALL accepted routes.
+	let originalLenM = 0;
+	for (let k = 1; k < drawn.length; k++)
+		originalLenM += metersBetween(drawn[k - 1].lat, drawn[k - 1].lon, drawn[k].lat, drawn[k].lon);
+	let budgetM = Math.max(originalLenM * opts.maxLegInflation, opts.minRouteBudgetM);
+
+	const out: CorrectedPoint[] = [];
+	let i = 0;
+	while (i < pts.length) {
+		// Next crossing run at or after vertex i.
+		let runStart = -1;
+		for (let s = i; s < segCross.length; s++) {
+			if (segCross[s] > 0) {
+				runStart = s;
+				break;
+			}
+		}
+		if (runStart === -1) {
+			for (; i < pts.length; i++) out.push(pts[i]);
+			break;
+		}
+		let runEnd = runStart;
+		while (runEnd + 1 < segCross.length && segCross[runEnd + 1] > 0) runEnd++;
+
+		// Anchors: the nearest vertices OUTSIDE any building bracketing the run —
+		// routing from inside a footprint would start the street path dishonestly.
+		let a = runStart;
+		while (a > i && containingBuilding(pts[a], buildings)) a--;
+		let b = runEnd + 1;
+		while (b < pts.length - 1 && containingBuilding(pts[b], buildings)) b++;
+
+		// Copy the clean prefix up to (and including) the start anchor.
+		for (; i <= a; i++) out.push(pts[i]);
+
+		const anchorA = pts[a];
+		const anchorB = pts[b];
+		let runCrossM = 0;
+		for (let s = a; s < b; s++) runCrossM += segCross[s] ?? 0;
+
+		// CASE 2 FIRST — route the whole gap along the streets. Holistic: one run,
+		// one route; this is what avoids the zigzag a per-vertex escape produces
+		// when mid-block vertices are equidistant from opposite walls.
+		let replaced = false;
+		if (runCrossM >= opts.minCrossingM) {
+			const straightM = metersBetween(anchorA.lat, anchorA.lon, anchorB.lat, anchorB.lon);
+			const route = routeOnWalkable(anchorA, anchorB, walkable, {
+				snapRadiusM: opts.routeSnapRadiusM,
+				maxRouteM: Math.max(50, straightM * opts.maxDetourRatio),
+			});
+			if (route && route.length >= 2) {
+				// Honesty guards: the route must cross meaningfully less than the gap
+				// it replaces, AND its added length must fit the whole-leg budget.
+				const routeCrossM = pathCrossedM(route, buildings);
+				let total = 0;
+				const cum: number[] = [0];
+				for (let k = 1; k < route.length; k++) {
+					total += metersBetween(route[k - 1].lat, route[k - 1].lon, route[k].lat, route[k].lon);
+					cum.push(total);
+				}
+				const addedM = total - straightM;
+				if (routeCrossM < runCrossM && addedM <= budgetM) {
+					budgetM -= Math.max(0, addedM);
+					// Timestamps: interpolate along the route by cumulative distance
+					// between the anchors' real times. The route's (street-snapped)
+					// start supersedes the copied anchor position; its timestamp is kept.
+					out.pop();
+					for (let k = 0; k < route.length; k++) {
+						const f = total > 0 ? cum[k] / total : 0;
+						out.push({ lat: route[k].lat, lon: route[k].lon, ts: anchorA.ts + (anchorB.ts - anchorA.ts) * f });
+					}
+					replaced = true;
+				}
+			}
+		}
+		if (!replaced) {
+			// CASE 1 FALLBACK — no honest route around; escape each interior vertex
+			// off the building onto its near-side street. Kept only if it reduces the
+			// gap's crossing AND its added length fits the same whole-leg budget the
+			// routes draw from — an escape can zigzag between opposite walls of a
+			// wide block (or across a smeared indoor leg), inflating the path just
+			// like compounded reroutes would. Else CASE 3: the original gap stands
+			// (trust GPS).
+			const gap = pts.slice(a, b + 1);
+			const escaped = escapeBuildings(gap, walkable, buildings, opts);
+			const lenOf = (xs: readonly CorrectedPoint[]): number => {
+				let len = 0;
+				for (let k = 1; k < xs.length; k++) len += metersBetween(xs[k - 1].lat, xs[k - 1].lon, xs[k].lat, xs[k].lon);
+				return len;
+			};
+			const addedM = lenOf(escaped) - lenOf(gap);
+			let kept = gap;
+			if (pathCrossedM(escaped, buildings) < runCrossM && addedM <= budgetM) {
+				budgetM -= Math.max(0, addedM);
+				kept = escaped;
+			}
+			for (let k = 1; k <= b - a; k++) out.push(kept[k]);
+		}
+		// Continue after the end anchor (already in `out`).
+		i = b + 1;
+	}
+
+	// Whole-line honesty invariant: never return a line that crosses more than
+	// the input did.
+	if (pathCrossedM(out, buildings) > originalCrossM) return drawn.map((p) => ({ ...p }));
+	return out;
 }
 
 // re-export for callers that want the metre helper without a second import.

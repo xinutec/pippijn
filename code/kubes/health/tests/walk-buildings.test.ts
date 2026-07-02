@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { BuildingFootprint } from "../src/geo/osm-local.js";
 import { buildingCrossingM, pointInRing } from "../src/eval/walk-buildings.js";
 import type { LatLon } from "../src/eval/walk-score.js";
+import type { BuildingFootprint } from "../src/geo/osm-local.js";
 
 /**
  * `buildingCrossingM` — the headline referee metric the off-walkable proxy is
