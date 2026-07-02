@@ -23,5 +23,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=backend-build /app/dist ./dist
 COPY --from=frontend-build /app/frontend/dist/frontend/browser ./public
+# The node base image ships a nonroot "node" user (uid 1000), matched by
+# k8s/03-app.yaml. Files above are world-readable, so it can run them.
+USER node
 EXPOSE 3000
 CMD ["node", "dist/server.js"]

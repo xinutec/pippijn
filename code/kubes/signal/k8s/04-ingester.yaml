@@ -13,9 +13,27 @@ spec:
       labels:
         app: signal-ingester
     spec:
+      # Runs non-root as uid 65532 (same as the messages viewer, so both share the
+      # attachments PVC cleanly). fsGroup makes the RWO PVC writable; OnRootMismatch
+      # skips re-chowning the whole tree on every start (it only runs once, on the
+      # first non-root mount).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ingester
           image: xinutec/signal-archiver:latest
+          # No readOnlyRootFilesystem: it writes downloaded blobs under /attachments
+          # (a mounted volume) and may use /tmp scratch.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
             - name: DB_HOST
               value: signal-db

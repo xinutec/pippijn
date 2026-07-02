@@ -15,9 +15,23 @@ spec:
       labels:
         app: health-db
     spec:
+      # The official image runs as uid 999 (mysql) when started unprivileged;
+      # fsGroup 999 keeps the data dir writable.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mariadb
           image: mariadb:11.8
+          # No readOnlyRootFilesystem: mariadb writes /run/mysqld and its data dir.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           # The OSM mirror geometry (osm_lines ~1 GB + osm_points ~230 MB) is the
           # hot working set for the velocity pipeline's spatial reads (classification
           # osm, roadMatch, walkMatch, rail/bus). The stock 128 MB InnoDB buffer pool

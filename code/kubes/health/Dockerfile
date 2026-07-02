@@ -22,4 +22,8 @@ COPY --from=frontend-build /app/dist/frontend/browser public/
 # client/deploy is visible at a glance. Injected by .github/workflows/docker.yml.
 ARG GIT_SHA=dev
 ENV GIT_SHA=$GIT_SHA
+# The node base image ships a nonroot "node" user (uid 1000), matched by the
+# k8s workloads (auth Deployment + the cron Jobs). Files above are
+# world-readable, so it can run them.
+USER node
 CMD ["node", "dist/server.js"]

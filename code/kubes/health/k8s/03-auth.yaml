@@ -13,10 +13,21 @@ spec:
       labels:
         app: health-auth
     spec:
+      # Matches the nonroot "node" user in the image (uid 1000).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: auth
           image: xinutec/health-sync:latest
           command: ["node", "dist/server.js"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 3000
           env:

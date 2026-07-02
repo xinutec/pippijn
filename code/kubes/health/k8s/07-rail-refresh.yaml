@@ -17,10 +17,21 @@ spec:
       activeDeadlineSeconds: 5400
       template:
         spec:
+          # Matches the nonroot "node" user in the image (uid 1000).
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
           restartPolicy: OnFailure
           containers:
             - name: refresh
               image: xinutec/health-sync:latest
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
               command: ["node", "dist/cli/refresh-rail-routes.js"]
               env:
                 - name: DB_HOST

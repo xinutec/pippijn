@@ -21,10 +21,21 @@ spec:
       activeDeadlineSeconds: 900
       template:
         spec:
+          # Matches the nonroot "node" user in the image (uid 1000).
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
           restartPolicy: OnFailure
           containers:
             - name: decode
               image: xinutec/health-sync:latest
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
               # Decode the recent window, then rebuild presence_log from the
               # fresh decoded_days. presence_log feeds the empty-day inference
               # and the USE_CONTINUITY_CONTINUATION emission factor (below);

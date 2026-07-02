@@ -17,9 +17,23 @@ spec:
       labels:
         app: messages
     spec:
+      # Matches the nonroot user baked into the image (Dockerfile, uid 65532).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: messages
           image: xinutec/messages:latest
+          # Stateless — serves the bundle and reads the read-only attachments
+          # mount, never writes — so the whole root fs can be read-only.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 8080
           env:

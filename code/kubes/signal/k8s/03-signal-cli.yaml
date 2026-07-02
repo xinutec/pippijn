@@ -15,14 +15,23 @@ spec:
       labels:
         app: signal-cli-rest-api
     spec:
-      # signal-cli runs as uid/gid 1000; make the PVC writable by it.
+      # signal-cli runs as uid/gid 1000; enforce it and keep the PVC writable.
       securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: rest-api
           # Pinned: 0.100 (2026-06-11) bundles signal-cli >=0.14.x, which fixes
           # the secondary-device-link 409 (missing-capabilities) that presage hit.
           image: bbernhard/signal-cli-rest-api:0.100
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
             # json-rpc: long-lived daemon, the only mode that exposes
             # /v1/receive/<number> as a streaming websocket.

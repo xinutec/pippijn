@@ -23,10 +23,14 @@ FROM debian:bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+# 65532 is the conventional "nonroot" id, matched by k8s/01-app.yaml.
+RUN groupadd --gid 65532 messages \
+    && useradd --uid 65532 --gid messages --no-create-home --shell /usr/sbin/nologin messages
 WORKDIR /app
 COPY --from=backend /app/target/release/messages /usr/local/bin/messages
 COPY --from=frontend /fe/dist/messages-web/browser ./public
 ENV STATIC_DIR=/app/public \
     BIND_ADDR=0.0.0.0:8080
+USER messages
 EXPOSE 8080
 CMD ["messages"]

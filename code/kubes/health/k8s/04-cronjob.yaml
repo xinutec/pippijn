@@ -17,10 +17,21 @@ spec:
       activeDeadlineSeconds: 3300
       template:
         spec:
+          # Matches the nonroot "node" user in the image (uid 1000).
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
           restartPolicy: OnFailure
           containers:
             - name: sync
               image: xinutec/health-sync:latest
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
               command: ["node", "dist/sync.js"]
               env:
                 - name: DB_HOST

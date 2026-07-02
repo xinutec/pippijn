@@ -15,9 +15,23 @@ spec:
       labels:
         app: home-db
     spec:
+      # The official image runs as uid 999 (mysql) when started unprivileged;
+      # fsGroup 999 keeps the data dir writable.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mariadb
           image: mariadb:11.8
+          # No readOnlyRootFilesystem: mariadb writes /run/mysqld and its data dir.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
             - name: MARIADB_DATABASE
               value: home
