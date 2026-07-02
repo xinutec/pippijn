@@ -2,7 +2,21 @@
   <mat-progress-bar mode="indeterminate" />
 } @else if (me(); as user) {
   <header class="topbar">
-    <button class="ham-btn" type="button" mat-icon-button [matMenuTriggerFor]="moreMenu" aria-label="Menu">
+    <button
+      class="ham-btn"
+      type="button"
+      mat-icon-button
+      [matMenuTriggerFor]="moreMenu"
+      [matBadge]="alerts.conflictCount()"
+      [matBadgeHidden]="alerts.conflictCount() === 0"
+      matBadgeColor="warn"
+      matBadgeSize="small"
+      [attr.aria-label]="
+        alerts.conflictCount() > 0
+          ? 'Menu — ' + alerts.conflictCount() + ' sync conflict(s) need attention'
+          : 'Menu'
+      "
+    >
       <mat-icon>menu</mat-icon>
     </button>
     <mat-menu #moreMenu="matMenu">
@@ -10,6 +24,9 @@
         <a mat-menu-item [routerLink]="m.path">
           <mat-icon>{{ m.icon }}</mat-icon>
           <span>{{ m.label }}</span>
+          @if (m.path === '/conflicts' && alerts.conflictCount() > 0) {
+            <span class="menu-badge">{{ alerts.conflictCount() }}</span>
+          }
         </a>
       }
     </mat-menu>

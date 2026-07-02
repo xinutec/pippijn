@@ -1,10 +1,12 @@
 import { Component, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { MatBadgeModule } from '@angular/material/badge';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
+import { Alerts } from './alerts';
 import { LifeApi } from './life-api';
 import { Me } from './models';
 import { SwUpdates } from './sw-updates';
@@ -23,6 +25,7 @@ interface NavItem {
     RouterOutlet,
     RouterLink,
     RouterLinkActive,
+    MatBadgeModule,
     MatButtonModule,
     MatIconModule,
     MatMenuModule,
@@ -32,6 +35,7 @@ interface NavItem {
 export class App {
   private api = inject(LifeApi);
   private swUpdates = inject(SwUpdates);
+  protected readonly alerts = inject(Alerts);
 
   readonly me = signal<Me | null>(null);
   readonly loading = signal(true);
@@ -61,6 +65,7 @@ export class App {
         this.me.set(m);
         this.loading.set(false);
         this.warmOfflineCache();
+        this.alerts.refreshConflicts();
       },
       error: () => {
         this.me.set(null);

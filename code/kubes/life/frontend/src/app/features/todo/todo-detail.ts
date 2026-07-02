@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   MatBottomSheet,
@@ -62,7 +62,22 @@ interface Group {
     MatListModule,
   ],
 })
-export class TodoDetail {
+export class TodoDetail implements OnDestroy {
+  private deleting = false;
+
+  // Dismissing the sheet (backdrop tap / swipe) may not fire the title/notes
+  // blur handlers, which is where edits are saved — flush on teardown so an
+  // in-progress edit isn't lost. Skipped when the to-do is being deleted.
+  ngOnDestroy(): void {
+    if (this.deleting) return;
+    const t = this.todo();
+    if (!t) return;
+    const title = this.title().trim();
+    if (title && title !== t.title) void this.store.patch(this.ulid(), { title });
+    const notes = this.notes().trim() || null;
+    if (notes !== (t.notes ?? null)) void this.store.patch(this.ulid(), { notes });
+  }
+
   private ref = inject(MatBottomSheetRef<TodoDetail>);
   private data = inject<{ ulid: string }>(MAT_BOTTOM_SHEET_DATA);
   private store = inject(TodoStore);
@@ -192,6 +207,7 @@ export class TodoDetail {
   remove(): void {
     const key = this.ulid();
     const doc = this.todo();
+    this.deleting = true; // don't let ngOnDestroy re-save the row we're removing
     void this.store.remove(key);
     this.ref.dismiss();
     if (!doc) return;

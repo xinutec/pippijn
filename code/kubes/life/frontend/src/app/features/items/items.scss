@@ -1,3 +1,17 @@
+.controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+
+  .filter {
+    flex: 1 1 12rem;
+  }
+  .sort {
+    flex: 0 0 auto;
+  }
+}
+
 .count {
   opacity: 0.7;
   margin: 0.25rem 0 0.5rem;

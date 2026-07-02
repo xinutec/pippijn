@@ -55,4 +55,30 @@ describe('Items — complete list', () => {
     expect(text).toContain('Yeo Valley Yoghurt'); // catalog-linked
     expect(text).toContain('Leftover soup'); // freeform
   });
+
+  function mount() {
+    const api = { items: () => of(ITEMS), locations: () => of([]), productImageUrl: (b: string) => b };
+    TestBed.configureTestingModule({ imports: [Items], providers: [{ provide: LifeApi, useValue: api }] });
+    const fixture = TestBed.createComponent(Items);
+    fixture.autoDetectChanges();
+    return fixture;
+  }
+
+  it('filters by name/brand and reports the match count', async () => {
+    const fixture = mount();
+    await fixture.whenStable();
+    fixture.componentInstance.query.set('yeo');
+    expect(fixture.componentInstance.visible().map((i) => i.id)).toEqual([1]);
+    expect(fixture.componentInstance.count()).toBe(1);
+    fixture.componentInstance.query.set('nope');
+    expect(fixture.componentInstance.count()).toBe(0);
+  });
+
+  it('sorts by expiry (soonest first, undated last)', async () => {
+    const fixture = mount();
+    await fixture.whenStable();
+    fixture.componentInstance.sort.set('expiry');
+    // Item 1 has an expiry; item 2 (undated) sinks to the bottom.
+    expect(fixture.componentInstance.visible().map((i) => i.id)).toEqual([1, 2]);
+  });
 });

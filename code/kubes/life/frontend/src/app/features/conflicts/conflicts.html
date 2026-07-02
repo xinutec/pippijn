@@ -12,19 +12,26 @@
     Both devices edited the same thing while apart. One version was kept — nothing was thrown away;
     pick which value should stand.
   </p>
-  <mat-list>
-    @for (e of entries(); track e.id) {
-      <mat-list-item class="conflict" lines="3">
-        <span matListItemTitle>{{ e.label }} · {{ e.field }}</span>
-        <span matListItemLine>Kept: {{ fmt(e.mine) }} — Other device: {{ fmt(e.theirs) }}</span>
-        <span matListItemLine>{{ e.created_at | date: 'medium' }}</span>
-        <span matListItemMeta class="actions">
-          <button mat-button (click)="keepMine(e)" [disabled]="busy().has(e.id)">Keep</button>
-          <button mat-button (click)="useTheirs(e)" [disabled]="busy().has(e.id)">
-            Use other
-          </button>
-        </span>
-      </mat-list-item>
-    }
-  </mat-list>
+  @for (e of entries(); track e.id) {
+    <mat-card appearance="outlined" class="conflict">
+      <mat-card-content>
+        <div class="what">{{ e.label }} <span class="field">· {{ e.field }}</span></div>
+        <div class="values">
+          <div class="val kept">
+            <span class="tag">Kept (this device)</span><span class="v">{{ fmt(e.mine) }}</span>
+          </div>
+          <div class="val other">
+            <span class="tag">Other device</span><span class="v">{{ fmt(e.theirs) }}</span>
+          </div>
+        </div>
+        <div class="when">{{ e.created_at | date: 'medium' }}</div>
+      </mat-card-content>
+      <mat-card-actions align="end">
+        <button mat-button (click)="keepMine(e)" [disabled]="busy().has(e.id)">Keep this</button>
+        <button mat-flat-button (click)="useTheirs(e)" [disabled]="busy().has(e.id)">
+          Use theirs
+        </button>
+      </mat-card-actions>
+    </mat-card>
+  }
 }

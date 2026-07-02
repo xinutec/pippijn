@@ -3,6 +3,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { Router } from '@angular/router';
 import type { RxConflictHandler } from 'rxdb';
 
+import { Alerts } from '../alerts';
 import { LifeApi } from '../life-api';
 import { ConflictKind } from '../models';
 
@@ -63,6 +64,7 @@ export class ConflictReporter {
   private api = inject(LifeApi);
   private snack = inject(MatSnackBar);
   private router = inject(Router);
+  private alerts = inject(Alerts);
 
   report(kind: ConflictKind, ulid: string, label: string, conflicts: FieldConflict[]): void {
     for (const c of conflicts) {
@@ -81,6 +83,7 @@ export class ConflictReporter {
           error: () => console.warn('[conflict] report failed', kind, ulid, c.field),
         });
     }
+    this.alerts.addConflicts(conflicts.length); // badge appears immediately
     this.snack
       .open(`Edits collided on “${label}” — kept this device's version.`, 'Review', {
         duration: 8000,

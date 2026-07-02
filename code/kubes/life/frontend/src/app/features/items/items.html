@@ -7,9 +7,33 @@
 } @else if (items().length === 0) {
   <p class="empty">No items yet — add them from Inventory, or scan on the Buy tab.</p>
 } @else {
-  <p class="count">{{ count() }} item{{ count() === 1 ? '' : 's' }}</p>
+  <div class="controls">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter">
+      <mat-label>Filter</mat-label>
+      <input matInput [ngModel]="query()" (ngModelChange)="query.set($event)" placeholder="name, brand, place…" />
+      @if (query()) {
+        <button matSuffix mat-icon-button (click)="query.set('')" aria-label="Clear filter">
+          <mat-icon>close</mat-icon>
+        </button>
+      }
+    </mat-form-field>
+    <mat-button-toggle-group
+      [ngModel]="sort()"
+      (ngModelChange)="sort.set($event)"
+      aria-label="Sort by"
+      class="sort"
+    >
+      <mat-button-toggle value="name">A–Z</mat-button-toggle>
+      <mat-button-toggle value="expiry">Expiry</mat-button-toggle>
+    </mat-button-toggle-group>
+  </div>
+
+  <p class="count">{{ count() }} item{{ count() === 1 ? '' : 's' }}{{ query() ? ' match' : '' }}</p>
+  @if (count() === 0) {
+    <p class="empty">Nothing matches “{{ query() }}”.</p>
+  }
   <mat-list>
-    @for (it of items(); track it.id) {
+    @for (it of visible(); track it.id) {
       <mat-list-item lines="2">
         <app-product-thumb matListItemAvatar [barcode]="it.barcode" [hasImage]="it.has_image" />
         <span matListItemTitle>

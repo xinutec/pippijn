@@ -1,11 +1,11 @@
 import { Component, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
-import { MatIconModule } from '@angular/material/icon';
-import { MatListModule } from '@angular/material/list';
+import { MatCardModule } from '@angular/material/card';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
+import { Alerts } from '../../alerts';
 import { LifeApi } from '../../life-api';
 import { ConflictEntry } from '../../models';
 import { SHOPPING_MERGE_FIELDS, ShoppingStore } from '../../sync/shopping-store';
@@ -22,13 +22,14 @@ const TODO_PATCHABLE: ReadonlySet<string> = new Set(TODO_MERGE_FIELDS);
   selector: 'app-conflicts',
   templateUrl: './conflicts.html',
   styleUrl: './conflicts.scss',
-  imports: [DatePipe, MatButtonModule, MatIconModule, MatListModule, MatProgressBarModule],
+  imports: [DatePipe, MatButtonModule, MatCardModule, MatProgressBarModule],
 })
 export class Conflicts {
   private api = inject(LifeApi);
   private snack = inject(MatSnackBar);
   private shopping = inject(ShoppingStore);
   private todo = inject(TodoStore);
+  private alerts = inject(Alerts);
 
   readonly entries = signal<ConflictEntry[]>([]);
   /** Distinguish "still loading" from "no conflicts" — no false empty flash. */
@@ -39,6 +40,7 @@ export class Conflicts {
     this.api.conflicts().subscribe({
       next: (entries) => {
         this.entries.set(entries);
+        this.alerts.setConflicts(entries.length); // reconcile the menu badge
         this.loaded.set(true);
       },
       error: () => {
@@ -95,6 +97,7 @@ export class Conflicts {
             return next;
           });
           this.entries.update((list) => list.filter((x) => x.id !== e.id));
+          this.alerts.setConflicts(this.entries().length);
         },
         error: () => {
           this.busy.update((s) => {

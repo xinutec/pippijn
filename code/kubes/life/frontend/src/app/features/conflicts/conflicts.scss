@@ -4,7 +4,42 @@
   font-size: 0.9rem;
 }
 
-.actions {
-  display: flex;
-  gap: 0.25rem;
+.conflict {
+  margin-bottom: 0.75rem;
+
+  .what {
+    font-weight: 500;
+  }
+  .field {
+    opacity: 0.6;
+    font-weight: 400;
+  }
+
+  .values {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0.5rem 0;
+  }
+  .val {
+    display: flex;
+    flex-direction: column;
+
+    .tag {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      opacity: 0.6;
+    }
+    .v {
+      font-variant-numeric: tabular-nums;
+    }
+    &.other .v {
+      color: var(--mat-sys-primary);
+    }
+  }
+
+  .when {
+    font-size: 0.75rem;
+    opacity: 0.55;
+  }
 }
