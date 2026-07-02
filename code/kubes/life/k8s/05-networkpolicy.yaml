@@ -25,6 +25,14 @@ spec:
 # other pod can hit the API directly and bypass the ingress' TLS termination.
 # Selected by the namespace's automatic kubernetes.io/metadata.name label
 # rather than chart pod labels, which could change across chart versions.
+#
+# ⚠️ NOT YET APPLIED (2026-07-02). k3s enforces NetworkPolicy via kube-router,
+# which does NOT exempt node-sourced kubelet health-probe traffic — this policy
+# as written would drop the liveness/readiness probes, mark the pod NotReady,
+# and take the site down. Before applying, add an ingress rule that also admits
+# the probe source (e.g. an ipBlock for the node/pod CIDR, or the host), and
+# verify probes stay green on a live pod. The DB policy above is safe and IS
+# applied; only this app-ingress one is held.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
