@@ -45,8 +45,9 @@ add new ones under the right section. Architecture/rationale lives in
       DB locations map to scene geometry.
 - [ ] **CalDAV** — read the Brent bins feed; write "shop trip" `VEVENT`s with a
       location. Needs the Login-Flow-v2 app-password link (overview §2b, §5).
-- [ ] **Frontend test runner** — none yet (vitest, like recall). Cover the pure
-      helpers (scene-geometry, matching) + key components.
+- [x] **Frontend test runner** — vitest via `ng test` (43 specs as of
+      2026-07-02: sw-updates, conflict merge, trash/conflicts screens, todo
+      graph, stores, settings, shopping scan).
 
 ## Backlog
 
@@ -99,6 +100,59 @@ add new ones under the right section. Architecture/rationale lives in
       Tube case. Verified by `frontend/e2e/offline*.spec.ts` (npm run e2e) + on
       prod. Still online-only (writes/fresh data): Find/search, editing.
 - [ ] **PWA polish** — full icon set (png/maskable/favicon, not just svg).
+
+## 2026-07-02 review findings (full list, priority-ordered)
+
+From the six-agent review (backend, security, frontend, UX, data layer,
+Android/infra). Batches already shipped: security quick fixes + WebView
+hardening + SW update-on-visibility + lookup/buy feedback (A), restorable
+deletion/trash (B), field-level sync merge + conflict log (C).
+
+1. - [ ] **TodoGraph stale catalogs** — items/recipes/places fetched once at
+      injection; a just-added item can't be linked until a full reload.
+2. - [ ] **`depends_on` non-todo targets never block** — a to-do depending on
+      an unbought shopping item / uncooked recipe shows "ready".
+3. - [ ] **Loading vs empty conflated** — lists flash "No items yet" on cold
+      load before data arrives; needs loaded-state + progress indicator.
+4. - [ ] **Sha-tagged Docker images** — `:latest`-only means rollback is
+      impossible; CI already has `github.sha`.
+5. - [ ] **Non-root container + k8s securityContext** — app runs as root, no
+      hardening context on app or DB pods.
+6. - [ ] **Frontend CI gate** — eslint/vitest/build run only in the local
+      pre-push hook, not in CI (backend has `life-verify`).
+7. - [ ] **Thumb-reachable Add** — top-anchored multi-field add forms → FAB +
+      bottom sheet (Buy/To-do/Inventory/Recipes).
+8. - [ ] **Scanner: torch + manual entry** — no flashlight toggle, no "type it
+      instead" fallback in the scanner dialog.
+9. - [ ] **Expiry urgency** — raw ISO dates; want "expired"/"3 days" coloring
+      (ties into the Next-up expiry view).
+10. - [ ] **Search screen fixes** — suffix icons aren't real buttons
+      (a11y/keyboard); blank search box is the landing screen (live search or
+      content home?).
+11. - [ ] **`todo_links` duplicate edges** — two offline devices adding the
+      same connection both survive sync (client-only dedupe); dedupe on push +
+      migration cleanup.
+12. - [ ] **Pin utf8mb4 charset/collation** — tables ride the server default;
+      emoji/non-Latin correctness is luck.
+13. - [ ] **HTTP-layer router tests** — 401 paths, error mapping, body limits
+      untested end-to-end (repos + pure fns are covered).
+14. - [ ] **Dedupe replication boilerplate + test guardAuth/migrations** — 3
+      near-identical ~50-line blocks in the sync stores; auth-guard branches
+      and RxDB migration strategies untested.
+15. - [ ] **Row-action consistency + tap targets** — three delete affordances
+      across screens; dense to-do rows with sub-48px targets.
+16. - [ ] **DB resource limits + NetworkPolicy** — MariaDB unbounded and
+      reachable from any pod in the cluster.
+17. - [ ] **Magic-byte image sniffing** — uploads/OFF fetches trust declared
+      Content-Type (raster allowlist + nosniff/CSP already shipped; this is
+      depth).
+18. - [ ] **Session sweeper** — expired session rows are only reaped lazily on
+      re-presentation; abandoned ones accumulate.
+19. - [ ] **Polish basket** — validate `NC_BASE_URL` at boot (panics at request
+      time today); escape LIKE wildcards in search; todo-detail title save on
+      sheet dismiss; "scenes/house.json" in end-user copy; items sort/filter;
+      `allowBackup=false` (needs the dev-lint canonical manifest updated too);
+      `setWebContentsDebuggingEnabled` for adb debugging of the wrapper.
 
 ## Open decisions
 
