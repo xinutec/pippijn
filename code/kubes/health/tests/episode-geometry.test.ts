@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { type CapturedDay, inputsFromFixture, parseCapturedDay } from "../src/cli/fixture-day.js";
 import { buildEpisodes, type RawFix } from "../src/geo/episode-geometry.js";
 import type { FilteredPoint } from "../src/geo/kalman.js";
+import { pathLength } from "../src/geo/map-match-core.js";
 import { computeVelocityFromInputs, type EnrichedSegment, type VelocityResult } from "../src/geo/velocity.js";
 import type { DayState, DayStateMode } from "../src/sleep/day-state.js";
 import { describeWithFixture } from "./helpers/describe-with-fixture.js";
@@ -265,9 +266,15 @@ describeWithFixture("buildEpisodes — train-tail bleed into a walk (real data)"
 
 		const win = windowFixes(walk);
 		expect(win.some((f) => f.speed_kmh > 40)).toBe(true); // the bleed is in the raw data…
-		expect(walk.points.length).toBeLessThan(win.length); // …and the filter dropped some…
-		expect(walk.points.length).toBeGreaterThan(0); // …but the genuine slow walk survives.
-		// Every drawn point's source fix is plausibly walking.
+		expect(walk.points.length).toBeGreaterThan(0); // …but the genuine slow walk survives…
+		// …and the bleed is NOT drawn, whichever arm drew the line (the raw
+		// fallback filters fast fixes; the matcher/corrector never routes the
+		// vehicle leg): the drawn line's implied speed must be walk-plausible,
+		// not the 40+ km/h the bled fixes would force.
+		const lenM = pathLength(walk.points);
+		const drawnKmh = (3.6 * lenM) / Math.max(1, walk.endTs - walk.startTs);
+		expect(drawnKmh).toBeLessThanOrEqual(12);
+		// Every drawn point that coincides with a source fix is plausibly walking.
 		for (const p of walk.points) {
 			const s = speedOf(p);
 			if (s !== undefined) expect(s).toBeLessThanOrEqual(12);

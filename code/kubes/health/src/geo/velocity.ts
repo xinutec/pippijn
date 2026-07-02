@@ -674,6 +674,13 @@ export async function computeVelocityFromInputs(
 
 	const N_SAMPLES = 5;
 
+	// Moving-segment CITY lookups run at area zoom on a coarse coordinate
+	// grid: city is an area-scale fact, and the ~110 m cell makes habitual
+	// endpoints (doorstep, station forecourt) share one cache entry across
+	// days instead of re-geocoding every fresh centroid over live HTTP.
+	const CITY_ZOOM = 16;
+	const cityGrid = (n: number): number => Math.round(n * 1000) / 1000;
+
 	// Kick off biometrics + per-user mode-signature loads in parallel with OSM
 	// enrichment — all I/O-bound. The biometric streams are needed for cadence-
 	// based mode correction (between OSM enrichment and merge) plus the final
@@ -892,8 +899,17 @@ export async function computeVelocityFromInputs(
 				// Endpoint reverseGeocode: tag the segment with a city iff
 				// both endpoints agree. A walk inside one city gets a city
 				// header; a drive between two cities stays untagged.
-				inputs.osm.reverseGeocode(movingStart.lat, movingStart.lon),
-				inputs.osm.reverseGeocode(movingEnd.lat, movingEnd.lon),
+				//
+				// City needs AREA-level truth, so query zoom 16 at a ~110 m
+				// grid coordinate — not the old building-level zoom 18 at the
+				// raw endpoint. Raw endpoints never repeat between days, so
+				// every fresh compute paid live Nominatim HTTP here (measured
+				// 2026-07-02: ~14 endpoint misses ≈ the 13.5 s osm pass);
+				// habitual endpoints now share one cached cell forever. The
+				// only cost is a city boundary crossing a cell, and the
+				// both-endpoints-must-agree rule already absorbs that.
+				inputs.osm.reverseGeocode(cityGrid(movingStart.lat), cityGrid(movingStart.lon), CITY_ZOOM),
+				inputs.osm.reverseGeocode(cityGrid(movingEnd.lat), cityGrid(movingEnd.lon), CITY_ZOOM),
 			]);
 			// Dedup by (type, subtype, name) but keep the *minimum* distance
 			// across sample points. A road we brushed past at one sample
