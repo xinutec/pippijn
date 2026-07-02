@@ -9,7 +9,7 @@ import { expect, test, type Page } from "@playwright/test";
  * can't see.
  */
 
-const ME = { user_id: "pippijn", display_name: "Pippijn van Steenhoven" };
+const ME = { user_id: "u1", display_name: "Test User" };
 const CONVERSATIONS = [
   { origin: "signal", id: "dm:a", name: "Alice", kind: "dm", message_count: 5, last_ts: 1_717_000_000_000 },
   { origin: "gchat", id: "gc1", name: "Bob", kind: "dm", message_count: 3, last_ts: 1_717_100_000_000 },

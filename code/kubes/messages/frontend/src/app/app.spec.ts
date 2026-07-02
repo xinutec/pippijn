@@ -28,7 +28,7 @@ const CONVS: Conversation[] = [
   { origin: 'gchat', id: 'gc1', name: 'Bob', kind: 'dm', message_count: 3, last_ts: 300 },
 ];
 
-const ME: Me = { user_id: 'pippijn', display_name: 'Pippijn' };
+const ME: Me = { user_id: 'u1', display_name: 'Test User' };
 
 function makeApi(over: { search?: ReturnType<typeof vi.fn> } = {}) {
   return {
@@ -55,7 +55,7 @@ function setup(api: MessagesApi): { app: App; router: Router } {
 describe('App', () => {
   it('loads the user and conversations on init', () => {
     const { app } = setup(makeApi());
-    expect(app.me()?.user_id).toBe('pippijn');
+    expect(app.me()?.user_id).toBe('u1');
     expect(app.conversations().length).toBe(2);
   });
 
