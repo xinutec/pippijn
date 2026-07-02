@@ -700,46 +700,83 @@ class MinHeap {
 	}
 }
 
-/** A radius-bounded Dijkstra from one source vertex. Vertices past `maxRadiusM`
- *  are left unreached (`Infinity`), keeping each search local. */
-function dijkstraFrom(graph: RoadGraph, source: number, maxRadiusM: number): { dist: Float64Array; prev: Int32Array } {
-	const n = graph.vertices.length;
-	const dist = new Float64Array(n).fill(Number.POSITIVE_INFINITY);
-	const prev = new Int32Array(n).fill(-1);
-	const done = new Uint8Array(n);
-	dist[source] = 0;
-	const heap = new MinHeap();
-	heap.push(0, source);
-	while (heap.size > 0) {
-		const cur = heap.pop();
-		if (cur === undefined) break;
-		const u = cur.v;
-		if (done[u]) continue;
-		done[u] = 1;
-		if (cur.p > maxRadiusM) break;
-		for (const e of graph.adj[u]) {
-			const nd = cur.p + e.w;
-			if (nd < dist[e.to]) {
-				dist[e.to] = nd;
-				prev[e.to] = u;
-				heap.push(nd, e.to);
-			}
-		}
+/** A lazily-settled radius-bounded Dijkstra from one source vertex.
+ *
+ *  The eager version settled the ENTIRE weighted radius disc per source —
+ *  `(maxStep·detourFactor + detourSlackM)·corridorMaxPenalty` is ~23 km
+ *  weighted for an 80 m walk fix gap, so every source explored most of the
+ *  local graph while `routeBetween` only ever reads a handful of candidate
+ *  end vertices a few hundred weighted metres away. This version pauses as
+ *  soon as the requested target settles and resumes for later targets.
+ *
+ *  Reads are byte-identical to the eager run: Dijkstra settles vertices in
+ *  nondecreasing distance order, so a settled target's `dist`/`prev` chain is
+ *  final regardless of where the search paused; and the one tentative case —
+ *  the eager version let `routeBetween` read a finite-but-unsettled `dist`
+ *  for a vertex past the radius break — only occurs after `exhausted`, where
+ *  this version has performed exactly the eager run's operation sequence. */
+class LazyDijkstra {
+	readonly dist: Float64Array;
+	readonly prev: Int32Array;
+	private readonly done: Uint8Array;
+	private readonly heap = new MinHeap();
+	private exhausted = false;
+	constructor(
+		private readonly graph: RoadGraph,
+		source: number,
+		private readonly maxRadiusM: number,
+	) {
+		const n = graph.vertices.length;
+		this.dist = new Float64Array(n).fill(Number.POSITIVE_INFINITY);
+		this.prev = new Int32Array(n).fill(-1);
+		this.done = new Uint8Array(n);
+		this.dist[source] = 0;
+		this.heap.push(0, source);
 	}
-	return { dist, prev };
+
+	/** Run the search forward until `target` settles (its `dist`/`prev` are
+	 *  final) or the radius/heap is exhausted (remaining reads are tentative,
+	 *  matching the eager version's post-break state). */
+	settle(target: number): void {
+		if (this.done[target] === 1 || this.exhausted) return;
+		while (this.heap.size > 0) {
+			const cur = this.heap.pop();
+			if (cur === undefined) break;
+			const u = cur.v;
+			if (this.done[u]) continue;
+			this.done[u] = 1;
+			if (cur.p > this.maxRadiusM) {
+				// Same semantics as the eager `break`: the over-radius vertex is
+				// marked done but never relaxed, and the search ends for good.
+				this.exhausted = true;
+				return;
+			}
+			for (const e of this.graph.adj[u]) {
+				const nd = cur.p + e.w;
+				if (nd < this.dist[e.to]) {
+					this.dist[e.to] = nd;
+					this.prev[e.to] = u;
+					this.heap.push(nd, e.to);
+				}
+			}
+			if (u === target) return;
+		}
+		this.exhausted = true;
+	}
 }
 
-/** Memoised radius-bounded Dijkstra cache, scoped to one match run. */
+/** Memoised lazily-settled Dijkstra cache, scoped to one match run. Callers
+ *  must `settle(target)` before reading `dist[target]`/walking `prev`. */
 class RouteCache {
-	private readonly cache = new Map<number, { dist: Float64Array; prev: Int32Array }>();
+	private readonly cache = new Map<number, LazyDijkstra>();
 	constructor(
 		private readonly graph: RoadGraph,
 		private readonly maxRadiusM: number,
 	) {}
-	from(source: number): { dist: Float64Array; prev: Int32Array } {
+	from(source: number): LazyDijkstra {
 		let r = this.cache.get(source);
 		if (r === undefined) {
-			r = dijkstraFrom(this.graph, source, this.maxRadiusM);
+			r = new LazyDijkstra(this.graph, source, this.maxRadiusM);
 			this.cache.set(source, r);
 		}
 		return r;
@@ -792,15 +829,16 @@ function routeBetween(
 		{ vid: b.seg.v, offset: (1 - b.t) * b.seg.lengthM * offsetFactor(b, b.seg.v) },
 	];
 	for (const ae of aEnds) {
-		const { dist, prev } = cache.from(ae.vid);
+		const rd = cache.from(ae.vid);
 		for (const be of bEnds) {
-			const mid = dist[be.vid];
+			rd.settle(be.vid);
+			const mid = rd.dist[be.vid];
 			if (!Number.isFinite(mid)) continue;
 			const weighted = ae.offset + mid + be.offset;
 			if (best && weighted >= best.weighted) continue;
 			// Reconstruct the vertex path ae.vid → be.vid.
 			const idPath: number[] = [];
-			for (let v = be.vid; v !== -1; v = prev[v]) idPath.push(v);
+			for (let v = be.vid; v !== -1; v = rd.prev[v]) idPath.push(v);
 			idPath.reverse();
 			if (idPath[0] !== ae.vid) continue; // unreached / disconnected
 			const verts: Pt[] = [{ lat: a.lat, lon: a.lon }];
