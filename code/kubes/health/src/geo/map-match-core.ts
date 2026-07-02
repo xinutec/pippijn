@@ -187,17 +187,31 @@ class TrackCorridor {
 /** Sample spacing (m) along an edge for the in-building test. */
 const BUILDING_SAMPLE_STEP_M = 3;
 
+/** Grid cell size (m) for the building-ring spatial index. House-sized rings
+ *  land in 1–4 cells; a point lookup reads exactly one bucket. */
+const BUILDING_GRID_CELL_M = 48;
+
 /**
  * The impassable-building layer for edge weighting: an edge whose in-building
  * portion is unsupported by the raw fixes costs `crossFactor` extra, steering
  * the router around the block. A fix within `supportM` of every in-building
  * sample keeps the edge unpenalised — a concourse or arcade the walker really
- * crossed draws as crossed. Per-ring bounding boxes keep the common case (an
- * edge nowhere near a building) cheap.
+ * crossed draws as crossed.
+ *
+ * A real day carries thousands of rings and `factor` runs per candidate pair
+ * inside the Viterbi (measured 60+s/day when each sample scanned every ring's
+ * bbox), so lookups go through a grid index — each ring is bucketed into every
+ * cell its bbox covers and a point probes exactly one bucket — and results are
+ * memoised per (a, b) endpoint pair (the same candidate offsets recur across a
+ * whole Viterbi row).
  */
 class BuildingPenalty {
 	private readonly rings: BuildingRing[];
-	private readonly boxes: Array<{ minLat: number; maxLat: number; minLon: number; maxLon: number }>;
+	private readonly boxes: Array<{ minLat: number; maxLat: number; minLon: number; maxLon: number }> = [];
+	private readonly buckets = new Map<string, number[]>();
+	private readonly cellLat: number;
+	private readonly cellLon: number;
+	private readonly memo = new Map<string, number>();
 	constructor(
 		buildings: readonly BuildingRing[],
 		private readonly fixes: ReadonlyArray<{ lat: number; lon: number }>,
@@ -205,23 +219,36 @@ class BuildingPenalty {
 		private readonly supportM: number,
 	) {
 		this.rings = buildings.filter((r) => r.length >= 3).map((r) => [...r]);
-		this.boxes = this.rings.map((r) => {
+		const refLat = this.rings[0]?.[0]?.lat ?? 51;
+		this.cellLat = BUILDING_GRID_CELL_M / 111_320;
+		this.cellLon = BUILDING_GRID_CELL_M / (111_320 * Math.cos((refLat * Math.PI) / 180));
+		for (let i = 0; i < this.rings.length; i++) {
 			let minLat = Number.POSITIVE_INFINITY;
 			let maxLat = Number.NEGATIVE_INFINITY;
 			let minLon = Number.POSITIVE_INFINITY;
 			let maxLon = Number.NEGATIVE_INFINITY;
-			for (const p of r) {
+			for (const p of this.rings[i]) {
 				if (p.lat < minLat) minLat = p.lat;
 				if (p.lat > maxLat) maxLat = p.lat;
 				if (p.lon < minLon) minLon = p.lon;
 				if (p.lon > maxLon) maxLon = p.lon;
 			}
-			return { minLat, maxLat, minLon, maxLon };
-		});
+			this.boxes.push({ minLat, maxLat, minLon, maxLon });
+			for (let cy = Math.floor(minLat / this.cellLat); cy <= Math.floor(maxLat / this.cellLat); cy++) {
+				for (let cx = Math.floor(minLon / this.cellLon); cx <= Math.floor(maxLon / this.cellLon); cx++) {
+					const key = `${cy},${cx}`;
+					const b = this.buckets.get(key);
+					if (b) b.push(i);
+					else this.buckets.set(key, [i]);
+				}
+			}
+		}
 	}
 
 	private inAnyRing(lat: number, lon: number): boolean {
-		for (let i = 0; i < this.rings.length; i++) {
+		const bucket = this.buckets.get(`${Math.floor(lat / this.cellLat)},${Math.floor(lon / this.cellLon)}`);
+		if (!bucket) return false;
+		for (const i of bucket) {
 			const b = this.boxes[i];
 			if (lat < b.minLat || lat > b.maxLat || lon < b.minLon || lon > b.maxLon) continue;
 			if (pointInRingCore({ lat, lon }, this.rings[i])) return true;
@@ -237,17 +264,26 @@ class BuildingPenalty {
 	}
 
 	/** Weight multiplier for the edge a→b: `crossFactor` when some in-building
-	 *  sample of the edge has no supporting fix, else 1. */
+	 *  sample of the edge has no supporting fix, else 1. Memoised — routeBetween
+	 *  asks about the same candidate↔endpoint hops across the whole Viterbi row. */
 	factor(aLat: number, aLon: number, bLat: number, bLon: number): number {
+		const key = `${aLat},${aLon},${bLat},${bLon}`;
+		const hit = this.memo.get(key);
+		if (hit !== undefined) return hit;
+		let out = 1;
 		const len = metersBetween(aLat, aLon, bLat, bLon);
 		const n = Math.max(1, Math.ceil(len / BUILDING_SAMPLE_STEP_M));
 		for (let k = 0; k <= n; k++) {
 			const t = k / n;
 			const lat = aLat + (bLat - aLat) * t;
 			const lon = aLon + (bLon - aLon) * t;
-			if (this.inAnyRing(lat, lon) && !this.fixSupports(lat, lon)) return this.crossFactor;
+			if (this.inAnyRing(lat, lon) && !this.fixSupports(lat, lon)) {
+				out = this.crossFactor;
+				break;
+			}
 		}
-		return 1;
+		this.memo.set(key, out);
+		return out;
 	}
 }
 

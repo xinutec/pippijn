@@ -87,6 +87,21 @@ function nearestWalkable(
 	return best;
 }
 
+/** Is any walkable way within `maxM` of `p`? The early-exit form of
+ *  {@link nearestWalkable} for the badness threshold tests — on-street samples
+ *  (the overwhelming majority) hit a nearby segment almost immediately instead
+ *  of paying a full scan for an exact minimum nothing uses. */
+function anyWalkableWithin(p: { lat: number; lon: number }, geo: RoadGeometry, maxM: number): boolean {
+	for (const w of geo.ways) {
+		for (let i = 1; i < w.coords.length; i++) {
+			const a = { lat: w.coords[i - 1][0], lon: w.coords[i - 1][1] };
+			const b = { lat: w.coords[i][0], lon: w.coords[i][1] };
+			if (projectPointToSegment(p, a, b).distM <= maxM) return true;
+		}
+	}
+	return false;
+}
+
 /** The building ring `p` is inside, or null. First match wins (footprints rarely
  *  overlap). */
 function containingBuilding(
@@ -301,15 +316,13 @@ function segBadnessM(a: { lat: number; lon: number }, b: { lat: number; lon: num
 		const f = (k + 0.5) / steps;
 		const mid = { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f };
 		if (containingBuilding(mid, ctx.buildings)) {
-			const onWay = nearestWalkable(mid, ctx.walkable);
-			if (onWay === null || onWay.distM > ctx.opts.onWayM) bad += segLen / steps;
+			if (!anyWalkableWithin(mid, ctx.walkable, ctx.opts.onWayM)) bad += segLen / steps;
 			continue;
 		}
 		// Cheap bbox-gated building-proximity first; the way scan (the expensive
 		// part) only runs for samples in built surroundings.
 		if (!nearBuilding(mid, ctx)) continue;
-		const way = nearestWalkable(mid, ctx.walkable);
-		if (way === null || way.distM > ctx.opts.offNetworkM) bad += segLen / steps;
+		if (!anyWalkableWithin(mid, ctx.walkable, ctx.opts.offNetworkM)) bad += segLen / steps;
 	}
 	return bad;
 }
