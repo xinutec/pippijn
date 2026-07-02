@@ -108,49 +108,50 @@ Android/infra). Batches already shipped: security quick fixes + WebView
 hardening + SW update-on-visibility + lookup/buy feedback (A), restorable
 deletion/trash (B), field-level sync merge + conflict log (C).
 
-1. - [ ] **TodoGraph stale catalogs** — items/recipes/places fetched once at
+1. - [x] **TodoGraph stale catalogs** — items/recipes/places fetched once at
       injection; a just-added item can't be linked until a full reload.
-2. - [ ] **`depends_on` non-todo targets never block** — a to-do depending on
+2. - [x] **`depends_on` non-todo targets never block** — a to-do depending on
       an unbought shopping item / uncooked recipe shows "ready".
-3. - [ ] **Loading vs empty conflated** — lists flash "No items yet" on cold
+3. - [x] **Loading vs empty conflated** — lists flash "No items yet" on cold
       load before data arrives; needs loaded-state + progress indicator.
 4. - [ ] **Sha-tagged Docker images** — `:latest`-only means rollback is
       impossible; CI already has `github.sha`.
-5. - [ ] **Non-root container + k8s securityContext** — app runs as root, no
+5. - [x] **Non-root container + k8s securityContext** — app runs as root, no
       hardening context on app or DB pods.
 6. - [ ] **Frontend CI gate** — eslint/vitest/build run only in the local
       pre-push hook, not in CI (backend has `life-verify`).
-7. - [ ] **Thumb-reachable Add** — top-anchored multi-field add forms → FAB +
+7. - [x] **Thumb-reachable Add** — top-anchored multi-field add forms → FAB +
       bottom sheet (Buy/To-do/Inventory/Recipes).
-8. - [ ] **Scanner: torch + manual entry** — no flashlight toggle, no "type it
+8. - [x] **Scanner: torch + manual entry** — no flashlight toggle, no "type it
       instead" fallback in the scanner dialog.
-9. - [ ] **Expiry urgency** — raw ISO dates; want "expired"/"3 days" coloring
+9. - [x] **Expiry urgency** — raw ISO dates; want "expired"/"3 days" coloring
       (ties into the Next-up expiry view).
 10. - [ ] **Search screen fixes** — suffix icons aren't real buttons
       (a11y/keyboard); blank search box is the landing screen (live search or
       content home?).
-11. - [ ] **`todo_links` duplicate edges** — two offline devices adding the
+11. - [x] **`todo_links` duplicate edges** — two offline devices adding the
       same connection both survive sync (client-only dedupe); dedupe on push +
       migration cleanup.
-12. - [ ] **Pin utf8mb4 charset/collation** — tables ride the server default;
+12. - [x] **Pin utf8mb4 charset/collation** — tables ride the server default;
       emoji/non-Latin correctness is luck.
-13. - [ ] **HTTP-layer router tests** — 401 paths, error mapping, body limits
+13. - [x] **HTTP-layer router tests** — 401 paths, error mapping, body limits
       untested end-to-end (repos + pure fns are covered).
-14. - [ ] **Dedupe replication boilerplate + test guardAuth/migrations** — 3
+14. - [x] **Dedupe replication boilerplate + test guardAuth/migrations** — 3
       near-identical ~50-line blocks in the sync stores; auth-guard branches
       and RxDB migration strategies untested.
-15. - [ ] **Row-action consistency + tap targets** — three delete affordances
+15. - [x] **Row-action consistency + tap targets** — three delete affordances
       across screens; dense to-do rows with sub-48px targets.
-16. - [ ] **DB resource limits + NetworkPolicy** — MariaDB unbounded and
-      reachable from any pod in the cluster.
-17. - [ ] **Magic-byte image sniffing** — uploads/OFF fetches trust declared
+16. - [~] **DB resource limits + NetworkPolicy** — limits + DB-ingress
+      NetworkPolicy + securityContext SHIPPED 2026-07-02; the app-ingress
+      policy is HELD (needs a kubelet-probe exemption on k3s first).
+17. - [x] **Magic-byte image sniffing** — uploads/OFF fetches trust declared
       Content-Type (raster allowlist + nosniff/CSP already shipped; this is
       depth).
-18. - [ ] **Session sweeper** — expired session rows are only reaped lazily on
+18. - [x] **Session sweeper** — expired session rows are only reaped lazily on
       re-presentation; abandoned ones accumulate.
-19. - [ ] **Polish basket** — validate `NC_BASE_URL` at boot (panics at request
-      time today); escape LIKE wildcards in search; todo-detail title save on
-      sheet dismiss; "scenes/house.json" in end-user copy; items sort/filter;
+19. - [~] **Polish basket** — DONE: `NC_BASE_URL` boot validation, LIKE-wildcard
+      escaping. REMAINING: todo-detail title save on sheet dismiss; the
+      "scenes/house.json" string in end-user copy; items sort/filter;
       `allowBackup=false` (needs the dev-lint canonical manifest updated too);
       `setWebContentsDebuggingEnabled` for adb debugging of the wrapper.
 
