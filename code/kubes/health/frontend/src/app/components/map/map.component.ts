@@ -15,7 +15,7 @@ import {
 import { MatCardModule } from "@angular/material/card";
 import { MatCheckboxModule } from "@angular/material/checkbox";
 import * as L from "leaflet";
-import type { LatestFix, VelocityData } from "../../services/health.service";
+import { displayTzAt, type LatestFix, type VelocityData } from "../../services/health.service";
 
 /** Track colour per transport mode — distinct hues from the app
  *  palette, so a glance at the line shows how the day was travelled. */
@@ -98,11 +98,18 @@ export class MapComponent implements OnDestroy {
 	readonly showFixes = signal(false);
 
 	/** Wall-clock time of the current position — the live fix if
-	 *  polling, else the last fix of the displayed day. */
+	 *  polling, else the last fix of the displayed day. Rendered in the
+	 *  covering segment's displayTz ("as experienced", like the timeline),
+	 *  not the browser tz — the two must not disagree on travel days. */
 	readonly lastSeen = computed(() => {
 		const ts = this.liveFix()?.ts ?? this.data()?.points?.at(-1)?.ts;
 		if (ts === undefined) return "";
-		return new Date(ts * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+		const timeZone = displayTzAt(this.data()?.segments, ts);
+		try {
+			return new Date(ts * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone });
+		} catch {
+			return new Date(ts * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+		}
 	});
 
 	private readonly zone = inject(NgZone);
@@ -207,6 +214,8 @@ export class MapComponent implements OnDestroy {
 				continue;
 			}
 			const coords = ep.points.map((p) => [p.lat, p.lon] as L.LatLngTuple);
+			// Inferred geometry draws dashed; smoothed is denoised real GPS,
+			// so it draws solid like raw/matched.
 			const dashed = ep.kind === "snapped" || ep.kind === "tentative";
 			L.polyline(prevLast ? [prevLast, ...coords] : coords, {
 				color: MODE_COLORS[ep.mode] ?? DEFAULT_COLOR,
@@ -341,16 +350,25 @@ export class MapComponent implements OnDestroy {
 		}
 		if (!best) return;
 		const coord = `${best.lat.toFixed(6)}, ${best.lon.toFixed(6)}`;
-		const when =
-			best.ts !== undefined
-				? new Date(best.ts * 1000).toLocaleString("en-GB", {
-						day: "2-digit",
-						month: "short",
-						hour: "2-digit",
-						minute: "2-digit",
-						second: "2-digit",
-					})
-				: "—";
+		// Same tz rule as the timeline: the covering segment's displayTz.
+		const opts: Intl.DateTimeFormatOptions = {
+			day: "2-digit",
+			month: "short",
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+		};
+		let when = "—";
+		if (best.ts !== undefined) {
+			try {
+				when = new Date(best.ts * 1000).toLocaleString("en-GB", {
+					...opts,
+					timeZone: displayTzAt(this.data()?.segments, best.ts),
+				});
+			} catch {
+				when = new Date(best.ts * 1000).toLocaleString("en-GB", opts);
+			}
+		}
 		const source = MapComponent.SOURCE_LABEL[best.kind] ?? best.kind;
 		const placeLine = best.place ? `<br><i>${best.place}</i>` : "";
 		const html =
@@ -367,8 +385,9 @@ export class MapComponent implements OnDestroy {
 	 *  "where does this point come from". */
 	private static readonly SOURCE_LABEL: Record<string, string> = {
 		raw: "raw GPS fix",
-		matched: "map-matched to road",
+		matched: "map-matched to road/path",
 		snapped: "snapped to rail line",
+		smoothed: "smoothed GPS (denoised)",
 		anchor: "stay centre (computed average)",
 		tentative: "gap connector (inferred, no GPS)",
 		live: "live position (latest fix)",

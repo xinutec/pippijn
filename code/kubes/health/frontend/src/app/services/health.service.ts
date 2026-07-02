@@ -123,10 +123,32 @@ export interface EpisodeGeometry {
   startTs: number;
   endTs: number;
   mode: DayState["mode"];
-  kind: "snapped" | "raw" | "anchor" | "tentative" | "matched";
+  // Mirrors the backend EpisodeKind union (episode-geometry.ts) — hand-kept;
+  // a kind missing here renders with default styling and a raw label.
+  kind: "snapped" | "raw" | "anchor" | "tentative" | "matched" | "smoothed";
   points: { lat: number; lon: number; ts?: number }[];
   /** Stay label for an `anchor` episode — drives the marker popup. */
   place?: string;
+}
+
+/** IANA timezone to render a timestamp in: the covering segment's
+ *  `displayTz` ("as you experienced it", same rule as the timeline),
+ *  falling back to the nearest segment's, or undefined (browser tz)
+ *  when the day has no tz-bearing segments. */
+export function displayTzAt(segments: readonly TrackSegment[] | undefined, ts: number): string | undefined {
+  if (!segments || segments.length === 0) return undefined;
+  let nearest: TrackSegment | undefined;
+  let nearestGap = Number.POSITIVE_INFINITY;
+  for (const s of segments) {
+    if (!s.displayTz) continue;
+    if (ts >= s.startTs && ts <= s.endTs) return s.displayTz;
+    const gap = ts < s.startTs ? s.startTs - ts : ts - s.endTs;
+    if (gap < nearestGap) {
+      nearestGap = gap;
+      nearest = s;
+    }
+  }
+  return nearest?.displayTz;
 }
 
 export interface VelocityData {

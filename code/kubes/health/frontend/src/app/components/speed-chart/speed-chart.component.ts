@@ -1,6 +1,6 @@
 import { Component, effect, ElementRef, input, type OnDestroy, signal, viewChild, ChangeDetectionStrategy } from "@angular/core";
 import { MatCardModule } from "@angular/material/card";
-import type { VelocityData } from "../../services/health.service";
+import { displayTzAt, type VelocityData } from "../../services/health.service";
 
 const MODE_COLORS: Record<string, string> = {
 	stationary: "rgba(120, 120, 120, 0.2)",
@@ -125,16 +125,25 @@ export class SpeedChartComponent implements OnDestroy {
 			}
 			ctx.stroke();
 
-			// Time labels
+			// Time labels — rendered in each label instant's covering-segment
+			// displayTz ("as experienced", same rule as the timeline), so the
+			// chart and the narrative never disagree on a travel day.
 			const labelCount = 6;
 			const labels: string[] = [];
 			for (let i = 0; i <= labelCount; i++) {
 				const ts = firstTs + (totalDuration * i) / labelCount;
-				// PhoneTrack timestamps are UTC — convert to browser local time
 				const d = new Date(ts * 1000);
-				const hh = d.getHours().toString().padStart(2, "0");
-				const mm = d.getMinutes().toString().padStart(2, "0");
-				labels.push(`${hh}:${mm}`);
+				let label: string;
+				try {
+					label = d.toLocaleTimeString("en-GB", {
+						hour: "2-digit",
+						minute: "2-digit",
+						timeZone: displayTzAt(segments, ts),
+					});
+				} catch {
+					label = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+				}
+				labels.push(label);
 			}
 			this.timeLabels.set(labels);
 		});
