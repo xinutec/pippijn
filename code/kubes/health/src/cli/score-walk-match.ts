@@ -19,9 +19,11 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { isEnforceableTruth, parseGroundTruth } from "../eval/ground-truth.js";
+import { buildingCrossingM } from "../eval/walk-buildings.js";
 import { walkPlausibility } from "../eval/walk-plausibility.js";
 import { onNamedWayFraction } from "../eval/walk-route-correctness.js";
 import { FixtureOsmAdapter } from "../geo/osm-adapter-fixture.js";
+import type { BuildingFootprint } from "../geo/osm-local.js";
 import type { OsmRoadWay, RoadGeometry } from "../geo/road-match.js";
 import { computeVelocityFromInputs } from "../geo/velocity.js";
 import {
@@ -92,6 +94,18 @@ function allWalkable(captured: CapturedDay): OsmRoadWay[] {
 	return out;
 }
 
+/** Every building footprint anywhere in the captured trace — the impassable
+ *  layer the building-crossing metric scores against, flattened across all query
+ *  keys. `undefined` section = fixture captured before the buildings field →
+ *  "no building data" (the metric is left null, not scored as 0). */
+function allBuildings(captured: CapturedDay): BuildingFootprint[] {
+	const section = captured.inputs.osmTrace.buildingsNear;
+	if (section === undefined) return [];
+	const out: BuildingFootprint[] = [];
+	for (const rings of Object.values(section)) out.push(...rings);
+	return out;
+}
+
 function hhmm(ts: number): string {
 	return new Date(ts * 1000).toISOString().slice(11, 16);
 }
@@ -117,6 +131,11 @@ interface WalkVerdict {
 	/** Sharp-turn (~90° staircase) count of the CURRENT drawn line — the de-boxing
 	 *  witness off-walkable is blind to. */
 	candidateSharpTurns: number;
+	/** Building-crossing length (m) of the drawn line — the headline defect the
+	 *  off-walkable proxy is blind to. baseline (smoother) vs candidate (matched).
+	 *  null when the fixture carries no building data. */
+	baselineBuildingM: number | null;
+	candidateBuildingM: number | null;
 	/** The matched-line REFINEMENT arm (Phase 1, both-staged) — the continuous
 	 *  smoother run over the matched line as its own corridor, rounding the boxy
 	 *  corners toward the raw GPS. null when it bailed. Its off-walkable p90,
@@ -125,6 +144,7 @@ interface WalkVerdict {
 	refineStallM: number | null;
 	refineRouteCorr: number | null;
 	refineSharpTurns: number | null;
+	refineBuildingM: number | null;
 }
 
 /** How far the candidate's route-correctness may fall below baseline before it
@@ -146,6 +166,14 @@ const WALK_SPEED_CEIL_KMH = 12;
 async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
 	const captured = parseCapturedDay(readFileSync(`tests/golden/days/${date}-${user}.json`, "utf8"));
 	const walkable: RoadGeometry = { ways: allWalkable(captured) };
+	const buildings = allBuildings(captured);
+	// "Has building data" means actual footprint geometry, not an empty stub. The
+	// live pipeline does not query buildingsNear, so today every fixture's section
+	// is present-but-empty — the metric is left null (honestly "unmeasured"), NOT
+	// reported as a clean 0, until building geometry is captured.
+	const hasBuildings = buildings.length > 0;
+	const crossM = (pts: readonly { lat: number; lon: number }[]): number | null =>
+		hasBuildings ? buildingCrossingM(pts, buildings) : null;
 	const namedWindows = loadNamedWalkWindows(date, captured.meta.tz);
 	const base = inputsFromFixture(captured);
 
@@ -243,10 +271,13 @@ async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
 			baselineRouteCorr,
 			candidateRouteCorr,
 			candidateSharpTurns: countSharpTurns(candidatePoints),
+			baselineBuildingM: offE && offE.points.length >= 2 ? crossM(offE.points) : null,
+			candidateBuildingM: crossM(candidatePoints),
 			refineP90: refine?.offWalkableP90M ?? null,
 			refineStallM: refine?.corridorStallM ?? null,
 			refineRouteCorr,
 			refineSharpTurns: refined ? countSharpTurns(refined.map((p) => ({ lat: p.lat, lon: p.lon }))) : null,
+			refineBuildingM: refined ? crossM(refined.map((p) => ({ lat: p.lat, lon: p.lon }))) : null,
 		});
 	}
 	return verdicts;
@@ -290,8 +321,12 @@ async function main(): Promise<void> {
 				v.baselineRouteCorr === null || v.candidateRouteCorr === null
 					? ""
 					: `  route ${(v.baselineRouteCorr * 100).toFixed(0)}%→${(v.candidateRouteCorr * 100).toFixed(0)}%${routeRegressed(v) ? " ⚠route-regress" : ""}`;
+			const bldg =
+				v.candidateBuildingM === null
+					? ""
+					: `  bldg ${(v.baselineBuildingM ?? 0).toFixed(0)}→${v.candidateBuildingM.toFixed(0)}m${v.candidateBuildingM >= 5 ? " ⚠crosses-building" : ""}`;
 			console.log(
-				`  ${tag} @${hhmm(v.startTs)}Z  offWalkP90 ${b} → ${c}  stall ${v.candidateStallM.toFixed(0).padStart(4)}m${stallFlag}  ${spd.toFixed(1).padStart(5)}km/h${spdFlag}${route}   (${v.baselineKind} → ${v.candidateKind})`,
+				`  ${tag} @${hhmm(v.startTs)}Z  offWalkP90 ${b} → ${c}  stall ${v.candidateStallM.toFixed(0).padStart(4)}m${stallFlag}  ${spd.toFixed(1).padStart(5)}km/h${spdFlag}${route}${bldg}   (${v.baselineKind} → ${v.candidateKind})`,
 			);
 			if (v.refineP90 !== null) {
 				const sp90 = `${v.refineP90.toFixed(0).padStart(3)}m`;
@@ -337,6 +372,26 @@ async function main(): Promise<void> {
 	for (const v of routeRegressions) {
 		console.log(
 			`  ${v.date} @${hhmm(v.startTs)}Z  ${((v.baselineRouteCorr ?? 0) * 100).toFixed(0)}% → ${((v.candidateRouteCorr ?? 0) * 100).toFixed(0)}% on confirmed street`,
+		);
+	}
+
+	// Building-crossing — the headline defect off-walkable-p90 is blind to. This is
+	// the measurement baseline: how many walks the CURRENT drawn line runs through a
+	// building today, and whether the refinement arm reduces it. Reported, not yet
+	// gated (the current Viterbi+matched line is what crosses; driving it to 0 is
+	// the Phase-1 target).
+	const withB = all.filter((v) => v.candidateBuildingM !== null);
+	const CROSS_M = 5;
+	const candCross = withB.filter((v) => (v.candidateBuildingM ?? 0) >= CROSS_M);
+	const refCross = withB.filter((v) => v.refineBuildingM !== null && (v.refineBuildingM ?? 0) >= CROSS_M);
+	console.log(
+		`\nBUILDING-CROSSING (${withB.length} walks with building data): ` +
+			`current draw crosses a building on ${candCross.length}; refine arm on ${refCross.length}`,
+	);
+	for (const v of candCross.sort((a, b) => (b.candidateBuildingM ?? 0) - (a.candidateBuildingM ?? 0))) {
+		const r = v.refineBuildingM === null ? "-" : `${v.refineBuildingM.toFixed(0)}m`;
+		console.log(
+			`  ${v.date} @${hhmm(v.startTs)}Z  ${(v.candidateBuildingM ?? 0).toFixed(0)}m through buildings (refine ${r})`,
 		);
 	}
 

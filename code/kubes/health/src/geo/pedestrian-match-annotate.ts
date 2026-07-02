@@ -24,6 +24,7 @@ import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import { matchWalkSegment } from "./pedestrian-match.js";
 import { effectiveMode } from "./segment-util.js";
+import { escapeBuildings } from "./walk-building-escape.js";
 import { countSharpTurns, refineMatchedPath, type WalkFix } from "./walk-smooth-map.js";
 
 /** A raw GPS fix as drawn — the same set the raw renderer uses. */
@@ -113,11 +114,18 @@ export async function annotateWalkMatches(
 			const d = metersBetween(cLat, cLon, p.lat, p.lon);
 			if (d > maxDist) maxDist = d;
 		}
-		const ways = await osm.walkableRoads(cLat, cLon, Math.round(maxDist + WALK_QUERY_SLACK_M));
+		const discRadiusM = Math.round(maxDist + WALK_QUERY_SLACK_M);
+		const ways = await osm.walkableRoads(cLat, cLon, discRadiusM);
 		if (ways.length === 0) {
 			out.push(seg);
 			continue;
 		}
+		// Building footprints in the same disc — the impassable layer for the
+		// building-escape corrector. Queried unconditionally (so capture records
+		// them; the pipeline is otherwise building-blind and no fixture carries
+		// them). The escape itself is applied below, gated, so drawn geometry — and
+		// therefore the golden corpus — is unchanged until it is turned on.
+		const buildings = await osm.buildingsNear(cLat, cLon, discRadiusM);
 
 		// The matcher gets the same fixes with lone teleport spikes dropped.
 		const clean = rejectSpikes(inWin);
@@ -157,6 +165,13 @@ export async function annotateWalkMatches(
 			}));
 			const refined = refineMatchedPath(walkFixes, result.path);
 			if (refined && countSharpTurns(refined) < countSharpTurns(result.path)) drawn = refined;
+		}
+		// Building-escape corrector (Pippijn's case-based design): move any vertex
+		// that lands inside a house out onto the nearest street on that side. Gated
+		// while it is tuned against the referee + a real building-carrying fixture;
+		// the buildings query above always runs so capture records them.
+		if (process.env.WALK_BUILDING_ESCAPE === "1" && buildings.length > 0) {
+			drawn = escapeBuildings(drawn, { ways }, buildings);
 		}
 		out.push({ ...seg, walkMatchedPath: drawn });
 	}

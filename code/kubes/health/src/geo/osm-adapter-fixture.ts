@@ -130,17 +130,17 @@ export class FixtureOsmAdapter implements OsmAdapter {
 	}
 
 	async buildingsNear(lat: number, lon: number, radiusM?: number): Promise<BuildingFootprint[]> {
-		// Fixtures captured before the walkable-surface field have no building
-		// section — replay as "no building data" so the smoother runs without the
-		// impassability term and old goldens are unchanged (geometry is display-only
-		// regardless; states never depend on it). Present section, missing key =
-		// the normal uncaptured-query error.
+		// Buildings are DISPLAY-ONLY: they steer walk geometry (the building-escape
+		// corrector), never the blessed state timeline. So an uncaptured building
+		// query degrades to "no building data" ([]) rather than throwing — a fixture
+		// captured before buildings were queried simply gets no building correction
+		// and draws exactly as before (golden-neutral). This is the same graceful
+		// degradation the whole-section-absent case already used, extended to a
+		// missing key, and is safe *because* states never depend on buildings. (The
+		// strict uncaptured-query guard remains on walkable/drivable roads, which do
+		// affect matched geometry that IS compared.)
 		const section = this.trace.buildingsNear;
 		if (section === undefined) return [];
-		const result = section[key3(lat, lon, radiusM)];
-		if (result === undefined) {
-			throw new Error(`FixtureOsmAdapter: uncaptured buildingsNear(${lat}, ${lon}, ${radiusM}) — re-capture required`);
-		}
-		return result;
+		return section[key3(lat, lon, radiusM)] ?? [];
 	}
 }
