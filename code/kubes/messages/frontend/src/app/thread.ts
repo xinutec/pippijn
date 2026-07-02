@@ -119,6 +119,12 @@ export class Thread {
   private adjusting = false;
   private fromTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // While the user is pinned to the newest message (a fresh open at the bottom),
+  // images in the last messages load lazily and grow the layout, which would push
+  // the latest messages below the fold. Re-pin to the bottom as they settle — a
+  // bumped token cancels pending re-pins the moment the user scrolls away.
+  private pinToken = 0;
+
   // Optional scroll-jump instrumentation (off by default). Enable at runtime with
   // `localStorage.threadScrollDebug = '1'` or a `?scrolldebug` URL param, then
   // read the `[thread-scroll]` console.debug lines: a `jump` line = already-
@@ -204,6 +210,8 @@ export class Thread {
         else this.scrollToBottom();
       });
       this.trimToWindow();
+      // Opened at the latest message: hold the bottom as lazy images load in.
+      if (from == null) this.keepPinnedToBottom();
     } catch {
       this.threadError.set(true);
       this.loadingThread.set(false);
@@ -226,6 +234,9 @@ export class Thread {
 
   onScroll(): void {
     if (this.adjusting || this.loadingThread() || this.threadError() || !this.routed()) return;
+    // A genuine user scroll means "I'm looking around" — stop auto-pinning to the
+    // bottom (a bumped token cancels any pending image-load re-pin).
+    this.pinToken++;
     const el = this.messagesEl()?.nativeElement;
     if (!el) return;
     if (this.dbg) this.detectJump();
@@ -412,6 +423,25 @@ export class Thread {
 
   private scrollToBottom(): void {
     this.host.scrollTop = this.host.scrollHeight;
+  }
+
+  /** Keep the viewport pinned to the bottom as not-yet-loaded images in the
+   *  rendered window finish and grow the layout. One-shot per open; each pending
+   *  image re-pins on load, and the whole session is superseded when the user
+   *  scrolls (onScroll bumps pinToken) or the thread reloads (loadThread does). */
+  private keepPinnedToBottom(): void {
+    const token = ++this.pinToken;
+    const el = this.messagesEl()?.nativeElement;
+    if (!el) return;
+    for (const img of Array.from(el.querySelectorAll('img'))) {
+      if (img.complete) continue;
+      const onSettle = (): void => {
+        if (token !== this.pinToken) return; // user scrolled away, or a newer open won
+        this.withScrollLock(() => this.scrollToBottom());
+      };
+      img.addEventListener('load', onSettle, { once: true });
+      img.addEventListener('error', onSettle, { once: true });
+    }
   }
 
   private scrollToTs(ts: number): void {
