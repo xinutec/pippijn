@@ -78,7 +78,7 @@ export class AppComponent {
 		return qIdx < 0 ? s.url : s.url + u.slice(qIdx);
 	});
 
-	/** Short commit SHA of the RUNNING BACKEND image (from /api/version), shown
+	/** Short commit SHA of the RUNNING BACKEND image (from /version), shown
 	 *  in the footer so a stale deploy/client is visible at a glance — the same
 	 *  bottom-note pattern as the recall web app. null until loaded; "dev" on a
 	 *  local non-docker run. */
@@ -90,7 +90,7 @@ export class AppComponent {
 		installErrorReporting(this.health);
 
 		// One unauthenticated fetch; failure just leaves the footer empty.
-		fetch("/api/version")
+		fetch("/version")
 			.then((r) => (r.ok ? r.json() : null))
 			.then((v: { sha?: string } | null) => {
 				if (v?.sha) this.version.set(v.sha.slice(0, 7));

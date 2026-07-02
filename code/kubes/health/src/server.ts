@@ -103,8 +103,10 @@ app.get("/health", async (c) => {
 
 // Build version (no auth) — the commit the running image was built from,
 // injected as GIT_SHA at docker build. The UI footer shows it so a stale
-// client or deploy is visible at a glance.
-app.get("/api/version", (c) => c.json({ sha: process.env.GIT_SHA ?? "dev" }));
+// client or deploy is visible at a glance. Deliberately OUTSIDE /api: the
+// /api group's requireAuth middleware applies to every /api/* path no matter
+// where the handler is registered.
+app.get("/version", (c) => c.json({ sha: process.env.GIT_SHA ?? "dev" }));
 
 // OAuth routes. Fitbit uses OAuth for both identity + API access.
 // Nextcloud uses OAuth for identity-only (just /login + /auth/callback
