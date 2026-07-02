@@ -19,6 +19,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -66,15 +67,36 @@ class MainActivity : Activity() {
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
                 // Expose the system clipboard's image to the web app (its "Paste
-                // copied image" action — e.g. an image copied in Chrome). Only our
-                // own https site loads here (navigation is kept in-app), and the
-                // bridge only reads the clipboard when the user taps that action.
+                // copied image" action — e.g. an image copied in Chrome). The
+                // bridge object is attached to the WebView as a whole, so every
+                // call re-checks that the *current page* is the life app (see
+                // readClipboardImageDataUrl) — a foreign page can't read the
+                // clipboard even if it somehow ends up in this view.
                 addJavascriptInterface(ClipboardImageBridge(), "AndroidClipboard")
-                // Keep every navigation inside this WebView — never hand off to a
-                // browser — and remember the current in-app page so a cold reopen
-                // returns to it (SPA route changes fire doUpdateVisitedHistory too).
+                // Keep life (and its Nextcloud login hop) inside this WebView;
+                // hand every other origin to the real browser. A chromeless view
+                // has no URL bar, so an external link opening in-place would look
+                // like the app — confine navigation instead. Also remember the
+                // current in-app page so a cold reopen returns to it (SPA route
+                // changes fire doUpdateVisitedHistory too).
                 webViewClient =
                     object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView,
+                            request: WebResourceRequest,
+                        ): Boolean {
+                            val url = request.url
+                            if (url.scheme == "https" && url.host in ALLOWED_HOSTS) {
+                                return false // in-app
+                            }
+                            try {
+                                startActivity(Intent(Intent.ACTION_VIEW, url))
+                            } catch (_: ActivityNotFoundException) {
+                                // No handler for this URL — drop the navigation.
+                            }
+                            return true
+                        }
+
                         override fun doUpdateVisitedHistory(
                             view: WebView,
                             url: String,
@@ -168,6 +190,14 @@ class MainActivity : Activity() {
         web.loadUrl(prefs.getString(KEY_LAST_URL, null) ?: LIFE_URL)
     }
 
+    // `configChanges` keeps the Activity across rotation, so this only fires on a
+    // real finish — release the WebView instead of leaking it.
+    override fun onDestroy() {
+        root.removeView(web)
+        web.destroy()
+        super.onDestroy()
+    }
+
     // Back walks the SPA's history; it only leaves the app once there's nothing
     // left to go back to.
     @Deprecated("Deprecated in Java")
@@ -213,6 +243,10 @@ class MainActivity : Activity() {
     }
 
     private fun readClipboardImageDataUrl(): String? {
+        // Origin gate (runs on the UI thread, so web.url is safe to read): only
+        // the life app itself may read the clipboard — not the NC login page,
+        // and not any page that might slip past navigation confinement.
+        if (web.url?.startsWith(LIFE_URL) != true) return null
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = clipboard.primaryClip ?: return null
         for (i in 0 until clip.itemCount) {
@@ -258,6 +292,9 @@ class MainActivity : Activity() {
         private const val MAX_PASTE_BYTES = 5 * 1024 * 1024
         // The life app (HTTPS, behind a Nextcloud-identity login).
         private const val LIFE_URL = "https://life.xinutec.org/"
+        // Hosts allowed to load inside this WebView: the app itself plus the
+        // Nextcloud login hop. Everything else goes to the real browser.
+        private val ALLOWED_HOSTS = setOf("life.xinutec.org", "dash.xinutec.org")
         private const val KEY_LAST_URL = "last_url"
     }
 }
