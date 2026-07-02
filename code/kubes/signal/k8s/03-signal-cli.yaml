@@ -15,23 +15,18 @@ spec:
       labels:
         app: signal-cli-rest-api
     spec:
-      # signal-cli runs as uid/gid 1000; enforce it and keep the PVC writable.
+      # dev-lint: allow-unhardened — this third-party image's entrypoint runs
+      # usermod/groupmod as root before dropping to uid/gid 1000, so the pod
+      # cannot be forced non-root (runAsNonRoot makes those root-only calls fail
+      # with "cannot lock /etc/group" and the container crash-loops). fsGroup keeps
+      # the PVC writable by the dropped-to user; that's as far as we can harden it.
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
         fsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
       containers:
         - name: rest-api
           # Pinned: 0.100 (2026-06-11) bundles signal-cli >=0.14.x, which fixes
           # the secondary-device-link 409 (missing-capabilities) that presage hit.
           image: bbernhard/signal-cli-rest-api:0.100
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
           env:
             # json-rpc: long-lived daemon, the only mode that exposes
             # /v1/receive/<number> as a streaming websocket.
