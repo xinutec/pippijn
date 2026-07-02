@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 cd "$(dirname "$0")/k8s"
 sudo kubectl apply -f 00-namespace.yaml
 sudo kubectl apply -f 01-pvc.yaml

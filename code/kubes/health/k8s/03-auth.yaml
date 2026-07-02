@@ -95,8 +95,10 @@ spec:
             # Building-escape walk corrector (case-based: route a drawn walk
             # around building blocks it falsely crosses; leave genuine visits —
             # doorsteps, hospitals, concourses — alone). Display-geometry only;
-            # measured on the 2026-07-01 fixture before enabling. Set to "1"
-            # to enable; remove/0 to fall back to the uncorrected draw.
+            # measured on the 2026-07-01 fixture before enabling. ON by default
+            # in code since 2026-07-02 (an opt-in flag made local replays
+            # diverge from prod); "0" is the emergency off-switch, so the
+            # explicit "1" here is documentation, not activation.
             - name: WALK_BUILDING_ESCAPE
               value: "1"
           resources:

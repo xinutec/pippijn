@@ -22,4 +22,4 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 nix develop -c npm run verify "$@"
-nix run "$HOME/Code/dev-lint" -- src frontend/src
+nix run "$HOME/Code/dev-lint" -- .

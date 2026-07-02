@@ -184,11 +184,13 @@ export async function annotateWalkMatches(
 		// that crosses a block around it along the streets (case 2) → escape a lone
 		// vertex inside a house to its near-side street (case 1) → no streets, trust
 		// GPS (case 3). Honesty guards inside `correctWalkPath` (detour ratio,
-		// crossing must reduce, never worse than the input). Gated while tuned
-		// against the referee; the buildings query above always runs so capture
-		// records footprints regardless.
+		// crossing must reduce, never worse than the input). ON by default since
+		// the 2026-07-02 rollout: an opt-in flag here made every local replay
+		// (golden, walk-gate) silently diverge from prod — the ratchet floor was
+		// blessed against uncorrected lines. WALK_BUILDING_ESCAPE=0 is the
+		// emergency off-switch.
 		let corrected = false;
-		if (process.env.WALK_BUILDING_ESCAPE === "1" && buildings.length > 0) {
+		if (process.env.WALK_BUILDING_ESCAPE !== "0" && buildings.length > 0) {
 			const fixed = correctWalkPath(drawn, { ways }, buildings);
 			corrected =
 				fixed.length !== drawn.length || fixed.some((p, k) => p.lat !== drawn[k].lat || p.lon !== drawn[k].lon);

@@ -26,6 +26,7 @@
     "golden-hsmm": "scripts/golden-hsmm.sh",
     "score-decoder": "scripts/score-decoder.sh",
     "score-constraints": "scripts/score-constraints.sh",
+    "walk-gate": "scripts/walk-gate.sh",
     "capture-golden": "scripts/capture-golden.sh",
     "backtest": "scripts/backtest.sh"
   },

@@ -10,7 +10,9 @@
 # come from the shebang's default-channel nix-shell.
 # (2026-06-29 Angular 21->22 + zoneless migration; Node 22->24.)
 #
-# Runs `npm run verify` (typecheck + lint + tests), commits the
+# Runs `npm run verify` (typecheck + lint + tests), then the local
+# fixture gates (`npm run golden` + `npm run walk-gate` — these can
+# only run here, the fixtures are gitignored), commits the
 # staged-or-stageable changes under `code/kubes/health/`, pushes
 # to main, waits for CI, then rolls out the new image on isis.
 #
@@ -74,12 +76,27 @@ trap cleanup EXIT
 # nodejs_24 (24.16+) satisfies that, sourced per-command so it doesn't
 # shadow the shebang's gh.
 VERIFY_NODE="nixpkgs#nodejs_24"
-echo "==> [1/6] npm run verify (node from $VERIFY_NODE)"
+echo "==> [1/7] npm run verify (node from $VERIFY_NODE)"
 cd "$HEALTH_DIR"
 nix shell "$VERIFY_NODE" --command npm run verify
 
+# --- golden + geometry gates ---------------------------------------------
+# The deterministic fixture gates: day-state snapshot diff (incl. worldline
+# feasibility + the journey ratchet) and the walk-geometry ratchet. Both are
+# zero-DB replays of the local fixtures under tests/golden/ — gitignored, so
+# CI can never run them; the deploy path is the only place they can gate.
+# Skip only with DEPLOY_SKIP_GOLDEN=1 (e.g. an infra-only change while a
+# bless is in flight).
+if [[ "${DEPLOY_SKIP_GOLDEN:-0}" != "1" ]]; then
+	echo "==> [2/7] golden corpus + walk-geometry ratchet"
+	nix shell "$VERIFY_NODE" --command npm run golden
+	nix shell "$VERIFY_NODE" --command npm run walk-gate
+else
+	echo "==> [2/7] SKIPPED golden + walk-gate (DEPLOY_SKIP_GOLDEN=1)"
+fi
+
 # --- stage health/ changes only -----------------------------------------
-echo "==> [2/6] staging $HEALTH_REL"
+echo "==> [3/7] staging $HEALTH_REL"
 cd "$PIPPIJN_DIR"
 git add "$HEALTH_REL"
 
@@ -100,13 +117,13 @@ if git diff --cached --quiet -- "$HEALTH_REL"; then
 fi
 
 # --- commit + push -------------------------------------------------------
-echo "==> [3/6] git commit"
+echo "==> [4/7] git commit"
 git commit -F "$MSG_FILE"
 
 COMMIT_SHA=$(git rev-parse HEAD)
 echo "    HEAD is now $COMMIT_SHA"
 
-echo "==> [4/6] git push origin main"
+echo "==> [5/7] git push origin main"
 git push origin main
 
 # --- wait for CI ---------------------------------------------------------
@@ -115,7 +132,7 @@ git push origin main
 # still the freshest, and gh run watch on an already-completed run exits
 # in ~0 ms, which then rolls out the stale image. Poll until a run for
 # our specific SHA shows up (Actions usually queues within a few seconds).
-echo "==> [5/6] watching CI for $COMMIT_SHA"
+echo "==> [6/7] watching CI for $COMMIT_SHA"
 cd "$HEALTH_DIR"
 RUN_ID=""
 for attempt in $(seq 1 30); do
@@ -148,7 +165,7 @@ if [[ $ci_status -ne 0 ]]; then
 fi
 
 # --- rollout -------------------------------------------------------------
-echo "==> [6/6] rollout on isis"
+echo "==> [7/7] rollout on isis"
 ssh root@isis.xinutec.org \
 	'kubectl -n health rollout restart deploy/health-auth && kubectl -n health rollout status deploy/health-auth --timeout=180s'
 

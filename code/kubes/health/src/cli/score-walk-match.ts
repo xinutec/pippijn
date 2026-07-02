@@ -15,11 +15,19 @@
  *
  *   node dist/cli/score-walk-match.js              # sweep every golden day
  *   node dist/cli/score-walk-match.js 2026-06-24   # one day (pippijn)
+ *   node dist/cli/score-walk-match.js --bless      # record the current metrics
+ *                                                  # as the ratchet floor
+ *
+ * Exit code: with a blessed `tests/golden/walk-baseline.json` present, the
+ * RATCHET is the gate — exit 1 only when a walk got worse than its recorded
+ * floor (standing defects stay recorded and can only shrink; see
+ * `eval/walk-gate.ts`). Without a baseline, falls back to the raw A/B exit.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isEnforceableTruth, parseGroundTruth } from "../eval/ground-truth.js";
 import { buildingCrossingM, offPathBuildingCrossingM } from "../eval/walk-buildings.js";
+import { gateWalks, WALK_SPEED_CEIL_KMH, type WalkBaseline, type WalkBaselineEntry } from "../eval/walk-gate.js";
 import { walkPlausibility } from "../eval/walk-plausibility.js";
 import { onNamedWayFraction } from "../eval/walk-route-correctness.js";
 import { FixtureOsmAdapter } from "../geo/osm-adapter-fixture.js";
@@ -164,9 +172,26 @@ function routeRegressed(v: WalkVerdict): boolean {
 	return v.candidateRouteCorr < v.baselineRouteCorr - ROUTE_CORR_EPS;
 }
 
-/** A drawn walk above this mean speed (km/h) is physically implausible on foot —
- *  the signature of low-accuracy fixes drawn as real motion. */
-const WALK_SPEED_CEIL_KMH = 12;
+/** The ratchet floor lives beside the (gitignored) fixtures it describes. */
+const WALK_BASELINE_PATH = "tests/golden/walk-baseline.json";
+
+/** Project a run's verdicts into the ratchet-baseline shape. */
+function toBaseline(verdicts: readonly WalkVerdict[]): WalkBaseline {
+	const out: WalkBaseline = {};
+	for (const v of verdicts) {
+		const entry: WalkBaselineEntry = {
+			startTs: v.startTs,
+			p90M: v.candidateP90,
+			stallM: v.candidateStallM,
+			speedKmh: v.candidateSpeedKmh,
+			routeCorr: v.candidateRouteCorr,
+			offPathM: v.candidateOffPathM,
+		};
+		if (!out[v.date]) out[v.date] = [];
+		out[v.date].push(entry);
+	}
+	return out;
+}
 
 async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
 	const captured = parseCapturedDay(readFileSync(`tests/golden/days/${date}-${user}.json`, "utf8"));
@@ -302,7 +327,9 @@ function classify(v: WalkVerdict): "improved" | "regressed" | "neutral" | "n/a" 
 
 async function main(): Promise<void> {
 	const user = "pippijn";
-	const arg = process.argv[2];
+	const args = process.argv.slice(2);
+	const bless = args.includes("--bless");
+	const arg = args.find((a) => !a.startsWith("--"));
 	const dates = arg
 		? [arg]
 		: readdirSync("tests/golden/days")
@@ -437,8 +464,51 @@ async function main(): Promise<void> {
 			`offWalk-worse>5m ${aOffWorse}, route-worse>5% ${aRouteWorse}`,
 	);
 
-	// Non-zero exit if any walk regressed on EITHER witness — the ship gate.
-	process.exit(regressed > 0 || routeRegressions.length > 0 ? 1 : 0);
+	// --- ratchet gate ------------------------------------------------------
+	// The durable floor: compare this run's candidate metrics against the
+	// blessed baseline. Unlike the A/B classification above (which carries
+	// standing defects), the ratchet fails ONLY on a walk getting worse than
+	// its own recorded floor — so it can gate deploys.
+	const current = toBaseline(all);
+	if (bless) {
+		// Single-day bless merges into the existing floor; a full sweep replaces it.
+		const existing: WalkBaseline = existsSync(WALK_BASELINE_PATH)
+			? (JSON.parse(readFileSync(WALK_BASELINE_PATH, "utf8")) as WalkBaseline)
+			: {};
+		const next = arg ? { ...existing, ...current } : current;
+		writeFileSync(WALK_BASELINE_PATH, `${JSON.stringify(next, null, "\t")}\n`);
+		console.log(`\nRATCHET: blessed ${Object.values(next).flat().length} walk floor(s) → ${WALK_BASELINE_PATH}`);
+		process.exit(0);
+	}
+	if (!existsSync(WALK_BASELINE_PATH)) {
+		console.log(`\nRATCHET: no baseline at ${WALK_BASELINE_PATH} — run with --bless to record one.`);
+		console.log("Falling back to the raw A/B exit (matcher vs smoother).");
+		process.exit(regressed > 0 || routeRegressions.length > 0 ? 1 : 0);
+	}
+	const baseline = JSON.parse(readFileSync(WALK_BASELINE_PATH, "utf8")) as WalkBaseline;
+	const gate = gateWalks(baseline, current, { onlyDates: dates });
+	const fmt = (d: { date: string; startTs: number }) => `${d.date} @${hhmm(d.startTs)}Z`;
+	console.log(
+		`\nRATCHET vs ${WALK_BASELINE_PATH}: regressed ${gate.regressed.length}, improved ${gate.improved.length}, ` +
+			`added ${gate.added.length}, vanished ${gate.unmatched.length}, unmeasured ${gate.unmeasured.length}`,
+	);
+	for (const r of gate.regressed) {
+		console.log(
+			`  ✗ ${fmt(r)}  ${r.metric} ${r.base.toFixed(r.metric === "route" ? 2 : 0)} → ${r.now.toFixed(r.metric === "route" ? 2 : 0)}`,
+		);
+	}
+	for (const i of gate.improved) {
+		console.log(
+			`  ✓ ${fmt(i)}  ${i.metric} ${i.base.toFixed(i.metric === "route" ? 2 : 0)} → ${i.now.toFixed(i.metric === "route" ? 2 : 0)}  (re-bless to keep)`,
+		);
+	}
+	for (const u of gate.unmeasured) console.log(`  ⚠ ${fmt(u)}  ${u.metric} was measured in the baseline, now null`);
+	if (gate.added.length > 0 || gate.unmatched.length > 0) {
+		console.log(
+			`  walks without a floor: ${gate.added.map(fmt).join(", ") || "-"}; vanished from baseline: ${gate.unmatched.map(fmt).join(", ") || "-"} (states are golden-gated; re-bless to update)`,
+		);
+	}
+	process.exit(gate.regressed.length > 0 ? 1 : 0);
 }
 
 main().catch((e) => {

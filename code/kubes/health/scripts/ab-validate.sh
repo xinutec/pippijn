@@ -1,7 +1,7 @@
 #!/bin/bash
 # A/B compare presence-continuity flag across all decoded days.
 # Run from repo root.
-set -e
+set -euo pipefail
 DATES="2026-04-29 2026-04-30 2026-05-18 2026-05-19 2026-05-20 2026-05-21 2026-05-22 2026-05-23 2026-05-24 2026-05-25 2026-05-26 2026-05-27 2026-05-28 2026-05-29 2026-05-30 2026-05-31 2026-06-01 2026-06-02"
 
 echo "=== Pass A: flag OFF, chronological ===" >&2
