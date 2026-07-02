@@ -481,5 +481,26 @@ export function correctWalkPath(
 	return out;
 }
 
+/**
+ * The "respect the GPS" half of the GPS-first walk draw: nudge each vertex
+ * fully onto its nearest walkable way when that way is within `nudgeReachM` —
+ * a slight, bounded correction (GPS jitter around a pavement) — and otherwise
+ * leave the vertex EXACTLY where the GPS put it. Deliberately never a partial
+ * move: half-way would strand the point in no-man's-land, neither the GPS
+ * truth nor the pavement. Pure; timestamps and extra fields carried through.
+ */
+export function nudgeTowardWays<T extends { lat: number; lon: number }>(
+	drawn: readonly T[],
+	walkable: RoadGeometry,
+	nudgeReachM: number,
+): T[] {
+	if (walkable.ways.length === 0) return drawn.map((p) => ({ ...p }));
+	return drawn.map((p) => {
+		const near = nearestWalkable(p, walkable);
+		if (near && near.distM <= nudgeReachM) return { ...p, lat: near.lat, lon: near.lon };
+		return { ...p };
+	});
+}
+
 // re-export for callers that want the metre helper without a second import.
 export { metersBetween };
