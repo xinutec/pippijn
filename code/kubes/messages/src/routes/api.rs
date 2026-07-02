@@ -37,7 +37,8 @@ pub async fn conversations(
 
 #[derive(Deserialize)]
 pub struct MessagesQuery {
-    before: Option<i64>,
+    /// Opaque cursor from a previous page's `next_cursor`; absent → newest page.
+    cursor: Option<String>,
     limit: Option<i64>,
 }
 
@@ -52,7 +53,9 @@ pub async fn messages(
         return Err(AppError::NotFound);
     }
     let limit = q.limit.unwrap_or(100).clamp(1, 500);
-    let page = archive::messages_page(&app.pool, &origin, &id, q.before, limit).await?;
+    // A malformed cursor just falls back to the newest page (treated as absent).
+    let cursor = q.cursor.as_deref().and_then(archive::parse_cursor);
+    let page = archive::messages_page(&app.pool, &origin, &id, cursor, limit).await?;
     Ok(Json(page))
 }
 
@@ -77,7 +80,9 @@ pub async fn attachment(
         .file_name()
         .ok_or(AppError::NotFound)?;
     let path = std::path::Path::new(&app.cfg.attachments_dir).join(name);
-    let bytes = tokio::fs::read(&path).await.map_err(|_| AppError::NotFound)?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|_| AppError::NotFound)?;
     let ct = content_type.unwrap_or_else(|| "application/octet-stream".to_string());
     Ok(([(header::CONTENT_TYPE, ct)], Body::from(bytes)).into_response())
 }

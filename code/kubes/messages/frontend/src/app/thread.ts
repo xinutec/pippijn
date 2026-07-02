@@ -113,7 +113,7 @@ export class Thread {
   readonly loadingOlder = signal(false);
   readonly hasMore = signal(false);
   readonly threadError = signal(false);
-  private cursor: number | null = null;
+  private cursor: string | null = null;
 
   // Suppress our own scroll handler while we programmatically adjust scrollTop.
   private adjusting = false;
@@ -190,14 +190,14 @@ export class Thread {
       const first = await firstValueFrom(this.api.messages(origin, id, undefined, PAGE));
       let msgs = first.messages;
       let hasMore = first.has_more;
-      let cursor = first.next_before;
+      let cursor = first.next_cursor;
       // Page older until we've reached the saved depth (or run out).
       while (from != null && hasMore && cursor != null && msgs.length > 0 && msgs[0].ts > from) {
         const older = await firstValueFrom(this.api.messages(origin, id, cursor, PAGE));
         if (older.messages.length === 0) break;
         msgs = [...older.messages, ...msgs];
         hasMore = older.has_more;
-        cursor = older.next_before;
+        cursor = older.next_cursor;
       }
       this.messages.set(msgs);
       this.hasMore.set(hasMore);
@@ -300,7 +300,7 @@ export class Thread {
         this.mutateWithAnchor('fetchOlder', () => {
           this.messages.update((cur) => [...page.messages, ...cur]);
           this.hasMore.set(page.has_more);
-          this.cursor = page.next_before;
+          this.cursor = page.next_cursor;
           this.loadingOlder.set(false);
         });
         this.enforceMax('bottom');

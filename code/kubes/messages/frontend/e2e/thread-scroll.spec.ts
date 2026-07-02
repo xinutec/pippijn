@@ -61,13 +61,13 @@ async function mockApi(page: Page): Promise<void> {
   await page.route("**/api/conversations", (r) => r.fulfill({ json: CONVERSATIONS }));
   await page.route("**/api/attachments/**", (r) => r.fulfill({ contentType: "image/svg+xml", body: IMAGE_SVG }));
   await page.route("**/api/conversations/**/messages**", (route) => {
-    const before = new URL(route.request().url()).searchParams.get("before");
-    // Newest page (no `before`); opening at the bottom needs only this page.
+    const cursor = new URL(route.request().url()).searchParams.get("cursor");
+    // Newest page (no cursor); opening at the bottom needs only this page.
     // Older history exists (has_more) but is fetched lazily on scroll-up.
-    if (before) {
-      route.fulfill({ json: { messages: [], has_more: false, next_before: null } });
+    if (cursor) {
+      route.fulfill({ json: { messages: [], has_more: false, next_cursor: null } });
     } else {
-      route.fulfill({ json: { messages: newestPage(100), has_more: true, next_before: 1_000_000 } });
+      route.fulfill({ json: { messages: newestPage(100), has_more: true, next_cursor: "1000000" } });
     }
   });
 }

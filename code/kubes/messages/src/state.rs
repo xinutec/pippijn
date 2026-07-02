@@ -43,7 +43,10 @@ impl AppState {
         map.retain(|_, v| v.created.elapsed() < OAUTH_TTL);
         map.insert(
             state.clone(),
-            PendingOauth { created: Instant::now(), return_to },
+            PendingOauth {
+                created: Instant::now(),
+                return_to,
+            },
         );
         state
     }

@@ -43,8 +43,10 @@ Three layers, strongest first:
 ## API (all require a valid session)
 - `GET /api/me` — current user.
 - `GET /api/conversations` — both origins, each tagged `origin`, newest first.
-- `GET /api/conversations/{origin}/{id}/messages?before=<ms>&limit=` — one page,
-  oldest→newest, reactions attached; `before` pages backwards.
+- `GET /api/conversations/{origin}/{id}/messages?cursor=<opaque>&limit=` — one
+  page, oldest→newest, reactions attached; pass a previous page's `next_cursor`
+  as `cursor` to page backwards (the cursor carries `(native_ts, id)`, so paging
+  never skips messages that share a timestamp).
 - `GET /api/search?q=` — substring search across both origins.
 
 `{origin}` is `signal` or `gchat`; `{id}` is the Signal `thread_id` or the gchat

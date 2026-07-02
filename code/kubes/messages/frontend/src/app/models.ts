@@ -45,7 +45,7 @@ export interface Message {
 export interface MessagesPage {
   messages: Message[]; // ascending by ts
   has_more: boolean;
-  next_before: number | null;
+  next_cursor: string | null; // opaque; pass back as ?cursor to page older
 }
 
 export interface SearchHit {

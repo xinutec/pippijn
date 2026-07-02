@@ -62,13 +62,18 @@ pub async fn callback(
     let pending = app
         .consume_oauth_state(&state)
         .ok_or(AppError::Unauthorized)?;
-    let code = q.code.ok_or_else(|| anyhow!("missing authorization code"))?;
+    let code = q
+        .code
+        .ok_or_else(|| anyhow!("missing authorization code"))?;
 
     let token = identity::exchange_code(&app.http, &app.cfg, &code).await?;
     let nc_user = identity::fetch_user(&app.http, &app.cfg, &token).await?;
 
     if !app.cfg.is_allowed(&nc_user.id) {
-        tracing::warn!("denied login for non-allowed Nextcloud user {:?}", nc_user.id);
+        tracing::warn!(
+            "denied login for non-allowed Nextcloud user {:?}",
+            nc_user.id
+        );
         return Err(AppError::Forbidden);
     }
 

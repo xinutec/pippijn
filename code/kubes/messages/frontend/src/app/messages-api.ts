@@ -20,9 +20,9 @@ export class MessagesApi {
     return this.http.get<Conversation[]>('/api/conversations');
   }
 
-  messages(origin: Origin, id: string, before?: number, limit = 100): Observable<MessagesPage> {
+  messages(origin: Origin, id: string, cursor?: string, limit = 100): Observable<MessagesPage> {
     const params: Record<string, string> = { limit: String(limit) };
-    if (before != null) params['before'] = String(before);
+    if (cursor != null) params['cursor'] = cursor;
     return this.http.get<MessagesPage>(
       `/api/conversations/${origin}/${encodeURIComponent(id)}/messages`,
       { params },

@@ -6,12 +6,12 @@
 
 use anyhow::{Context, Result};
 use sqlx::MySqlPool;
-use sqlx::mysql::MySqlPoolOptions;
+use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
 
-pub async fn connect(database_url: &str) -> Result<MySqlPool> {
+pub async fn connect(options: MySqlConnectOptions) -> Result<MySqlPool> {
     let pool = MySqlPoolOptions::new()
         .max_connections(8)
-        .connect(database_url)
+        .connect_with(options)
         .await
         .context("connecting to MariaDB")?;
     Ok(pool)

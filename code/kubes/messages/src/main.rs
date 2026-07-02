@@ -9,7 +9,9 @@ use tracing_subscriber::EnvFilter;
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let cfg = Config::from_env()?;
@@ -18,7 +20,7 @@ async fn main() -> Result<()> {
     }
     tracing::info!("allow-list: {:?}", cfg.allowed_users);
 
-    let pool = db::connect(&cfg.database_url).await?;
+    let pool = db::connect(cfg.db_options.clone()).await?;
     db::ensure_schema(&pool).await?;
 
     let http = reqwest::Client::builder().build()?;

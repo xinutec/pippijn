@@ -16,7 +16,7 @@ function makeApi() {
   return {
     me: vi.fn(() => of({ user_id: 'u1', display_name: 'Test User' })),
     conversations: vi.fn(() => of([])),
-    messages: vi.fn(() => of({ messages: [msg('1', 100)], has_more: false, next_before: null } as MessagesPage)),
+    messages: vi.fn(() => of({ messages: [msg('1', 100)], has_more: false, next_cursor: null } as MessagesPage)),
     search: vi.fn(() => of([])),
     logout: vi.fn(() => of({})),
   } as unknown as MessagesApi;

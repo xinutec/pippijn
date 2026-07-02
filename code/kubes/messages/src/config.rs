@@ -5,11 +5,15 @@
 //! (DB_USER/DB_PASSWORD) in-namespace rather than duplicating a DSN.
 
 use anyhow::{Context, Result};
+use sqlx::mysql::MySqlConnectOptions;
 
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// MariaDB connection string, assembled from DB_* parts.
-    pub database_url: String,
+    /// MariaDB connection options, built from DB_* parts. Built from parts (not a
+    /// formatted `mysql://` URL) so a password from the externally-owned
+    /// `signal-secret` can contain URL-reserved characters (`@ : / # ?`) without
+    /// corrupting the DSN.
+    pub db_options: MySqlConnectOptions,
     /// HMAC key for signing session cookies.
     pub session_secret: String,
     /// Address to bind the HTTP server to.
@@ -49,12 +53,18 @@ fn env_or(key: &str, default: &str) -> String {
 impl Config {
     pub fn from_env() -> Result<Self> {
         let db_host = env("DB_HOST")?;
-        let db_port = env_or("DB_PORT", "3306");
+        let db_port: u16 = env_or("DB_PORT", "3306")
+            .parse()
+            .context("DB_PORT must be a port number")?;
         let db_name = env("DB_NAME")?;
         let db_user = env("DB_USER")?;
         let db_password = env("DB_PASSWORD")?;
-        let database_url =
-            format!("mysql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}");
+        let db_options = MySqlConnectOptions::new()
+            .host(&db_host)
+            .port(db_port)
+            .username(&db_user)
+            .password(&db_password)
+            .database(&db_name);
 
         let allowed_users = env("ALLOWED_USERS")?
             .split(',')
@@ -63,7 +73,7 @@ impl Config {
             .collect::<Vec<_>>();
 
         Ok(Self {
-            database_url,
+            db_options,
             session_secret: env("SESSION_SECRET")?,
             bind_addr: env_or("BIND_ADDR", "0.0.0.0:8080"),
             nc_base_url: env("NC_BASE_URL")?.trim_end_matches('/').to_string(),

@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -11,7 +11,7 @@ import { MatListModule } from '@angular/material/list';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatToolbarModule } from '@angular/material/toolbar';
 
-import { filter } from 'rxjs';
+import { Subject, catchError, filter, of, switchMap } from 'rxjs';
 
 import { MessagesApi } from './messages-api';
 import { MessagesStore } from './messages-store';
@@ -63,10 +63,13 @@ export class App {
     return origin != null && id != null ? { origin, id } : null;
   });
 
-  // Search overlays the list; it's transient UI, not URL state.
+  // Search overlays the list; it's transient UI, not URL state. Queries run
+  // through a Subject + switchMap so a slow response can't land after a newer
+  // one (the stale request is cancelled).
   readonly query = signal('');
   readonly results = signal<SearchHit[] | null>(null);
   readonly searching = signal(false);
+  private search$ = new Subject<string>();
 
   readonly visibleConversations = computed(() => {
     const f = this.originFilter();
@@ -76,6 +79,15 @@ export class App {
 
   constructor() {
     this.store.init();
+    this.search$
+      .pipe(
+        switchMap((q) => this.api.search(q).pipe(catchError(() => of<SearchHit[]>([])))),
+        takeUntilDestroyed(),
+      )
+      .subscribe((hits) => {
+        this.results.set(hits);
+        this.searching.set(false);
+      });
   }
 
   private leaf(): ActivatedRoute {
@@ -114,16 +126,7 @@ export class App {
       return;
     }
     this.searching.set(true);
-    this.api.search(q).subscribe({
-      next: (hits) => {
-        this.results.set(hits);
-        this.searching.set(false);
-      },
-      error: () => {
-        this.results.set([]);
-        this.searching.set(false);
-      },
-    });
+    this.search$.next(q);
   }
 
   clearSearch(): void {

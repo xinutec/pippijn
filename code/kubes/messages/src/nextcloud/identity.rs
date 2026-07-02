@@ -74,7 +74,11 @@ struct OcsData {
 }
 
 /// Look up the granting user's id + display name. The token is consumed here.
-pub async fn fetch_user(http: &reqwest::Client, cfg: &Config, access_token: &str) -> Result<NcUser> {
+pub async fn fetch_user(
+    http: &reqwest::Client,
+    cfg: &Config,
+    access_token: &str,
+) -> Result<NcUser> {
     let res = http
         .get(format!(
             "{}/ocs/v2.php/cloud/user?format=json",

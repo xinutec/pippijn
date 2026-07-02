@@ -31,7 +31,30 @@ pub fn kind_from_is_dm(is_dm: bool) -> &'static str {
 /// Escape a user search term for a SQL `LIKE` (so `%` and `_` are literal). The
 /// query still binds the result as a parameter; this only neutralises wildcards.
 pub fn escape_like(q: &str) -> String {
-    format!("%{}%", q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_"))
+    format!(
+        "%{}%",
+        q.replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    )
+}
+
+/// Opaque pagination cursor: the `(native_ts, id)` of the last (oldest) row a
+/// page returned, so the next page resumes strictly before it. Two things matter:
+/// the id tie-breaker (messages sharing a timestamp would otherwise be skipped
+/// when a page boundary splits them), and keeping each origin's *native* ts
+/// precision (Signal ms, Google Chat µs) — a millisecond-only cursor drops gchat
+/// rows that share a millisecond. The value is minted and parsed here; callers
+/// (and the frontend) treat it as opaque.
+pub fn encode_cursor(native_ts: i64, id: i64) -> String {
+    format!("{native_ts}_{id}")
+}
+
+/// Parse a cursor minted by [`encode_cursor`]; None for anything malformed (the
+/// caller then just starts from the newest page).
+pub fn parse_cursor(s: &str) -> Option<(i64, i64)> {
+    let (ts, id) = s.split_once('_')?;
+    Some((ts.parse().ok()?, id.parse().ok()?))
 }
 
 #[derive(Serialize)]
@@ -92,7 +115,10 @@ pub async fn attachment_blob(
     .fetch_optional(pool)
     .await?;
     match row {
-        Some(r) => Ok(Some((r.try_get("content_type")?, r.try_get("stored_path")?))),
+        Some(r) => Ok(Some((
+            r.try_get("content_type")?,
+            r.try_get("stored_path")?,
+        ))),
         None => Ok(None),
     }
 }
@@ -101,7 +127,7 @@ pub async fn attachment_blob(
 pub struct MessagesPage {
     pub messages: Vec<Message>, // ascending by ts
     pub has_more: bool,
-    pub next_before: Option<i64>, // cursor (ms) to fetch older
+    pub next_cursor: Option<String>, // opaque cursor to fetch the next older page
 }
 
 /// All conversations across both origins, newest activity first.
@@ -154,33 +180,43 @@ pub async fn list_conversations(pool: &MySqlPool) -> Result<Vec<Conversation>> {
     Ok(out)
 }
 
-/// One page of a conversation, oldest→newest, with reactions attached.
-/// `before` (ms) pages backwards in time; None starts at the most recent.
+/// One page of a conversation, oldest→newest, with reactions attached. `cursor`
+/// (from a previous page's `next_cursor`) pages backwards in time; None starts at
+/// the most recent. The per-origin fetchers mint `next_cursor` from their own
+/// native ts, so it round-trips at full precision.
 pub async fn messages_page(
     pool: &MySqlPool,
     origin: &str,
     id: &str,
-    before: Option<i64>,
+    cursor: Option<(i64, i64)>,
     limit: i64,
 ) -> Result<MessagesPage> {
-    let mut msgs = match origin {
-        ORIGIN_SIGNAL => signal_messages(pool, id, before, limit).await?,
-        ORIGIN_GCHAT => gchat_messages(pool, id, before, limit).await?,
-        _ => Vec::new(),
+    // Each fetcher returns its page (DESC, newest first) plus the cursor for the
+    // next older page — it alone knows the native ts unit + row id.
+    let (mut msgs, next_cursor) = match origin {
+        ORIGIN_SIGNAL => signal_messages(pool, id, cursor, limit).await?,
+        ORIGIN_GCHAT => gchat_messages(pool, id, cursor, limit).await?,
+        _ => (Vec::new(), None),
     };
-    // Fetched DESC (newest first); has_more if we filled the page.
     let has_more = msgs.len() as i64 == limit;
-    let next_before = msgs.last().map(|m| m.ts);
     msgs.reverse(); // present ascending
-    Ok(MessagesPage { messages: msgs, has_more, next_before })
+    Ok(MessagesPage {
+        messages: msgs,
+        has_more,
+        next_cursor,
+    })
 }
 
 async fn signal_messages(
     pool: &MySqlPool,
     thread_id: &str,
-    before: Option<i64>,
+    cursor: Option<(i64, i64)>,
     limit: i64,
-) -> Result<Vec<Message>> {
+) -> Result<(Vec<Message>, Option<String>)> {
+    let (cur_ts, cur_id) = (cursor.map(|(ts, _)| ts), cursor.map(|(_, id)| id));
+    // Newest first, tie-broken by id so a page boundary never splits a run of
+    // messages sharing a server_ts. The first `?` (cur_ts) doubles as the
+    // "no cursor → whole thread" guard.
     let rows = sqlx::query(
         r"SELECT m.id AS id, m.server_ts AS ts,
                  COALESCE(ct.profile_name, m.sender_uuid) AS sender,
@@ -188,13 +224,16 @@ async fn signal_messages(
                  m.deleted AS deleted, m.edited AS edited
           FROM messages m
           LEFT JOIN contacts ct ON ct.uuid = m.sender_uuid
-          WHERE m.thread_id = ? AND (? IS NULL OR m.server_ts < ?)
-          ORDER BY m.server_ts DESC
+          WHERE m.thread_id = ?
+            AND (? IS NULL OR m.server_ts < ? OR (m.server_ts = ? AND m.id < ?))
+          ORDER BY m.server_ts DESC, m.id DESC
           LIMIT ?",
     )
     .bind(thread_id)
-    .bind(before)
-    .bind(before)
+    .bind(cur_ts)
+    .bind(cur_ts)
+    .bind(cur_ts)
+    .bind(cur_id)
     .bind(limit)
     .fetch_all(pool)
     .await?;
@@ -282,42 +321,57 @@ async fn signal_messages(
             }
         }
     }
-    Ok(msgs)
+
+    // The oldest row (last, since DESC) is the cursor for the next older page.
+    let next_cursor = ids
+        .last()
+        .zip(ts_list.last())
+        .map(|(&id, &ts)| encode_cursor(ts, id));
+    Ok((msgs, next_cursor))
 }
 
 async fn gchat_messages(
     pool: &MySqlPool,
     group_id: &str,
-    before: Option<i64>,
+    cursor: Option<(i64, i64)>,
     limit: i64,
-) -> Result<Vec<Message>> {
-    let before_us = before.map(|ms| ms * 1000);
+) -> Result<(Vec<Message>, Option<String>)> {
+    // The cursor carries the native µs ts (not the ms the UI sees), so paging
+    // never skips rows that share a millisecond; id tie-breaks an exact µs match.
+    let (cur_ts, cur_id) = (cursor.map(|(ts, _)| ts), cursor.map(|(_, id)| id));
     let rows = sqlx::query(
         r"SELECT m.id AS id, m.ts_us AS ts_us, m.sender_name AS sender,
                  m.is_self AS is_self, m.text AS body
           FROM gchat_messages m
-          WHERE m.group_id = ? AND (? IS NULL OR m.ts_us < ?)
-          ORDER BY m.ts_us DESC
+          WHERE m.group_id = ?
+            AND (? IS NULL OR m.ts_us < ? OR (m.ts_us = ? AND m.id < ?))
+          ORDER BY m.ts_us DESC, m.id DESC
           LIMIT ?",
     )
     .bind(group_id)
-    .bind(before_us)
-    .bind(before_us)
+    .bind(cur_ts)
+    .bind(cur_ts)
+    .bind(cur_ts)
+    .bind(cur_id)
     .bind(limit)
     .fetch_all(pool)
     .await?;
 
     let mut msgs = Vec::with_capacity(rows.len());
     let mut ids = Vec::with_capacity(rows.len());
+    let mut oldest: Option<(i64, i64)> = None; // (ts_us, id) of the last row seen
     for r in rows {
         let id: i64 = r.try_get("id")?;
         let ts_us: i64 = r.try_get("ts_us")?;
         let is_self: i8 = r.try_get("is_self")?;
         ids.push(id);
+        oldest = Some((ts_us, id));
         msgs.push(Message {
             id: id.to_string(),
             ts: us_to_ms(ts_us),
-            sender: r.try_get::<Option<String>, _>("sender")?.unwrap_or_default(),
+            sender: r
+                .try_get::<Option<String>, _>("sender")?
+                .unwrap_or_default(),
             is_outgoing: is_self != 0,
             body: r.try_get("body")?,
             deleted: false,
@@ -349,7 +403,9 @@ async fn gchat_messages(
             }
         }
     }
-    Ok(msgs)
+
+    let next_cursor = oldest.map(|(ts_us, id)| encode_cursor(ts_us, id));
+    Ok((msgs, next_cursor))
 }
 
 #[derive(Serialize)]
@@ -410,7 +466,9 @@ pub async fn search(pool: &MySqlPool, q: &str, limit: i64) -> Result<Vec<SearchH
             conversation_id: r.try_get("cid")?,
             conversation_name: r.try_get("cname")?,
             ts: us_to_ms(ts_us),
-            sender: r.try_get::<Option<String>, _>("sender")?.unwrap_or_default(),
+            sender: r
+                .try_get::<Option<String>, _>("sender")?
+                .unwrap_or_default(),
             snippet: r.try_get::<Option<String>, _>("body")?.unwrap_or_default(),
         });
     }

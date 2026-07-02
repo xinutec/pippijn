@@ -34,7 +34,7 @@ function makeApi(over: { search?: ReturnType<typeof vi.fn> } = {}) {
   return {
     me: vi.fn(() => of(ME)),
     conversations: vi.fn(() => of(CONVS)),
-    messages: vi.fn(() => of({ messages: [msg('1', 100)], has_more: false, next_before: null } as MessagesPage)),
+    messages: vi.fn(() => of({ messages: [msg('1', 100)], has_more: false, next_cursor: null } as MessagesPage)),
     search: over.search ?? vi.fn(() => of([] as SearchHit[])),
     logout: vi.fn(() => of({})),
   } as unknown as MessagesApi;
