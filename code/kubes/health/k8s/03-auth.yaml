@@ -92,6 +92,13 @@ spec:
             # for the golden harness. See feedback_parity_tools_must_mirror_env.
             - name: USE_CONTINUITY_CONTINUATION
               value: "1"
+            # Building-escape walk corrector (case-based: route a drawn walk
+            # around building blocks it falsely crosses; leave genuine visits —
+            # doorsteps, hospitals, concourses — alone). Display-geometry only;
+            # measured on the 2026-07-01 fixture before enabling. Set to "1"
+            # to enable; remove/0 to fall back to the uncorrected draw.
+            - name: WALK_BUILDING_ESCAPE
+              value: "1"
           resources:
             requests:
               # Idle most of the time; a /api/velocity compute is a short CPU
