@@ -107,11 +107,13 @@
   </mat-card>
 }
 
-<button
-  mat-fab
-  class="add-fab"
-  (click)="fabAddRecipe()"
-  [attr.aria-label]="showForm() ? 'Close the recipe form' : 'Add a recipe'"
->
-  <mat-icon>{{ showForm() ? 'close' : 'add' }}</mat-icon>
-</button>
+<div class="fab-anchor">
+  <button
+    mat-fab
+    class="add-fab"
+    (click)="fabAddRecipe()"
+    [attr.aria-label]="showForm() ? 'Close the recipe form' : 'Add a recipe'"
+  >
+    <mat-icon>{{ showForm() ? 'close' : 'add' }}</mat-icon>
+  </button>
+</div>

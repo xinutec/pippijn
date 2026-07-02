@@ -154,11 +154,13 @@
   </mat-list>
 </section>
 
-<button
-  mat-fab
-  class="add-fab"
-  (click)="fabAddItem()"
-  [attr.aria-label]="showItemForm() ? 'Close the item form' : 'Add an item'"
->
-  <mat-icon>{{ showItemForm() ? 'close' : 'add' }}</mat-icon>
-</button>
+<div class="fab-anchor">
+  <button
+    mat-fab
+    class="add-fab"
+    (click)="fabAddItem()"
+    [attr.aria-label]="showItemForm() ? 'Close the item form' : 'Add an item'"
+  >
+    <mat-icon>{{ showItemForm() ? 'close' : 'add' }}</mat-icon>
+  </button>
+</div>

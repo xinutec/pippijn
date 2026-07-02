@@ -109,6 +109,8 @@
   }
 </mat-list>
 
-<button mat-fab class="add-fab" (click)="toggleAdd()" [attr.aria-label]="showAdd() ? 'Close the add form' : 'Add a to-do'">
-  <mat-icon>{{ showAdd() ? 'close' : 'add' }}</mat-icon>
-</button>
+<div class="fab-anchor">
+  <button mat-fab class="add-fab" (click)="toggleAdd()" [attr.aria-label]="showAdd() ? 'Close the add form' : 'Add a to-do'">
+    <mat-icon>{{ showAdd() ? 'close' : 'add' }}</mat-icon>
+  </button>
+</div>

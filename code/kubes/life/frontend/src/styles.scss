@@ -32,19 +32,33 @@ body {
   overflow: hidden;
 }
 
-// The per-screen "add" FAB: fixed bottom-right, above the bottom tab bar (and
-// its safe-area inset) so the primary capture action is thumb-reachable — the
-// add forms themselves live at the top of the scroll (see add-fab.ts).
-.add-fab {
+// The per-screen "add" FAB, parked bottom-right above the bottom tab bar so the
+// primary capture action is thumb-reachable (the add forms live at the top of
+// the scroll — see add-fab.ts).
+//
+// It lives inside a full-width fixed BAR rather than being a right-anchored
+// fixed button directly. Android WebView (wide-viewport + viewport-fit=cover)
+// mis-positions a `position: fixed` element anchored only by `right`/`bottom`
+// (it collapses to the top-left) — but honours one anchored to BOTH horizontal
+// edges, exactly like .topbar/.nav. So the bar spans left:0/right:0 (WebView
+// positions it correctly) and flex pushes the button to the right edge.
+.fab-anchor {
   position: fixed;
-  right: 1rem;
-  bottom: calc(60px + env(safe-area-inset-bottom) + 1rem);
+  inset: auto 0 0 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 1rem calc(60px + env(safe-area-inset-bottom) + 1rem);
+  pointer-events: none; // don't block the list scrolling behind the bar
   z-index: 5;
+
+  .add-fab {
+    pointer-events: auto; // …but the button itself is tappable
+  }
 }
 
 @media (min-width: 768px) {
   // The tab bar becomes a left rail — nothing at the bottom to clear.
-  .add-fab {
-    bottom: calc(env(safe-area-inset-bottom) + 1rem);
+  .fab-anchor {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
   }
 }
