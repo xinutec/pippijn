@@ -87,19 +87,64 @@ function nearestWalkable(
 	return best;
 }
 
-/** Is any walkable way within `maxM` of `p`? The early-exit form of
- *  {@link nearestWalkable} for the badness threshold tests — on-street samples
- *  (the overwhelming majority) hit a nearby segment almost immediately instead
- *  of paying a full scan for an exact minimum nothing uses. */
-function anyWalkableWithin(p: { lat: number; lon: number }, geo: RoadGeometry, maxM: number): boolean {
-	for (const w of geo.ways) {
-		for (let i = 1; i < w.coords.length; i++) {
-			const a = { lat: w.coords[i - 1][0], lon: w.coords[i - 1][1] };
-			const b = { lat: w.coords[i][0], lon: w.coords[i][1] };
-			if (projectPointToSegment(p, a, b).distM <= maxM) return true;
+/**
+ * Grid index over way segments for the badness THRESHOLD tests ("is any way
+ * within maxM?"), which run per 2 m sample over whole legs — a linear way scan
+ * there dominated the corrector's runtime. Cells are sized to the largest
+ * query radius, so a 3×3 probe around the query point is EXACT: a segment
+ * within `maxM ≤ cellM` of `p` has a bbox cell within one cell of `p`'s.
+ */
+class WaySegmentGrid {
+	private readonly buckets = new Map<string, Array<[Pt2, Pt2]>>();
+	private readonly cellLat: number;
+	private readonly cellLon: number;
+	/** Largest radius (m) `within` may be asked for — fixed at build time. */
+	readonly maxQueryM: number;
+	constructor(geo: RoadGeometry, maxQueryM: number) {
+		this.maxQueryM = maxQueryM;
+		const refLat = geo.ways[0]?.coords[0]?.[0] ?? 51;
+		this.cellLat = maxQueryM / 111_320;
+		this.cellLon = maxQueryM / (111_320 * Math.cos((refLat * Math.PI) / 180));
+		for (const w of geo.ways) {
+			for (let i = 1; i < w.coords.length; i++) {
+				const a: Pt2 = { lat: w.coords[i - 1][0], lon: w.coords[i - 1][1] };
+				const b: Pt2 = { lat: w.coords[i][0], lon: w.coords[i][1] };
+				const loLat = Math.floor(Math.min(a.lat, b.lat) / this.cellLat);
+				const hiLat = Math.floor(Math.max(a.lat, b.lat) / this.cellLat);
+				const loLon = Math.floor(Math.min(a.lon, b.lon) / this.cellLon);
+				const hiLon = Math.floor(Math.max(a.lon, b.lon) / this.cellLon);
+				for (let cy = loLat; cy <= hiLat; cy++) {
+					for (let cx = loLon; cx <= hiLon; cx++) {
+						const key = `${cy},${cx}`;
+						const bkt = this.buckets.get(key);
+						if (bkt) bkt.push([a, b]);
+						else this.buckets.set(key, [[a, b]]);
+					}
+				}
+			}
 		}
 	}
-	return false;
+
+	/** Is any way segment within `maxM` (≤ `maxQueryM`) of `p`? */
+	within(p: Pt2, maxM: number): boolean {
+		const cy = Math.floor(p.lat / this.cellLat);
+		const cx = Math.floor(p.lon / this.cellLon);
+		for (let dy = -1; dy <= 1; dy++) {
+			for (let dx = -1; dx <= 1; dx++) {
+				const bkt = this.buckets.get(`${cy + dy},${cx + dx}`);
+				if (!bkt) continue;
+				for (const [a, b] of bkt) {
+					if (projectPointToSegment(p, a, b).distM <= maxM) return true;
+				}
+			}
+		}
+		return false;
+	}
+}
+
+interface Pt2 {
+	lat: number;
+	lon: number;
 }
 
 /** The building ring `p` is inside, or null. First match wins (footprints rarely
@@ -251,6 +296,8 @@ interface BadnessCtx {
 	/** Per-ring bbox expanded by buildingProxM, aligned with `buildings`. */
 	boxes: Array<{ minLat: number; maxLat: number; minLon: number; maxLon: number }>;
 	walkable: RoadGeometry;
+	/** Grid over the walkable segments for the per-sample threshold tests. */
+	grid: WaySegmentGrid;
 	opts: CorrectOptions;
 }
 
@@ -274,7 +321,20 @@ function makeBadnessCtx(
 		const dLon = opts.buildingProxM / (111_320 * Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180));
 		return { minLat: minLat - dLat, maxLat: maxLat + dLat, minLon: minLon - dLon, maxLon: maxLon + dLon };
 	});
-	return { buildings, boxes, walkable, opts };
+	const grid = new WaySegmentGrid(walkable, Math.max(opts.onWayM, opts.offNetworkM));
+	return { buildings, boxes, walkable, grid, opts };
+}
+
+/** Is `p` inside a building? The ctx form of {@link containingBuilding}: the
+ *  precomputed (expanded) bboxes reject almost every ring before the ray cast —
+ *  this runs first on every 2 m badness sample. */
+function insideBuildingCtx(p: { lat: number; lon: number }, ctx: BadnessCtx): boolean {
+	for (let i = 0; i < ctx.buildings.length; i++) {
+		const b = ctx.boxes[i];
+		if (p.lat < b.minLat || p.lat > b.maxLat || p.lon < b.minLon || p.lon > b.maxLon) continue;
+		if (pointInRing(p, ctx.buildings[i])) return true;
+	}
+	return false;
 }
 
 /** Is a building within `buildingProxM` of `p` (or `p` inside one)? bbox
@@ -315,14 +375,14 @@ function segBadnessM(a: { lat: number; lon: number }, b: { lat: number; lon: num
 	for (let k = 0; k < steps; k++) {
 		const f = (k + 0.5) / steps;
 		const mid = { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f };
-		if (containingBuilding(mid, ctx.buildings)) {
-			if (!anyWalkableWithin(mid, ctx.walkable, ctx.opts.onWayM)) bad += segLen / steps;
+		if (insideBuildingCtx(mid, ctx)) {
+			if (!ctx.grid.within(mid, ctx.opts.onWayM)) bad += segLen / steps;
 			continue;
 		}
-		// Cheap bbox-gated building-proximity first; the way scan (the expensive
-		// part) only runs for samples in built surroundings.
+		// Cheap bbox-gated building-proximity first; the way test (the formerly
+		// expensive part) only runs for samples in built surroundings.
 		if (!nearBuilding(mid, ctx)) continue;
-		if (!anyWalkableWithin(mid, ctx.walkable, ctx.opts.offNetworkM)) bad += segLen / steps;
+		if (!ctx.grid.within(mid, ctx.opts.offNetworkM)) bad += segLen / steps;
 	}
 	return bad;
 }
