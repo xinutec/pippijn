@@ -40,7 +40,9 @@ kotlin {
 }
 
 dependencies {
-    // WebView is part of the framework — the only dependency is core-ktx. No
+    // WebView is part of the framework. core-ktx for the insets/prefs KTX and
+    // activity for the modern OnBackPressedDispatcher (predictive back). No
     // Compose, no AppCompat: this app is a single WebView.
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity)
 }

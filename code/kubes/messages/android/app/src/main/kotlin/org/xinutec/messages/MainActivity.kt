@@ -1,7 +1,6 @@
 package org.xinutec.messages
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
 import android.graphics.Color
 import android.os.Bundle
@@ -9,6 +8,9 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
@@ -19,15 +21,46 @@ import androidx.core.view.WindowInsetsCompat
  * (reachable over the VPN) and behind a login; the WebView keeps the session
  * cookie, so it's a one-time sign-in.
  *
- * Deliberately tiny — a plain Activity holding one WebView, no Compose/AppCompat.
- * `configChanges` keeps the WebView (and its route + scroll) across rotation.
+ * Deliberately tiny — a [ComponentActivity] holding one WebView, no Compose or
+ * AppCompat. `configChanges` keeps the WebView (and its route + scroll) across
+ * rotation.
  *
- * The WebView is inset from the system bars by padding a wrapper (see onCreate),
+ * The WebView is inset from the system bars by padding a wrapper (see [onCreate]),
  * and the strips behind the bars are painted with the page's own surface colour.
  */
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private lateinit var web: WebView
     private lateinit var root: FrameLayout
+
+    // Set when a back press escapes a deep cold-start (a conversation opened with
+    // no in-app history) up to the list: the list then replaces the thread as the
+    // sole history entry, so the next back exits instead of bouncing into it.
+    private var trimHistoryOnLoad = false
+
+    // Modern back handling (predictive back on API 33+, opted into via the
+    // manifest's enableOnBackInvokedCallback). Enabled only while back has
+    // somewhere in-app to go, so at the list root the system shows its own
+    // predictive "exit to launcher" gesture instead.
+    private val backCallback =
+        object : OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                when {
+                    web.canGoBack() -> {
+                        web.goBack()
+                    }
+
+                    inConversation() -> {
+                        escapeToList()
+                    }
+
+                    else -> {
+                        // Nothing left in-app: hand back to the system to finish.
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+            }
+        }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,22 +89,31 @@ class MainActivity : Activity() {
                         ) {
                             super.doUpdateVisitedHistory(view, url, isReload)
                             if (url.startsWith(MESSAGES_URL)) {
-                                prefs.edit().putString(KEY_LAST_URL, url).apply()
+                                prefs.edit { putString(KEY_LAST_URL, url) }
                             }
+                            syncBackEnabled()
                         }
 
-                        // Paint the strips behind the system bars with the web UI's
-                        // own surface colour instead of a hardcoded black; it follows
-                        // the page's light/dark theme, so read its body background.
                         override fun onPageFinished(view: WebView, url: String) {
                             super.onPageFinished(view, url)
+                            if (trimHistoryOnLoad) {
+                                // Escaped a deep cold-start to the list: drop the
+                                // thread entry so the list is the top of the stack.
+                                trimHistoryOnLoad = false
+                                view.clearHistory()
+                                syncBackEnabled()
+                            }
+                            // Paint the strips behind the system bars with the web
+                            // UI's own surface colour instead of a hardcoded black;
+                            // it follows the page's light/dark theme, so read its
+                            // body background.
                             view.evaluateJavascript(
                                 "getComputedStyle(document.body).backgroundColor",
                             ) { result -> parseCssColor(result)?.let(root::setBackgroundColor) }
                         }
                     }
-                // Black until the page loads and reports its surface colour; avoids a
-                // white flash on launch.
+                // Black until the page loads and reports its surface colour; avoids
+                // a white flash on launch.
                 setBackgroundColor(Color.BLACK)
             }
         // Inset the WebView from the system bars by padding a wrapper ViewGroup
@@ -89,16 +131,25 @@ class MainActivity : Activity() {
             WindowInsetsCompat.CONSUMED
         }
         setContentView(root)
+
+        onBackPressedDispatcher.addCallback(this, backCallback)
         // Reopen where we left off; the hardcoded URL is only the first-run default.
         web.loadUrl(prefs.getString(KEY_LAST_URL, null) ?: MESSAGES_URL)
     }
 
-    // Back walks the SPA's history; it only leaves the app once there's nothing
-    // left to go back to.
-    @Deprecated("Deprecated in Java")
-    @Suppress("DEPRECATION")
-    override fun onBackPressed() {
-        if (web.canGoBack()) web.goBack() else super.onBackPressed()
+    /** Whether the WebView is currently showing a conversation thread. */
+    private fun inConversation(): Boolean = web.url?.contains("/conversation/") == true
+
+    /** Go up to the conversation list, collapsing the deep entry (see [trimHistoryOnLoad]). */
+    private fun escapeToList() {
+        trimHistoryOnLoad = true
+        web.loadUrl(MESSAGES_URL)
+    }
+
+    /** Intercept back only while it has somewhere in-app to go; otherwise let the
+     *  system handle it (finish / predictive exit). */
+    private fun syncBackEnabled() {
+        backCallback.isEnabled = web.canGoBack() || inConversation()
     }
 
     // evaluateJavascript hands back the JSON-encoded result, e.g. the string
