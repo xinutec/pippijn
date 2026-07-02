@@ -19,7 +19,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { isEnforceableTruth, parseGroundTruth } from "../eval/ground-truth.js";
-import { buildingCrossingM } from "../eval/walk-buildings.js";
+import { buildingCrossingM, offPathBuildingCrossingM } from "../eval/walk-buildings.js";
 import { walkPlausibility } from "../eval/walk-plausibility.js";
 import { onNamedWayFraction } from "../eval/walk-route-correctness.js";
 import { FixtureOsmAdapter } from "../geo/osm-adapter-fixture.js";
@@ -131,11 +131,16 @@ interface WalkVerdict {
 	/** Sharp-turn (~90° staircase) count of the CURRENT drawn line — the de-boxing
 	 *  witness off-walkable is blind to. */
 	candidateSharpTurns: number;
-	/** Building-crossing length (m) of the drawn line — the headline defect the
-	 *  off-walkable proxy is blind to. baseline (smoother) vs candidate (matched).
-	 *  null when the fixture carries no building data. */
+	/** Building-crossing length (m) of the drawn line — the raw superset measure.
+	 *  baseline (smoother) vs candidate (matched). null when the fixture carries
+	 *  no building data. */
 	baselineBuildingM: number | null;
 	candidateBuildingM: number | null;
+	/** TRUE-DEFECT lens: crossing length while OFF every walkable way. A line
+	 *  riding a mapped through-building footway (arcade, station concourse) is a
+	 *  legitimate passage and reads 0 here; a chord through a house reads full. */
+	baselineOffPathM: number | null;
+	candidateOffPathM: number | null;
 	/** The matched-line REFINEMENT arm (Phase 1, both-staged) — the continuous
 	 *  smoother run over the matched line as its own corridor, rounding the boxy
 	 *  corners toward the raw GPS. null when it bailed. Its off-walkable p90,
@@ -174,6 +179,8 @@ async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
 	const hasBuildings = buildings.length > 0;
 	const crossM = (pts: readonly { lat: number; lon: number }[]): number | null =>
 		hasBuildings ? buildingCrossingM(pts, buildings) : null;
+	const offPathM = (pts: readonly { lat: number; lon: number }[]): number | null =>
+		hasBuildings ? offPathBuildingCrossingM(pts, buildings, walkable) : null;
 	const namedWindows = loadNamedWalkWindows(date, captured.meta.tz);
 	const base = inputsFromFixture(captured);
 
@@ -273,6 +280,8 @@ async function scoreDay(date: string, user: string): Promise<WalkVerdict[]> {
 			candidateSharpTurns: countSharpTurns(candidatePoints),
 			baselineBuildingM: offE && offE.points.length >= 2 ? crossM(offE.points) : null,
 			candidateBuildingM: crossM(candidatePoints),
+			baselineOffPathM: offE && offE.points.length >= 2 ? offPathM(offE.points) : null,
+			candidateOffPathM: offPathM(candidatePoints),
 			refineP90: refine?.offWalkableP90M ?? null,
 			refineStallM: refine?.corridorStallM ?? null,
 			refineRouteCorr,
@@ -324,7 +333,8 @@ async function main(): Promise<void> {
 			const bldg =
 				v.candidateBuildingM === null
 					? ""
-					: `  bldg ${(v.baselineBuildingM ?? 0).toFixed(0)}→${v.candidateBuildingM.toFixed(0)}m${v.candidateBuildingM >= 5 ? " ⚠crosses-building" : ""}`;
+					: `  bldg ${(v.baselineBuildingM ?? 0).toFixed(0)}→${v.candidateBuildingM.toFixed(0)}m` +
+						`  offPath ${(v.baselineOffPathM ?? 0).toFixed(0)}→${(v.candidateOffPathM ?? 0).toFixed(0)}m${(v.candidateOffPathM ?? 0) >= 5 ? " ⚠crosses-building" : ""}`;
 			console.log(
 				`  ${tag} @${hhmm(v.startTs)}Z  offWalkP90 ${b} → ${c}  stall ${v.candidateStallM.toFixed(0).padStart(4)}m${stallFlag}  ${spd.toFixed(1).padStart(5)}km/h${spdFlag}${route}${bldg}   (${v.baselineKind} → ${v.candidateKind})`,
 			);
@@ -375,23 +385,21 @@ async function main(): Promise<void> {
 		);
 	}
 
-	// Building-crossing — the headline defect off-walkable-p90 is blind to. This is
-	// the measurement baseline: how many walks the CURRENT drawn line runs through a
-	// building today, and whether the refinement arm reduces it. Reported, not yet
-	// gated (the current Viterbi+matched line is what crosses; driving it to 0 is
-	// the Phase-1 target).
+	// Building-crossing — the headline defect off-walkable-p90 is blind to. The
+	// TRUE-DEFECT lens is offPath (in a building AND off every walkable way):
+	// arcades and station concourses the walk really followed read 0 there, so a
+	// non-zero offPath is a line through a house with no path — the thing to fix.
 	const withB = all.filter((v) => v.candidateBuildingM !== null);
 	const CROSS_M = 5;
-	const candCross = withB.filter((v) => (v.candidateBuildingM ?? 0) >= CROSS_M);
-	const refCross = withB.filter((v) => v.refineBuildingM !== null && (v.refineBuildingM ?? 0) >= CROSS_M);
+	const candCross = withB.filter((v) => (v.candidateOffPathM ?? 0) >= CROSS_M);
+	const rawCross = withB.filter((v) => (v.candidateBuildingM ?? 0) >= CROSS_M);
 	console.log(
 		`\nBUILDING-CROSSING (${withB.length} walks with building data): ` +
-			`current draw crosses a building on ${candCross.length}; refine arm on ${refCross.length}`,
+			`OFF-PATH (true defect) on ${candCross.length}; raw crossing (incl. mapped passages) on ${rawCross.length}`,
 	);
-	for (const v of candCross.sort((a, b) => (b.candidateBuildingM ?? 0) - (a.candidateBuildingM ?? 0))) {
-		const r = v.refineBuildingM === null ? "-" : `${v.refineBuildingM.toFixed(0)}m`;
+	for (const v of candCross.sort((a, b) => (b.candidateOffPathM ?? 0) - (a.candidateOffPathM ?? 0))) {
 		console.log(
-			`  ${v.date} @${hhmm(v.startTs)}Z  ${(v.candidateBuildingM ?? 0).toFixed(0)}m through buildings (refine ${r})`,
+			`  ${v.date} @${hhmm(v.startTs)}Z  ${(v.candidateOffPathM ?? 0).toFixed(0)}m off-path through buildings (raw ${(v.candidateBuildingM ?? 0).toFixed(0)}m)`,
 		);
 	}
 

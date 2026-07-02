@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { buildingCrossingM, pointInRing } from "../src/eval/walk-buildings.js";
+import { buildingCrossingM, offPathBuildingCrossingM, pointInRing } from "../src/eval/walk-buildings.js";
 import type { LatLon } from "../src/eval/walk-score.js";
+import type { RoadGeometry } from "../src/geo/map-match-core.js";
 import type { BuildingFootprint } from "../src/geo/osm-local.js";
 
 /**
@@ -68,5 +69,58 @@ describe("buildingCrossingM", () => {
 
 	it("returns 0 for a degenerate (single-point) line", () => {
 		expect(buildingCrossingM([{ lat: LAT, lon: LON }], [square])).toBe(0);
+	});
+});
+
+describe("offPathBuildingCrossingM", () => {
+	// The chord through the square's centre, west→east.
+	const chord: LatLon[] = [
+		{ lat: LAT, lon: LON - dLon(50) },
+		{ lat: LAT, lon: LON + dLon(50) },
+	];
+
+	it("does not count a crossing that follows a mapped through-building way (arcade/concourse)", () => {
+		// A footway runs straight through the building along the chord — OSM says
+		// this is walkable (the Bridge Road arcade / King's Cross concourse case).
+		const passage: RoadGeometry = {
+			ways: [
+				{
+					osmId: 1,
+					name: null,
+					subtype: "footway",
+					coords: [
+						[LAT, LON - dLon(50)],
+						[LAT, LON + dLon(50)],
+					],
+				},
+			],
+		};
+		expect(offPathBuildingCrossingM(chord, [square], passage)).toBe(0);
+		// The raw metric still sees it — the two lenses answer different questions.
+		expect(buildingCrossingM(chord, [square])).toBeGreaterThan(30);
+	});
+
+	it("counts the full crossing when no way passes through the building", () => {
+		// The only mapped way is a street 40 m north — the chord cuts the house.
+		const street: RoadGeometry = {
+			ways: [
+				{
+					osmId: 2,
+					name: "Front Street",
+					subtype: "residential",
+					coords: [
+						[LAT + dLat(40), LON - dLon(50)],
+						[LAT + dLat(40), LON + dLon(50)],
+					],
+				},
+			],
+		};
+		const offPath = offPathBuildingCrossingM(chord, [square], street);
+		expect(offPath).toBeGreaterThan(30);
+		expect(offPath).toBeLessThan(50);
+	});
+
+	it("counts everything when there are no ways at all", () => {
+		expect(offPathBuildingCrossingM(chord, [square], { ways: [] })).toBeGreaterThan(30);
 	});
 });

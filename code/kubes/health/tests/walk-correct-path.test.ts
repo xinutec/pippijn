@@ -97,6 +97,37 @@ describe("correctWalkPath — case 2 (chord through a block routes around it)", 
 		expect(out[out.length - 1].ts).toBe(1120);
 	});
 
+	it("leaves a line riding a mapped through-building footway alone (arcade/concourse)", () => {
+		// OSM maps a footway straight through the block — a covered arcade (the
+		// Bridge Road parade) or a station concourse. Walking it is correct;
+		// the corrector must not reroute a line that follows a mapped passage.
+		const arcade: RoadGeometry = {
+			ways: [
+				...streetRing.ways,
+				{
+					osmId: 9,
+					name: null,
+					subtype: "footway",
+					coords: [
+						[LAT, rW],
+						[LAT, rE],
+					],
+				},
+			],
+		};
+		const drawn = [
+			{ lat: LAT, lon: rW, ts: 1000 },
+			{ lat: LAT, lon: LON, ts: 1060 },
+			{ lat: LAT, lon: rE, ts: 1120 },
+		];
+		const out = correctWalkPath(drawn, arcade, [block]);
+		expect(out.length).toBe(3);
+		for (let i = 0; i < 3; i++) {
+			expect(out[i].lat).toBeCloseTo(drawn[i].lat, 10);
+			expect(out[i].lon).toBeCloseTo(drawn[i].lon, 10);
+		}
+	});
+
 	it("keeps a clean on-street line unchanged", () => {
 		// A line along North St, never near the block: nothing to correct.
 		const drawn = [

@@ -12,6 +12,7 @@
  * Pure and deterministic; geometry only, no DB.
  */
 
+import type { RoadGeometry } from "../geo/map-match-core.js";
 import type { BuildingFootprint } from "../geo/osm-local.js";
 import type { LatLon } from "./walk-score.js";
 
@@ -69,6 +70,63 @@ export function buildingCrossingM(
 			const midF = (k + 0.5) / steps;
 			const mid = { lat: a.lat + (b.lat - a.lat) * midF, lon: a.lon + (b.lon - a.lon) * midF };
 			if (inAnyBuilding(mid, buildings)) crossed += segLen / steps;
+		}
+	}
+	return crossed;
+}
+
+/** A drawn point within this (m) of a walkable way is ON the mapped path. */
+const ON_WAY_M = 8;
+
+/** Distance (m) from `p` to the nearest point of any way polyline. */
+function distToWays(p: LatLon, geo: RoadGeometry): number {
+	let best = Number.POSITIVE_INFINITY;
+	const cosLat = Math.cos((p.lat * Math.PI) / 180);
+	for (const way of geo.ways) {
+		for (let i = 1; i < way.coords.length; i++) {
+			const [aLat, aLon] = way.coords[i - 1];
+			const [bLat, bLon] = way.coords[i];
+			const bx = (bLon - aLon) * 111_320 * cosLat;
+			const by = (bLat - aLat) * 111_320;
+			const px = (p.lon - aLon) * 111_320 * cosLat;
+			const py = (p.lat - aLat) * 111_320;
+			const len2 = bx * bx + by * by;
+			let t = len2 > 0 ? (px * bx + py * by) / len2 : 0;
+			t = Math.max(0, Math.min(1, t));
+			const d = Math.hypot(px - t * bx, py - t * by);
+			if (d < best) best = d;
+		}
+	}
+	return best;
+}
+
+/**
+ * The TRUE-DEFECT lens on building crossings: length (m) of the drawn line
+ * inside a building footprint while more than `onWayM` from every walkable way.
+ * A line riding a mapped through-building footway — the Bridge Road arcade, a
+ * King's Cross concourse — is a legitimate passage OSM says is walkable and
+ * counts 0 here; a chord through a house with no path counts in full. The raw
+ * {@link buildingCrossingM} stays as the superset measure.
+ */
+export function offPathBuildingCrossingM(
+	drawn: readonly LatLon[],
+	buildings: readonly BuildingFootprint[],
+	walkable: RoadGeometry,
+	onWayM = ON_WAY_M,
+	stepM = 2,
+): number {
+	if (drawn.length < 2 || buildings.length === 0) return 0;
+	let crossed = 0;
+	for (let i = 1; i < drawn.length; i++) {
+		const a = drawn[i - 1];
+		const b = drawn[i];
+		const segLen = metersBetween(a, b);
+		if (segLen === 0) continue;
+		const steps = Math.max(1, Math.ceil(segLen / stepM));
+		for (let k = 0; k < steps; k++) {
+			const midF = (k + 0.5) / steps;
+			const mid = { lat: a.lat + (b.lat - a.lat) * midF, lon: a.lon + (b.lon - a.lon) * midF };
+			if (inAnyBuilding(mid, buildings) && distToWays(mid, walkable) > onWayM) crossed += segLen / steps;
 		}
 	}
 	return crossed;

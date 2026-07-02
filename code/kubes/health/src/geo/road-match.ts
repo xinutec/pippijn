@@ -70,6 +70,10 @@ export const ROAD_PROFILE: MatchProfile = {
 	spurReturnM: 25,
 	spurMaxSpanVerts: 4,
 	simplifyToleranceM: 5,
+	// Off for roads: the road callers supply no building layer, and a vehicle
+	// under a mapped structure (bridge deck, gate arch) is not a routing error.
+	buildingCrossFactor: 1,
+	buildingSupportM: 0,
 };
 
 /**

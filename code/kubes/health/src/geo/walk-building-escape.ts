@@ -205,6 +205,11 @@ export interface CorrectOptions extends EscapeOptions {
 	 *  field: no buildings near) is left to the GPS (case 3: a walk across a lawn
 	 *  is not an artifact). */
 	buildingProxM: number;
+	/** An in-building sample within this (m) of a walkable way is a mapped
+	 *  through-building passage — a covered arcade (the Bridge Road parade) or a
+	 *  station concourse — and is NOT badness: OSM says you walk there. Beyond
+	 *  it, in-building is the containment defect. */
+	onWayM: number;
 }
 
 export const DEFAULT_CORRECT_OPTIONS: CorrectOptions = {
@@ -217,6 +222,7 @@ export const DEFAULT_CORRECT_OPTIONS: CorrectOptions = {
 	minRouteBudgetM: 150,
 	offNetworkM: 25,
 	buildingProxM: 30,
+	onWayM: 8,
 };
 
 /**
@@ -274,7 +280,10 @@ function nearBuilding(p: { lat: number; lon: number }, ctx: BadnessCtx): boolean
  * implausible for a walk (2 m midpoint sampling; the geo-side superset of the
  * eval crossing metric, kept local so geo does not depend on eval):
  *
- *   - INSIDE a building footprint (the containment class), or
+ *   - INSIDE a building footprint while more than `onWayM` off every walkable
+ *     way (the containment class; a line riding a mapped through-building
+ *     footway — the Bridge Road arcade, a King's Cross concourse — is a
+ *     legitimate passage and never badness), or
  *   - an URBAN BLOCK CUT: farther than `offNetworkM` from every walkable way
  *     while a building sits within `buildingProxM` — off-street through a
  *     built-up block, the class containment is blind to (the line threads
@@ -292,7 +301,8 @@ function segBadnessM(a: { lat: number; lon: number }, b: { lat: number; lon: num
 		const f = (k + 0.5) / steps;
 		const mid = { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f };
 		if (containingBuilding(mid, ctx.buildings)) {
-			bad += segLen / steps;
+			const onWay = nearestWalkable(mid, ctx.walkable);
+			if (onWay === null || onWay.distM > ctx.opts.onWayM) bad += segLen / steps;
 			continue;
 		}
 		// Cheap bbox-gated building-proximity first; the way scan (the expensive

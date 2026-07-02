@@ -134,7 +134,10 @@ export async function annotateWalkMatches(
 			continue;
 		}
 		const fixes: RoadFix[] = clean.map((p) => ({ lat: p.lat, lon: p.lon, ts: p.ts }));
-		const result = matchWalkSegment(fixes, { ways });
+		// Buildings ride along as the matcher's impassable layer (#304): an
+		// unsupported through-building edge is routed around at graph level, so
+		// most crossings never reach the corrector below.
+		const result = matchWalkSegment(fixes, { ways, buildings });
 		const decision = result
 			? matchImprovesDisplay(fixes, result.path, { ways }, WALK_NEEDS_MATCH_M, WALK_MATCH_MAX_STRAY_M)
 			: null;

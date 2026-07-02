@@ -31,11 +31,19 @@ export interface OsmRoadWay {
 	coords: Array<[number, number]>;
 }
 
+/** A closed building footprint (the first↔last edge is implicit). Structurally
+ *  identical to osm-local's `BuildingFootprint`, redeclared here so the pure
+ *  core does not depend on the DB layer. */
+export type BuildingRing = ReadonlyArray<{ lat: number; lon: number }>;
+
 /** The way network the matcher works against — a self-contained bundle, so the
  *  algorithm needs neither DB nor network. The caller filters to the relevant
- *  highway subtypes (drivable for roads, walkable for pedestrians). */
+ *  highway subtypes (drivable for roads, walkable for pedestrians).
+ *  `buildings`, when supplied, is the impassable layer: an edge crossing a
+ *  footprint with no raw-fix support costs `buildingCrossFactor` extra. */
 export interface RoadGeometry {
 	ways: OsmRoadWay[];
+	buildings?: readonly BuildingRing[];
 }
 
 /** One GPS fix to map-match. */
@@ -107,6 +115,17 @@ export interface MatchProfile {
 	spurMaxSpanVerts: number;
 	/** Douglas-Peucker tolerance (m) for the final polyline (~a lane width). */
 	simplifyToleranceM: number;
+	/** Weight multiplier for a graph edge whose in-building portion has NO raw
+	 *  fix within `buildingSupportM` — the router prefers going around the block
+	 *  over an unwalked through-building passage. 1 disables (roads: buildings
+	 *  aren't part of the road geometry anyway). Only the edge-weight is
+	 *  penalised; the transition still scores the chosen route by its true
+	 *  metric length, and `maxLenFactor` bounds any runaway detour. */
+	buildingCrossFactor: number;
+	/** A raw fix within this distance (m) of an edge's in-building portion marks
+	 *  the crossing as genuinely walked (a station concourse, an arcade) and
+	 *  waives the penalty — the GPS overrides the tidiness prior. */
+	buildingSupportM: number;
 }
 
 export interface RoadMatchOpts {
@@ -163,6 +182,87 @@ class TrackCorridor {
 		const len = metersBetween(aLat, aLon, bLat, bLon);
 		return len * this.penalty(this.distTo((aLat + bLat) / 2, (aLon + bLon) / 2));
 	}
+}
+
+/** Sample spacing (m) along an edge for the in-building test. */
+const BUILDING_SAMPLE_STEP_M = 3;
+
+/**
+ * The impassable-building layer for edge weighting: an edge whose in-building
+ * portion is unsupported by the raw fixes costs `crossFactor` extra, steering
+ * the router around the block. A fix within `supportM` of every in-building
+ * sample keeps the edge unpenalised — a concourse or arcade the walker really
+ * crossed draws as crossed. Per-ring bounding boxes keep the common case (an
+ * edge nowhere near a building) cheap.
+ */
+class BuildingPenalty {
+	private readonly rings: BuildingRing[];
+	private readonly boxes: Array<{ minLat: number; maxLat: number; minLon: number; maxLon: number }>;
+	constructor(
+		buildings: readonly BuildingRing[],
+		private readonly fixes: ReadonlyArray<{ lat: number; lon: number }>,
+		private readonly crossFactor: number,
+		private readonly supportM: number,
+	) {
+		this.rings = buildings.filter((r) => r.length >= 3).map((r) => [...r]);
+		this.boxes = this.rings.map((r) => {
+			let minLat = Number.POSITIVE_INFINITY;
+			let maxLat = Number.NEGATIVE_INFINITY;
+			let minLon = Number.POSITIVE_INFINITY;
+			let maxLon = Number.NEGATIVE_INFINITY;
+			for (const p of r) {
+				if (p.lat < minLat) minLat = p.lat;
+				if (p.lat > maxLat) maxLat = p.lat;
+				if (p.lon < minLon) minLon = p.lon;
+				if (p.lon > maxLon) maxLon = p.lon;
+			}
+			return { minLat, maxLat, minLon, maxLon };
+		});
+	}
+
+	private inAnyRing(lat: number, lon: number): boolean {
+		for (let i = 0; i < this.rings.length; i++) {
+			const b = this.boxes[i];
+			if (lat < b.minLat || lat > b.maxLat || lon < b.minLon || lon > b.maxLon) continue;
+			if (pointInRingCore({ lat, lon }, this.rings[i])) return true;
+		}
+		return false;
+	}
+
+	private fixSupports(lat: number, lon: number): boolean {
+		for (const f of this.fixes) {
+			if (metersBetween(lat, lon, f.lat, f.lon) <= this.supportM) return true;
+		}
+		return false;
+	}
+
+	/** Weight multiplier for the edge a→b: `crossFactor` when some in-building
+	 *  sample of the edge has no supporting fix, else 1. */
+	factor(aLat: number, aLon: number, bLat: number, bLon: number): number {
+		const len = metersBetween(aLat, aLon, bLat, bLon);
+		const n = Math.max(1, Math.ceil(len / BUILDING_SAMPLE_STEP_M));
+		for (let k = 0; k <= n; k++) {
+			const t = k / n;
+			const lat = aLat + (bLat - aLat) * t;
+			const lon = aLon + (bLon - aLon) * t;
+			if (this.inAnyRing(lat, lon) && !this.fixSupports(lat, lon)) return this.crossFactor;
+		}
+		return 1;
+	}
+}
+
+/** Even-odd ray cast (same convention as eval/walk-buildings): is `p` inside
+ *  the closed ring? The last→first edge is implicit. */
+function pointInRingCore(p: Pt, ring: BuildingRing): boolean {
+	let inside = false;
+	for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+		const yi = ring[i].lat;
+		const xi = ring[i].lon;
+		const yj = ring[j].lat;
+		const xj = ring[j].lon;
+		if (yi > p.lat !== yj > p.lat && p.lon < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi) inside = !inside;
+	}
+	return inside;
 }
 
 /** Equirectangular metres between two lat/lon points — accurate enough at
@@ -347,7 +447,12 @@ interface RoadGraph {
  * consecutive node pairs within a way plus gap-bridge edges between nearby
  * vertices of different ways.
  */
-function buildRoadGraph(ways: readonly OsmRoadWay[], corridor: TrackCorridor, profile: MatchProfile): RoadGraph {
+function buildRoadGraph(
+	ways: readonly OsmRoadWay[],
+	corridor: TrackCorridor,
+	profile: MatchProfile,
+	bpen: BuildingPenalty | null = null,
+): RoadGraph {
 	const vertices: Pt[] = [];
 	const adj: Array<Array<{ to: number; w: number }>> = [];
 	const segments: RoadSegment[] = [];
@@ -377,10 +482,12 @@ function buildRoadGraph(ways: readonly OsmRoadWay[], corridor: TrackCorridor, pr
 		for (const [lat, lon] of way.coords) {
 			const id = vertexId(lat, lon);
 			if (prev >= 0 && id !== prev) {
-				// Edge weight is corridor-penalised (routing cost); the segment's
-				// `lengthM` is the raw metric length (candidate offsets + the
-				// physical route length reported to the transition model).
-				addEdge(prev, id, corridor.edgeWeight(prevLat, prevLon, lat, lon));
+				// Edge weight is corridor-penalised (routing cost), times the
+				// building factor for an unsupported through-building edge; the
+				// segment's `lengthM` is the raw metric length (candidate offsets +
+				// the physical route length reported to the transition model).
+				const bf = bpen ? bpen.factor(prevLat, prevLon, lat, lon) : 1;
+				addEdge(prev, id, corridor.edgeWeight(prevLat, prevLon, lat, lon) * bf);
 				segments.push({ u: prev, v: id, lengthM: metersBetween(prevLat, prevLon, lat, lon), wayName: way.name });
 			}
 			prev = id;
@@ -389,7 +496,7 @@ function buildRoadGraph(ways: readonly OsmRoadWay[], corridor: TrackCorridor, pr
 		}
 	}
 
-	bridgeGaps(vertices, adj, corridor, profile.gapBridgeM);
+	bridgeGaps(vertices, adj, corridor, profile.gapBridgeM, bpen);
 	return { vertices, adj, segments };
 }
 
@@ -401,6 +508,7 @@ function bridgeGaps(
 	adj: Array<Array<{ to: number; w: number }>>,
 	corridor: TrackCorridor,
 	gapBridgeM: number,
+	bpen: BuildingPenalty | null = null,
 ): void {
 	if (vertices.length === 0) return;
 	const cellLat = gapBridgeM / 111_320;
@@ -426,7 +534,8 @@ function bridgeGaps(
 					const gap = metersBetween(v.lat, v.lon, vertices[j].lat, vertices[j].lon);
 					if (gap > gapBridgeM) continue;
 					if (adj[i].some((e) => e.to === j)) continue;
-					const w = corridor.edgeWeight(v.lat, v.lon, vertices[j].lat, vertices[j].lon);
+					const bf = bpen ? bpen.factor(v.lat, v.lon, vertices[j].lat, vertices[j].lon) : 1;
+					const w = corridor.edgeWeight(v.lat, v.lon, vertices[j].lat, vertices[j].lon) * bf;
 					adj[i].push({ to: j, w });
 					adj[j].push({ to: i, w });
 				}
@@ -604,33 +713,47 @@ class RouteCache {
 /** The on-road route from candidate `a` to candidate `b`: its length (m) and the
  *  polyline from `a`'s projection to `b`'s projection. Considers the four
  *  endpoint combinations (and the same-segment case) and returns the shortest
- *  feasible one, or null when no route is within the cache's radius. */
+ *  feasible one, or null when no route is within the cache's radius.
+ *
+ *  With a building layer (`bpen`), the projection→endpoint offsets and the
+ *  same-segment direct hop are building-weighted like every graph edge —
+ *  otherwise a candidate at a passage's mouth would slide through the whole
+ *  building at raw metric cost, bypassing the penalty entirely (the measured
+ *  2026-07-01 defect). The reported `distM` stays the true metric length. */
 function routeBetween(
 	a: Candidate,
 	b: Candidate,
 	graph: RoadGraph,
 	cache: RouteCache,
+	bpen: BuildingPenalty | null = null,
 ): { distM: number; verts: Pt[] } | null {
-	// Same way segment: travel straight along it.
+	// Same way segment: travel straight along it — unless that direct hop is an
+	// unsupported building crossing, in which case the endpoint combos below
+	// compete (the router may go around the block instead).
+	let best: { weighted: number; verts: Pt[] } | null = null;
 	if (a.seg.u === b.seg.u && a.seg.v === b.seg.v) {
 		const distM = Math.abs(b.t - a.t) * a.seg.lengthM;
-		return {
-			distM,
-			verts: [
-				{ lat: a.lat, lon: a.lon },
-				{ lat: b.lat, lon: b.lon },
-			],
-		};
+		const verts: Pt[] = [
+			{ lat: a.lat, lon: a.lon },
+			{ lat: b.lat, lon: b.lon },
+		];
+		const bf = bpen ? bpen.factor(a.lat, a.lon, b.lat, b.lon) : 1;
+		if (bf === 1) return { distM, verts };
+		best = { weighted: distM * bf, verts };
 	}
 
-	let best: { weighted: number; verts: Pt[] } | null = null;
+	const offsetFactor = (c: Candidate, vid: number): number => {
+		if (!bpen) return 1;
+		const v = graph.vertices[vid];
+		return bpen.factor(c.lat, c.lon, v.lat, v.lon);
+	};
 	const aEnds: Array<{ vid: number; offset: number }> = [
-		{ vid: a.seg.u, offset: a.t * a.seg.lengthM },
-		{ vid: a.seg.v, offset: (1 - a.t) * a.seg.lengthM },
+		{ vid: a.seg.u, offset: a.t * a.seg.lengthM * offsetFactor(a, a.seg.u) },
+		{ vid: a.seg.v, offset: (1 - a.t) * a.seg.lengthM * offsetFactor(a, a.seg.v) },
 	];
 	const bEnds: Array<{ vid: number; offset: number }> = [
-		{ vid: b.seg.u, offset: b.t * b.seg.lengthM },
-		{ vid: b.seg.v, offset: (1 - b.t) * b.seg.lengthM },
+		{ vid: b.seg.u, offset: b.t * b.seg.lengthM * offsetFactor(b, b.seg.u) },
+		{ vid: b.seg.v, offset: (1 - b.t) * b.seg.lengthM * offsetFactor(b, b.seg.v) },
 	];
 	for (const ae of aEnds) {
 		const { dist, prev } = cache.from(ae.vid);
@@ -925,7 +1048,14 @@ export function matchTrajectory(
 	const radiusM = profile.matchRadiusM;
 
 	const corridor = new TrackCorridor(fixes, profile);
-	const graph = buildRoadGraph(geo.ways, corridor, profile);
+	// The impassable-building layer (walk profile only): unsupported
+	// through-building edges cost extra, so the router prefers the block's
+	// streets; a crossing the raw fixes actually traced stays free.
+	const bpen =
+		profile.buildingCrossFactor > 1 && geo.buildings !== undefined && geo.buildings.length > 0
+			? new BuildingPenalty(geo.buildings, fixes, profile.buildingCrossFactor, profile.buildingSupportM)
+			: null;
+	const graph = buildRoadGraph(geo.ways, corridor, profile, bpen);
 	if (graph.segments.length === 0) return null;
 
 	const index = new SegmentIndex(graph.vertices, graph.segments, radiusM, fixes[0].lat);
@@ -970,7 +1100,7 @@ export function matchTrajectory(
 			let bestPrev = -1;
 			const rrow: Array<{ distM: number; verts: Pt[] } | null> = [];
 			for (let i = 0; i < prev.cands.length; i++) {
-				const route = routeBetween(prev.cands[i], cur.cands[j], graph, cache);
+				const route = routeBetween(prev.cands[i], cur.cands[j], graph, cache, bpen);
 				rrow.push(route);
 				if (route === null) continue;
 				const trans = -Math.abs(route.distM - gpsStep) / profile.beta;

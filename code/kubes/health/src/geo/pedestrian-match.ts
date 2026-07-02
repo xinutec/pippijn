@@ -68,6 +68,16 @@ export const WALK_PROFILE: MatchProfile = {
 	// the off-walkable p90 metric + the p85 stray gate catch any wrong bridging
 	// across a genuinely-separated parallel pavement. Tuned on 2026-06-24.
 	gapBridgeM: 18,
+	// Building-aware route choice (#304): a through-building edge (a mapped
+	// passage/concourse footway crossing a footprint) with no raw fix within
+	// buildingSupportM of its in-building portion costs 25× — the router walks
+	// the block's streets instead. Fixes ON the crossing (a concourse the walk
+	// really traced, e.g. King's Cross 13:27 on 2026-07-01 at 3-7 m) waive it;
+	// the unsupported cases measured 24-46 m from every fix. 25× makes a 15 m
+	// unsupported crossing lose to any detour under ~360 m of extra weight while
+	// the transition + maxLenFactor still bound the detour's real length.
+	buildingCrossFactor: 25,
+	buildingSupportM: 15,
 };
 
 export interface WalkMatchOpts {
