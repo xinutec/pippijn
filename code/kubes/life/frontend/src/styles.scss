@@ -31,3 +31,20 @@ body {
   border-radius: 8px;
   overflow: hidden;
 }
+
+// The per-screen "add" FAB: fixed bottom-right, above the bottom tab bar (and
+// its safe-area inset) so the primary capture action is thumb-reachable — the
+// add forms themselves live at the top of the scroll (see add-fab.ts).
+.add-fab {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(60px + env(safe-area-inset-bottom) + 1rem);
+  z-index: 5;
+}
+
+@media (min-width: 768px) {
+  // The tab bar becomes a left rail — nothing at the bottom to clear.
+  .add-fab {
+    bottom: calc(env(safe-area-inset-bottom) + 1rem);
+  }
+}

@@ -49,9 +49,9 @@
   display: inline-flex;
   align-items: center;
   gap: 0.15rem;
-  padding: 0.05rem 0.4rem;
+  padding: 0.1rem 0.5rem;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
 
   mat-icon {
     font-size: 0.85rem;
@@ -66,7 +66,6 @@
   }
   &.links {
     background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
-    cursor: pointer;
   }
   &.prio-high {
     background: color-mix(in srgb, var(--mat-sys-error) 24%, transparent);

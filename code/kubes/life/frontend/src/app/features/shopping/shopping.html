@@ -4,6 +4,7 @@
   <p class="sync-warn">{{ err }}</p>
 }
 
+@if (showAdd()) {
 <div class="add">
   <mat-form-field appearance="outline" class="grow">
     <mat-label>Need to buy…</mat-label>
@@ -29,9 +30,10 @@
   </mat-form-field>
   <button mat-flat-button color="primary" (click)="add()">Add</button>
 </div>
+}
 
 @if (items().length === 0) {
-  <p class="empty">Nothing on the list. Add what you need to buy above.</p>
+  <p class="empty">Nothing on the list. Tap + to add what you need to buy.</p>
 }
 
 <mat-list>
@@ -53,7 +55,7 @@
         <span matListItemLine [class.done]="it.done">{{ label(it) }}</span>
       }
       <button matListItemMeta mat-icon-button (click)="remove(it)" aria-label="Remove">
-        <mat-icon>close</mat-icon>
+        <mat-icon>delete</mat-icon>
       </button>
     </mat-list-item>
   }
@@ -68,3 +70,7 @@
     <button mat-button (click)="clearDone()">Clear bought</button>
   </div>
 }
+
+<button mat-fab class="add-fab" (click)="toggleAdd()" [attr.aria-label]="showAdd() ? 'Close the add form' : 'Add to the list'">
+  <mat-icon>{{ showAdd() ? 'close' : 'add' }}</mat-icon>
+</button>

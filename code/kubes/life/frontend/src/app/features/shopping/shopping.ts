@@ -12,6 +12,7 @@ import { MatListModule } from '@angular/material/list';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { catchError, forkJoin, map, of, tap } from 'rxjs';
 
+import { revealAddForm } from '../../add-fab';
 import { LifeApi } from '../../life-api';
 import { ProductThumb } from '../../product-thumb';
 import { ScannerDialog } from '../scanner/scanner-dialog';
@@ -50,6 +51,13 @@ export class Shopping {
   readonly quantity = signal<number | null>(null);
   readonly unit = signal<string | null>(null);
   readonly barcode = signal('');
+
+  /** The add form is collapsed by default (list first); the FAB reveals it. */
+  readonly showAdd = signal(false);
+  toggleAdd(): void {
+    this.showAdd.update((v) => !v);
+    if (this.showAdd()) revealAddForm();
+  }
 
   add(): void {
     if (!this.name().trim()) return;

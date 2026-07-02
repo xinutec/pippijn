@@ -53,7 +53,9 @@
   </mat-card>
 }
 
-@if (recipes().length === 0) {
+@if (!loaded()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else if (recipes().length === 0) {
   <p class="empty">No recipes yet.</p>
 }
 
@@ -104,3 +106,12 @@
     </mat-card-actions>
   </mat-card>
 }
+
+<button
+  mat-fab
+  class="add-fab"
+  (click)="fabAddRecipe()"
+  [attr.aria-label]="showForm() ? 'Close the recipe form' : 'Add a recipe'"
+>
+  <mat-icon>{{ showForm() ? 'close' : 'add' }}</mat-icon>
+</button>

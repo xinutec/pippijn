@@ -49,6 +49,7 @@ describe('Shopping — barcode scan', () => {
   it('fills the barcode field and prefills the name from the scanned product', async () => {
     const fixture = setup('5029617001045');
     fixture.autoDetectChanges();
+    fixture.componentInstance.showAdd.set(true); // the FAB reveals the form
     fixture.componentInstance.scan();
     await fixture.whenStable();
 

@@ -4,6 +4,7 @@
   <p class="sync-warn">{{ err }}</p>
 }
 
+@if (showAdd()) {
 <div class="add">
   <mat-form-field appearance="outline" class="grow">
     <mat-label>New to-do…</mat-label>
@@ -35,6 +36,7 @@
   </mat-form-field>
   <button mat-flat-button color="primary" (click)="add()" [disabled]="!title().trim()">Add</button>
 </div>
+}
 
 <div class="filters">
   <mat-chip-listbox
@@ -65,7 +67,7 @@
     @if (readyOnly()) {
       Nothing ready right now.
     } @else {
-      No to-dos{{ filter() ? ' of this type' : '' }} yet. Add one above.
+      No to-dos{{ filter() ? ' of this type' : '' }} yet. Tap + to add one.
     }
   </p>
 }
@@ -94,15 +96,19 @@
           <span class="pill ready"><mat-icon>bolt</mat-icon> ready</span>
         }
         @if (linkCount(it) > 0) {
-          <span class="pill links" role="button" tabindex="0" (click)="openDetail(it)" (keydown.enter)="openDetail(it)"><mat-icon>hub</mat-icon> {{ linkCount(it) }}</span>
+          <span class="pill links"><mat-icon>hub</mat-icon> {{ linkCount(it) }}</span>
         }
         @if (it.notes) {
           <span class="note" [class.done]="it.status === 'done'">{{ it.notes }}</span>
         }
       </span>
       <button matListItemMeta mat-icon-button (click)="remove(it)" aria-label="Delete">
-        <mat-icon>close</mat-icon>
+        <mat-icon>delete</mat-icon>
       </button>
     </mat-list-item>
   }
 </mat-list>
+
+<button mat-fab class="add-fab" (click)="toggleAdd()" [attr.aria-label]="showAdd() ? 'Close the add form' : 'Add a to-do'">
+  <mat-icon>{{ showAdd() ? 'close' : 'add' }}</mat-icon>
+</button>

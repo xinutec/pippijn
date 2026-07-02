@@ -1,6 +1,8 @@
 <h2>All items</h2>
 
-@if (items().length === 0) {
+@if (!loaded()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else if (items().length === 0) {
   <p class="empty">No items yet — add them from Inventory, or scan on the Buy tab.</p>
 } @else {
   <p class="count">{{ count() }} item{{ count() === 1 ? '' : 's' }}</p>
@@ -12,8 +14,10 @@
           {{ it.name }}@if (it.brand) {<span class="brand"> · {{ it.brand }}</span>}
         </span>
         <span matListItemLine>{{ meta(it) }}</span>
-        @if (it.expiry) {
-          <span matListItemMeta class="expiry">{{ it.expiry }}</span>
+        @if (it.expiry; as expiry) {
+          <span matListItemMeta class="expiry" [class]="expiryOf(expiry).cls">{{
+            expiryOf(expiry).label
+          }}</span>
         }
       </mat-list-item>
     }

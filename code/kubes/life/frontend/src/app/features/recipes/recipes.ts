@@ -7,8 +7,10 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
+import { revealAddForm } from '../../add-fab';
 import { LifeApi } from '../../life-api';
 import { Recipe, RecipeIngredient } from '../../models';
 
@@ -31,6 +33,7 @@ interface RecipeForm {
     MatChipsModule,
     MatFormFieldModule,
     MatInputModule,
+    MatProgressBarModule,
   ],
 })
 export class Recipes {
@@ -46,6 +49,8 @@ export class Recipes {
   }
 
   readonly recipes = signal<Recipe[]>([]);
+  /** Pre-fetch, an empty list means "still loading", not "no recipes". */
+  readonly loaded = signal(false);
   readonly cookableIds = signal<Set<number>>(new Set());
   readonly shopping = signal<Map<number, RecipeIngredient[]>>(new Map());
 
@@ -69,13 +74,24 @@ export class Recipes {
   toggleForm(): void {
     this.showForm.update((v) => !v);
   }
+  /** The FAB's action: reveal the recipe form and jump to it (top of scroll). */
+  fabAddRecipe(): void {
+    this.toggleForm();
+    if (this.showForm()) revealAddForm();
+  }
 
   constructor() {
     this.reload();
   }
 
   private reload(): void {
-    this.api.recipes().subscribe((r) => this.recipes.set(r));
+    this.api.recipes().subscribe({
+      next: (r) => {
+        this.recipes.set(r);
+        this.loaded.set(true);
+      },
+      error: () => this.loaded.set(true),
+    });
     this.api.cookable().subscribe((r) => this.cookableIds.set(new Set(r.map((x) => x.id))));
   }
 

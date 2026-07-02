@@ -9,9 +9,12 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
+import { revealAddForm } from '../../add-fab';
+import { ExpiryInfo, expiryInfo } from '../../expiry';
 import { LifeApi } from '../../life-api';
 import { ProductThumb } from '../../product-thumb';
 import { Item, ItemCategory, Loc, LocationKind } from '../../models';
@@ -50,6 +53,7 @@ interface ItemForm {
     MatInputModule,
     MatSelectModule,
     MatMenuModule,
+    MatProgressBarModule,
     MatDialogModule,
     ProductThumb,
   ],
@@ -86,6 +90,9 @@ export class Inventory {
 
   readonly items = signal<Item[]>([]);
   readonly locations = signal<Loc[]>([]);
+  /** Pre-fetch, empty lists mean "still loading", not "nothing yet". */
+  readonly itemsLoaded = signal(false);
+  readonly placesLoaded = signal(false);
   private byId = computed(() => new Map(this.locations().map((l) => [l.id, l] as const)));
   readonly locationOptions = computed(() =>
     this.locations().map((l) => ({ id: l.id, label: this.pathOf(l.id) })),
@@ -109,6 +116,12 @@ export class Inventory {
   toggleItemForm(): void {
     this.showItemForm.update((v) => !v);
   }
+  /** The FAB's action: reveal the item form (the screen's primary add) and
+   *  jump to it — it lives at the top of the scroll. */
+  fabAddItem(): void {
+    this.toggleItemForm();
+    if (this.showItemForm()) revealAddForm();
+  }
   togglePlaceForm(): void {
     this.showPlaceForm.update((v) => !v);
   }
@@ -119,10 +132,22 @@ export class Inventory {
   }
 
   private reloadItems(): void {
-    this.api.items().subscribe((i) => this.items.set(i));
+    this.api.items().subscribe({
+      next: (i) => {
+        this.items.set(i);
+        this.itemsLoaded.set(true);
+      },
+      error: () => this.itemsLoaded.set(true),
+    });
   }
   private reloadLocations(): void {
-    this.api.locations().subscribe((l) => this.locations.set(l));
+    this.api.locations().subscribe({
+      next: (l) => {
+        this.locations.set(l);
+        this.placesLoaded.set(true);
+      },
+      error: () => this.placesLoaded.set(true),
+    });
   }
   private emptyPlace(): PlaceForm {
     return { kind: 'cupboard', name: '', parent_id: null };
@@ -151,6 +176,11 @@ export class Inventory {
   qty(item: Item): string {
     if (item.quantity == null) return '';
     return item.unit ? `${item.quantity} ${item.unit}` : `${item.quantity}`;
+  }
+
+  /** Urgency-aware expiry display (expired / soon / date). */
+  expiryOf(expiry: string): ExpiryInfo {
+    return expiryInfo(expiry);
   }
 
   /** The actionable tail of the location path (e.g. "Spice cupboard › Top shelf"). */

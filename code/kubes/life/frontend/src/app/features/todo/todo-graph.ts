@@ -1,7 +1,7 @@
 import { Injectable, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { of } from 'rxjs';
-import { catchError, map } from 'rxjs/operators';
+import { BehaviorSubject, Observable, of } from 'rxjs';
+import { catchError, map, switchMap } from 'rxjs/operators';
 
 import { LifeApi } from '../../life-api';
 import { LinkKind, TargetKind } from '../../models';
@@ -53,22 +53,33 @@ export class TodoGraph {
     initialValue: [] as ShoppingDoc[],
   });
 
-  private readonly items = toSignal(this.api.items().pipe(catchError(() => of([]))), {
-    initialValue: [],
-  });
-  private readonly recipes = toSignal(this.api.recipes().pipe(catchError(() => of([]))), {
-    initialValue: [],
-  });
-  private readonly places = toSignal(this.api.locations().pipe(catchError(() => of([]))), {
-    initialValue: [],
-  });
-  private readonly rooms = toSignal(
-    this.api.house().pipe(
-      map((h) => (h.rooms ?? []).map((r) => r.name).filter((n): n is string => !!n)),
-      catchError(() => of([] as string[])),
-    ),
-    { initialValue: [] as string[] },
+  // The HTTP catalogs re-fetch on every refreshCatalogs() tick — a service
+  // created once would otherwise never see an item/recipe/place added later
+  // in the session, making it unlinkable until a full reload.
+  private readonly refresh$ = new BehaviorSubject<void>(undefined);
+  private refreshed<T>(fetch: () => Observable<T>, empty: T) {
+    return toSignal(this.refresh$.pipe(switchMap(() => fetch().pipe(catchError(() => of(empty))))), {
+      initialValue: empty,
+    });
+  }
+
+  private readonly items = this.refreshed(() => this.api.items(), []);
+  private readonly recipes = this.refreshed(() => this.api.recipes(), []);
+  private readonly places = this.refreshed(() => this.api.locations(), []);
+  private readonly rooms = this.refreshed(
+    () =>
+      this.api
+        .house()
+        .pipe(map((h) => (h.rooms ?? []).map((r) => r.name).filter((n): n is string => !!n))),
+    [] as string[],
   );
+
+  /** Re-fetch the HTTP entity catalogs (items/recipes/places/rooms). Called on
+   *  entering the to-do view and on opening the detail sheet, so fresh entities
+   *  are linkable without reloading the app. */
+  refreshCatalogs(): void {
+    this.refresh$.next(undefined);
+  }
 
   /** Every linkable thing, flattened into a searchable catalog. */
   readonly catalog = computed<LinkTarget[]>(() => {
@@ -130,21 +141,41 @@ export class TodoGraph {
       .map((l) => ({ ulid: l.ulid, linkKind: l.kind, source: this.resolve('todo', l.from) }));
   }
 
-  /** The still-open to-dos this one depends on (its blockers). */
-  blockers(todoUlid: string): TodoDoc[] {
-    const map = this.todoByUlid();
-    return this.links()
-      .filter((l) => l.from === todoUlid && l.kind === 'depends_on' && l.targetKind === 'todo')
-      .map((l) => map.get(l.targetRef))
-      .filter((t): t is TodoDoc => !!t && t.status !== 'done');
+  /** The unfinished dependencies of a to-do. Two target kinds have derivable
+   *  done-ness and can block: another **to-do** (open = blocking) and a
+   *  **shopping row** (on the list and not ticked = blocking; bought/removed =
+   *  satisfied). Other kinds (recipe/item/room/place) have no completion state
+   *  — those links are context, not gates. */
+  blockers(todoUlid: string): { ulid: string; title: string }[] {
+    const todoMap = this.todoByUlid();
+    const shopMap = new Map(this.shoppingItems().map((s) => [s.ulid, s] as const));
+    const out: { ulid: string; title: string }[] = [];
+    for (const l of this.links()) {
+      if (l.from !== todoUlid || l.kind !== 'depends_on') continue;
+      if (l.targetKind === 'todo') {
+        const t = todoMap.get(l.targetRef);
+        if (t && t.status !== 'done') out.push({ ulid: t.ulid, title: t.title });
+      } else if (l.targetKind === 'shopping') {
+        const s = shopMap.get(l.targetRef);
+        if (s && !s.done) out.push({ ulid: s.ulid, title: s.name });
+      }
+    }
+    return out;
   }
 
-  /** Derived lifecycle state: blocked while a depends-on to-do is open; ready =
-   *  open, has dependencies, and none are blocking. */
+  /** Derived lifecycle state: blocked while any derivable dependency (to-do /
+   *  shopping) is unfinished; ready = open with such dependencies, all met.
+   *  Links to stateless targets don't count — a to-do isn't "ready" merely for
+   *  being connected to a recipe. */
   statusOf(todo: TodoDoc): TodoState {
     if (todo.status === 'done') return 'done';
     if (this.blockers(todo.ulid).length > 0) return 'blocked';
-    const hasDeps = this.links().some((l) => l.from === todo.ulid && l.kind === 'depends_on');
+    const hasDeps = this.links().some(
+      (l) =>
+        l.from === todo.ulid &&
+        l.kind === 'depends_on' &&
+        (l.targetKind === 'todo' || l.targetKind === 'shopping'),
+    );
     return hasDeps ? 'ready' : 'open';
   }
 

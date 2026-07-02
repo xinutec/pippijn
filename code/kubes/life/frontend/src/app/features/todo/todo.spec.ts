@@ -4,6 +4,8 @@ import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { BehaviorSubject } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 
+import { of } from 'rxjs';
+import { LifeApi } from '../../life-api';
 import { TodoDoc, TodoStore } from '../../sync/todo-store';
 import { Todo } from './todo';
 import { TodoGraph } from './todo-graph';
@@ -36,13 +38,16 @@ describe('Todo', () => {
       blockers: vi.fn(() => []),
       linkCount: vi.fn(() => 0),
       removeLinksForTodo: vi.fn(),
+      refreshCatalogs: vi.fn(),
     };
+    const api = { restoreTrash: vi.fn(() => of(undefined)) };
     const sheet = { open: vi.fn() };
     TestBed.configureTestingModule({
       imports: [Todo],
       providers: [
         { provide: TodoStore, useValue: store },
         { provide: TodoGraph, useValue: graph },
+        { provide: LifeApi, useValue: api },
       ],
     });
     // Todo imports MatBottomSheetModule, which re-provides MatBottomSheet at the

@@ -3,11 +3,11 @@ import { Observable, from } from 'rxjs';
 import { map, shareReplay, switchMap } from 'rxjs/operators';
 import { ulid } from 'ulid';
 import { type RxCollection, type RxJsonSchema } from 'rxdb';
-import { replicateRxCollection } from 'rxdb/plugins/replication';
 
 import { TodoPriority, TodoStatus, TodoType } from '../models';
 import { ConflictReporter, makeConflictHandler } from './conflict-merge';
 import { LifeDb } from './life-db';
+import { startHttpReplication } from './replication';
 
 /** A to-do row as stored locally. `ulid` is the stable identity; `rev` is the
  *  last server revision seen (set by sync, not local edits); `id` is the server
@@ -64,7 +64,7 @@ export class TodoStore {
   private lifeDb = inject(LifeDb);
   private reporter = inject(ConflictReporter);
   private readonly collection = this.init();
-  private replication?: ReturnType<typeof replicateRxCollection<TodoDoc, { rev: number }>>;
+  private replication?: ReturnType<typeof startHttpReplication<TodoDoc>>;
 
   /** Live, sorted, non-deleted to-dos: open before done, then by title. */
   readonly items$: Observable<TodoDoc[]> = from(this.collection).pipe(
@@ -146,57 +146,12 @@ export class TodoStore {
   }
 
   private startReplication(collection: TodoCollection): void {
-    const guardAuth = (res: Response) => {
-      const ct = res.headers.get('content-type') ?? '';
-      if (res.status === 401 || res.status === 403 || res.redirected || !ct.includes('application/json')) {
-        this.syncError.set('login required — reopen the app to sign in');
-        throw new Error('auth-required');
-      }
-    };
-
-    const replication = replicateRxCollection<TodoDoc, { rev: number }>({
+    this.replication = startHttpReplication<TodoDoc>({
       collection,
-      replicationIdentifier: 'todo-http-sync',
-      live: true,
-      retryTime: 5000,
-      pull: {
-        batchSize: 200,
-        handler: async (checkpoint, batchSize) => {
-          const since = checkpoint?.rev ?? 0;
-          const res = await fetch(`/api/sync/todo?since=${since}&limit=${batchSize}`, {
-            credentials: 'include',
-          });
-          guardAuth(res);
-          if (!res.ok) throw new Error(`pull failed: ${res.status}`);
-          const body = (await res.json()) as {
-            documents: (TodoDoc & { _deleted: boolean })[];
-            checkpoint: { rev: number };
-          };
-          this.syncError.set(null);
-          return { documents: body.documents, checkpoint: body.checkpoint };
-        },
-      },
-      push: {
-        batchSize: 50,
-        handler: async (rows) => {
-          const res = await fetch('/api/sync/todo', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(rows),
-          });
-          guardAuth(res);
-          if (!res.ok) throw new Error(`push failed: ${res.status}`);
-          this.syncError.set(null);
-          return (await res.json()) as (TodoDoc & { _deleted: boolean })[];
-        },
-      },
+      identifier: 'todo-http-sync',
+      path: '/api/sync/todo',
+      syncError: this.syncError,
+      label: 'todo sync',
     });
-    replication.error$.subscribe((err) => {
-      if (this.syncError() === null) {
-        console.warn('[todo sync]', err);
-      }
-    });
-    this.replication = replication;
   }
 }

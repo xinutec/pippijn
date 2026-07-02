@@ -1,7 +1,9 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 
+import { ExpiryInfo, expiryInfo } from '../../expiry';
 import { LifeApi } from '../../life-api';
 import { ProductThumb } from '../../product-thumb';
 import { Item, Loc } from '../../models';
@@ -13,18 +15,27 @@ import { Item, Loc } from '../../models';
   selector: 'app-items',
   templateUrl: './items.html',
   styleUrl: './items.scss',
-  imports: [MatListModule, MatIconModule, ProductThumb],
+  imports: [MatListModule, MatIconModule, MatProgressBarModule, ProductThumb],
 })
 export class Items {
   private api = inject(LifeApi);
 
   readonly items = signal<Item[]>([]);
   readonly locations = signal<Loc[]>([]);
+  /** Pre-fetch, an empty list means "still loading", not "no items" — don't
+   *  flash the empty message. */
+  readonly loaded = signal(false);
   readonly count = computed(() => this.items().length);
   private readonly byId = computed(() => new Map(this.locations().map((l) => [l.id, l] as const)));
 
   constructor() {
-    this.api.items().subscribe((i) => this.items.set(i));
+    this.api.items().subscribe({
+      next: (i) => {
+        this.items.set(i);
+        this.loaded.set(true);
+      },
+      error: () => this.loaded.set(true),
+    });
     this.api.locations().subscribe((l) => this.locations.set(l));
   }
 
@@ -48,5 +59,10 @@ export class Items {
   meta(it: Item): string {
     const qty = it.quantity == null ? '' : it.unit ? `${it.quantity} ${it.unit}` : `${it.quantity}`;
     return [qty, it.category, this.location(it)].filter((s) => s).join(' · ');
+  }
+
+  /** Urgency-aware expiry display (expired / soon / date). */
+  expiryOf(expiry: string): ExpiryInfo {
+    return expiryInfo(expiry);
   }
 }

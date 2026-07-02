@@ -15,4 +15,15 @@
 .expiry {
   font-variant-numeric: tabular-nums;
   opacity: 0.8;
+
+  &.expired {
+    color: var(--mat-sys-error);
+    opacity: 1;
+    font-weight: 500;
+  }
+  &.soon {
+    color: var(--mat-sys-tertiary);
+    opacity: 1;
+    font-weight: 500;
+  }
 }

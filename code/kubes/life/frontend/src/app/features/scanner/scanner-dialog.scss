@@ -34,6 +34,34 @@
     margin: 0;
   }
 
+  // Flashlight for barcodes in dark cupboards; only shown when the camera
+  // reports the capability.
+  .torch {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  // "Type it instead" overlay: sits above the action row, on the video.
+  .manual {
+    position: absolute;
+    bottom: 4rem;
+    left: 1rem;
+    right: 1rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.65);
+    border-radius: 8px;
+    padding: 0.5rem;
+
+    mat-form-field {
+      flex: 1;
+    }
+  }
+
   .err {
     color: #fff;
     text-align: center;
@@ -47,10 +75,17 @@
     }
   }
 
-  .cancel {
+  .actions {
     position: absolute;
     bottom: 1rem;
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+
+    .type-instead {
+      color: #fff;
+    }
   }
 }

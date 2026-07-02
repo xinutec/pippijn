@@ -100,7 +100,9 @@
 
 <section>
   <h3>Items</h3>
-  @if (items().length === 0) {
+  @if (!itemsLoaded()) {
+    <mat-progress-bar mode="indeterminate" />
+  } @else if (items().length === 0) {
     <p class="empty">No items yet — tap “+ Item”.</p>
   }
   <mat-list>
@@ -111,7 +113,9 @@
         <span matListItemLine>
           {{ qty(it) }}
           @if (it.location_id) { · {{ shortLoc(it.location_id) }} }
-          @if (it.expiry) { · exp {{ it.expiry }} }
+          @if (it.expiry; as expiry) {
+            · <span class="expiry" [class]="expiryOf(expiry).cls">{{ expiryOf(expiry).label }}</span>
+          }
         </span>
         <button matListItemMeta mat-icon-button [matMenuTriggerFor]="itemMenu" aria-label="Actions">
           <mat-icon>more_vert</mat-icon>
@@ -131,7 +135,9 @@
 
 <section>
   <h3>Places</h3>
-  @if (locations().length === 0) {
+  @if (!placesLoaded()) {
+    <mat-progress-bar mode="indeterminate" />
+  } @else if (locations().length === 0) {
     <p class="empty">No places yet — tap “+ Place”.</p>
   }
   <mat-list>
@@ -147,3 +153,12 @@
     }
   </mat-list>
 </section>
+
+<button
+  mat-fab
+  class="add-fab"
+  (click)="fabAddItem()"
+  [attr.aria-label]="showItemForm() ? 'Close the item form' : 'Add an item'"
+>
+  <mat-icon>{{ showItemForm() ? 'close' : 'add' }}</mat-icon>
+</button>

@@ -1,9 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { BehaviorSubject, of } from 'rxjs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { LifeApi } from '../../life-api';
-import { ShoppingStore } from '../../sync/shopping-store';
+import { ShoppingDoc, ShoppingStore } from '../../sync/shopping-store';
 import { TodoLinkDoc, TodoLinkStore } from '../../sync/todo-link-store';
 import { TodoDoc, TodoStore } from '../../sync/todo-store';
 import { TodoGraph } from './todo-graph';
@@ -31,17 +31,30 @@ const link = (over: Partial<TodoLinkDoc>): TodoLinkDoc => ({
   ...over,
 });
 
-function make(todos: TodoDoc[], links: TodoLinkDoc[]): TodoGraph {
+const shop = (over: Partial<ShoppingDoc>): ShoppingDoc => ({
+  ulid: 's',
+  id: null,
+  name: 'Milk',
+  quantity: null,
+  unit: null,
+  barcode: null,
+  done: false,
+  rev: 0,
+  ...over,
+});
+
+function make(todos: TodoDoc[], links: TodoLinkDoc[], shopping: ShoppingDoc[] = []) {
+  const items = vi.fn(() => of([]));
   TestBed.configureTestingModule({
     providers: [
       TodoGraph,
       { provide: TodoStore, useValue: { items$: new BehaviorSubject(todos) } },
       { provide: TodoLinkStore, useValue: { links$: new BehaviorSubject(links) } },
-      { provide: ShoppingStore, useValue: { items$: of([]) } },
+      { provide: ShoppingStore, useValue: { items$: of(shopping) } },
       {
         provide: LifeApi,
         useValue: {
-          items: () => of([]),
+          items,
           recipes: () => of([]),
           locations: () => of([]),
           house: () => of({ rooms: [] }),
@@ -49,21 +62,21 @@ function make(todos: TodoDoc[], links: TodoLinkDoc[]): TodoGraph {
       },
     ],
   });
-  return TestBed.inject(TodoGraph);
+  return { g: TestBed.inject(TodoGraph), items };
 }
 
 describe('TodoGraph — ready/blocked derivation', () => {
   it('a to-do that depends on an open to-do is blocked', () => {
-    const g = make(
-      [todo({ ulid: 'a' }), todo({ ulid: 'b', status: 'open' })],
+    const { g } = make(
+      [todo({ ulid: 'a' }), todo({ ulid: 'b', title: 'first', status: 'open' })],
       [link({ from: 'a', kind: 'depends_on', targetKind: 'todo', targetRef: 'b' })],
     );
     expect(g.statusOf(todo({ ulid: 'a' }))).toBe('blocked');
-    expect(g.blockers('a').map((t) => t.ulid)).toEqual(['b']);
+    expect(g.blockers('a')).toEqual([{ ulid: 'b', title: 'first' }]);
   });
 
   it('becomes ready once the dependency is done', () => {
-    const g = make(
+    const { g } = make(
       [todo({ ulid: 'a' }), todo({ ulid: 'b', status: 'done' })],
       [link({ from: 'a', kind: 'depends_on', targetKind: 'todo', targetRef: 'b' })],
     );
@@ -72,13 +85,58 @@ describe('TodoGraph — ready/blocked derivation', () => {
   });
 
   it('a to-do with no dependencies is just open', () => {
-    const g = make([todo({ ulid: 'a' })], []);
+    const { g } = make([todo({ ulid: 'a' })], []);
+    expect(g.statusOf(todo({ ulid: 'a' }))).toBe('open');
+  });
+
+  it('an unbought shopping dependency blocks too', () => {
+    const { g } = make(
+      [todo({ ulid: 'a' })],
+      [link({ from: 'a', kind: 'depends_on', targetKind: 'shopping', targetRef: 's1' })],
+      [shop({ ulid: 's1', name: 'Milk', done: false })],
+    );
+    expect(g.statusOf(todo({ ulid: 'a' }))).toBe('blocked');
+    expect(g.blockers('a')).toEqual([{ ulid: 's1', title: 'Milk' }]);
+  });
+
+  it('a bought (ticked) shopping dependency is satisfied', () => {
+    const { g } = make(
+      [todo({ ulid: 'a' })],
+      [link({ from: 'a', kind: 'depends_on', targetKind: 'shopping', targetRef: 's1' })],
+      [shop({ ulid: 's1', done: true })],
+    );
+    expect(g.statusOf(todo({ ulid: 'a' }))).toBe('ready');
+  });
+
+  it('a shopping dependency already off the list is satisfied', () => {
+    const { g } = make(
+      [todo({ ulid: 'a' })],
+      [link({ from: 'a', kind: 'depends_on', targetKind: 'shopping', targetRef: 'gone' })],
+      [],
+    );
+    expect(g.statusOf(todo({ ulid: 'a' }))).toBe('ready');
+  });
+
+  it('depends_on a stateless target (recipe/item/room/place) neither blocks nor reads ready', () => {
+    const { g } = make(
+      [todo({ ulid: 'a' })],
+      [link({ from: 'a', kind: 'depends_on', targetKind: 'recipe', targetRef: '3' })],
+    );
+    // A recipe has no done-ness to derive, so it can't gate readiness — the
+    // link is context, and the to-do stays plain open (not fake-"ready").
     expect(g.statusOf(todo({ ulid: 'a' }))).toBe('open');
   });
 
   it('resolves a link target to its catalog label', () => {
-    const g = make([todo({ ulid: 'a', title: 'Buy milk' })], []);
+    const { g } = make([todo({ ulid: 'a', title: 'Buy milk' })], []);
     expect(g.resolve('todo', 'a').label).toBe('Buy milk');
     expect(g.search('milk').map((t) => t.ref)).toContain('a');
+  });
+
+  it('refreshCatalogs re-fetches the HTTP entity catalogs', () => {
+    const { g, items } = make([], []);
+    expect(items).toHaveBeenCalledTimes(1); // initial load
+    g.refreshCatalogs();
+    expect(items).toHaveBeenCalledTimes(2);
   });
 });

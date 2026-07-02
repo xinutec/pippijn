@@ -3,10 +3,10 @@ import { Observable, from } from 'rxjs';
 import { map, shareReplay, switchMap } from 'rxjs/operators';
 import { ulid } from 'ulid';
 import { type RxCollection, type RxConflictHandler, type RxJsonSchema } from 'rxdb';
-import { replicateRxCollection } from 'rxdb/plugins/replication';
 
 import { LinkKind, TargetKind } from '../models';
 import { LifeDb } from './life-db';
+import { startHttpReplication } from './replication';
 
 /** A to-do connection stored locally. `from` is the source to-do's ulid; the
  *  target is a soft ref (`targetRef` interpreted per `targetKind`). Mirrors the
@@ -112,56 +112,12 @@ export class TodoLinkStore {
   }
 
   private startReplication(collection: LinkCollection): void {
-    const guardAuth = (res: Response) => {
-      const ct = res.headers.get('content-type') ?? '';
-      if (res.status === 401 || res.status === 403 || res.redirected || !ct.includes('application/json')) {
-        this.syncError.set('login required — reopen the app to sign in');
-        throw new Error('auth-required');
-      }
-    };
-
-    const replication = replicateRxCollection<TodoLinkDoc, { rev: number }>({
+    startHttpReplication<TodoLinkDoc>({
       collection,
-      replicationIdentifier: 'todo-link-http-sync',
-      live: true,
-      retryTime: 5000,
-      pull: {
-        batchSize: 200,
-        handler: async (checkpoint, batchSize) => {
-          const since = checkpoint?.rev ?? 0;
-          const res = await fetch(`/api/sync/todo-link?since=${since}&limit=${batchSize}`, {
-            credentials: 'include',
-          });
-          guardAuth(res);
-          if (!res.ok) throw new Error(`pull failed: ${res.status}`);
-          const body = (await res.json()) as {
-            documents: (TodoLinkDoc & { _deleted: boolean })[];
-            checkpoint: { rev: number };
-          };
-          this.syncError.set(null);
-          return { documents: body.documents, checkpoint: body.checkpoint };
-        },
-      },
-      push: {
-        batchSize: 50,
-        handler: async (rows) => {
-          const res = await fetch('/api/sync/todo-link', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(rows),
-          });
-          guardAuth(res);
-          if (!res.ok) throw new Error(`push failed: ${res.status}`);
-          this.syncError.set(null);
-          return (await res.json()) as (TodoLinkDoc & { _deleted: boolean })[];
-        },
-      },
-    });
-    replication.error$.subscribe((err) => {
-      if (this.syncError() === null) {
-        console.warn('[todo-link sync]', err);
-      }
+      identifier: 'todo-link-http-sync',
+      path: '/api/sync/todo-link',
+      syncError: this.syncError,
+      label: 'todo-link sync',
     });
   }
 }

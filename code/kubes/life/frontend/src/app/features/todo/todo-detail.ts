@@ -71,6 +71,11 @@ export class TodoDetail {
   private snack = inject(MatSnackBar);
   readonly graph = inject(TodoGraph);
 
+  constructor() {
+    // The link search must see entities added since the catalogs last loaded.
+    this.graph.refreshCatalogs();
+  }
+
   readonly types = TYPES;
   readonly kinds = KINDS;
   readonly priorities = PRIORITIES;

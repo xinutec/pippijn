@@ -3,9 +3,9 @@ import { Observable, from } from 'rxjs';
 import { map, shareReplay, switchMap } from 'rxjs/operators';
 import { ulid } from 'ulid';
 import { type RxCollection, type RxJsonSchema } from 'rxdb';
-import { replicateRxCollection } from 'rxdb/plugins/replication';
 
 import { ConflictReporter, makeConflictHandler } from './conflict-merge';
+import { startHttpReplication } from './replication';
 import { LifeDb } from './life-db';
 
 /** A shopping row as stored locally. `ulid` is the stable identity; `rev` is the
@@ -57,7 +57,7 @@ export class ShoppingStore {
   private lifeDb = inject(LifeDb);
   private reporter = inject(ConflictReporter);
   private readonly collection = this.init();
-  private replication?: ReturnType<typeof replicateRxCollection<ShoppingDoc, { rev: number }>>;
+  private replication?: ReturnType<typeof startHttpReplication<ShoppingDoc>>;
 
   /** Live, sorted, non-deleted shopping rows (RxDB filters tombstones). */
   readonly items$: Observable<ShoppingDoc[]> = from(this.collection).pipe(
@@ -142,65 +142,12 @@ export class ShoppingStore {
   }
 
   private startReplication(collection: ShoppingCollection): void {
-    const guardAuth = (res: Response) => {
-      // An expired session shows up two ways: our API returns 401/403 JSON, or a
-      // stale cookie 302-redirects to a login page that fetch follows to a 200
-      // non-JSON body. Either way, surface "login required" and fail so RxDB
-      // retries without corrupting the queue. Must run BEFORE the generic
-      // !res.ok check so this friendly message wins over "pull failed: 401".
-      const ct = res.headers.get('content-type') ?? '';
-      if (res.status === 401 || res.status === 403 || res.redirected || !ct.includes('application/json')) {
-        this.syncError.set('login required — reopen the app to sign in');
-        throw new Error('auth-required');
-      }
-    };
-
-    const replication = replicateRxCollection<ShoppingDoc, { rev: number }>({
+    this.replication = startHttpReplication<ShoppingDoc>({
       collection,
-      replicationIdentifier: 'shopping-http-sync',
-      live: true,
-      retryTime: 5000,
-      pull: {
-        batchSize: 200,
-        handler: async (checkpoint, batchSize) => {
-          const since = checkpoint?.rev ?? 0;
-          const res = await fetch(
-            `/api/sync/shopping?since=${since}&limit=${batchSize}`,
-            { credentials: 'include' },
-          );
-          guardAuth(res);
-          if (!res.ok) throw new Error(`pull failed: ${res.status}`);
-          const body = (await res.json()) as {
-            documents: (ShoppingDoc & { _deleted: boolean })[];
-            checkpoint: { rev: number };
-          };
-          this.syncError.set(null);
-          return { documents: body.documents, checkpoint: body.checkpoint };
-        },
-      },
-      push: {
-        batchSize: 50,
-        handler: async (rows) => {
-          const res = await fetch('/api/sync/shopping', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(rows),
-          });
-          guardAuth(res);
-          if (!res.ok) throw new Error(`push failed: ${res.status}`);
-          this.syncError.set(null);
-          return (await res.json()) as (ShoppingDoc & { _deleted: boolean })[];
-        },
-      },
+      identifier: 'shopping-http-sync',
+      path: '/api/sync/shopping',
+      syncError: this.syncError,
+      label: 'shopping sync',
     });
-    replication.error$.subscribe((err) => {
-      // Keep the auth message if that's the cause; otherwise stay quiet (RxDB
-      // retries transient network errors on its own).
-      if (this.syncError() === null) {
-        console.warn('[shopping sync]', err);
-      }
-    });
-    this.replication = replication;
   }
 }

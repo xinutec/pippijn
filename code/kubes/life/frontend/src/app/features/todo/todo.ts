@@ -12,6 +12,7 @@ import { MatListModule } from '@angular/material/list';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 
+import { revealAddForm } from '../../add-fab';
 import { LifeApi } from '../../life-api';
 import { TodoPriority, TodoType } from '../../models';
 import { TodoDoc, TodoStore } from '../../sync/todo-store';
@@ -61,11 +62,23 @@ export class Todo {
   private snack = inject(MatSnackBar);
   readonly graph = inject(TodoGraph);
 
+  constructor() {
+    // Entities added since the last visit become linkable/resolvable.
+    this.graph.refreshCatalogs();
+  }
+
   // Local-first: the list is the live RxDB query — instant, offline, reactive.
   readonly items = toSignal(this.store.items$, { initialValue: [] as TodoDoc[] });
   readonly syncError = this.store.syncError;
   readonly types = TYPES;
   readonly priorities = PRIORITIES;
+
+  /** The add form is collapsed by default (list first); the FAB reveals it. */
+  readonly showAdd = signal(false);
+  toggleAdd(): void {
+    this.showAdd.update((v) => !v);
+    if (this.showAdd()) revealAddForm();
+  }
 
   // Form + filters are signals: the app is zoneless, so a signal write is what
   // schedules the view refresh.

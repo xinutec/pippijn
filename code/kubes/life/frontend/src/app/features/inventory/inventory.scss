@@ -63,3 +63,16 @@ h3 {
     max-width: 460px;
   }
 }
+
+.expiry {
+  font-variant-numeric: tabular-nums;
+
+  &.expired {
+    color: var(--mat-sys-error);
+    font-weight: 500;
+  }
+  &.soon {
+    color: var(--mat-sys-tertiary);
+    font-weight: 500;
+  }
+}
