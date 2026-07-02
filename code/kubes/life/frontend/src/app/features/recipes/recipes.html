@@ -14,7 +14,7 @@
       </mat-form-field>
       <mat-form-field appearance="outline" class="narrow">
         <mat-label>Servings</mat-label>
-        <input matInput type="number" [ngModel]="form().servings" (ngModelChange)="patchForm({ servings: $event })" />
+        <input matInput type="number" inputmode="numeric" [ngModel]="form().servings" (ngModelChange)="patchForm({ servings: $event })" />
       </mat-form-field>
     </div>
     <mat-form-field appearance="outline" class="full">
@@ -31,7 +31,7 @@
         </mat-form-field>
         <mat-form-field appearance="outline" class="narrow">
           <mat-label>Qty</mat-label>
-          <input matInput type="number" [ngModel]="ing.quantity" (ngModelChange)="patchIngredient($index, { quantity: $event })" />
+          <input matInput type="number" inputmode="decimal" [ngModel]="ing.quantity" (ngModelChange)="patchIngredient($index, { quantity: $event })" />
         </mat-form-field>
         <mat-form-field appearance="outline" class="narrow">
           <mat-label>Unit</mat-label>
@@ -64,7 +64,7 @@
       <mat-card-title>
         {{ recipe.name }}
         @if (isCookable(recipe.id)) {
-          <mat-icon class="ok" title="In stock">check_circle</mat-icon>
+          <mat-icon class="ok" aria-label="In stock — cookable now">check_circle</mat-icon>
         }
       </mat-card-title>
       @if (recipe.servings) {

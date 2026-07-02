@@ -81,13 +81,13 @@ export class ProductThumb {
       },
       error: () => {
         this.busy.set(false);
-        this.snack.open('Could not save the image.', 'Dismiss', { duration: 4000 });
+        this.snack.open('Could not save the image.', 'OK', { duration: 4000 });
       },
     });
   }
 
   protected onPickError(message: string): void {
-    this.snack.open(message, 'Dismiss', { duration: 4000 });
+    this.snack.open(message, 'OK', { duration: 4000 });
   }
 
   /** Upload the image currently on the system clipboard (Android app only). */

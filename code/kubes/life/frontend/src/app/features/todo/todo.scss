@@ -73,11 +73,14 @@
     font-weight: 600;
   }
   &.prio-medium {
-    background: color-mix(in srgb, #e65100 32%, transparent);
+    // Theme-token pair (not a hardcoded orange) so it stays legible in dark mode.
+    background: color-mix(in srgb, var(--mat-sys-tertiary) 26%, transparent);
+    color: var(--mat-sys-on-tertiary-container);
     font-weight: 600;
   }
   &.prio-low {
     background: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
+    color: var(--mat-sys-on-surface);
   }
 }
 

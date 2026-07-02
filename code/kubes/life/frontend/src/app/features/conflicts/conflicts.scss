@@ -11,7 +11,7 @@
     font-weight: 500;
   }
   .field {
-    opacity: 0.6;
+    color: var(--mat-sys-on-surface-variant);
     font-weight: 400;
   }
 
@@ -28,7 +28,7 @@
       font-size: 0.72rem;
       text-transform: uppercase;
       letter-spacing: 0.03em;
-      opacity: 0.6;
+      color: var(--mat-sys-on-surface-variant);
     }
     .v {
       font-variant-numeric: tabular-nums;
@@ -40,6 +40,6 @@
 
   .when {
     font-size: 0.75rem;
-    opacity: 0.55;
+    color: var(--mat-sys-on-surface-variant);
   }
 }

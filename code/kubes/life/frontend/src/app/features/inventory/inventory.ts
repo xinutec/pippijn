@@ -1,27 +1,33 @@
-import { HttpErrorResponse } from '@angular/common/http';
-import { Component, computed, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
-import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
-import { MatListModule } from '@angular/material/list';
-import { MatMenuModule } from '@angular/material/menu';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSelectModule } from '@angular/material/select';
-import { MatSnackBar } from '@angular/material/snack-bar';
+import { HttpErrorResponse } from "@angular/common/http";
+import { Component, computed, inject, signal } from "@angular/core";
+import { FormsModule } from "@angular/forms";
+import { MatButtonModule } from "@angular/material/button";
+import { MatCardModule } from "@angular/material/card";
+import { MatDialog, MatDialogModule } from "@angular/material/dialog";
+import { MatFormFieldModule } from "@angular/material/form-field";
+import { MatIconModule } from "@angular/material/icon";
+import { MatInputModule } from "@angular/material/input";
+import { MatListModule } from "@angular/material/list";
+import { MatMenuModule } from "@angular/material/menu";
+import { MatProgressBarModule } from "@angular/material/progress-bar";
+import { MatSelectModule } from "@angular/material/select";
+import { MatSnackBar } from "@angular/material/snack-bar";
 
-import { revealAddForm } from '../../add-fab';
-import { ExpiryInfo, expiryInfo } from '../../expiry';
-import { LifeApi } from '../../life-api';
-import { ProductThumb } from '../../product-thumb';
-import { Item, ItemCategory, Loc, LocationKind } from '../../models';
-import { ScannerDialog } from '../scanner/scanner-dialog';
+import { revealAddForm } from "../../add-fab";
+import { ExpiryInfo, expiryInfo } from "../../expiry";
+import { LifeApi } from "../../life-api";
+import { ProductThumb } from "../../product-thumb";
+import { Item, ItemCategory, Loc, LocationKind } from "../../models";
+import { ScannerDialog } from "../scanner/scanner-dialog";
 
-const KINDS: LocationKind[] = ['house', 'room', 'cupboard', 'fridge', 'layer'];
-const CATEGORIES: ItemCategory[] = ['food', 'medication', 'tool', 'document', 'other'];
+const KINDS: LocationKind[] = ["house", "room", "cupboard", "fridge", "layer"];
+const CATEGORIES: ItemCategory[] = [
+  "food",
+  "medication",
+  "tool",
+  "document",
+  "other",
+];
 
 interface PlaceForm {
   kind: LocationKind;
@@ -40,9 +46,9 @@ interface ItemForm {
 }
 
 @Component({
-  selector: 'app-inventory',
-  templateUrl: './inventory.html',
-  styleUrl: './inventory.scss',
+  selector: "app-inventory",
+  templateUrl: "./inventory.html",
+  styleUrl: "./inventory.scss",
   imports: [
     FormsModule,
     MatListModule,
@@ -66,21 +72,26 @@ export class Inventory {
   /** Online-only writes must not fail into silence: announce and move on. */
   private failed(what: string) {
     return (e: HttpErrorResponse) => {
-      const hint = e.status === 0 ? ' — are you online?' : '';
-      this.snack.open(`Could not ${what}${hint}`, 'OK', { duration: 4000 });
+      const hint = e.status === 0 ? " — are you online?" : "";
+      this.snack.open(`Could not ${what}${hint}`, "OK", { duration: 4000 });
     };
   }
 
   /** Deletes are tombstones (restorable from Recently deleted); offer an
    *  immediate Undo so a fat-finger costs one tap, not a trip to the trash. */
-  private undoable(what: string, kind: 'item' | 'location', ref: number, reload: () => void) {
+  private undoable(
+    what: string,
+    kind: "item" | "location",
+    ref: number,
+    reload: () => void,
+  ) {
     this.snack
-      .open(`${what} deleted`, 'Undo', { duration: 6000 })
+      .open(`${what} deleted`, "Undo", { duration: 6000 })
       .onAction()
       .subscribe(() => {
         this.api.restoreTrash(kind, String(ref)).subscribe({
           next: () => reload(),
-          error: this.failed('undo the delete'),
+          error: this.failed("undo the delete"),
         });
       });
   }
@@ -96,7 +107,9 @@ export class Inventory {
   /** A load failure is not an empty inventory — show a retry, not "nothing yet". */
   readonly itemsError = signal(false);
   readonly placesError = signal(false);
-  private byId = computed(() => new Map(this.locations().map((l) => [l.id, l] as const)));
+  private byId = computed(
+    () => new Map(this.locations().map((l) => [l.id, l] as const)),
+  );
   readonly locationOptions = computed(() =>
     this.locations().map((l) => ({ id: l.id, label: this.pathOf(l.id) })),
   );
@@ -161,15 +174,23 @@ export class Inventory {
     });
   }
   private emptyPlace(): PlaceForm {
-    return { kind: 'cupboard', name: '', parent_id: null };
+    return { kind: "cupboard", name: "", parent_id: null };
   }
   private emptyItem(): ItemForm {
-    return { name: '', category: 'food', quantity: null, unit: null, expiry: null, location_id: null, barcode: null };
+    return {
+      name: "",
+      category: "food",
+      quantity: null,
+      unit: null,
+      expiry: null,
+      location_id: null,
+      barcode: null,
+    };
   }
 
   /** Root→leaf breadcrumb for a location id, resolved client-side. */
   pathOf(id: number | null): string {
-    if (id == null) return '';
+    if (id == null) return "";
     const map = this.byId();
     const names: string[] = [];
     const seen = new Set<number>();
@@ -181,11 +202,11 @@ export class Inventory {
       names.unshift(loc.name);
       cur = loc.parent_id;
     }
-    return names.join(' › ');
+    return names.join(" › ");
   }
 
   qty(item: Item): string {
-    if (item.quantity == null) return '';
+    if (item.quantity == null) return "";
     return item.unit ? `${item.quantity} ${item.unit}` : `${item.quantity}`;
   }
 
@@ -196,8 +217,8 @@ export class Inventory {
 
   /** The actionable tail of the location path (e.g. "Spice cupboard › Top shelf"). */
   shortLoc(id: number | null): string {
-    if (id == null) return '';
-    return this.pathOf(id).split(' › ').slice(-2).join(' › ');
+    if (id == null) return "";
+    return this.pathOf(id).split(" › ").slice(-2).join(" › ");
   }
 
   addPlace(): void {
@@ -207,7 +228,7 @@ export class Inventory {
         this.place.set(this.emptyPlace());
         this.reloadLocations();
       },
-      error: this.failed('add the place'),
+      error: this.failed("add the place"),
     });
   }
 
@@ -216,12 +237,12 @@ export class Inventory {
       next: () => {
         this.reloadLocations();
         this.reloadItems(); // items there read as unplaced until restored
-        this.undoable('Place', 'location', id, () => {
+        this.undoable("Place", "location", id, () => {
           this.reloadLocations();
           this.reloadItems();
         });
       },
-      error: this.failed('delete the place'),
+      error: this.failed("delete the place"),
     });
   }
 
@@ -231,7 +252,7 @@ export class Inventory {
     const id = this.editingId();
     const req = id ? this.api.updateItem(id, body) : this.api.createItem(body);
     const trimmed = this.item().barcode?.trim();
-    const barcode = trimmed !== undefined && trimmed !== '' ? trimmed : null;
+    const barcode = trimmed !== undefined && trimmed !== "" ? trimmed : null;
     req.subscribe({
       next: () => {
         this.cancelEdit();
@@ -239,12 +260,15 @@ export class Inventory {
         if (barcode) {
           this.api
             .lookupProduct(barcode)
-            .subscribe({ next: () => this.reloadItems(), error: () => this.reloadItems() });
+            .subscribe({
+              next: () => this.reloadItems(),
+              error: () => this.reloadItems(),
+            });
         } else {
           this.reloadItems();
         }
       },
-      error: this.failed('save the item'),
+      error: this.failed("save the item"),
     });
   }
 
@@ -273,20 +297,30 @@ export class Inventory {
    *  scanner is broken". */
   scan(): void {
     this.dialog
-      .open<ScannerDialog, unknown, string | null>(ScannerDialog, { panelClass: 'scanner-pane' })
+      .open<ScannerDialog, unknown, string | null>(ScannerDialog, {
+        panelClass: "scanner-pane",
+        ariaLabel: "Barcode scanner",
+      })
       .afterClosed()
       .subscribe((code) => {
         if (!code) return;
         this.patchItem({ barcode: code });
         this.api.lookupProduct(code).subscribe({
           next: (p) => {
-            if (!this.item().name.trim() && p.name) this.patchItem({ name: p.name });
-            this.snack.open(p.name ? `Found: ${p.name}` : 'Product found', undefined, { duration: 2500 });
+            if (!this.item().name.trim() && p.name)
+              this.patchItem({ name: p.name });
+            this.snack.open(
+              p.name ? `Found: ${p.name}` : "Product found",
+              undefined,
+              { duration: 2500 },
+            );
           },
           error: (e: HttpErrorResponse) => {
             this.snack.open(
-              e.status === 404 ? `No product found for ${code}.` : 'Lookup failed — are you online?',
-              'OK',
+              e.status === 404
+                ? `No product found for ${code}.`
+                : "Lookup failed — are you online?",
+              "OK",
               { duration: 4000 },
             );
           },
@@ -298,9 +332,9 @@ export class Inventory {
     this.api.deleteItem(id).subscribe({
       next: () => {
         this.reloadItems();
-        this.undoable('Item', 'item', id, () => this.reloadItems());
+        this.undoable("Item", "item", id, () => this.reloadItems());
       },
-      error: this.failed('delete the item'),
+      error: this.failed("delete the item"),
     });
   }
 }

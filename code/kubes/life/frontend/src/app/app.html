@@ -1,6 +1,7 @@
 @if (loading()) {
   <mat-progress-bar mode="indeterminate" />
 } @else if (me(); as user) {
+  <a class="skip-link" href="#main">Skip to content</a>
   <header class="topbar">
     <button
       class="ham-btn"
@@ -48,13 +49,18 @@
     </mat-menu>
   </header>
 
-  <main class="content">
+  <main id="main" class="content" tabindex="-1">
     <router-outlet />
   </main>
 
   <nav class="nav">
     @for (n of nav; track n.path) {
-      <a [routerLink]="n.path" routerLinkActive="active">
+      <a
+        [routerLink]="n.path"
+        routerLinkActive="active"
+        #rla="routerLinkActive"
+        [attr.aria-current]="rla.isActive ? 'page' : null"
+      >
         <mat-icon>{{ n.icon }}</mat-icon>
         <span class="label">{{ n.label }}</span>
       </a>

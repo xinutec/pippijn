@@ -5,6 +5,24 @@
   display: block;
 }
 
+// Keyboard-only affordance: jumps past the top bar to the routed content.
+// Off-screen until focused (Tab as the first action on a page).
+.skip-link {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  transform: translateY(-120%);
+  padding: 0.5rem 1rem;
+  background: var(--mat-sys-primary);
+  color: var(--mat-sys-on-primary);
+  border-radius: 0 0 8px 0;
+
+  &:focus-visible {
+    transform: translateY(0);
+  }
+}
+
 $topbar-h: 56px;
 $bottomnav-h: 60px;
 $rail-w: 220px;

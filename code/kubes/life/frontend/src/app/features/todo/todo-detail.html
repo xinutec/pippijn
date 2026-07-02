@@ -3,13 +3,13 @@
     <div class="head">
       <mat-checkbox [checked]="td.status === 'done'" [disabled]="state() === 'blocked'" (change)="toggleDone()" aria-label="Done"></mat-checkbox>
       <mat-form-field appearance="outline" class="title-field" subscriptSizing="dynamic">
+        <mat-label>Title</mat-label>
         <input
           matInput
           [ngModel]="title()"
           (ngModelChange)="title.set($event)"
           (blur)="saveTitle()"
           (keyup.enter)="saveTitle()"
-          aria-label="Title"
         />
       </mat-form-field>
       <button mat-icon-button (click)="close()" aria-label="Close"><mat-icon>close</mat-icon></button>
@@ -17,6 +17,7 @@
 
     <mat-button-toggle-group
       class="type"
+      aria-label="Type"
       [ngModel]="td.type"
       (ngModelChange)="setType($event)"
       hideSingleSelectionIndicator
@@ -28,6 +29,7 @@
 
     <mat-button-toggle-group
       class="type"
+      aria-label="Priority"
       [ngModel]="td.priority"
       (ngModelChange)="setPriority($event)"
       hideSingleSelectionIndicator
@@ -67,14 +69,27 @@
         <h4>{{ grp.heading }}</h4>
         <mat-list>
           @for (row of grp.rows; track row.edge) {
-            <mat-list-item [class.tappable]="row.todoRef" (click)="row.todoRef && openTodo(row.todoRef)">
+            <mat-list-item>
               <mat-icon matListItemIcon>{{ row.target.icon }}</mat-icon>
-              <span matListItemTitle>{{ row.target.label }}</span>
+              @if (row.todoRef; as ref) {
+                <span
+                  matListItemTitle
+                  class="tappable"
+                  role="button"
+                  tabindex="0"
+                  (click)="openTodo(ref)"
+                  (keydown.enter)="openTodo(ref)"
+                  (keydown.space)="openTodo(ref); $event.preventDefault()"
+                  >{{ row.target.label }}</span
+                >
+              } @else {
+                <span matListItemTitle>{{ row.target.label }}</span>
+              }
               <span matListItemLine class="kindlabel">{{ row.target.kind }}</span>
               <button
                 matListItemMeta
                 mat-icon-button
-                (click)="$event.stopPropagation(); removeLink(row.edge)"
+                (click)="removeLink(row.edge)"
                 aria-label="Remove connection"
               >
                 <mat-icon>link_off</mat-icon>
@@ -89,6 +104,7 @@
       <h4>Add connection</h4>
       <mat-button-toggle-group
         class="kind"
+        aria-label="Connection type"
         [ngModel]="addKind()"
         (ngModelChange)="addKind.set($event)"
         hideSingleSelectionIndicator
@@ -110,7 +126,14 @@
       @if (results().length > 0) {
         <mat-list class="results">
           @for (r of results(); track r.kind + ':' + r.ref) {
-            <mat-list-item class="tappable" (click)="addLink(r)">
+            <mat-list-item
+              class="tappable"
+              role="button"
+              tabindex="0"
+              (click)="addLink(r)"
+              (keydown.enter)="addLink(r)"
+              (keydown.space)="addLink(r); $event.preventDefault()"
+            >
               <mat-icon matListItemIcon>{{ r.icon }}</mat-icon>
               <span matListItemTitle>{{ r.label }}</span>
               <span matListItemLine class="kindlabel">{{ r.kind }}</span>

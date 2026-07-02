@@ -31,6 +31,8 @@
     right: 0;
     text-align: center;
     color: #fff;
+    // Legible over a bright barcode / camera feed.
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
     margin: 0;
   }
 
