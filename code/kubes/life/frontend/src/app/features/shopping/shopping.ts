@@ -9,6 +9,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { catchError, forkJoin, map, of, tap } from 'rxjs';
 
@@ -30,6 +31,7 @@ import { ShoppingDoc, ShoppingStore } from '../../sync/shopping-store';
     MatCheckboxModule,
     MatFormFieldModule,
     MatInputModule,
+    MatProgressBarModule,
     MatDialogModule,
     ProductThumb,
   ],
@@ -42,6 +44,9 @@ export class Shopping {
 
   // Local-first: the list is the live RxDB query — instant, offline, reactive.
   readonly items = toSignal(this.store.items$, { initialValue: [] as ShoppingDoc[] });
+  /** False until the local DB has produced its first result — so a cold start
+   *  shows a spinner, not a flash of "nothing on the list". */
+  readonly loaded = toSignal(this.store.items$.pipe(map(() => true)), { initialValue: false });
   readonly doneCount = computed(() => this.items().filter((i) => i.done).length);
   readonly syncError = this.store.syncError;
 

@@ -78,9 +78,9 @@ pub fn accept_upload_mime(content_type: &str) -> Option<String> {
 /// not one of ours; reject.
 pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     match bytes {
-        [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
-        [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, ..] => Some("image/png"),
-        [b'G', b'I', b'F', b'8', b'7' | b'9', b'a', ..] => Some("image/gif"),
+        [0xFF, 0xD8, 0xFF, ..] => return Some("image/jpeg"),
+        [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, ..] => return Some("image/png"),
+        [b'G', b'I', b'F', b'8', b'7' | b'9', b'a', ..] => return Some("image/gif"),
         // RIFF container: "RIFF" <size> "WEBP".
         [
             b'R',
@@ -96,25 +96,26 @@ pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
             b'B',
             b'P',
             ..,
-        ] => Some("image/webp"),
-        // ISO-BMFF: <size> "ftyp" <brand>; avif/avis are the AVIF brands.
-        [
-            _,
-            _,
-            _,
-            _,
-            b'f',
-            b't',
-            b'y',
-            b'p',
-            b'a',
-            b'v',
-            b'i',
-            b'f' | b's',
-            ..,
-        ] => Some("image/avif"),
-        _ => None,
+        ] => {
+            return Some("image/webp");
+        }
+        _ => {}
     }
+    // ISO-BMFF (AVIF): "<size>ftyp<major-brand><compatible-brands…>". Real-world
+    // encoders often set the major brand to `mif1`/`msf1` and list `avif` only
+    // among the compatible brands, so scan the ftyp box for the `avif`/`avis`
+    // tag rather than matching the major brand alone. HEIC lists heic/heix (not
+    // avif), so this won't misclassify it.
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+        let end = bytes.len().min(64);
+        if bytes[8..end]
+            .windows(4)
+            .any(|w| w == b"avif" || w == b"avis")
+        {
+            return Some("image/avif");
+        }
+    }
+    None
 }
 
 /// Look up a barcode. `Ok(None)` = OFF has no such product.

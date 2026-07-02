@@ -9,8 +9,10 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { map } from 'rxjs';
 
 import { revealAddForm } from '../../add-fab';
 import { LifeApi } from '../../life-api';
@@ -52,6 +54,7 @@ export const prioRank = (p: TodoPriority | null): number => (p ? PRIO_RANK[p] : 
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
+    MatProgressBarModule,
     MatBottomSheetModule,
   ],
 })
@@ -69,6 +72,9 @@ export class Todo {
 
   // Local-first: the list is the live RxDB query — instant, offline, reactive.
   readonly items = toSignal(this.store.items$, { initialValue: [] as TodoDoc[] });
+  /** False until the local DB has produced its first result — cold start shows a
+   *  spinner, not a flash of "no to-dos". */
+  readonly loaded = toSignal(this.store.items$.pipe(map(() => true)), { initialValue: false });
   readonly syncError = this.store.syncError;
   readonly types = TYPES;
   readonly priorities = PRIORITIES;
@@ -133,28 +139,35 @@ export class Todo {
   }
 
   toggle(it: TodoDoc): void {
+    // A blocked to-do (an unfinished dependency) can't be completed — the
+    // checkbox is disabled too, this guards the programmatic path. Un-completing
+    // a done item is always allowed (a done item is never "blocked").
+    if (it.status !== 'done' && this.graph.statusOf(it) === 'blocked') return;
     void this.store.setStatus(it.ulid, it.status === 'done' ? 'open' : 'done');
   }
 
   remove(it: TodoDoc): void {
-    this.graph.removeLinksForTodo(it.ulid);
+    // Remove the to-do now (optimistic), but DEFER removing its connections
+    // until the Undo window closes — so an undo brings the to-do back with its
+    // links intact. Undo: revive locally (works offline) + server-side restore
+    // for synced rows (a re-push can't clear a tombstone; a 404 just means the
+    // delete push hadn't arrived, and revive covers it).
     void this.store.remove(it.ulid);
-    // Undo: revive locally (works offline) + server-side restore for synced
-    // rows (the authoritative undelete — a re-push can't clear a tombstone; a
-    // restore 404 just means the delete push hadn't arrived, revive covers it).
-    // Connections removed alongside stay removed.
-    this.snack
-      .open(`Deleted “${it.title}”`, 'Undo', { duration: 6000 })
-      .onAction()
-      .subscribe(() => {
-        void this.store.revive(it);
-        if (it.id != null) {
-          this.api.restoreTrash('todo', it.ulid).subscribe({
-            next: () => this.store.reSync(),
-            error: () => {},
-          });
-        }
-      });
+    let undone = false;
+    const ref = this.snack.open(`Deleted “${it.title}”`, 'Undo', { duration: 6000 });
+    ref.onAction().subscribe(() => {
+      undone = true;
+      void this.store.revive(it);
+      if (it.id != null) {
+        this.api.restoreTrash('todo', it.ulid).subscribe({
+          next: () => this.store.reSync(),
+          error: () => {},
+        });
+      }
+    });
+    ref.afterDismissed().subscribe(() => {
+      if (!undone) this.graph.removeLinksForTodo(it.ulid);
+    });
   }
 
   openDetail(it: TodoDoc): void {

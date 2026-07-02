@@ -32,7 +32,9 @@
 </div>
 }
 
-@if (items().length === 0) {
+@if (!loaded()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else if (items().length === 0) {
   <p class="empty">Nothing on the list. Tap + to add what you need to buy.</p>
 }
 
@@ -71,8 +73,12 @@
   </div>
 }
 
+<!-- Hidden while the "bought → inventory" bar owns the bottom, unless the add
+     form is already open (so you can still close it). -->
+@if (doneCount() === 0 || showAdd()) {
 <div class="fab-anchor">
   <button mat-fab class="add-fab" (click)="toggleAdd()" [attr.aria-label]="showAdd() ? 'Close the add form' : 'Add to the list'">
     <mat-icon>{{ showAdd() ? 'close' : 'add' }}</mat-icon>
   </button>
 </div>
+}

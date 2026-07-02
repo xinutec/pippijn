@@ -1,9 +1,6 @@
 <div class="head">
   <h2>Inventory</h2>
   <div class="toggles">
-    <button mat-stroked-button (click)="toggleItemForm()">
-      <mat-icon>{{ showItemForm() ? 'close' : 'add' }}</mat-icon> Item
-    </button>
     <button mat-stroked-button (click)="togglePlaceForm()">
       <mat-icon>{{ showPlaceForm() ? 'close' : 'add' }}</mat-icon> Place
     </button>
@@ -102,8 +99,10 @@
   <h3>Items</h3>
   @if (!itemsLoaded()) {
     <mat-progress-bar mode="indeterminate" />
+  } @else if (itemsError()) {
+    <p class="empty">Couldn’t load — are you online? <button mat-button (click)="reloadItems()">Retry</button></p>
   } @else if (items().length === 0) {
-    <p class="empty">No items yet — tap “+ Item”.</p>
+    <p class="empty">No items yet — tap the + button.</p>
   }
   <mat-list>
     @for (it of items(); track it.id) {
@@ -137,6 +136,8 @@
   <h3>Places</h3>
   @if (!placesLoaded()) {
     <mat-progress-bar mode="indeterminate" />
+  } @else if (placesError()) {
+    <p class="empty">Couldn’t load — are you online? <button mat-button (click)="reloadLocations()">Retry</button></p>
   } @else if (locations().length === 0) {
     <p class="empty">No places yet — tap “+ Place”.</p>
   }

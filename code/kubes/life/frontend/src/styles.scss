@@ -32,6 +32,17 @@ body {
   overflow: hidden;
 }
 
+// Sync-problem banner (Buy / To-do): a stale session or offline push surfaces
+// here. An error-container fill so it can't be mistaken for body text.
+.sync-warn {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+  font-size: 0.9rem;
+}
+
 // The per-screen "add" FAB, parked bottom-right above the bottom tab bar so the
 // primary capture action is thumb-reachable (the add forms live at the top of
 // the scroll — see add-fab.ts).

@@ -93,6 +93,9 @@ export class Inventory {
   /** Pre-fetch, empty lists mean "still loading", not "nothing yet". */
   readonly itemsLoaded = signal(false);
   readonly placesLoaded = signal(false);
+  /** A load failure is not an empty inventory — show a retry, not "nothing yet". */
+  readonly itemsError = signal(false);
+  readonly placesError = signal(false);
   private byId = computed(() => new Map(this.locations().map((l) => [l.id, l] as const)));
   readonly locationOptions = computed(() =>
     this.locations().map((l) => ({ id: l.id, label: this.pathOf(l.id) })),
@@ -131,22 +134,30 @@ export class Inventory {
     this.reloadLocations();
   }
 
-  private reloadItems(): void {
+  reloadItems(): void {
+    this.itemsError.set(false);
     this.api.items().subscribe({
       next: (i) => {
         this.items.set(i);
         this.itemsLoaded.set(true);
       },
-      error: () => this.itemsLoaded.set(true),
+      error: () => {
+        this.itemsLoaded.set(true);
+        this.itemsError.set(true);
+      },
     });
   }
-  private reloadLocations(): void {
+  reloadLocations(): void {
+    this.placesError.set(false);
     this.api.locations().subscribe({
       next: (l) => {
         this.locations.set(l);
         this.placesLoaded.set(true);
       },
-      error: () => this.placesLoaded.set(true),
+      error: () => {
+        this.placesLoaded.set(true);
+        this.placesError.set(true);
+      },
     });
   }
   private emptyPlace(): PlaceForm {
@@ -249,6 +260,7 @@ export class Inventory {
     });
     this.editingId.set(it.id);
     this.showItemForm.set(true);
+    revealAddForm(); // the form is at the top of the scroll — bring it into view
   }
 
   cancelEdit(): void {

@@ -133,8 +133,9 @@ item → layer → cupboard → room → house
 ### 3D house
 - Hand-authored room/cupboard **geometry described parametrically** so that
   "register a cupboard" needs no 3D-modelling step — the Angular/three.js
-  layer renders from the data. Search an item → resolve its `location_id`
-  chain → highlight the cupboard/layer.
+  layer renders from the data. (A planned "find an item → highlight its
+  cupboard/layer in 3D" lookup is parked — the standalone search page was
+  removed 2026-07-02; rebuild it with the highlight, not as its own tab.)
 - **`position` JSON schema** (metres, floor plane is X–Z, origin at a house
   corner, Y up):
   - room: `{ "x", "z", "w", "d" }` — a footprint rectangle; walls implied.

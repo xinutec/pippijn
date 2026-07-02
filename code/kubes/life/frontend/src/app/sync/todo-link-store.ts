@@ -43,6 +43,10 @@ const schema: RxJsonSchema<TodoLinkDoc> = {
   required: ['ulid', 'from', 'kind', 'targetKind', 'targetRef', 'rev'],
 };
 
+// Links are insert/delete-only — no editable fields — so this deliberately does
+// NOT use the shared field-level `makeConflictHandler` (shopping/todo do). A
+// tombstone stands; otherwise local wins. If links ever gain an editable field,
+// switch to makeConflictHandler so one side's edit isn't silently dropped.
 const conflictHandler: RxConflictHandler<TodoLinkDoc> = {
   isEqual: (a, b) => a.rev === b.rev && !!a._deleted === !!b._deleted,
   resolve: ({ realMasterState, newDocumentState }) =>

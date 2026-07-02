@@ -51,6 +51,8 @@ export class Recipes {
   readonly recipes = signal<Recipe[]>([]);
   /** Pre-fetch, an empty list means "still loading", not "no recipes". */
   readonly loaded = signal(false);
+  /** A load failure is not "no recipes" — show a retry. */
+  readonly loadError = signal(false);
   readonly cookableIds = signal<Set<number>>(new Set());
   readonly shopping = signal<Map<number, RecipeIngredient[]>>(new Map());
 
@@ -84,13 +86,17 @@ export class Recipes {
     this.reload();
   }
 
-  private reload(): void {
+  reload(): void {
+    this.loadError.set(false);
     this.api.recipes().subscribe({
       next: (r) => {
         this.recipes.set(r);
         this.loaded.set(true);
       },
-      error: () => this.loaded.set(true),
+      error: () => {
+        this.loaded.set(true);
+        this.loadError.set(true);
+      },
     });
     this.api.cookable().subscribe((r) => this.cookableIds.set(new Set(r.map((x) => x.id))));
   }

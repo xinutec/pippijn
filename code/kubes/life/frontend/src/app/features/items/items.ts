@@ -1,4 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
+import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -15,7 +16,7 @@ import { Item, Loc } from '../../models';
   selector: 'app-items',
   templateUrl: './items.html',
   styleUrl: './items.scss',
-  imports: [MatListModule, MatIconModule, MatProgressBarModule, ProductThumb],
+  imports: [MatButtonModule, MatListModule, MatIconModule, MatProgressBarModule, ProductThumb],
 })
 export class Items {
   private api = inject(LifeApi);
@@ -25,18 +26,28 @@ export class Items {
   /** Pre-fetch, an empty list means "still loading", not "no items" — don't
    *  flash the empty message. */
   readonly loaded = signal(false);
+  /** A load failure is NOT an empty inventory — show a retry, not "no items". */
+  readonly loadError = signal(false);
   readonly count = computed(() => this.items().length);
   private readonly byId = computed(() => new Map(this.locations().map((l) => [l.id, l] as const)));
 
   constructor() {
+    this.reload();
+    this.api.locations().subscribe((l) => this.locations.set(l));
+  }
+
+  reload(): void {
+    this.loadError.set(false);
     this.api.items().subscribe({
       next: (i) => {
         this.items.set(i);
         this.loaded.set(true);
       },
-      error: () => this.loaded.set(true),
+      error: () => {
+        this.loaded.set(true);
+        this.loadError.set(true);
+      },
     });
-    this.api.locations().subscribe((l) => this.locations.set(l));
   }
 
   /** Last two segments of the location path, or '' when unplaced. */

@@ -162,7 +162,11 @@ export class TodoDetail {
 
   toggleDone(): void {
     const t = this.todo();
-    if (t) void this.store.setStatus(this.ulid(), t.status === 'done' ? 'open' : 'done');
+    if (!t) return;
+    // Can't complete a blocked to-do (checkbox is disabled too); un-completing
+    // a done one is always fine.
+    if (t.status !== 'done' && this.state() === 'blocked') return;
+    void this.store.setStatus(this.ulid(), t.status === 'done' ? 'open' : 'done');
   }
 
   addLink(target: LinkTarget): void {
@@ -188,24 +192,27 @@ export class TodoDetail {
   remove(): void {
     const key = this.ulid();
     const doc = this.todo();
-    this.graph.removeLinksForTodo(key);
     void this.store.remove(key);
     this.ref.dismiss();
-    // Undo mirrors the list view: revive locally + authoritative server
-    // restore for synced rows (connections stay removed).
     if (!doc) return;
-    this.snack
-      .open(`Deleted “${doc.title}”`, 'Undo', { duration: 6000 })
-      .onAction()
-      .subscribe(() => {
-        void this.store.revive(doc);
-        if (doc.id != null) {
-          this.api.restoreTrash('todo', doc.ulid).subscribe({
-            next: () => this.store.reSync(),
-            error: () => {},
-          });
-        }
-      });
+    // Undo mirrors the list view: revive locally + authoritative server restore
+    // for synced rows. Link removal is deferred to the Undo window's close so an
+    // undo brings the to-do back with its connections intact.
+    let undone = false;
+    const ref = this.snack.open(`Deleted “${doc.title}”`, 'Undo', { duration: 6000 });
+    ref.onAction().subscribe(() => {
+      undone = true;
+      void this.store.revive(doc);
+      if (doc.id != null) {
+        this.api.restoreTrash('todo', doc.ulid).subscribe({
+          next: () => this.store.reSync(),
+          error: () => {},
+        });
+      }
+    });
+    ref.afterDismissed().subscribe(() => {
+      if (!undone) this.graph.removeLinksForTodo(key);
+    });
   }
 
   close(): void {

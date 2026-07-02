@@ -50,4 +50,4 @@ item "$(jq -nc --arg l "$pantry_l1" '{name:"Flour",category:"food",quantity:1,un
 mk /api/recipes '{"name":"Dal","instructions":"Simmer lentils with spices.","servings":2,
   "ingredients":[{"name":"cumin"},{"name":"salt","quantity":5,"unit":"g"},{"name":"lentils","quantity":200,"unit":"g"}]}' >/dev/null
 
-echo "Seeded demo house. Try: $BASE/api/search?q=cumin"
+echo "Seeded demo house. Open the Inventory tab to see the items."

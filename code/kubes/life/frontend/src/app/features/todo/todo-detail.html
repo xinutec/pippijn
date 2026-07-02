@@ -1,7 +1,7 @@
 @if (todo(); as td) {
   <div class="detail">
     <div class="head">
-      <mat-checkbox [checked]="td.status === 'done'" (change)="toggleDone()" aria-label="Done"></mat-checkbox>
+      <mat-checkbox [checked]="td.status === 'done'" [disabled]="state() === 'blocked'" (change)="toggleDone()" aria-label="Done"></mat-checkbox>
       <mat-form-field appearance="outline" class="title-field" subscriptSizing="dynamic">
         <input
           matInput

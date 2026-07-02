@@ -340,7 +340,7 @@ Still to decide / watch:
   the trash restore (`/api/trash/{kind}/{ref}/restore`), which bumps `rev` so the
   resurrection propagates.
 - **Compound / derived ops (Review S5).** `buy` (create item + delete shopping row),
-  `cookable`, `recipes/:id/shopping-list`, `search` are server computations today.
+  `cookable`, `recipes/:id/shopping-list` are server computations today.
   Local-first reimplements them as local queries; `buy` becomes two cross-collection
   mutations that aren't atomic across sync streams — define them as idempotent,
   replay-safe ULID-keyed pairs.

@@ -62,7 +62,9 @@
   }
 </div>
 
-@if (visible().length === 0) {
+@if (!loaded()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else if (visible().length === 0) {
   <p class="empty">
     @if (readyOnly()) {
       Nothing ready right now.
@@ -79,6 +81,7 @@
       <mat-checkbox
         matListItemIcon
         [checked]="it.status === 'done'"
+        [disabled]="st === 'blocked'"
         (change)="toggle(it)"
         [attr.aria-label]="'Done ' + it.title"
       ></mat-checkbox>
