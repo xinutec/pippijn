@@ -413,6 +413,27 @@ pub async fn push_todo_link(
             .execute(&mut *tx)
             .await?;
         } else {
+            // Two offline devices can add the SAME connection (same
+            // from/kind/target) under different ulids — client-side dedupe
+            // can't see across devices. Land the newcomer already tombstoned
+            // when a live semantic twin exists: the earlier edge wins, and the
+            // duplicate dies on every device through the normal pull.
+            // No FOR UPDATE here: it would take the todo_links lock before
+            // next_rev's sync_rev lock, reversing the lock order the REST path
+            // uses (sync_rev first) and risking a deadlock. A rare race that
+            // slips two live twins through is caught by the boot-time
+            // dedupe_todo_links backstop.
+            let twin: Option<(u64,)> = sqlx::query_as(
+                "SELECT id FROM todo_links WHERE user_id = ? AND from_ulid = ? AND kind = ? \
+                 AND target_kind = ? AND target_ref = ? AND deleted_at IS NULL LIMIT 1",
+            )
+            .bind(user_id)
+            .bind(&new.from)
+            .bind(&new.kind)
+            .bind(&new.target_kind)
+            .bind(&new.target_ref)
+            .fetch_optional(&mut *tx)
+            .await?;
             let rev = next_rev(&mut tx).await?;
             sqlx::query(
                 "INSERT INTO todo_links \
@@ -426,7 +447,7 @@ pub async fn push_todo_link(
             .bind(&new.kind)
             .bind(&new.target_kind)
             .bind(&new.target_ref)
-            .bind(new.deleted)
+            .bind(new.deleted || twin.is_some())
             .bind(rev)
             .execute(&mut *tx)
             .await?;
@@ -434,4 +455,37 @@ pub async fn push_todo_link(
         tx.commit().await?;
     }
     Ok(conflicts)
+}
+
+/// One-time + boot-time cleanup: tombstone live duplicate edges (same
+/// user/from/kind/target under different ulids — created before the push-time
+/// twin guard existed, or by a rare race). The lowest id survives; each
+/// tombstone gets its own rev so it propagates like any other delete.
+/// Idempotent and cheap once clean.
+pub async fn dedupe_todo_links(pool: &MySqlPool) -> Result<u64> {
+    let dups: Vec<(u64,)> = sqlx::query_as(
+        "SELECT t.id FROM todo_links t JOIN todo_links k \
+         ON k.user_id = t.user_id AND k.from_ulid = t.from_ulid AND k.kind = t.kind \
+         AND k.target_kind = t.target_kind AND k.target_ref = t.target_ref \
+         AND k.deleted_at IS NULL AND k.id < t.id \
+         WHERE t.deleted_at IS NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut n = 0u64;
+    for (id,) in dups {
+        let mut tx = pool.begin().await?;
+        let rev = next_rev(&mut tx).await?;
+        let res = sqlx::query(
+            "UPDATE todo_links SET deleted_at = NOW(), rev = ?, updated_at = NOW() \
+             WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(rev)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        n += res.rows_affected();
+    }
+    Ok(n)
 }

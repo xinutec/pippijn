@@ -1,0 +1,45 @@
+# Only the life app may reach the DB — the namespace is internet-adjacent via
+# the ingress, so anything else (compromised pod elsewhere in the cluster)
+# gets no path to MariaDB.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: life-db-from-app-only
+  namespace: life
+spec:
+  podSelector:
+    matchLabels:
+      app: life-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: life-app
+      ports:
+        - port: 3306
+---
+# The app is only reachable through the nginx ingress controller (Helm chart
+# in the ingress-nginx namespace — see ../../ingress-nginx/sync.sh), so no
+# other pod can hit the API directly and bypass the ingress' TLS termination.
+# Selected by the namespace's automatic kubernetes.io/metadata.name label
+# rather than chart pod labels, which could change across chart versions.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: life-app-from-ingress-only
+  namespace: life
+spec:
+  podSelector:
+    matchLabels:
+      app: life-app
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8080

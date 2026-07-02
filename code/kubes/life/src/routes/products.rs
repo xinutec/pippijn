@@ -67,18 +67,26 @@ pub async fn set_image(
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let Some(mime) = off::accept_upload_mime(content_type) else {
+    // Friendly rejection for obviously-wrong uploads; the declared mime is
+    // otherwise only advisory — the bytes decide (below).
+    if off::accept_upload_mime(content_type).is_none() {
         return Err(AppError::BadRequest(
-            "Content-Type must be an image/* type".into(),
+            "Content-Type must be a raster image type (jpeg/png/gif/webp/avif)".into(),
         ));
-    };
+    }
     if body.is_empty() {
         return Err(AppError::BadRequest("empty image".into()));
     }
     if body.len() > off::MAX_UPLOAD_BYTES {
         return Err(AppError::BadRequest("image exceeds 5 MiB".into()));
     }
-    repo::set_image(&app.pool, &barcode, &body, &mime).await?;
+    // Store what the bytes actually are, not what the header claims.
+    let Some(mime) = off::sniff_image_mime(&body) else {
+        return Err(AppError::BadRequest(
+            "the uploaded bytes are not a recognized image".into(),
+        ));
+    };
+    repo::set_image(&app.pool, &barcode, &body, mime).await?;
     tracing::info!(%barcode, bytes = body.len(), %mime, "product image replaced");
     Ok(StatusCode::NO_CONTENT)
 }

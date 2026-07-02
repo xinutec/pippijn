@@ -90,3 +90,54 @@ async fn todo_link_crud_and_sync_against_real_db() {
         && l.target_ref == "kitchen"
         && l.kind == LinkKind::Subtask));
 }
+
+/// Two offline devices adding the SAME connection (different ulids) must not
+/// leave two live edges: the push-time twin guard lands the newcomer already
+/// tombstoned, so the list shows one.
+#[tokio::test]
+async fn duplicate_edges_from_two_devices_are_deduped_on_push() {
+    let Ok(url) = std::env::var("LIFE_TEST_DATABASE_URL") else {
+        eprintln!("LIFE_TEST_DATABASE_URL unset — skipping todo_link dedupe test");
+        return;
+    };
+    let pool = db::connect(&url).await.expect("connect");
+    db::migrate(&pool).await.expect("migrate");
+
+    let user = "test-user-todo-link-dupe";
+    sqlx::query("DELETE FROM todo_links WHERE user_id = ?")
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let mk = |ulid: &str| PushEntry {
+        new_document_state: TodoLinkDoc {
+            ulid: ulid.into(),
+            id: None,
+            from: "01TODODUPEAAAAAAAAAAAAAAAA".into(),
+            kind: "depends_on".into(),
+            target_kind: "todo".into(),
+            target_ref: "01TODOTARGETBBBBBBBBBBBBBB".into(),
+            deleted: false,
+            rev: 0,
+        },
+        assumed_master_state: None,
+    };
+
+    // Device A then device B push the semantically identical edge.
+    sync_repo::push_todo_link(&pool, user, vec![mk("01LINKDEVICEA0000000000000")])
+        .await
+        .unwrap();
+    sync_repo::push_todo_link(&pool, user, vec![mk("01LINKDEVICEB0000000000000")])
+        .await
+        .unwrap();
+
+    // Exactly one live edge remains; the later ulid is the tombstoned one.
+    let live = links::list(&pool, user).await.unwrap();
+    assert_eq!(live.len(), 1, "duplicate edge should be tombstoned on push");
+
+    // A boot-time dedupe pass leaves this user's single edge untouched (it runs
+    // table-wide, so don't assert its global count under parallel tests).
+    sync_repo::dedupe_todo_links(&pool).await.unwrap();
+    assert_eq!(links::list(&pool, user).await.unwrap().len(), 1);
+}

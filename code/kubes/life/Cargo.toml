@@ -40,3 +40,8 @@ thiserror = "2"
 ts-rs = { version = "12", features = ["serde-compat", "chrono-impl", "serde-json-impl"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# Router-level tests drive the app via ServiceExt::oneshot (no live socket).
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

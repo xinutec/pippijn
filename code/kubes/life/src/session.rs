@@ -129,3 +129,14 @@ where
         Ok(AuthUser(user))
     }
 }
+
+/// Delete expired session rows. Expiry is otherwise only enforced lazily when
+/// the same cookie is presented again, so abandoned sessions would accumulate
+/// forever. Called at boot + hourly (see main.rs). Sessions are dead auth
+/// artifacts, not user data — the no-purge rule doesn't apply.
+pub async fn sweep_expired(pool: &MySqlPool) -> Result<u64> {
+    let res = sqlx::query("DELETE FROM sessions WHERE expires_at < NOW()")
+        .execute(pool)
+        .await?;
+    Ok(res.rows_affected())
+}

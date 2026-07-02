@@ -77,6 +77,47 @@ fn upload_mime_accepts_only_raster_image_types() {
 }
 
 #[test]
+fn sniff_identifies_raster_types_and_rejects_everything_else() {
+    // Real magic-byte prefixes for each allowlisted type.
+    assert_eq!(
+        off::sniff_image_mime(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0]),
+        Some("image/jpeg")
+    );
+    assert_eq!(
+        off::sniff_image_mime(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0]),
+        Some("image/png")
+    );
+    assert_eq!(off::sniff_image_mime(b"GIF89a..."), Some("image/gif"));
+    assert_eq!(off::sniff_image_mime(b"GIF87a..."), Some("image/gif"));
+    assert_eq!(
+        off::sniff_image_mime(b"RIFF\x10\x00\x00\x00WEBPVP8 "),
+        Some("image/webp")
+    );
+    assert_eq!(
+        off::sniff_image_mime(b"\x00\x00\x00\x20ftypavif...."),
+        Some("image/avif")
+    );
+    assert_eq!(
+        off::sniff_image_mime(b"\x00\x00\x00\x20ftypavis...."),
+        Some("image/avif")
+    );
+
+    // Rejected: SVG (script-capable) and arbitrary bytes under any label —
+    // the sniff is what's stored, so a lying Content-Type buys nothing.
+    assert_eq!(
+        off::sniff_image_mime(b"<svg xmlns='http://www.w3.org/2000/svg'>"),
+        None
+    );
+    assert_eq!(
+        off::sniff_image_mime(b"<!doctype html><script>alert(1)</script>"),
+        None
+    );
+    assert_eq!(off::sniff_image_mime(b""), None);
+    assert_eq!(off::sniff_image_mime(b"RIFF\x10\x00\x00\x00WAVE"), None); // RIFF but not WebP
+    assert_eq!(off::sniff_image_mime(b"\x00\x00\x00\x20ftypmp42...."), None); // BMFF but not AVIF
+}
+
+#[test]
 fn upload_barcode_guard_matches_lookup() {
     // The upload handler reuses the lookup barcode guard: numeric, 1..=14 digits.
     assert!(off::is_valid_barcode("5000112548167"));

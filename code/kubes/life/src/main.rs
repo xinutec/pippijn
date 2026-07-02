@@ -24,6 +24,22 @@ async fn main() -> Result<()> {
     db::migrate(&pool).await?;
     sync::backfill(&pool).await?;
 
+    // Reap abandoned sessions hourly (the first tick fires immediately, so
+    // boot also sweeps). Expiry is otherwise only enforced lazily, when the
+    // same cookie is presented again.
+    let sweep_pool = pool.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            tick.tick().await;
+            match life::session::sweep_expired(&sweep_pool).await {
+                Ok(n) if n > 0 => tracing::info!("swept {n} expired session(s)"),
+                Ok(_) => {}
+                Err(e) => tracing::warn!("session sweep failed: {e:#}"),
+            }
+        }
+    });
+
     // Bound every outbound call (Nextcloud identity/login-flow, Open Food Facts
     // metadata) so a hung upstream can't tie up the pod.
     let http = reqwest::Client::builder()

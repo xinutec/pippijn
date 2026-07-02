@@ -139,6 +139,23 @@ async fn inventory_crud_against_real_db() {
     assert_eq!(updated.name, "Ground cumin");
     assert_eq!(updated.quantity, Some(2.0));
 
+    // LIKE metacharacters in a query are treated literally (escaped), so a
+    // query of "%" matches nothing rather than every item.
+    assert!(
+        repo::search_items(&pool, user, "%")
+            .await
+            .unwrap()
+            .is_empty(),
+        "'%' must be a literal, not a wildcard"
+    );
+    assert_eq!(
+        repo::search_items(&pool, user, "Ground cumin")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
     // Delete the item; gone afterwards.
     assert!(repo::delete_item(&pool, user, item.id).await.unwrap());
     assert!(

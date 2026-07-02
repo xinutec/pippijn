@@ -31,6 +31,11 @@ FROM debian:bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+# The app only reads (binary, bundle, scenes) and never writes to disk, so
+# everything stays root-owned; the process just must not run as root. uid/gid
+# 65532 is the conventional "nonroot" id, matched by k8s/03-app.yaml.
+RUN groupadd --gid 65532 life \
+    && useradd --uid 65532 --gid life --no-create-home --shell /usr/sbin/nologin life
 WORKDIR /app
 COPY --from=backend /app/target/release/life /usr/local/bin/life
 COPY --from=frontend /fe/dist/life-web/browser ./public
@@ -39,4 +44,5 @@ ENV STATIC_DIR=/app/public \
     HOUSE_SCENE=/app/scenes/house.json \
     BIND_ADDR=0.0.0.0:8080
 EXPOSE 8080
+USER life
 CMD ["life"]

@@ -71,6 +71,52 @@ pub fn accept_upload_mime(content_type: &str) -> Option<String> {
     ALLOWED_IMAGE_MIMES.contains(&mime.as_str()).then_some(mime)
 }
 
+/// Identify the actual image type from its magic bytes — the declared
+/// Content-Type is caller-supplied and can lie. The sniffed type (a member of
+/// the raster allowlist by construction) is what gets STORED and served back,
+/// so mislabelled bytes can't ride in under an innocent-looking mime. `None` =
+/// not one of ours; reject.
+pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    match bytes {
+        [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
+        [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, ..] => Some("image/png"),
+        [b'G', b'I', b'F', b'8', b'7' | b'9', b'a', ..] => Some("image/gif"),
+        // RIFF container: "RIFF" <size> "WEBP".
+        [
+            b'R',
+            b'I',
+            b'F',
+            b'F',
+            _,
+            _,
+            _,
+            _,
+            b'W',
+            b'E',
+            b'B',
+            b'P',
+            ..,
+        ] => Some("image/webp"),
+        // ISO-BMFF: <size> "ftyp" <brand>; avif/avis are the AVIF brands.
+        [
+            _,
+            _,
+            _,
+            _,
+            b'f',
+            b't',
+            b'y',
+            b'p',
+            b'a',
+            b'v',
+            b'i',
+            b'f' | b's',
+            ..,
+        ] => Some("image/avif"),
+        _ => None,
+    }
+}
+
 /// Look up a barcode. `Ok(None)` = OFF has no such product.
 pub async fn fetch(http: &reqwest::Client, barcode: &str) -> Result<Option<OffProduct>> {
     if !is_valid_barcode(barcode) {
@@ -168,5 +214,11 @@ pub async fn fetch_image(url: &str) -> Result<Option<(Vec<u8>, String)>> {
         }
         bytes.extend_from_slice(&chunk);
     }
-    Ok(Some((bytes, mime)))
+    // The bytes, not the header, decide what we store: sniff the magic bytes
+    // and refuse anything that isn't genuinely one of our raster types.
+    let Some(sniffed) = sniff_image_mime(&bytes) else {
+        tracing::warn!(%url, %mime, "refusing product image: bytes are not a known raster type");
+        return Ok(None);
+    };
+    Ok(Some((bytes, sniffed.to_string())))
 }

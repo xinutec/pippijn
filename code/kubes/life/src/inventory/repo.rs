@@ -150,11 +150,20 @@ pub async fn list_items(pool: &MySqlPool, user_id: &str) -> Result<Vec<Item>> {
 }
 
 pub async fn search_items(pool: &MySqlPool, user_id: &str, query: &str) -> Result<Vec<Item>> {
-    let pattern = format!("%{query}%");
+    // Escape LIKE metacharacters so a query of "50%" means the literal text,
+    // not "starts with 50". `\` is the escape char (declared via ESCAPE below).
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let pattern = format!("%{escaped}%");
     let rows: Vec<ItemRow> = sqlx::query_as(concat!(
         item_select!(),
+        // Four backslashes in Rust → two on the wire → MariaDB parses the string
+        // literal '\\' as a single backslash escape char (a lone '\' would read
+        // as an escaped quote and break the statement).
         " WHERE i.user_id = ? AND i.deleted_at IS NULL \
-         AND COALESCE(p.name, i.name, '') LIKE ? ORDER BY name"
+         AND COALESCE(p.name, i.name, '') LIKE ? ESCAPE '\\\\' ORDER BY name"
     ))
     .bind(user_id)
     .bind(pattern)

@@ -46,11 +46,19 @@ fn env_or(key: &str, default: &str) -> String {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
+        let nc_base_url = env("NC_BASE_URL")?.trim_end_matches('/').to_string();
+        // Fail fast at boot rather than panicking inside the /login handler at
+        // request time: identity::authorize_url parses this as a base URL.
+        let parsed = url::Url::parse(&nc_base_url)
+            .with_context(|| format!("NC_BASE_URL is not a valid URL: {nc_base_url:?}"))?;
+        if !matches!(parsed.scheme(), "http" | "https") || parsed.host().is_none() {
+            anyhow::bail!("NC_BASE_URL must be an http(s) URL with a host: {nc_base_url:?}");
+        }
         Ok(Self {
             database_url: env("DATABASE_URL")?,
             session_secret: env("SESSION_SECRET")?,
             bind_addr: env_or("BIND_ADDR", "0.0.0.0:8080"),
-            nc_base_url: env("NC_BASE_URL")?.trim_end_matches('/').to_string(),
+            nc_base_url,
             nc_client_id: env("NC_CLIENT_ID")?,
             nc_client_secret: env("NC_CLIENT_SECRET")?,
             nc_redirect_uri: env("NC_REDIRECT_URI")?,
