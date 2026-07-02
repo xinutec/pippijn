@@ -392,20 +392,31 @@ export function apiRoutes(config: ApiRoutesConfig): Hono<AppEnv> {
 			// pod restart clears the cache so logic changes go live
 			// on the first request after deploy.
 			const cacheKey = `${uid}|${date}|${tz ?? ""}|wm${walkMatch ? 1 : 0}`;
-			const result = await getVelocityCached(cacheKey, () => computeVelocity(config, uid, date, tz, { walkMatch }));
+			const result = await getVelocityCached(cacheKey, async () => {
+				const r = await computeVelocity(config, uid, date, tz, { walkMatch });
+				// Watch-battery series for the same day, plotted alongside the phone
+				// battery. Loaded here (not in computeVelocity) so it stays out of the
+				// golden/velocity path; a DB hiccup degrades to no watch series. Cached
+				// with the result — a cache-hit request costs zero DB round-trips, at
+				// worst TTL-stale (5 min) on a display-only chart.
+				const bounds = dateBoundsUtc(date, tz);
+				const watchBattery = await loadWatchBattery(uid, tz ?? "UTC", bounds.startUtc, bounds.endUtc).catch((e) => {
+					console.error(`watch battery load failed for user=${uid} date=${date}:`, e);
+					return [];
+				});
+				return { ...r, watchBattery };
+			});
 			// Never assert the future: clip inferred continuations (dwell-prior,
 			// empty-day) to the current moment. Cache holds the full
 			// deterministic result; the clip is per-request so "now" advances.
 			const states = clipInferredFuture(result.states, Math.floor(Date.now() / 1000));
-			// Watch-battery series for the same day, plotted alongside the phone
-			// battery. Loaded here (not in computeVelocity) so it stays out of the
-			// golden/velocity path; a DB hiccup degrades to no watch series.
-			const bounds = dateBoundsUtc(date, tz);
-			const watchBattery = await loadWatchBattery(uid, tz ?? "UTC", bounds.startUtc, bounds.endUtc).catch((e) => {
-				console.error(`watch battery load failed for user=${uid} date=${date}:`, e);
-				return [];
-			});
-			return c.json({ ...result, states, watchBattery });
+			// Drawn geometry ships once, in `episodes`. The segment-level path
+			// arrays (rail snap, road match, walk match) are pipeline
+			// intermediates episode-geometry already consumed server-side — no
+			// frontend code reads them, and on a data-rich day they duplicate
+			// every polyline in the response (its dominant weight).
+			const segments = result.segments.map(({ snappedPath, matchedPath, walkMatchedPath, ...rest }) => rest);
+			return c.json({ ...result, segments, states });
 		} catch (e) {
 			// Graceful degradation: unlinked → empty timeline (200).
 			// Reauth required → 409 with structured error so the SPA

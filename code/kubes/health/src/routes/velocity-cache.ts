@@ -50,15 +50,18 @@ const MAX_ENTRIES = 32;
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<VelocityResult>>();
 
-/** Get a velocity result from the cache, or compute and cache it. */
-export async function getVelocityCached(key: string, compute: () => Promise<VelocityResult>): Promise<VelocityResult> {
+/** Get a velocity result from the cache, or compute and cache it. Generic so
+ *  the route can cache the result with request-scoped extras attached (the
+ *  watch-battery series) without widening `VelocityResult` itself; one key
+ *  always stores what its own `compute` returned. */
+export async function getVelocityCached<T extends VelocityResult>(key: string, compute: () => Promise<T>): Promise<T> {
 	const entry = cache.get(key);
 	if (entry && Date.now() - entry.cachedAtMs < TTL_MS) {
 		// LRU bump: delete + re-insert so this key is now most-recent.
 		cache.delete(key);
 		cache.set(key, entry);
 		console.log(`velocity-cache HIT ${key} age=${Math.round((Date.now() - entry.cachedAtMs) / 1000)}s`);
-		return entry.result;
+		return entry.result as T;
 	}
 
 	// In-flight dedup: if another request for the same key is already
@@ -66,7 +69,7 @@ export async function getVelocityCached(key: string, compute: () => Promise<Velo
 	const pending = inFlight.get(key);
 	if (pending) {
 		console.log(`velocity-cache JOIN ${key}`);
-		return pending;
+		return pending as Promise<T>;
 	}
 
 	console.log(`velocity-cache MISS ${key}`);

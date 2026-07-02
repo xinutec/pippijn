@@ -83,12 +83,9 @@ export interface TrackSegment {
    *  experienced them" — morning in one tz, evening in another
    *  on a travel day. */
   displayTz?: string;
-  /** Derived geometry: this train segment drawn on the OSM rail track
-   *  — the journey snapped onto the rail network between its boarding
-   *  and alighting stations. Present only for train runs that snapped;
-   *  the map renders it as a distinct dashed (inferred) layer in place
-   *  of the raw GPS zigzag. */
-  snappedPath?: { ts: number; lat: number; lon: number }[];
+  // The segment-level path arrays (snappedPath/matchedPath/walkMatchedPath)
+  // are pipeline intermediates; the API strips them — drawn geometry arrives
+  // once, in `episodes`.
 }
 
 export interface DayState {
