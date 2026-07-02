@@ -23,6 +23,9 @@ export interface WalkPanel {
 	matched: LatLon[];
 	/** The smoothed (walk-match-off) line, for reference. */
 	smoothed: LatLon[];
+	/** The MAP-refined line (matched, de-boxed) — the Phase-1 candidate. Optional
+	 *  so older callers still render. */
+	refined?: LatLon[];
 	/** Triage metric (corridor stall, m) shown in the panel header. */
 	stallM: number;
 }
@@ -65,7 +68,7 @@ const polyline = (
 };
 
 function renderPanel(panel: WalkPanel): string {
-	const all = [...panel.raw, ...panel.matched, ...panel.smoothed];
+	const all = [...panel.raw, ...panel.matched, ...panel.smoothed, ...(panel.refined ?? [])];
 	if (all.length === 0) return "";
 	const proj = makeProjector(all);
 	const dots = panel.raw.map((p) => {
@@ -75,10 +78,11 @@ function renderPanel(panel: WalkPanel): string {
 	const flag = panel.stallM >= 80 ? "#ef4444" : panel.stallM >= 40 ? "#f59e0b" : "#94a3b8";
 	return [
 		`<rect x="1" y="1" width="${PANEL - 2}" height="${PANEL - 2}" fill="#0b0f17" stroke="#1e293b"/>`,
-		// smoothed (reference), raw track, matched line, raw dots on top
+		// smoothed (reference), raw track, matched line (blue), refined (green), raw dots on top
 		polyline(panel.smoothed, proj, "#475569", 1, "3 3"),
 		polyline(panel.raw, proj, "#f59e0b", 1),
 		polyline(panel.matched, proj, "#3b82f6", 2.2),
+		polyline(panel.refined ?? [], proj, "#22c55e", 2.2),
 		dots.join(""),
 		`<text x="8" y="16" font-family="sans-serif" font-size="11" fill="#e2e8f0">${panel.label}</text>`,
 		`<text x="${PANEL - 8}" y="16" text-anchor="end" font-family="sans-serif" font-size="11" fill="${flag}">stall ${panel.stallM.toFixed(0)}m</text>`,
@@ -98,7 +102,7 @@ export function renderWalkGrid(panels: readonly WalkPanel[]): string {
 	});
 	const legend =
 		'<text x="8" y="24" font-family="sans-serif" font-size="14" fill="#e2e8f0">' +
-		'Walk match diff — <tspan fill="#f59e0b">raw GPS</tspan> vs <tspan fill="#3b82f6">matched</tspan> ' +
-		'(<tspan fill="#475569">smoothed</tspan>); worst corridor-stall first</text>';
+		'Walk match diff — <tspan fill="#f59e0b">raw GPS</tspan> vs <tspan fill="#3b82f6">matched (current)</tspan> ' +
+		'vs <tspan fill="#22c55e">refined (new)</tspan>; worst corridor-stall first</text>';
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#020617"/>${legend}${cells.join("")}</svg>`;
 }

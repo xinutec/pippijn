@@ -16,6 +16,7 @@ import { maxCorridorStall, renderWalkGrid, type WalkPanel } from "../eval/walk-r
 import type { LatLon } from "../eval/walk-score.js";
 import { FixtureOsmAdapter } from "../geo/osm-adapter-fixture.js";
 import { computeVelocityFromInputs } from "../geo/velocity.js";
+import { countSharpTurns, refineMatchedPath, type WalkFix } from "../geo/walk-smooth-map.js";
 import { inputsFromFixture, parseCapturedDay } from "./fixture-day.js";
 
 const ll = (p: { lat: number; lon: number }): LatLon => ({ lat: p.lat, lon: p.lon });
@@ -42,7 +43,21 @@ async function panelsForDay(date: string, user: string): Promise<WalkPanel[]> {
 		if (raw.length < 3) continue;
 		const matched = e.points.map(ll);
 		const smoothed = (off.episodes[i]?.points ?? []).map(ll);
-		panels.push({ label: `${date} ${hhmm(t0)}`, raw, matched, smoothed, stallM: maxCorridorStall(raw, matched) });
+		// The Phase-1 refinement, gated: only shown when it actually de-boxes.
+		const rawWalk: WalkFix[] = on.rawFixes
+			.filter((f) => f.ts >= t0 && f.ts <= t1)
+			.map((f) => ({ lat: f.lat, lon: f.lon, ts: f.ts, accuracyM: f.accuracy ?? undefined }));
+		const refinedRaw = refineMatchedPath(rawWalk, matched);
+		const refined =
+			refinedRaw && countSharpTurns(refinedRaw.map(ll)) < countSharpTurns(matched) ? refinedRaw.map(ll) : undefined;
+		panels.push({
+			label: `${date} ${hhmm(t0)}`,
+			raw,
+			matched,
+			smoothed,
+			refined,
+			stallM: maxCorridorStall(raw, matched),
+		});
 	}
 	return panels;
 }

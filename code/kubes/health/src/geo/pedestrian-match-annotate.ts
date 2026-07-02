@@ -24,6 +24,7 @@ import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import { matchWalkSegment } from "./pedestrian-match.js";
 import { effectiveMode } from "./segment-util.js";
+import { countSharpTurns, refineMatchedPath, type WalkFix } from "./walk-smooth-map.js";
 
 /** A raw GPS fix as drawn — the same set the raw renderer uses. */
 interface PedFix {
@@ -137,7 +138,27 @@ export async function annotateWalkMatches(
 				`[walk-match] ${t(seg.startTs)}-${t(seg.endTs)} use=${decision.use} rawOff=${decision.rawOffRoadM.toFixed(0)} matchedOff=${decision.matchedOffRoadM.toFixed(0)} stray=${decision.strayM.toFixed(0)} (needs>${WALK_NEEDS_MATCH_M}, stray≤${WALK_MATCH_MAX_STRAY_M})`,
 			);
 		}
-		out.push(decision.use ? { ...seg, walkMatchedPath: result.path } : seg);
+		if (!decision.use) {
+			out.push(seg);
+			continue;
+		}
+		// De-box the matched line: round its boxy ~90° graph corners toward the raw
+		// GPS with the continuous MAP refinement, keeping the vetted matched line as
+		// the single corridor (so it can't stray off-route; the clamp bounds it).
+		// Applied only when it actually reduces sharp turns — else the matched line
+		// is already smooth and is kept as-is. `WALK_REFINE_DISABLE=1` opts out.
+		let drawn = result.path;
+		if (process.env.WALK_REFINE_DISABLE !== "1") {
+			const walkFixes: WalkFix[] = clean.map((p) => ({
+				lat: p.lat,
+				lon: p.lon,
+				ts: p.ts,
+				accuracyM: p.accuracy ?? undefined,
+			}));
+			const refined = refineMatchedPath(walkFixes, result.path);
+			if (refined && countSharpTurns(refined) < countSharpTurns(result.path)) drawn = refined;
+		}
+		out.push({ ...seg, walkMatchedPath: drawn });
 	}
 	return out;
 }
