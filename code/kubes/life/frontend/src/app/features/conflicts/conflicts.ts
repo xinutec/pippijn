@@ -1,0 +1,110 @@
+import { Component, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
+import { MatButtonModule } from '@angular/material/button';
+import { MatIconModule } from '@angular/material/icon';
+import { MatListModule } from '@angular/material/list';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatSnackBar } from '@angular/material/snack-bar';
+
+import { LifeApi } from '../../life-api';
+import { ConflictEntry } from '../../models';
+import { SHOPPING_MERGE_FIELDS, ShoppingStore } from '../../sync/shopping-store';
+import { TODO_MERGE_FIELDS, TodoStore } from '../../sync/todo-store';
+
+const SHOPPING_PATCHABLE: ReadonlySet<string> = new Set(SHOPPING_MERGE_FIELDS);
+const TODO_PATCHABLE: ReadonlySet<string> = new Set(TODO_MERGE_FIELDS);
+
+/** Sync conflicts: both devices edited the same field while apart. The merge
+ *  already kept one version (the device that pushed); this screen shows the
+ *  losing value so nothing is silently discarded — keep what was chosen, or
+ *  switch to the other value. */
+@Component({
+  selector: 'app-conflicts',
+  templateUrl: './conflicts.html',
+  styleUrl: './conflicts.scss',
+  imports: [DatePipe, MatButtonModule, MatIconModule, MatListModule, MatProgressBarModule],
+})
+export class Conflicts {
+  private api = inject(LifeApi);
+  private snack = inject(MatSnackBar);
+  private shopping = inject(ShoppingStore);
+  private todo = inject(TodoStore);
+
+  readonly entries = signal<ConflictEntry[]>([]);
+  /** Distinguish "still loading" from "no conflicts" — no false empty flash. */
+  readonly loaded = signal(false);
+  readonly busy = signal<ReadonlySet<number>>(new Set());
+
+  constructor() {
+    this.api.conflicts().subscribe({
+      next: (entries) => {
+        this.entries.set(entries);
+        this.loaded.set(true);
+      },
+      error: () => {
+        this.loaded.set(true);
+        this.snack.open('Could not load conflicts — are you online?', 'OK', { duration: 4000 });
+      },
+    });
+  }
+
+  /** JSON-encoded value → short human text. */
+  fmt(encoded: string): string {
+    try {
+      const v: unknown = JSON.parse(encoded);
+      if (v === null || v === '') return '(empty)';
+      if (typeof v === 'boolean') return v ? 'yes' : 'no';
+      if (typeof v === 'string' || typeof v === 'number') return `${v}`;
+      return encoded; // conflict values are scalars; anything else shows raw
+    } catch {
+      return encoded;
+    }
+  }
+
+  /** Keep the value the merge already chose — just clears the log entry. */
+  keepMine(e: ConflictEntry): void {
+    this.finish(e, undefined);
+  }
+
+  /** Apply the other device's value to the live row, then clear the entry. */
+  useTheirs(e: ConflictEntry): void {
+    const value: unknown = JSON.parse(e.theirs);
+    // The field name comes from our own merge report, but validate against the
+    // store's patchable-field allowlist before writing it back.
+    let apply: Promise<void> | undefined;
+    if (e.kind === 'shopping' && SHOPPING_PATCHABLE.has(e.field)) {
+      apply = this.shopping.patch(e.ulid, { [e.field]: value });
+    } else if (e.kind === 'todo' && TODO_PATCHABLE.has(e.field)) {
+      apply = this.todo.patch(e.ulid, { [e.field]: value });
+    }
+    if (!apply) {
+      this.snack.open('This conflict can no longer be applied.', 'OK', { duration: 4000 });
+      return;
+    }
+    this.finish(e, apply);
+  }
+
+  private finish(e: ConflictEntry, apply: Promise<void> | undefined): void {
+    this.busy.update((s) => new Set(s).add(e.id));
+    void (apply ?? Promise.resolve()).then(() => {
+      this.api.resolveConflict(e.id).subscribe({
+        next: () => {
+          this.busy.update((s) => {
+            const next = new Set(s);
+            next.delete(e.id);
+            return next;
+          });
+          this.entries.update((list) => list.filter((x) => x.id !== e.id));
+        },
+        error: () => {
+          this.busy.update((s) => {
+            const next = new Set(s);
+            next.delete(e.id);
+            return next;
+          });
+          this.snack.open('Could not resolve — are you online?', 'OK', { duration: 4000 });
+        },
+      });
+    });
+  }
+}

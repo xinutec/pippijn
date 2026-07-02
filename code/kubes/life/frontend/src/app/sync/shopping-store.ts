@@ -2,9 +2,10 @@ import { Injectable, inject, signal } from '@angular/core';
 import { Observable, from } from 'rxjs';
 import { map, shareReplay, switchMap } from 'rxjs/operators';
 import { ulid } from 'ulid';
-import { type RxCollection, type RxConflictHandler, type RxJsonSchema } from 'rxdb';
+import { type RxCollection, type RxJsonSchema } from 'rxdb';
 import { replicateRxCollection } from 'rxdb/plugins/replication';
 
+import { ConflictReporter, makeConflictHandler } from './conflict-merge';
 import { LifeDb } from './life-db';
 
 /** A shopping row as stored locally. `ulid` is the stable identity; `rev` is the
@@ -41,15 +42,9 @@ const schema: RxJsonSchema<ShoppingDoc> = {
   required: ['ulid', 'name', 'done', 'rev'],
 };
 
-// Single user: a conflict means the same row was edited on two devices while one
-// was offline. Policy: a delete is *sticky* (a tombstone is never resurrected by a
-// later edit); otherwise the local change — the user's latest intent — wins and is
-// re-pushed. (See docs/proposals/offline-first.md, review K4/S9.)
-export const conflictHandler: RxConflictHandler<ShoppingDoc> = {
-  isEqual: (a, b) => a.rev === b.rev && !!a._deleted === !!b._deleted,
-  resolve: ({ realMasterState, newDocumentState }) =>
-    Promise.resolve(realMasterState._deleted ? realMasterState : newDocumentState),
-};
+/** The content fields the 3-way merge diffs (see [[makeConflictHandler]]) —
+ *  also the allowlist the Conflicts screen may patch on "use other". */
+export const SHOPPING_MERGE_FIELDS = ['name', 'quantity', 'unit', 'barcode', 'done'] as const;
 
 /** Local-first store for the shopping list: the on-device RxDB collection is the
  *  source of truth; replication reconciles with /api/sync/shopping in the
@@ -60,6 +55,7 @@ export class ShoppingStore {
   readonly syncError = signal<string | null>(null);
 
   private lifeDb = inject(LifeDb);
+  private reporter = inject(ConflictReporter);
   private readonly collection = this.init();
   private replication?: ReturnType<typeof replicateRxCollection<ShoppingDoc, { rev: number }>>;
 
@@ -90,8 +86,15 @@ export class ShoppingStore {
   }
 
   async setDone(key: string, done: boolean): Promise<void> {
+    await this.patch(key, { done });
+  }
+
+  async patch(
+    key: string,
+    fields: Partial<Pick<ShoppingDoc, (typeof SHOPPING_MERGE_FIELDS)[number]>>,
+  ): Promise<void> {
     const doc = await this.find(key);
-    await doc?.incrementalPatch({ done });
+    await doc?.incrementalPatch(fields);
   }
 
   async remove(key: string): Promise<void> {
@@ -125,7 +128,15 @@ export class ShoppingStore {
   }
 
   private async init(): Promise<ShoppingCollection> {
-    const col = await this.lifeDb.collection('shopping', schema, conflictHandler);
+    // Field-level 3-way merge: concurrent edits to different fields both
+    // survive; same-field collisions keep this device's value and land in the
+    // server-side conflict log for review.
+    const handler = makeConflictHandler<ShoppingDoc>({
+      fields: SHOPPING_MERGE_FIELDS,
+      onConflicts: (kept, conflicts) =>
+        this.reporter.report('shopping', kept.ulid, kept.name, conflicts),
+    });
+    const col = await this.lifeDb.collection('shopping', schema, handler);
     this.startReplication(col);
     return col;
   }

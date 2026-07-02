@@ -2,6 +2,8 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
+  ConflictEntry,
+  ConflictKind,
   HouseScene,
   Item,
   Loc,
@@ -94,6 +96,26 @@ export class LifeApi {
     return this.http.put<void>(`/api/products/${encodeURIComponent(barcode)}/image`, blob, {
       headers: { 'Content-Type': blob.type },
     });
+  }
+
+  /** Unresolved same-field sync conflicts, newest first. */
+  conflicts(): Observable<ConflictEntry[]> {
+    return this.http.get<ConflictEntry[]>('/api/conflicts');
+  }
+  /** Record a client-detected same-field conflict (values JSON-encoded). */
+  reportConflict(body: {
+    kind: ConflictKind;
+    ulid: string;
+    field: string;
+    label: string;
+    mine: string;
+    theirs: string;
+  }): Observable<void> {
+    return this.http.post<void>('/api/conflicts', body);
+  }
+  /** Mark a conflict handled — keep-mine and use-other both end here. */
+  resolveConflict(id: number): Observable<void> {
+    return this.http.post<void>(`/api/conflicts/${id}/resolve`, {});
   }
 
   /** Everything deleted (all kinds), newest first. Nothing is ever purged. */

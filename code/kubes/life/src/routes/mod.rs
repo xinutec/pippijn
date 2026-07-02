@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod conflicts;
 pub mod inventory;
 pub mod products;
 pub mod recipes;
@@ -68,6 +69,8 @@ pub fn router(state: AppState) -> Router {
             "/sync/todo-link",
             get(sync::pull_todo_link).post(sync::push_todo_link),
         )
+        .route("/conflicts", get(conflicts::list).post(conflicts::create))
+        .route("/conflicts/{id}/resolve", post(conflicts::resolve))
         .route("/trash", get(trash::list))
         .route("/trash/{kind}/{ref}/restore", post(trash::restore))
         .route("/products/{barcode}", get(products::lookup))

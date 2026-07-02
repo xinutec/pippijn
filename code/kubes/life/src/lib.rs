@@ -2,6 +2,7 @@
 //! live in `tests/` and exercise this public surface.
 
 pub mod config;
+pub mod conflicts;
 pub mod db;
 pub mod error;
 pub mod inventory;

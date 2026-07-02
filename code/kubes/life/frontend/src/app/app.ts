@@ -51,6 +51,7 @@ export class App {
     { path: '/house', icon: 'home', label: 'House' },
     { path: '/items', icon: 'inventory_2', label: 'All items' },
     { path: '/trash', icon: 'restore_from_trash', label: 'Recently deleted' },
+    { path: '/conflicts', icon: 'compare_arrows', label: 'Sync conflicts' },
     { path: '/settings', icon: 'settings', label: 'Settings' },
   ];
 

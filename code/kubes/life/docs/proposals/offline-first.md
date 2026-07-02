@@ -130,6 +130,13 @@ earlier" — resolved correctly by **last-write-wins on a logical timestamp**.
 Per-record LWW (not per-field) keeps it simple; the few fields where a merge would
 be nicer (e.g. a free-text note) are not worth CRDT machinery for one user.
 
+> **Superseded 2026-07-02:** shipped conflict handling is a **field-level 3-way
+> merge** (`frontend/src/app/sync/conflict-merge.ts`): base = the client's
+> assumed master, so non-overlapping field edits from two devices both survive;
+> a same-field collision keeps the pushing device's value and reports the loser
+> to the server-side conflict log (`/api/conflicts`, Conflicts screen —
+> keep-mine / use-other). Still no CRDTs.
+
 ---
 
 ## 5. Data model changes (MariaDB)
@@ -327,9 +334,11 @@ Still to decide / watch:
   tombstone-retention window misses a delete and re-creates the row. Set retention
   generously **and** force a full re-sync when a checkpoint is older than the purge
   horizon.
-- **Delete-vs-update LWW rule (Review K4).** Edit on desktop (higher rev) after
-  delete on phone resurrects the row under pure rev-LWW. Decide: delete is sticky,
-  or rev wins — and encode it in the conflict handler.
+- **Delete-vs-update LWW rule (Review K4).** RESOLVED 2026-07-02: tombstones are
+  **set-only on the server** (a push can never clear `deleted_at`), the conflict
+  handler lets a master tombstone stand, and the one deliberate undelete path is
+  the trash restore (`/api/trash/{kind}/{ref}/restore`), which bumps `rev` so the
+  resurrection propagates.
 - **Compound / derived ops (Review S5).** `buy` (create item + delete shopping row),
   `cookable`, `recipes/:id/shopping-list`, `search` are server computations today.
   Local-first reimplements them as local queries; `buy` becomes two cross-collection

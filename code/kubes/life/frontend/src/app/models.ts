@@ -22,6 +22,8 @@ export type { TodoPriority } from './generated/TodoPriority';
 export type { TodoLink } from './generated/TodoLink';
 export type { LinkKind } from './generated/LinkKind';
 export type { TargetKind } from './generated/TargetKind';
+export type { ConflictEntry } from './generated/ConflictEntry';
+export type { ConflictKind } from './generated/ConflictKind';
 export type { TrashEntry } from './generated/TrashEntry';
 export type { TrashKind } from './generated/TrashKind';
 

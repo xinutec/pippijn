@@ -2,10 +2,11 @@ import { Injectable, inject, signal } from '@angular/core';
 import { Observable, from } from 'rxjs';
 import { map, shareReplay, switchMap } from 'rxjs/operators';
 import { ulid } from 'ulid';
-import { type RxCollection, type RxConflictHandler, type RxJsonSchema } from 'rxdb';
+import { type RxCollection, type RxJsonSchema } from 'rxdb';
 import { replicateRxCollection } from 'rxdb/plugins/replication';
 
 import { TodoPriority, TodoStatus, TodoType } from '../models';
+import { ConflictReporter, makeConflictHandler } from './conflict-merge';
 import { LifeDb } from './life-db';
 
 /** A to-do row as stored locally. `ulid` is the stable identity; `rev` is the
@@ -48,14 +49,9 @@ const schema: RxJsonSchema<TodoDoc> = {
   required: ['ulid', 'title', 'type', 'status', 'rev'],
 };
 
-// Single user: a conflict means the same to-do was edited on two devices while
-// one was offline. Policy mirrors shopping — a delete is sticky (a tombstone is
-// never resurrected); otherwise the local change (latest intent) wins.
-export const conflictHandler: RxConflictHandler<TodoDoc> = {
-  isEqual: (a, b) => a.rev === b.rev && !!a._deleted === !!b._deleted,
-  resolve: ({ realMasterState, newDocumentState }) =>
-    Promise.resolve(realMasterState._deleted ? realMasterState : newDocumentState),
-};
+/** The content fields the 3-way merge diffs (see [[makeConflictHandler]]) —
+ *  also the allowlist the Conflicts screen may patch on "use other". */
+export const TODO_MERGE_FIELDS = ['title', 'type', 'status', 'priority', 'notes'] as const;
 
 /** Local-first store for the to-do list: the on-device RxDB collection is the
  *  source of truth; replication reconciles with /api/sync/todo in the background.
@@ -66,6 +62,7 @@ export class TodoStore {
   readonly syncError = signal<string | null>(null);
 
   private lifeDb = inject(LifeDb);
+  private reporter = inject(ConflictReporter);
   private readonly collection = this.init();
   private replication?: ReturnType<typeof replicateRxCollection<TodoDoc, { rev: number }>>;
 
@@ -132,7 +129,15 @@ export class TodoStore {
   }
 
   private async init(): Promise<TodoCollection> {
-    const col = await this.lifeDb.collection('todo', schema, conflictHandler, {
+    // Field-level 3-way merge: concurrent edits to different fields both
+    // survive; same-field collisions keep this device's value and land in the
+    // server-side conflict log for review.
+    const handler = makeConflictHandler<TodoDoc>({
+      fields: TODO_MERGE_FIELDS,
+      onConflicts: (kept, conflicts) =>
+        this.reporter.report('todo', kept.ulid, kept.title, conflicts),
+    });
+    const col = await this.lifeDb.collection('todo', schema, handler, {
       1: (doc: Record<string, unknown>) => doc, // enum widened; existing docs already valid
       2: (doc: Record<string, unknown>) => ({ ...doc, priority: doc['priority'] ?? null }), // add priority field
     });

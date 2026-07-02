@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 
+import { Conflicts } from './features/conflicts/conflicts';
 import { House } from './features/house/house';
 import { Inventory } from './features/inventory/inventory';
 import { Items } from './features/items/items';
@@ -20,6 +21,7 @@ export const routes: Routes = [
   { path: 'items', title: 'Life · all items', component: Items },
   { path: 'todo', title: 'Life · to-do', component: Todo },
   { path: 'trash', title: 'Life · recently deleted', component: Trash },
+  { path: 'conflicts', title: 'Life · sync conflicts', component: Conflicts },
   { path: 'settings', title: 'Life · settings', component: Settings },
   { path: '**', redirectTo: 'search' },
 ];
