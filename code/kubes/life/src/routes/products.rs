@@ -92,9 +92,18 @@ pub async fn image(
     let (bytes, mime) = repo::get_image(&app.pool, &barcode)
         .await?
         .ok_or(AppError::NotFound)?;
+    // Defense in depth for stored bytes served on our own origin: never let the
+    // browser sniff them into something active, and sandbox the document if the
+    // URL is opened directly (uploads are MIME-allowlisted, but old rows and
+    // future regressions shouldn't become XSS).
     Response::builder()
         .header(header::CONTENT_TYPE, mime)
         .header(header::CACHE_CONTROL, "private, max-age=86400")
+        .header("X-Content-Type-Options", "nosniff")
+        .header(
+            header::CONTENT_SECURITY_POLICY,
+            "default-src 'none'; sandbox",
+        )
         .body(Body::from(bytes))
         .map_err(|e| AppError::Other(e.into()))
 }

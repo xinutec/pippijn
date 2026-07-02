@@ -42,17 +42,25 @@ pub fn is_valid_barcode(barcode: &str) -> bool {
     !barcode.is_empty() && barcode.len() <= 14 && barcode.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// The image column caps `image_mime` at 64 chars.
-pub const MAX_MIME_LEN: usize = 64;
-
 /// Same size cap as the OFF proxy, reused for user uploads. Public so the upload
 /// handler and its tests share one number.
 pub const MAX_UPLOAD_BYTES: usize = MAX_IMAGE_BYTES;
 
-/// Validate a user-uploaded image's `Content-Type`. Returns the normalized mime
-/// (parameters like `; charset=…` stripped, lowercased) only if it names an
-/// image type — mirrors the `image/*` check the OFF proxy applies to fetched
-/// bytes, so hand-uploaded and crowd-sourced images share the same rule.
+/// Raster types we store and serve. Deliberately NOT `image/svg+xml`: SVG can
+/// carry script, and stored images are served back on our own origin — an SVG
+/// upload would be stored XSS for anyone opening the image URL directly.
+const ALLOWED_IMAGE_MIMES: [&str; 5] = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/avif",
+];
+
+/// Validate an image `Content-Type` against the raster allowlist. Returns the
+/// normalized mime (parameters like `; charset=…` stripped, lowercased). Applied
+/// to user uploads and to images fetched from OFF alike, so hand-uploaded and
+/// crowd-sourced images share one rule.
 pub fn accept_upload_mime(content_type: &str) -> Option<String> {
     let mime = content_type
         .split(';')
@@ -60,12 +68,7 @@ pub fn accept_upload_mime(content_type: &str) -> Option<String> {
         .unwrap_or("")
         .trim()
         .to_ascii_lowercase();
-    // Require a subtype after "image/" and keep it inside the column width.
-    if mime.starts_with("image/") && mime.len() > "image/".len() && mime.len() <= MAX_MIME_LEN {
-        Some(mime)
-    } else {
-        None
-    }
+    ALLOWED_IMAGE_MIMES.contains(&mime.as_str()).then_some(mime)
 }
 
 /// Look up a barcode. `Ok(None)` = OFF has no such product.
@@ -140,16 +143,15 @@ pub async fn fetch_image(url: &str) -> Result<Option<(Vec<u8>, String)>> {
     if !res.status().is_success() {
         return Ok(None);
     }
-    let mime = res
+    let declared = res
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("image/jpeg")
-        .to_string();
-    if !mime.starts_with("image/") {
-        tracing::warn!(%url, %mime, "refusing product image: response is not an image");
+        .unwrap_or("image/jpeg");
+    let Some(mime) = accept_upload_mime(declared) else {
+        tracing::warn!(%url, %declared, "refusing product image: not an allowed image type");
         return Ok(None);
-    }
+    };
     if res
         .content_length()
         .is_some_and(|n| n > MAX_IMAGE_BYTES as u64)

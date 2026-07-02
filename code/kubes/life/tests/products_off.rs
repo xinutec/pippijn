@@ -30,8 +30,8 @@ async fn image_proxy_refuses_non_off_and_non_https_urls() {
 }
 
 #[test]
-fn upload_mime_accepts_only_image_types() {
-    // Accepted: any image/* subtype, with parameters and casing normalized away.
+fn upload_mime_accepts_only_raster_image_types() {
+    // Accepted: the raster allowlist, with parameters and casing normalized away.
     assert_eq!(
         off::accept_upload_mime("image/jpeg").as_deref(),
         Some("image/jpeg")
@@ -45,6 +45,10 @@ fn upload_mime_accepts_only_image_types() {
         Some("image/webp")
     );
     assert_eq!(
+        off::accept_upload_mime("image/avif").as_deref(),
+        Some("image/avif")
+    );
+    assert_eq!(
         off::accept_upload_mime("IMAGE/JPEG; charset=binary").as_deref(),
         Some("image/jpeg"),
     );
@@ -53,12 +57,15 @@ fn upload_mime_accepts_only_image_types() {
         Some("image/gif")
     );
 
-    // Rejected: non-image types, the bare prefix with no subtype, and empties.
+    // Rejected: non-image types, and — crucially — SVG: it can carry script and
+    // the stored bytes are served back on our own origin (stored XSS).
     for bad in [
         "",
         "application/octet-stream",
         "text/html",
         "image/",
+        "image/svg+xml",
+        "image/svg+xml; charset=utf-8",
         "imageX/png",
         "application/json",
     ] {

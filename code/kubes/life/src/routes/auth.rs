@@ -26,9 +26,12 @@ fn session_cookie(value: String) -> Cookie<'static> {
 }
 
 /// Only allow same-site internal paths as a post-login redirect target.
+/// Rejects `//host` (protocol-relative) and `/\host` — browsers fold `\` to
+/// `/` in special-scheme URLs, so a Location of `/\evil.com` would redirect
+/// off-site.
 pub fn validate_return_to(return_to: Option<&str>) -> String {
     match return_to {
-        Some(p) if p.starts_with('/') && !p.starts_with("//") => p.to_string(),
+        Some(p) if p.starts_with('/') && !p[1..].starts_with(['/', '\\']) => p.to_string(),
         _ => "/".to_string(),
     }
 }

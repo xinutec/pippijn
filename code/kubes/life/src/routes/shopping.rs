@@ -55,6 +55,12 @@ pub async fn delete(
 /// (unplaced) and remove it from the list. Returns the item. A barcoded item
 /// came from Open *Food* Facts, so it defaults to `food`; everything else to
 /// `other`.
+///
+/// Ordering makes a double-tap idempotent: the soft-delete (guarded by
+/// `rows_affected`) is the claim — only the request that actually tombstones the
+/// row creates the inventory item; a concurrent duplicate 404s instead of
+/// minting a second item. A crash between the two writes loses nothing
+/// permanent (the shopping row is tombstoned, not gone).
 pub async fn buy(
     State(app): State<AppState>,
     AuthUser(user): AuthUser,
@@ -63,6 +69,9 @@ pub async fn buy(
     let s = repo::get(&app.pool, &user.user_id, id)
         .await?
         .ok_or(AppError::NotFound)?;
+    if !repo::delete(&app.pool, &user.user_id, id).await? {
+        return Err(AppError::NotFound); // already bought/deleted concurrently
+    }
     let category = if s.barcode.is_some() {
         ItemCategory::Food
     } else {
@@ -82,6 +91,5 @@ pub async fn buy(
         },
     )
     .await?;
-    repo::delete(&app.pool, &user.user_id, id).await?;
     Ok(Json(item))
 }
