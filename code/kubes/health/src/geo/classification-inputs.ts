@@ -99,6 +99,21 @@ export interface BiometricsSnapshot {
 	steps: StepPoint[];
 }
 
+/** A `motion_log` row — the per-fix motion witness the Owntracks ingest
+ *  persists alongside each position (PhoneTrack does not retain these).
+ *  `cogDeg` is the phone-reported course over ground, the independent
+ *  direction signal PDR needs (#296/#297); `velKmh` the phone's own speed
+ *  in the Owntracks `vel` convention (km/h); `accM` reported accuracy.
+ *  Rows exist only from the 2026-07-01 ingest deploy onward. */
+export interface MotionFix {
+	ts: number;
+	lat: number;
+	lon: number;
+	cogDeg: number | null;
+	velKmh: number | null;
+	accM: number | null;
+}
+
 /** Pre-resolved cross-day bracket for the empty-day inference. A day
  *  with no GPS/biometric data is attributed to a focus place iff the
  *  prior day ended there AND the next day's dominant place is the same
@@ -147,6 +162,12 @@ export interface ClassificationInputs {
 	batteryTail?: { ts: number; level: number } | null;
 	knownPlaces: KnownPlaceProjection[];
 	biometrics: BiometricsSnapshot;
+	/** Per-fix motion witness (`motion_log`) for the local day window —
+	 *  heading/velocity/accuracy the phone reported with each fix. Consumed by
+	 *  the heading eval (PDR Phase 0); nothing in the pipeline reads it yet.
+	 *  Optional so fixtures captured before the field (and days predating the
+	 *  2026-07-01 ingest) replay as "no motion data". */
+	motionLog?: MotionFix[];
 	modeBiometrics: ModeStats[];
 	/** HSMM-decoded segments for this day from `decoded_days`, or
 	 *  null when no decode exists yet (cron hasn't run, or the day

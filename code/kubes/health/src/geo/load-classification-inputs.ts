@@ -32,6 +32,7 @@ import type {
 	ClassificationInputs,
 	DayIdentity,
 	KnownPlaceProjection,
+	MotionFix,
 	RawPhonetrackFix,
 } from "./classification-inputs.js";
 import { parseHourProfile } from "./focus-places.js";
@@ -107,6 +108,7 @@ export async function loadClassificationInputs(
 		knownPlaces,
 		modeBiometrics,
 		biometrics,
+		motionLog,
 		hsmmDecode,
 		railRouteCache,
 		busRouteCache,
@@ -121,6 +123,7 @@ export async function loadClassificationInputs(
 			console.warn(`loadBiometrics failed for user=${userId} date=${date}: ${e}`);
 			return { hr: [], sleep: [], steps: [] };
 		}),
+		loadMotionLogQuery(userId, bounds.startUtc, bounds.endUtc),
 		loadDecode(db(), userId, date),
 		loadRailRouteCacheQuery(),
 		loadAllBusRoutes(),
@@ -140,6 +143,7 @@ export async function loadClassificationInputs(
 		batteryTail,
 		knownPlaces,
 		biometrics,
+		motionLog,
 		modeBiometrics,
 		hsmmDecode,
 		railRouteCache,
@@ -159,6 +163,29 @@ export async function loadClassificationInputs(
 		emptyDayBracket,
 		venuePriors,
 	};
+}
+
+/** The day's `motion_log` rows — the per-fix heading/velocity/accuracy the
+ *  Owntracks ingest persists (PDR groundwork, #296/#297). Bounded row-set
+ *  read over the same local-day window as the biometric streams. Days
+ *  before the 2026-07-01 ingest deploy simply return []. */
+async function loadMotionLogQuery(userId: string, startUtc: number, endUtc: number): Promise<MotionFix[]> {
+	const rows = await db()
+		.selectFrom("motion_log")
+		.select(["ts", "lat", "lon", "cog", "vel", "acc"])
+		.where("user_id", "=", userId)
+		.where("ts", ">=", startUtc)
+		.where("ts", "<", endUtc)
+		.orderBy("ts")
+		.execute();
+	return rows.map((r) => ({
+		ts: r.ts,
+		lat: Number(r.lat),
+		lon: Number(r.lon),
+		cogDeg: r.cog,
+		velKmh: r.vel,
+		accM: r.acc,
+	}));
 }
 
 /** Load the user's mined venue-type priors, or null when never mined or
