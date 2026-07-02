@@ -1,0 +1,27 @@
+<h2>Recently deleted</h2>
+
+@if (!loaded()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else if (entries().length === 0) {
+  <p class="empty">Nothing here. Deleted things land in this list and can be restored any time.</p>
+} @else {
+  <p class="hint">Anything you delete stays here and can be restored any time.</p>
+  <mat-list>
+    @for (e of entries(); track e.kind + e.ref) {
+      <mat-list-item>
+        <mat-icon matListItemIcon [attr.aria-label]="meta(e.kind).label">{{ meta(e.kind).icon }}</mat-icon>
+        <span matListItemTitle>{{ e.name }}</span>
+        <span matListItemLine>{{ meta(e.kind).label }} · deleted {{ e.deleted_at | date: 'medium' }}</span>
+        <button
+          matListItemMeta
+          mat-icon-button
+          (click)="restore(e)"
+          [disabled]="busy().has(e.ref)"
+          [attr.aria-label]="'Restore ' + e.name"
+        >
+          <mat-icon>restore_from_trash</mat-icon>
+        </button>
+      </mat-list-item>
+    }
+  </mat-list>
+}

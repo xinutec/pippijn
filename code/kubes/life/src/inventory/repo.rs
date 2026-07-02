@@ -99,7 +99,7 @@ async fn product_id_for_barcode(pool: &MySqlPool, barcode: Option<&str>) -> Resu
 pub async fn list_locations(pool: &MySqlPool, user_id: &str) -> Result<Vec<Location>> {
     let rows: Vec<LocationRow> = sqlx::query_as(
         "SELECT id, kind, name, parent_id, sort_order, position FROM locations \
-         WHERE user_id = ? ORDER BY parent_id, sort_order, id",
+         WHERE user_id = ? AND deleted_at IS NULL ORDER BY parent_id, sort_order, id",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -141,7 +141,7 @@ pub async fn create_location(
 pub async fn list_items(pool: &MySqlPool, user_id: &str) -> Result<Vec<Item>> {
     let rows: Vec<ItemRow> = sqlx::query_as(concat!(
         item_select!(),
-        " WHERE i.user_id = ? ORDER BY name"
+        " WHERE i.user_id = ? AND i.deleted_at IS NULL ORDER BY name"
     ))
     .bind(user_id)
     .fetch_all(pool)
@@ -153,7 +153,8 @@ pub async fn search_items(pool: &MySqlPool, user_id: &str, query: &str) -> Resul
     let pattern = format!("%{query}%");
     let rows: Vec<ItemRow> = sqlx::query_as(concat!(
         item_select!(),
-        " WHERE i.user_id = ? AND COALESCE(p.name, i.name, '') LIKE ? ORDER BY name"
+        " WHERE i.user_id = ? AND i.deleted_at IS NULL \
+         AND COALESCE(p.name, i.name, '') LIKE ? ORDER BY name"
     ))
     .bind(user_id)
     .bind(pattern)
@@ -163,12 +164,14 @@ pub async fn search_items(pool: &MySqlPool, user_id: &str, query: &str) -> Resul
 }
 
 pub async fn get_item(pool: &MySqlPool, user_id: &str, id: u64) -> Result<Option<Item>> {
-    let row: Option<ItemRow> =
-        sqlx::query_as(concat!(item_select!(), " WHERE i.id = ? AND i.user_id = ?"))
-            .bind(id)
-            .bind(user_id)
-            .fetch_optional(pool)
-            .await?;
+    let row: Option<ItemRow> = sqlx::query_as(concat!(
+        item_select!(),
+        " WHERE i.id = ? AND i.user_id = ? AND i.deleted_at IS NULL"
+    ))
+    .bind(id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
     row.map(ItemRow::into_item).transpose()
 }
 
@@ -254,24 +257,119 @@ pub async fn update_item(
     get_item(pool, user_id, id).await
 }
 
-/// Delete an item (its history cascades). Returns whether a row was removed.
+/// Delete an item — a tombstone, restorable from the trash; history is kept.
+/// Returns whether a row was tombstoned.
 pub async fn delete_item(pool: &MySqlPool, user_id: &str, id: u64) -> Result<bool> {
-    let res = sqlx::query("DELETE FROM items WHERE id = ? AND user_id = ?")
-        .bind(id)
-        .bind(user_id)
-        .execute(pool)
-        .await?;
+    let res = sqlx::query(
+        "UPDATE items SET deleted_at = NOW() \
+         WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    let deleted = res.rows_affected() > 0;
+    if deleted {
+        record_history(pool, id, user_id, None, "removed", None).await?;
+    }
+    Ok(deleted)
+}
+
+/// Restore a deleted item. Returns whether a tombstone was cleared.
+pub async fn restore_item(pool: &MySqlPool, user_id: &str, id: u64) -> Result<bool> {
+    let res = sqlx::query(
+        "UPDATE items SET deleted_at = NULL \
+         WHERE id = ? AND user_id = ? AND deleted_at IS NOT NULL",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    let restored = res.rows_affected() > 0;
+    if restored {
+        record_history(pool, id, user_id, None, "restored", None).await?;
+    }
+    Ok(restored)
+}
+
+/// Every location id in the subtree rooted at `root` (inclusive), computed from
+/// ALL of the user's rows (deleted or not — parent links stay intact under
+/// tombstoning). Empty if `root` isn't the user's.
+async fn subtree_ids(pool: &MySqlPool, user_id: &str, root: u64) -> Result<Vec<u64>> {
+    let rows: Vec<(u64, Option<u64>)> =
+        sqlx::query_as("SELECT id, parent_id FROM locations WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_all(pool)
+            .await?;
+    if !rows.iter().any(|(id, _)| *id == root) {
+        return Ok(Vec::new());
+    }
+    let mut children: std::collections::HashMap<u64, Vec<u64>> = std::collections::HashMap::new();
+    for (id, parent) in &rows {
+        if let Some(p) = parent {
+            children.entry(*p).or_default().push(*id);
+        }
+    }
+    let mut ids = vec![root];
+    let mut i = 0;
+    while i < ids.len() {
+        if let Some(kids) = children.get(&ids[i]) {
+            ids.extend(kids);
+        }
+        i += 1;
+    }
+    Ok(ids)
+}
+
+/// Delete a location and its whole subtree — tombstones, restorable as one unit
+/// (every row gets the SAME `deleted_at` stamp; restore keys on it). Items keep
+/// their `location_id`: with the location hidden they read as unplaced, and a
+/// restore puts them right back where they were. Returns whether the root was
+/// tombstoned.
+pub async fn delete_location(pool: &MySqlPool, user_id: &str, id: u64) -> Result<bool> {
+    let ids = subtree_ids(pool, user_id, id).await?;
+    if ids.is_empty() {
+        return Ok(false);
+    }
+    let mut qb =
+        sqlx::QueryBuilder::new("UPDATE locations SET deleted_at = NOW() WHERE user_id = ");
+    qb.push_bind(user_id);
+    qb.push(" AND deleted_at IS NULL AND id IN (");
+    let mut sep = qb.separated(", ");
+    for i in &ids {
+        sep.push_bind(i);
+    }
+    qb.push(")");
+    let res = qb.build().execute(pool).await?;
     Ok(res.rows_affected() > 0)
 }
 
-/// Delete a location. Child locations cascade; items there have their
-/// `location_id` set NULL (per the FKs). Returns whether a row was removed.
-pub async fn delete_location(pool: &MySqlPool, user_id: &str, id: u64) -> Result<bool> {
-    let res = sqlx::query("DELETE FROM locations WHERE id = ? AND user_id = ?")
-        .bind(id)
-        .bind(user_id)
-        .execute(pool)
-        .await?;
+/// Restore a deleted location together with the descendants that were deleted
+/// in the same operation (same `deleted_at` stamp — descendants deleted
+/// separately earlier stay in the trash as their own entries). Returns whether
+/// anything was restored.
+pub async fn restore_location(pool: &MySqlPool, user_id: &str, id: u64) -> Result<bool> {
+    let stamp: Option<(Option<chrono::NaiveDateTime>,)> =
+        sqlx::query_as("SELECT deleted_at FROM locations WHERE id = ? AND user_id = ?")
+            .bind(id)
+            .bind(user_id)
+            .fetch_optional(pool)
+            .await?;
+    let Some((Some(stamp),)) = stamp else {
+        return Ok(false); // unknown, someone else's, or not deleted
+    };
+    let ids = subtree_ids(pool, user_id, id).await?;
+    let mut qb = sqlx::QueryBuilder::new("UPDATE locations SET deleted_at = NULL WHERE user_id = ");
+    qb.push_bind(user_id);
+    qb.push(" AND deleted_at = ");
+    qb.push_bind(stamp);
+    qb.push(" AND id IN (");
+    let mut sep = qb.separated(", ");
+    for i in &ids {
+        sep.push_bind(i);
+    }
+    qb.push(")");
+    let res = qb.build().execute(pool).await?;
     Ok(res.rows_affected() > 0)
 }
 

@@ -12,7 +12,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
+import { MatSnackBar } from '@angular/material/snack-bar';
 
+import { LifeApi } from '../../life-api';
 import { LinkKind, TodoPriority, TodoType } from '../../models';
 import { TodoStore } from '../../sync/todo-store';
 import { LinkTarget, TodoGraph } from './todo-graph';
@@ -65,6 +67,8 @@ export class TodoDetail {
   private data = inject<{ ulid: string }>(MAT_BOTTOM_SHEET_DATA);
   private store = inject(TodoStore);
   private sheet = inject(MatBottomSheet);
+  private api = inject(LifeApi);
+  private snack = inject(MatSnackBar);
   readonly graph = inject(TodoGraph);
 
   readonly types = TYPES;
@@ -178,9 +182,25 @@ export class TodoDetail {
 
   remove(): void {
     const key = this.ulid();
+    const doc = this.todo();
     this.graph.removeLinksForTodo(key);
     void this.store.remove(key);
     this.ref.dismiss();
+    // Undo mirrors the list view: revive locally + authoritative server
+    // restore for synced rows (connections stay removed).
+    if (!doc) return;
+    this.snack
+      .open(`Deleted “${doc.title}”`, 'Undo', { duration: 6000 })
+      .onAction()
+      .subscribe(() => {
+        void this.store.revive(doc);
+        if (doc.id != null) {
+          this.api.restoreTrash('todo', doc.ulid).subscribe({
+            next: () => this.store.reSync(),
+            error: () => {},
+          });
+        }
+      });
   }
 
   close(): void {

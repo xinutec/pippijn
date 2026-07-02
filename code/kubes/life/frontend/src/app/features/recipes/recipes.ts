@@ -113,7 +113,20 @@ export class Recipes {
 
   deleteRecipe(id: number): void {
     this.api.deleteRecipe(id).subscribe({
-      next: () => this.reload(),
+      next: () => {
+        this.reload();
+        // Deletes are tombstones (restorable from Recently deleted); offer an
+        // immediate Undo so a fat-finger costs one tap.
+        this.snack
+          .open('Recipe deleted', 'Undo', { duration: 6000 })
+          .onAction()
+          .subscribe(() => {
+            this.api.restoreTrash('recipe', String(id)).subscribe({
+              next: () => this.reload(),
+              error: this.failed('undo the delete'),
+            });
+          });
+      },
       error: this.failed('delete the recipe'),
     });
   }

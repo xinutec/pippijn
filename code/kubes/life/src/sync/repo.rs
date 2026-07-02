@@ -145,9 +145,13 @@ pub async fn push_shopping(
                 continue;
             }
             let rev = next_rev(&mut tx).await?;
+            // Tombstones are SET-ONLY here: once deleted_at is set, no push can
+            // clear it — a stale offline client must not silently resurrect a
+            // deliberate delete. The one undelete path is the explicit trash
+            // restore (see trash::repo), which is its own deliberate operation.
             sqlx::query(
                 "UPDATE shopping_items SET name = ?, quantity = ?, unit = ?, barcode = ?, \
-                 done = ?, deleted_at = IF(?, COALESCE(deleted_at, NOW()), NULL), \
+                 done = ?, deleted_at = COALESCE(deleted_at, IF(?, NOW(), NULL)), \
                  rev = ?, updated_at = NOW() WHERE ulid = ? AND user_id = ?",
             )
             .bind(&new.name)
@@ -269,9 +273,10 @@ pub async fn push_todo(
                 continue;
             }
             let rev = next_rev(&mut tx).await?;
+            // Set-only tombstone — see the shopping push above.
             sqlx::query(
                 "UPDATE todos SET title = ?, todo_type = ?, status = ?, priority = ?, notes = ?, \
-                 deleted_at = IF(?, COALESCE(deleted_at, NOW()), NULL), \
+                 deleted_at = COALESCE(deleted_at, IF(?, NOW(), NULL)), \
                  rev = ?, updated_at = NOW() WHERE ulid = ? AND user_id = ?",
             )
             .bind(&new.title)
@@ -391,9 +396,10 @@ pub async fn push_todo_link(
                 continue;
             }
             let rev = next_rev(&mut tx).await?;
+            // Set-only tombstone — see the shopping push above.
             sqlx::query(
                 "UPDATE todo_links SET from_ulid = ?, kind = ?, target_kind = ?, target_ref = ?, \
-                 deleted_at = IF(?, COALESCE(deleted_at, NOW()), NULL), \
+                 deleted_at = COALESCE(deleted_at, IF(?, NOW(), NULL)), \
                  rev = ?, updated_at = NOW() WHERE ulid = ? AND user_id = ?",
             )
             .bind(&new.from)

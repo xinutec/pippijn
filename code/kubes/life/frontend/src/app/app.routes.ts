@@ -8,6 +8,7 @@ import { Search } from './features/search/search';
 import { Settings } from './features/settings/settings';
 import { Shopping } from './features/shopping/shopping';
 import { Todo } from './features/todo/todo';
+import { Trash } from './features/trash/trash';
 
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'search' },
@@ -18,6 +19,7 @@ export const routes: Routes = [
   { path: 'house', title: 'Life · house', component: House },
   { path: 'items', title: 'Life · all items', component: Items },
   { path: 'todo', title: 'Life · to-do', component: Todo },
+  { path: 'trash', title: 'Life · recently deleted', component: Trash },
   { path: 'settings', title: 'Life · settings', component: Settings },
   { path: '**', redirectTo: 'search' },
 ];

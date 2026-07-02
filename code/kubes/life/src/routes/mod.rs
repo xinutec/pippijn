@@ -8,6 +8,7 @@ pub mod recipes;
 pub mod shopping;
 pub mod sync;
 pub mod todo;
+pub mod trash;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -67,6 +68,8 @@ pub fn router(state: AppState) -> Router {
             "/sync/todo-link",
             get(sync::pull_todo_link).post(sync::push_todo_link),
         )
+        .route("/trash", get(trash::list))
+        .route("/trash/{kind}/{ref}/restore", post(trash::restore))
         .route("/products/{barcode}", get(products::lookup))
         .route(
             "/products/{barcode}/image",

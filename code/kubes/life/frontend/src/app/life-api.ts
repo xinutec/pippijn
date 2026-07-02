@@ -11,6 +11,8 @@ import {
   RecipeIngredient,
   SearchHit,
   ShoppingItem,
+  TrashEntry,
+  TrashKind,
 } from './models';
 
 /** Thin client over the life backend. Same-origin in prod; via the dev proxy
@@ -92,6 +94,20 @@ export class LifeApi {
     return this.http.put<void>(`/api/products/${encodeURIComponent(barcode)}/image`, blob, {
       headers: { 'Content-Type': blob.type },
     });
+  }
+
+  /** Everything deleted (all kinds), newest first. Nothing is ever purged. */
+  trash(): Observable<TrashEntry[]> {
+    return this.http.get<TrashEntry[]>('/api/trash');
+  }
+  /** Restore one trash entry — the deliberate undelete path (also used by the
+   *  Undo snackbars). `ref` is the id (item/location/recipe) or ulid
+   *  (shopping/todo) from the entry. */
+  restoreTrash(kind: TrashKind, ref: string): Observable<void> {
+    return this.http.post<void>(
+      `/api/trash/${kind}/${encodeURIComponent(ref)}/restore`,
+      {},
+    );
   }
 
   recipes(): Observable<Recipe[]> {

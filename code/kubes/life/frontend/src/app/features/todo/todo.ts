@@ -10,7 +10,9 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
 import { MatSelectModule } from '@angular/material/select';
+import { MatSnackBar } from '@angular/material/snack-bar';
 
+import { LifeApi } from '../../life-api';
 import { TodoPriority, TodoType } from '../../models';
 import { TodoDoc, TodoStore } from '../../sync/todo-store';
 import { TodoDetail } from './todo-detail';
@@ -55,6 +57,8 @@ export const prioRank = (p: TodoPriority | null): number => (p ? PRIO_RANK[p] : 
 export class Todo {
   private store = inject(TodoStore);
   private sheet = inject(MatBottomSheet);
+  private api = inject(LifeApi);
+  private snack = inject(MatSnackBar);
   readonly graph = inject(TodoGraph);
 
   // Local-first: the list is the live RxDB query — instant, offline, reactive.
@@ -122,6 +126,22 @@ export class Todo {
   remove(it: TodoDoc): void {
     this.graph.removeLinksForTodo(it.ulid);
     void this.store.remove(it.ulid);
+    // Undo: revive locally (works offline) + server-side restore for synced
+    // rows (the authoritative undelete — a re-push can't clear a tombstone; a
+    // restore 404 just means the delete push hadn't arrived, revive covers it).
+    // Connections removed alongside stay removed.
+    this.snack
+      .open(`Deleted “${it.title}”`, 'Undo', { duration: 6000 })
+      .onAction()
+      .subscribe(() => {
+        void this.store.revive(it);
+        if (it.id != null) {
+          this.api.restoreTrash('todo', it.ulid).subscribe({
+            next: () => this.store.reSync(),
+            error: () => {},
+          });
+        }
+      });
   }
 
   openDetail(it: TodoDoc): void {

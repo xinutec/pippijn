@@ -67,6 +67,20 @@ export class Inventory {
     };
   }
 
+  /** Deletes are tombstones (restorable from Recently deleted); offer an
+   *  immediate Undo so a fat-finger costs one tap, not a trip to the trash. */
+  private undoable(what: string, kind: 'item' | 'location', ref: number, reload: () => void) {
+    this.snack
+      .open(`${what} deleted`, 'Undo', { duration: 6000 })
+      .onAction()
+      .subscribe(() => {
+        this.api.restoreTrash(kind, String(ref)).subscribe({
+          next: () => reload(),
+          error: this.failed('undo the delete'),
+        });
+      });
+  }
+
   readonly kinds = KINDS;
   readonly categories = CATEGORIES;
 
@@ -160,7 +174,11 @@ export class Inventory {
     this.api.deleteLocation(id).subscribe({
       next: () => {
         this.reloadLocations();
-        this.reloadItems(); // items there are now unplaced
+        this.reloadItems(); // items there read as unplaced until restored
+        this.undoable('Place', 'location', id, () => {
+          this.reloadLocations();
+          this.reloadItems();
+        });
       },
       error: this.failed('delete the place'),
     });
@@ -236,7 +254,10 @@ export class Inventory {
 
   deleteItem(id: number): void {
     this.api.deleteItem(id).subscribe({
-      next: () => this.reloadItems(),
+      next: () => {
+        this.reloadItems();
+        this.undoable('Item', 'item', id, () => this.reloadItems());
+      },
       error: this.failed('delete the item'),
     });
   }

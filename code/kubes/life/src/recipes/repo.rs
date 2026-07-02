@@ -27,7 +27,8 @@ struct IngredientRow {
 /// ingredients are grouped in memory by recipe id.
 pub async fn list_recipes(pool: &MySqlPool, user_id: &str) -> Result<Vec<Recipe>> {
     let recipe_rows: Vec<RecipeRow> = sqlx::query_as(
-        "SELECT id, name, instructions, servings FROM recipes WHERE user_id = ? ORDER BY name",
+        "SELECT id, name, instructions, servings FROM recipes \
+         WHERE user_id = ? AND deleted_at IS NULL ORDER BY name",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -36,7 +37,8 @@ pub async fn list_recipes(pool: &MySqlPool, user_id: &str) -> Result<Vec<Recipe>
     let ing_rows: Vec<IngredientRow> = sqlx::query_as(
         "SELECT ri.recipe_id, ri.name, ri.quantity, ri.unit \
          FROM recipe_ingredients ri JOIN recipes r ON r.id = ri.recipe_id \
-         WHERE r.user_id = ? ORDER BY ri.recipe_id, ri.sort_order, ri.id",
+         WHERE r.user_id = ? AND r.deleted_at IS NULL \
+         ORDER BY ri.recipe_id, ri.sort_order, ri.id",
     )
     .bind(user_id)
     .fetch_all(pool)
@@ -68,7 +70,8 @@ pub async fn list_recipes(pool: &MySqlPool, user_id: &str) -> Result<Vec<Recipe>
 
 pub async fn get_recipe(pool: &MySqlPool, user_id: &str, id: u64) -> Result<Option<Recipe>> {
     let recipe: Option<RecipeRow> = sqlx::query_as(
-        "SELECT id, name, instructions, servings FROM recipes WHERE id = ? AND user_id = ?",
+        "SELECT id, name, instructions, servings FROM recipes \
+         WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
     )
     .bind(id)
     .bind(user_id)
@@ -140,12 +143,29 @@ pub async fn create_recipe(pool: &MySqlPool, user_id: &str, new: NewRecipe) -> R
     })
 }
 
-/// Delete a recipe (its ingredients cascade). Returns whether a row was removed.
+/// Delete a recipe — a tombstone, restorable from the trash; its ingredient
+/// rows stay attached. Returns whether a row was tombstoned.
 pub async fn delete_recipe(pool: &MySqlPool, user_id: &str, id: u64) -> Result<bool> {
-    let res = sqlx::query("DELETE FROM recipes WHERE id = ? AND user_id = ?")
-        .bind(id)
-        .bind(user_id)
-        .execute(pool)
-        .await?;
+    let res = sqlx::query(
+        "UPDATE recipes SET deleted_at = NOW() \
+         WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+/// Restore a deleted recipe. Returns whether a tombstone was cleared.
+pub async fn restore_recipe(pool: &MySqlPool, user_id: &str, id: u64) -> Result<bool> {
+    let res = sqlx::query(
+        "UPDATE recipes SET deleted_at = NULL \
+         WHERE id = ? AND user_id = ? AND deleted_at IS NOT NULL",
+    )
+    .bind(id)
+    .bind(user_id)
+    .execute(pool)
+    .await?;
     Ok(res.rows_affected() > 0)
 }

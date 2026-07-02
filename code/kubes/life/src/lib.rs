@@ -14,3 +14,4 @@ pub mod shopping;
 pub mod state;
 pub mod sync;
 pub mod todo;
+pub mod trash;

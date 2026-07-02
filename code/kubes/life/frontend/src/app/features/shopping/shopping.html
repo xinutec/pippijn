@@ -52,7 +52,7 @@
       @if (label(it)) {
         <span matListItemLine [class.done]="it.done">{{ label(it) }}</span>
       }
-      <button matListItemMeta mat-icon-button (click)="remove(it.ulid)" aria-label="Remove">
+      <button matListItemMeta mat-icon-button (click)="remove(it)" aria-label="Remove">
         <mat-icon>close</mat-icon>
       </button>
     </mat-list-item>

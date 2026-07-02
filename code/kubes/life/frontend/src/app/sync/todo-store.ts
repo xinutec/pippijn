@@ -67,6 +67,7 @@ export class TodoStore {
 
   private lifeDb = inject(LifeDb);
   private readonly collection = this.init();
+  private replication?: ReturnType<typeof replicateRxCollection<TodoDoc, { rev: number }>>;
 
   /** Live, sorted, non-deleted to-dos: open before done, then by title. */
   readonly items$: Observable<TodoDoc[]> = from(this.collection).pipe(
@@ -109,6 +110,20 @@ export class TodoStore {
   async remove(key: string): Promise<void> {
     const doc = await this.find(key);
     await doc?.remove();
+  }
+
+  /** Bring a just-removed doc back locally under the same ulid (insert after
+   *  remove revives the RxDB tombstone). Works offline — the Undo snackbar's
+   *  first layer; the server-side trash restore is the authoritative second. */
+  async revive(doc: TodoDoc): Promise<void> {
+    const col = await this.collection;
+    await col.insert({ ...doc });
+  }
+
+  /** Ask replication to pull now — e.g. right after a server-side trash restore,
+   *  so the resurrected row appears without waiting for the next natural sync. */
+  reSync(): void {
+    this.replication?.reSync();
   }
 
   private async find(key: string) {
@@ -177,5 +192,6 @@ export class TodoStore {
         console.warn('[todo sync]', err);
       }
     });
+    this.replication = replication;
   }
 }
