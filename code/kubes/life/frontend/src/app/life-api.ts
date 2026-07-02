@@ -11,7 +11,6 @@ import {
   Product,
   Recipe,
   RecipeIngredient,
-  SearchHit,
   ShoppingItem,
   TrashEntry,
   TrashKind,
@@ -54,10 +53,6 @@ export class LifeApi {
   }
   deleteLocation(id: number): Observable<unknown> {
     return this.http.delete(`/api/locations/${id}`);
-  }
-
-  search(q: string): Observable<SearchHit[]> {
-    return this.http.get<SearchHit[]>('/api/search', { params: { q } });
   }
 
   house(): Observable<HouseScene> {

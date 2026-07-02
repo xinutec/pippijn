@@ -40,9 +40,11 @@ add new ones under the right section. Architecture/rationale lives in
       2026-06-29 — Pippijn wants a different approach; redo from scratch.)
 - [ ] **Extend `scenes/house.json` to the whole house** — Pippijn measures the
       remaining rooms; decide how rooms compose (shared origin / offsets).
-- [ ] **Place cupboards in scene coordinates** → re-wire **search → highlight in
-      3D** (currently parked: the demo box-highlight was removed). Decide how
-      DB locations map to scene geometry.
+- [ ] **Place cupboards in scene coordinates** → **"where is my X" → highlight
+      in 3D** (parked: the demo box-highlight AND the item-name search page were
+      both removed — 2026-07-02). Rebuild the lookup together with the highlight;
+      decide how DB locations map to scene geometry. `ancestor_path` (the 2D
+      breadcrumb helper) was removed with search; reinstate it here if needed.
 - [ ] **CalDAV** — read the Brent bins feed; write "shop trip" `VEVENT`s with a
       location. Needs the Login-Flow-v2 app-password link (overview §2b, §5).
 - [x] **Frontend test runner** — vitest via `ng test` (43 specs as of
@@ -98,7 +100,7 @@ add new ones under the right section. Architecture/rationale lives in
       warm-fetches those on login so they're cached even for unvisited tabs. So
       the app opens with no signal and shows your inventory/recipes/house — the
       Tube case. Verified by `frontend/e2e/offline*.spec.ts` (npm run e2e) + on
-      prod. Still online-only (writes/fresh data): Find/search, editing.
+      prod. Still online-only (writes/fresh data): editing.
 - [ ] **PWA polish** — full icon set (png/maskable/favicon, not just svg).
 
 ## 2026-07-02 review findings (full list, priority-ordered)
@@ -126,9 +128,10 @@ deletion/trash (B), field-level sync merge + conflict log (C).
       instead" fallback in the scanner dialog.
 9. - [x] **Expiry urgency** — raw ISO dates; want "expired"/"3 days" coloring
       (ties into the Next-up expiry view).
-10. - [ ] **Search screen fixes** — suffix icons aren't real buttons
-      (a11y/keyboard); blank search box is the landing screen (live search or
-      content home?).
+10. - [x] **Search page** — REMOVED 2026-07-02. It was a name filter over
+      items that duplicated the "All items" list; its only distinct payoff (→
+      highlight in the 3D house) is parked. Home now lands on Inventory. Rebuild
+      as part of the house-highlight feature if/when that lands, not as a tab.
 11. - [x] **`todo_links` duplicate edges** — two offline devices adding the
       same connection both survive sync (client-only dedupe); dedupe on push +
       migration cleanup.

@@ -3,7 +3,6 @@
 //! the default `cargo test` needs no database.
 
 use life::db;
-use life::inventory::path::ancestor_path;
 use life::inventory::repo;
 use life::inventory::types::{ItemCategory, LocationKind, NewItem, NewLocation};
 
@@ -85,16 +84,6 @@ async fn inventory_crud_against_real_db() {
     assert_eq!(item.location_id, Some(shelf.id));
     assert_eq!(item.category, ItemCategory::Food);
 
-    // Search finds it, and its location resolves to the full chain.
-    let hits = repo::search_items(&pool, user, "cum").await.unwrap();
-    assert_eq!(hits.len(), 1);
-    let locations = repo::list_locations(&pool, user).await.unwrap();
-    let names: Vec<_> = ancestor_path(&locations, shelf.id)
-        .iter()
-        .map(|l| l.name.clone())
-        .collect();
-    assert_eq!(names, ["Home", "Kitchen", "Spice", "Top"]);
-
     // Move it to the kitchen.
     let moved = repo::move_item(&pool, user, item.id, Some(kitchen.id))
         .await
@@ -138,23 +127,6 @@ async fn inventory_crud_against_real_db() {
     .expect("item exists");
     assert_eq!(updated.name, "Ground cumin");
     assert_eq!(updated.quantity, Some(2.0));
-
-    // LIKE metacharacters in a query are treated literally (escaped), so a
-    // query of "%" matches nothing rather than every item.
-    assert!(
-        repo::search_items(&pool, user, "%")
-            .await
-            .unwrap()
-            .is_empty(),
-        "'%' must be a literal, not a wildcard"
-    );
-    assert_eq!(
-        repo::search_items(&pool, user, "Ground cumin")
-            .await
-            .unwrap()
-            .len(),
-        1
-    );
 
     // Delete the item; gone afterwards.
     assert!(repo::delete_item(&pool, user, item.id).await.unwrap());

@@ -5,15 +5,13 @@ import { House } from './features/house/house';
 import { Inventory } from './features/inventory/inventory';
 import { Items } from './features/items/items';
 import { Recipes } from './features/recipes/recipes';
-import { Search } from './features/search/search';
 import { Settings } from './features/settings/settings';
 import { Shopping } from './features/shopping/shopping';
 import { Todo } from './features/todo/todo';
 import { Trash } from './features/trash/trash';
 
 export const routes: Routes = [
-  { path: '', pathMatch: 'full', redirectTo: 'search' },
-  { path: 'search', title: 'Life · find', component: Search },
+  { path: '', pathMatch: 'full', redirectTo: 'inventory' },
   { path: 'shopping', title: 'Life · buy', component: Shopping },
   { path: 'inventory', title: 'Life · inventory', component: Inventory },
   { path: 'recipes', title: 'Life · recipes', component: Recipes },
@@ -23,5 +21,5 @@ export const routes: Routes = [
   { path: 'trash', title: 'Life · recently deleted', component: Trash },
   { path: 'conflicts', title: 'Life · sync conflicts', component: Conflicts },
   { path: 'settings', title: 'Life · settings', component: Settings },
-  { path: '**', redirectTo: 'search' },
+  { path: '**', redirectTo: 'inventory' },
 ];
