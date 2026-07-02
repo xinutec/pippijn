@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, ChangeDetectionStrategy } from "@angular/core";
+import { Component, computed, effect, inject, signal, ChangeDetectionStrategy } from "@angular/core";
 import { toSignal } from "@angular/core/rxjs-interop";
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from "@angular/router";
 import { filter, map, startWith } from "rxjs/operators";
@@ -78,10 +78,24 @@ export class AppComponent {
 		return qIdx < 0 ? s.url : s.url + u.slice(qIdx);
 	});
 
+	/** Short commit SHA of the RUNNING BACKEND image (from /api/version), shown
+	 *  in the footer so a stale deploy/client is visible at a glance — the same
+	 *  bottom-note pattern as the recall web app. null until loaded; "dev" on a
+	 *  local non-docker run. */
+	readonly version = signal<string | null>(null);
+
 	constructor() {
 		// Install browser error/unhandledrejection listeners up-front so
 		// any failure during auth or initial render still gets reported.
 		installErrorReporting(this.health);
+
+		// One unauthenticated fetch; failure just leaves the footer empty.
+		fetch("/api/version")
+			.then((r) => (r.ok ? r.json() : null))
+			.then((v: { sha?: string } | null) => {
+				if (v?.sha) this.version.set(v.sha.slice(0, 7));
+			})
+			.catch(() => {});
 
 		// Load the owner's share status once the user is known, so the
 		// toolbar can offer a quick-copy button. Skipped in share mode:

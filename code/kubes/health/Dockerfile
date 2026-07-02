@@ -18,4 +18,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=backend-build /app/dist dist/
 COPY --from=frontend-build /app/dist/frontend/browser public/
+# Commit stamp, surfaced at /api/version and in the UI footer so a stale
+# client/deploy is visible at a glance. Injected by .github/workflows/docker.yml.
+ARG GIT_SHA=dev
+ENV GIT_SHA=$GIT_SHA
 CMD ["node", "dist/server.js"]
