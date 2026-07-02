@@ -10,11 +10,12 @@
  *      *on that building's side*: escape the nearest wall, then snap to the
  *      nearest walkable way just outside it. Never jumps across the block to a
  *      slightly-nearer far-side street.
- *   2. **The segment between two vertices crosses a building** (sparse fixes, so
- *      no vertex sits inside it to push) → route the gap along the walkable
- *      streets between the two anchored endpoints and insert those points, so the
- *      line goes *around* the block instead of through it. (Added in a later
- *      slice; this module currently implements cases 1 and 3.)
+ *   2. **The gap between two vertices is implausible** — it crosses a building,
+ *      OR it is an *urban block cut*: far off every walkable way in built
+ *      surroundings (a chord threading BETWEEN mapped footprints across a block,
+ *      which containment alone cannot see) → route the gap along the walkable
+ *      streets between the two anchored endpoints and insert those points, so
+ *      the line goes *around* the block instead of through it.
  *   3. **No streets nearby** (open ground / forest) → trust the GPS; never move a
  *      vertex when there is no walkable surface to move it onto.
  *
@@ -187,8 +188,23 @@ export interface CorrectOptions extends EscapeOptions {
 	maxLegInflation: number;
 	/** Budget floor (m): a short leg that IS one block detour still gets to make
 	 *  it — the budget exists to stop compounding, not to forbid the single
-	 *  honest reroute. The per-gap `maxDetourRatio` still bounds that one route. */
+	 *  honest reroute. Also floors the per-gap route bound: going around a block
+	 *  is legitimately several times a NARROW gap's straight line, so the
+	 *  `maxDetourRatio` alone would refuse exactly the honest detours. */
 	minRouteBudgetM: number;
+	/** Urban block-cut threshold (m): a drawn segment whose midpoint is farther
+	 *  than this from EVERY walkable way — in built surroundings (see
+	 *  `buildingProxM`) — is as implausible as a building crossing: you cannot
+	 *  walk 25 m+ off-street through a built-up block. Deliberately ABOVE the
+	 *  honest house-lined GPS drift (raw fixes legitimately sit 10–30 m off the
+	 *  pavement), so a normal street walk is never flagged. The 2026-07-01 10:18
+	 *  diagonal reads 31 m. */
+	offNetworkM: number;
+	/** A far-off-network segment counts as a block cut only when a building lies
+	 *  within this (m) of its midpoint — the urban witness. Open ground (park,
+	 *  field: no buildings near) is left to the GPS (case 3: a walk across a lawn
+	 *  is not an artifact). */
+	buildingProxM: number;
 }
 
 export const DEFAULT_CORRECT_OPTIONS: CorrectOptions = {
@@ -199,35 +215,99 @@ export const DEFAULT_CORRECT_OPTIONS: CorrectOptions = {
 	minCrossingM: 3,
 	maxLegInflation: 0.5,
 	minRouteBudgetM: 150,
+	offNetworkM: 25,
+	buildingProxM: 30,
 };
 
-/** Length (m) of the segment a→b lying inside any building (2 m midpoint
- *  sampling — the geo-side twin of the eval metric, kept local so geo does not
- *  depend on eval). */
-function crossedLengthM(
-	a: { lat: number; lon: number },
-	b: { lat: number; lon: number },
+/**
+ * The badness context for one leg: building rings with precomputed bounding
+ * boxes (expanded by `buildingProxM`, so a cheap bbox test rejects the vast
+ * majority of the thousands of rings a real leg carries) plus the walkable
+ * network for the off-network test.
+ */
+interface BadnessCtx {
+	buildings: readonly BuildingFootprint[];
+	/** Per-ring bbox expanded by buildingProxM, aligned with `buildings`. */
+	boxes: Array<{ minLat: number; maxLat: number; minLon: number; maxLon: number }>;
+	walkable: RoadGeometry;
+	opts: CorrectOptions;
+}
+
+function makeBadnessCtx(
+	walkable: RoadGeometry,
 	buildings: readonly BuildingFootprint[],
-): number {
+	opts: CorrectOptions,
+): BadnessCtx {
+	const boxes = buildings.map((ring) => {
+		let minLat = Number.POSITIVE_INFINITY;
+		let maxLat = Number.NEGATIVE_INFINITY;
+		let minLon = Number.POSITIVE_INFINITY;
+		let maxLon = Number.NEGATIVE_INFINITY;
+		for (const p of ring) {
+			if (p.lat < minLat) minLat = p.lat;
+			if (p.lat > maxLat) maxLat = p.lat;
+			if (p.lon < minLon) minLon = p.lon;
+			if (p.lon > maxLon) maxLon = p.lon;
+		}
+		const dLat = opts.buildingProxM / 111_320;
+		const dLon = opts.buildingProxM / (111_320 * Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180));
+		return { minLat: minLat - dLat, maxLat: maxLat + dLat, minLon: minLon - dLon, maxLon: maxLon + dLon };
+	});
+	return { buildings, boxes, walkable, opts };
+}
+
+/** Is a building within `buildingProxM` of `p` (or `p` inside one)? bbox
+ *  prefilter first; exact ring-boundary distance only for the survivors. */
+function nearBuilding(p: { lat: number; lon: number }, ctx: BadnessCtx): boolean {
+	for (let i = 0; i < ctx.buildings.length; i++) {
+		const b = ctx.boxes[i];
+		if (p.lat < b.minLat || p.lat > b.maxLat || p.lon < b.minLon || p.lon > b.maxLon) continue;
+		if (pointInRing(p, ctx.buildings[i])) return true;
+		const near = nearestOnRing(p, ctx.buildings[i]);
+		if (near && near.distM <= ctx.opts.buildingProxM) return true;
+	}
+	return false;
+}
+
+/**
+ * Badness length (m) of the segment a→b — the drawn distance that is
+ * implausible for a walk (2 m midpoint sampling; the geo-side superset of the
+ * eval crossing metric, kept local so geo does not depend on eval):
+ *
+ *   - INSIDE a building footprint (the containment class), or
+ *   - an URBAN BLOCK CUT: farther than `offNetworkM` from every walkable way
+ *     while a building sits within `buildingProxM` — off-street through a
+ *     built-up block, the class containment is blind to (the line threads
+ *     BETWEEN the mapped footprints, e.g. the 2026-07-01 10:18 diagonal).
+ *
+ * Open-ground samples (off-network but no buildings near) contribute nothing:
+ * case 3, trust the GPS.
+ */
+function segBadnessM(a: { lat: number; lon: number }, b: { lat: number; lon: number }, ctx: BadnessCtx): number {
 	const segLen = metersBetween(a.lat, a.lon, b.lat, b.lon);
-	if (segLen === 0 || buildings.length === 0) return 0;
+	if (segLen === 0 || ctx.buildings.length === 0) return 0;
 	const steps = Math.max(1, Math.ceil(segLen / 2));
-	let crossed = 0;
+	let bad = 0;
 	for (let k = 0; k < steps; k++) {
 		const f = (k + 0.5) / steps;
 		const mid = { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f };
-		if (containingBuilding(mid, buildings)) crossed += segLen / steps;
+		if (containingBuilding(mid, ctx.buildings)) {
+			bad += segLen / steps;
+			continue;
+		}
+		// Cheap bbox-gated building-proximity first; the way scan (the expensive
+		// part) only runs for samples in built surroundings.
+		if (!nearBuilding(mid, ctx)) continue;
+		const way = nearestWalkable(mid, ctx.walkable);
+		if (way === null || way.distM > ctx.opts.offNetworkM) bad += segLen / steps;
 	}
-	return crossed;
+	return bad;
 }
 
-/** Total crossed length (m) over a polyline. */
-function pathCrossedM(
-	pts: ReadonlyArray<{ lat: number; lon: number }>,
-	buildings: readonly BuildingFootprint[],
-): number {
+/** Total badness (m) over a polyline. */
+function pathBadnessM(pts: ReadonlyArray<{ lat: number; lon: number }>, ctx: BadnessCtx): number {
 	let total = 0;
-	for (let i = 1; i < pts.length; i++) total += crossedLengthM(pts[i - 1], pts[i], buildings);
+	for (let i = 1; i < pts.length; i++) total += segBadnessM(pts[i - 1], pts[i], ctx);
 	return total;
 }
 
@@ -277,16 +357,17 @@ export function correctWalkPath(
 	opts: CorrectOptions = DEFAULT_CORRECT_OPTIONS,
 ): CorrectedPoint[] {
 	if (drawn.length < 2 || buildings.length === 0) return drawn.map((p) => ({ ...p }));
-	// Fast path: nothing crosses → nothing to do (the common clean walk pays one
-	// sampling sweep and is returned untouched, un-densified).
-	const originalCrossM = pathCrossedM(drawn, buildings);
-	if (originalCrossM < opts.minCrossingM) return drawn.map((p) => ({ ...p }));
+	const ctx = makeBadnessCtx(walkable, buildings, opts);
+	// Fast path: nothing implausible → nothing to do (the common clean walk pays
+	// one sampling sweep and is returned untouched, un-densified).
+	const originalBadM = pathBadnessM(drawn, ctx);
+	if (originalBadM < opts.minCrossingM) return drawn.map((p) => ({ ...p }));
 
-	// Densify so a crossing run has enough vertices for anchors + the escape
-	// fallback, then find each maximal run of building-crossing segments.
+	// Densify so a bad run has enough vertices for anchors + the escape
+	// fallback, then find each maximal run of implausible segments.
 	const pts = densify(drawn, opts.densifyStepM);
 	const segCross: number[] = [];
-	for (let k = 1; k < pts.length; k++) segCross.push(crossedLengthM(pts[k - 1], pts[k], buildings));
+	for (let k = 1; k < pts.length; k++) segCross.push(segBadnessM(pts[k - 1], pts[k], ctx));
 
 	// Whole-leg reroute budget (m): total added length across ALL accepted routes.
 	let originalLenM = 0;
@@ -324,23 +405,28 @@ export function correctWalkPath(
 
 		const anchorA = pts[a];
 		const anchorB = pts[b];
-		let runCrossM = 0;
-		for (let s = a; s < b; s++) runCrossM += segCross[s] ?? 0;
+		let runBadM = 0;
+		for (let s = a; s < b; s++) runBadM += segCross[s] ?? 0;
 
 		// CASE 2 FIRST — route the whole gap along the streets. Holistic: one run,
 		// one route; this is what avoids the zigzag a per-vertex escape produces
 		// when mid-block vertices are equidistant from opposite walls.
 		let replaced = false;
-		if (runCrossM >= opts.minCrossingM) {
+		if (runBadM >= opts.minCrossingM) {
 			const straightM = metersBetween(anchorA.lat, anchorA.lon, anchorB.lat, anchorB.lon);
+			// The route bound is floored like the budget: going around a block is
+			// legitimately SEVERAL times a narrow gap's straight line (a 30 m gap
+			// mid-block detours ~130 m around it); the plain ratio would refuse
+			// exactly the honest detours the rule exists to make.
 			const route = routeOnWalkable(anchorA, anchorB, walkable, {
 				snapRadiusM: opts.routeSnapRadiusM,
-				maxRouteM: Math.max(50, straightM * opts.maxDetourRatio),
+				maxRouteM: Math.max(opts.minRouteBudgetM, straightM * opts.maxDetourRatio),
 			});
 			if (route && route.length >= 2) {
-				// Honesty guards: the route must cross meaningfully less than the gap
-				// it replaces, AND its added length must fit the whole-leg budget.
-				const routeCrossM = pathCrossedM(route, buildings);
+				// Honesty guards: the route must be meaningfully less implausible than
+				// the gap it replaces, AND its added length must fit the whole-leg
+				// budget.
+				const routeBadM = pathBadnessM(route, ctx);
 				let total = 0;
 				const cum: number[] = [0];
 				for (let k = 1; k < route.length; k++) {
@@ -348,7 +434,7 @@ export function correctWalkPath(
 					cum.push(total);
 				}
 				const addedM = total - straightM;
-				if (routeCrossM < runCrossM && addedM <= budgetM) {
+				if (routeBadM < runBadM && addedM <= budgetM) {
 					budgetM -= Math.max(0, addedM);
 					// Timestamps: interpolate along the route by cumulative distance
 					// between the anchors' real times. The route's (street-snapped)
@@ -379,7 +465,7 @@ export function correctWalkPath(
 			};
 			const addedM = lenOf(escaped) - lenOf(gap);
 			let kept = gap;
-			if (pathCrossedM(escaped, buildings) < runCrossM && addedM <= budgetM) {
+			if (pathBadnessM(escaped, ctx) < runBadM && addedM <= budgetM) {
 				budgetM -= Math.max(0, addedM);
 				kept = escaped;
 			}
@@ -389,9 +475,9 @@ export function correctWalkPath(
 		i = b + 1;
 	}
 
-	// Whole-line honesty invariant: never return a line that crosses more than
-	// the input did.
-	if (pathCrossedM(out, buildings) > originalCrossM) return drawn.map((p) => ({ ...p }));
+	// Whole-line honesty invariant: never return a line more implausible than
+	// the input.
+	if (pathBadnessM(out, ctx) > originalBadM) return drawn.map((p) => ({ ...p }));
 	return out;
 }
 

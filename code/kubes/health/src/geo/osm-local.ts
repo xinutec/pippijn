@@ -946,9 +946,16 @@ export async function queryDrivableRoads(lat: number, lon: number, radiusM: numb
 
 /** Highway subtypes a person on foot can plausibly be on — the soft surface
  *  prior for the pedestrian trajectory smoother. Pedestrian-only ways
- *  (footway/path/pedestrian/steps/cycleway/bridleway) PLUS the minor roads
- *  people walk along on the pavement (living_street/residential/service/
- *  unclassified/track). Fast roads (motorway…primary) are excluded. */
+ *  (footway/path/pedestrian/steps/cycleway/bridleway) PLUS every road class
+ *  people walk along on the pavement — including urban main roads
+ *  (tertiary/secondary/primary), whose centrelines are the pavement proxy just
+ *  as `residential` is: OSM rarely maps their footways separately, and
+ *  excluding them left HOLES in the pedestrian graph at every main road
+ *  (measured, 2026-07-01 Bridge Road: the matcher could not follow the
+ *  pavement and invented a service-alley + block-cut diagonal; the corrector
+ *  could not route around the block either — its shortest "walkable" detour
+ *  was a dishonest 1.6 km loop). Only motorway/trunk stay excluded: genuinely
+ *  unwalkable. */
 const WALKABLE_ROAD_SUBTYPES = [
 	"footway",
 	"path",
@@ -961,6 +968,12 @@ const WALKABLE_ROAD_SUBTYPES = [
 	"service",
 	"unclassified",
 	"track",
+	"tertiary",
+	"tertiary_link",
+	"secondary",
+	"secondary_link",
+	"primary",
+	"primary_link",
 ];
 
 /**

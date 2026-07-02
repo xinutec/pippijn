@@ -194,3 +194,84 @@ describe("correctWalkPath — case 2 (chord through a block routes around it)", 
 		expect(out.length).toBe(2);
 	});
 });
+
+describe("correctWalkPath — off-network chord in built surroundings (urban block cut)", () => {
+	// Two small buildings INSIDE the ring, flanking the mid-line with a gap
+	// between them: a chord across the block threads BETWEEN them (zero
+	// building-crossing — the class the containment rule is blind to) but is far
+	// off every street, in clearly built surroundings. The 2026-07-01 10:18
+	// Bridge Road diagonal, distilled.
+	const north = { c: LAT + dLat(9) };
+	const south = { c: LAT - dLat(9) };
+	const flankNorth: BuildingFootprint = [
+		{ lat: north.c - dLat(4), lon: LON - dLon(20) },
+		{ lat: north.c - dLat(4), lon: LON + dLon(20) },
+		{ lat: north.c + dLat(4), lon: LON + dLon(20) },
+		{ lat: north.c + dLat(4), lon: LON - dLon(20) },
+	];
+	const flankSouth: BuildingFootprint = [
+		{ lat: south.c - dLat(4), lon: LON - dLon(20) },
+		{ lat: south.c - dLat(4), lon: LON + dLon(20) },
+		{ lat: south.c + dLat(4), lon: LON + dLon(20) },
+		{ lat: south.c + dLat(4), lon: LON - dLon(20) },
+	];
+
+	it("routes a between-buildings chord around the block along the streets", () => {
+		const drawn = [
+			{ lat: LAT, lon: rW, ts: 0 },
+			{ lat: LAT, lon: rE, ts: 120 },
+		];
+		// Sanity: the chord crosses NO building (it threads the gap)…
+		expect(buildingCrossingM(drawn, [flankNorth, flankSouth])).toBeLessThan(1);
+
+		const out = correctWalkPath(drawn, streetRing, [flankNorth, flankSouth]);
+		// …but it is an urban block cut, so it must be rerouted along the ring:
+		// more vertices, and no vertex left in the gap corridor between the flanks.
+		expect(out.length).toBeGreaterThan(2);
+		const inGap = out.filter(
+			(p) =>
+				Math.abs(p.lat - LAT) * 111_320 < 5 && Math.abs(p.lon - LON) * 111_320 * Math.cos((LAT * Math.PI) / 180) < 10,
+		);
+		expect(inGap.length).toBe(0);
+		// Timestamps monotone, ends preserved.
+		for (let i = 1; i < out.length; i++) expect(out[i].ts).toBeGreaterThanOrEqual(out[i - 1].ts);
+		expect(out[0].ts).toBe(0);
+		expect(out[out.length - 1].ts).toBe(120);
+	});
+
+	it("leaves an off-network chord alone in open ground (no buildings near)", () => {
+		// Same geometry but the buildings are FAR outside the ring: the chord is
+		// off-network but the surroundings are open ground — trust the GPS
+		// (a walk across a park lawn is not an artifact).
+		const farBuilding: BuildingFootprint = [
+			{ lat: LAT + dLat(200), lon: LON - dLon(10) },
+			{ lat: LAT + dLat(200), lon: LON + dLon(10) },
+			{ lat: LAT + dLat(215), lon: LON + dLon(10) },
+			{ lat: LAT + dLat(215), lon: LON - dLon(10) },
+		];
+		const drawn = [
+			{ lat: LAT, lon: rW, ts: 0 },
+			{ lat: LAT, lon: rE, ts: 120 },
+		];
+		const out = correctWalkPath(drawn, streetRing, [farBuilding]);
+		expect(out.length).toBe(2);
+		expect(out[0].lon).toBeCloseTo(drawn[0].lon, 10);
+		expect(out[1].lon).toBeCloseTo(drawn[1].lon, 10);
+	});
+
+	it("does not touch a line that follows the streets", () => {
+		// Along North St end to end: on-network the whole way, buildings nearby —
+		// nothing to correct.
+		const drawn = [
+			{ lat: rN, lon: rW, ts: 0 },
+			{ lat: rN, lon: LON, ts: 60 },
+			{ lat: rN, lon: rE, ts: 120 },
+		];
+		const out = correctWalkPath(drawn, streetRing, [flankNorth, flankSouth]);
+		expect(out.length).toBe(3);
+		for (let i = 0; i < 3; i++) {
+			expect(out[i].lat).toBeCloseTo(drawn[i].lat, 10);
+			expect(out[i].lon).toBeCloseTo(drawn[i].lon, 10);
+		}
+	});
+});
