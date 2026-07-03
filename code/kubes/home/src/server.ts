@@ -20,7 +20,7 @@ app.onError((err, c) => {
 // Liveness/readiness probe (no auth).
 app.get("/health", (c) => c.json({ ok: true }));
 
-// JSON API: token-gated /api/ingest, public /api/latest + /api/measurements.
+// JSON API: token-gated /api/ingest, public /api/devices + /api/measurements.
 app.route("/api", apiRoutes(config.ingestToken));
 
 // SPA caching: HTML must always revalidate so a new deploy is picked up on a

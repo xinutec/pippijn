@@ -23,8 +23,9 @@ browser chrome. Build & install steps: [`android/README.md`](android/README.md).
 - Backend: Hono + Kysely + MariaDB (TypeScript, Node 24). Serves the built
   Angular app and the JSON API. Migrations run on startup.
 - Frontend: Angular 22 + Material 3, Chart.js. Built into the same image.
-- API: `POST /api/ingest` (Bearer `INGEST_TOKEN`), `GET /api/latest`,
-  `GET /api/measurements?from&to&device` (reads are public).
+- API: `POST /api/ingest` + `/api/ingest/batch` (Bearer `INGEST_TOKEN`),
+  `GET /api/devices`, `GET /api/measurements?from&to&device&limit`
+  (reads are public).
 
 ## Deploy (isis k3s, namespace `home`)
 1. DNS: `home` CNAME → `isis.xinutec.org` (in `code/dns/xinutec_org.tf`, `tofu apply`).

@@ -1,8 +1,19 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import { offsetFor } from "../calibration.js";
 import { db } from "../db/pool.js";
 import { decorateDevices } from "../labels.js";
 import { MeasurementBatch, MeasurementInput } from "../measurement.js";
+
+// Query parameters for /api/measurements. Validated like the write path — a
+// malformed `from`/`to` must 400, not silently return an unfiltered range
+// (`new Date("garbage")` is an Invalid Date the driver won't filter on).
+export const MeasurementsQuery = z.object({
+	from: z.coerce.date().optional(),
+	to: z.coerce.date().optional(),
+	device: z.string().min(1).max(64).default("airvisual"),
+	limit: z.coerce.number().int().positive().max(20000).default(5000),
+});
 
 function sensorValues(m: MeasurementInput) {
 	return {
@@ -62,21 +73,6 @@ export function apiRoutes(ingestToken: string): Hono {
 		return c.json({ ok: true, received: rows.length });
 	});
 
-	// Public read: a single device's most recent reading. Defaults to the
-	// air-quality sensor — NOT "newest across all devices", which would let a
-	// Govee room reading surface in the IQAir hero with blank air-quality fields.
-	api.get("/latest", async (c) => {
-		const device = c.req.query("device") ?? "airvisual";
-		const row = await db()
-			.selectFrom("measurement")
-			.selectAll()
-			.where("device", "=", device)
-			.orderBy("ts", "desc")
-			.limit(1)
-			.executeTakeFirst();
-		return c.json(row ?? null);
-	});
-
 	// Public read: the latest reading per device, each tagged with its display
 	// label and ordered for the UI. Drives the per-room tiles.
 	api.get("/devices", async (c) => {
@@ -101,17 +97,18 @@ export function apiRoutes(ingestToken: string): Hono {
 
 	// Public read: a time range, oldest first, for charting.
 	api.get("/measurements", async (c) => {
-		const from = c.req.query("from");
-		const to = c.req.query("to");
-		const device = c.req.query("device") ?? "airvisual";
-		const limit = Math.min(Number(c.req.query("limit") ?? 5000) || 5000, 20000);
+		const parsed = MeasurementsQuery.safeParse(c.req.query());
+		if (!parsed.success) {
+			return c.json({ error: "invalid query", detail: parsed.error.flatten() }, 400);
+		}
+		const { from, to, device, limit } = parsed.data;
 		let q = db()
 			.selectFrom("measurement")
 			.selectAll()
 			.where("device", "=", device)
 			.orderBy("ts", "asc");
-		if (from) q = q.where("ts", ">=", new Date(from));
-		if (to) q = q.where("ts", "<=", new Date(to));
+		if (from) q = q.where("ts", ">=", from);
+		if (to) q = q.where("ts", "<=", to);
 		const rows = await q.limit(limit).execute();
 		return c.json(rows);
 	});
