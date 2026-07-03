@@ -23,8 +23,9 @@ spec:
         env:
         - name: MYSQL_DATABASE
           value: nextcloud
-        - name: MARIADB_ALLOW_EMPTY_ROOT_PASSWORD
-          value: "1"
+        # Root password comes from MYSQL_ROOT_PASSWORD in nextcloud-db-secret
+        # (via envFrom below). Only applied on a fresh datadir; the running DB's
+        # root password is set directly. Previously MARIADB_ALLOW_EMPTY_ROOT_PASSWORD.
         envFrom:
         - secretRef:
             name: nextcloud-db-secret
@@ -43,8 +44,13 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 5
         readinessProbe:
+          # Authenticate as the app user (creds from the secret) rather than
+          # passwordless root, so the probe keeps working once root has a password.
           exec:
-            command: ["mariadb", "-h", "127.0.0.1", "-e", "SELECT 1"]
+            command:
+            - sh
+            - -c
+            - 'MYSQL_PWD="$MYSQL_PASSWORD" mariadb -h 127.0.0.1 -u "$MYSQL_USER" -e "SELECT 1"'
           initialDelaySeconds: 5
           periodSeconds: 10
           timeoutSeconds: 5
