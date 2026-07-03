@@ -1,0 +1,91 @@
+.block {
+  margin-bottom: 0.85rem;
+  padding: 0.85rem 1rem;
+}
+
+.prompt {
+  margin: 0 0 0.6rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+
+  h3 {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    font-size: 1rem;
+
+    mat-icon {
+      width: 20px;
+      height: 20px;
+      font-size: 20px;
+      color: var(--mat-sys-primary);
+    }
+  }
+}
+
+.none {
+  margin: 0.25rem 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// Small status pills, matching the to-do list's grammar.
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+
+  &.overdue {
+    background: color-mix(in srgb, var(--mat-sys-error) 20%, transparent);
+    color: var(--mat-sys-on-error-container);
+    font-weight: 600;
+  }
+  &.due-soon {
+    background: color-mix(in srgb, var(--mat-sys-tertiary) 24%, transparent);
+    color: var(--mat-sys-on-tertiary-container);
+  }
+  &.ready {
+    background: color-mix(in srgb, var(--mat-sys-primary) 20%, transparent);
+  }
+}
+
+.expiry {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  &.expired {
+    color: var(--mat-sys-error);
+    font-weight: 600;
+  }
+  &.soon {
+    color: var(--mat-sys-tertiary);
+    font-weight: 500;
+  }
+}
+
+.shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+
+  a {
+    flex: 1 1 8rem;
+
+    .count {
+      display: inline-block;
+      margin-left: 0.35rem;
+      padding: 0 0.4rem;
+      border-radius: 999px;
+      background: var(--mat-sys-primary);
+      color: var(--mat-sys-on-primary);
+      font-size: 0.75rem;
+    }
+  }
+}

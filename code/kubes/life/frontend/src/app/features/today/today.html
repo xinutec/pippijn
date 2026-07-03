@@ -1,0 +1,62 @@
+<h2>Today</h2>
+
+<mat-card appearance="outlined" class="block">
+  <p class="prompt">How do you feel right now?</p>
+  <app-wellbeing-checkin />
+</mat-card>
+
+<mat-card appearance="outlined" class="block">
+  <div class="block-head">
+    <h3><mat-icon>bolt</mat-icon> Needs you</h3>
+    <a mat-button routerLink="/todo">All to-dos</a>
+  </div>
+  @if (attention().length === 0) {
+    <p class="none">Nothing pressing right now.</p>
+  } @else {
+    <mat-list>
+      @for (a of attention(); track a.todo.ulid) {
+        <mat-list-item routerLink="/todo">
+          <mat-icon matListItemIcon>check_box_outline_blank</mat-icon>
+          <span matListItemTitle>{{ a.todo.title }}</span>
+          @if (a.chip; as c) {
+            <span matListItemMeta class="pill {{ c.cls }}">{{ c.label }}</span>
+          }
+        </mat-list-item>
+      }
+    </mat-list>
+  }
+</mat-card>
+
+@if (expiring().length > 0) {
+  <mat-card appearance="outlined" class="block">
+    <div class="block-head">
+      <h3><mat-icon>schedule</mat-icon> Expiring soon</h3>
+      <a mat-button routerLink="/items">All items</a>
+    </div>
+    <mat-list>
+      @for (e of expiring(); track e.item.id) {
+        <mat-list-item routerLink="/items">
+          <mat-icon matListItemIcon>nutrition</mat-icon>
+          <span matListItemTitle>{{ e.item.name }}</span>
+          <span matListItemMeta class="expiry" [class]="e.info.cls">{{ e.info.label }}</span>
+        </mat-list-item>
+      }
+    </mat-list>
+  </mat-card>
+}
+
+<div class="shortcuts">
+  <a mat-stroked-button routerLink="/shopping">
+    <mat-icon>shopping_cart</mat-icon>
+    Buy@if (buyCount() > 0) { <span class="count">{{ buyCount() }}</span> }
+  </a>
+  <a mat-stroked-button routerLink="/inventory">
+    <mat-icon>kitchen</mat-icon> Inventory
+  </a>
+  <a mat-stroked-button routerLink="/house">
+    <mat-icon>home</mat-icon> House
+  </a>
+  <a mat-stroked-button routerLink="/wellbeing">
+    <mat-icon>mood</mat-icon> Wellbeing
+  </a>
+</div>

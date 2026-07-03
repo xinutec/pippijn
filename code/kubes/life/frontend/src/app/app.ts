@@ -43,6 +43,7 @@ export class App {
 
   // The frequent destinations live in the bottom tab bar.
   readonly nav: NavItem[] = [
+    { path: '/today', icon: 'today', label: 'Today' },
     { path: '/shopping', icon: 'shopping_cart', label: 'Buy' },
     { path: '/inventory', icon: 'kitchen', label: 'Inventory' },
     { path: '/recipes', icon: 'menu_book', label: 'Recipes' },

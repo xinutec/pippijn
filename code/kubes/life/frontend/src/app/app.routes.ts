@@ -8,11 +8,13 @@ import { Recipes } from './features/recipes/recipes';
 import { Settings } from './features/settings/settings';
 import { Shopping } from './features/shopping/shopping';
 import { Todo } from './features/todo/todo';
+import { Today } from './features/today/today';
 import { Trash } from './features/trash/trash';
 import { Wellbeing } from './features/wellbeing/wellbeing';
 
 export const routes: Routes = [
-  { path: '', pathMatch: 'full', redirectTo: 'inventory' },
+  { path: '', pathMatch: 'full', redirectTo: 'today' },
+  { path: 'today', title: 'Life · today', component: Today },
   { path: 'shopping', title: 'Life · buy', component: Shopping },
   { path: 'inventory', title: 'Life · inventory', component: Inventory },
   { path: 'recipes', title: 'Life · recipes', component: Recipes },
@@ -23,5 +25,5 @@ export const routes: Routes = [
   { path: 'trash', title: 'Life · recently deleted', component: Trash },
   { path: 'conflicts', title: 'Life · sync conflicts', component: Conflicts },
   { path: 'settings', title: 'Life · settings', component: Settings },
-  { path: '**', redirectTo: 'inventory' },
+  { path: '**', redirectTo: 'today' },
 ];

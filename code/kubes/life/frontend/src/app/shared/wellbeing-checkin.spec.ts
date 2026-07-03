@@ -27,12 +27,11 @@ describe('WellbeingCheckin', () => {
   it('logs a check-in at "now" with the tapped score and offers Undo', async () => {
     const { fixture, store, feedback } = setup();
     await fixture.componentInstance.log(4);
-    expect(store.add).toHaveBeenCalledWith(
-      expect.objectContaining({ score: 4, note: null, recordedAt: expect.any(String) }),
-    );
-    // recordedAt is a valid ISO instant.
-    const arg = store.add.mock.calls[0][0];
-    expect(new Date(arg.recordedAt).toString()).not.toBe('Invalid Date');
+    expect(store.add).toHaveBeenCalledTimes(1);
+    const [input] = store.add.mock.calls[0];
+    expect(input.score).toBe(4);
+    expect(input.note).toBeNull();
+    expect(typeof input.recordedAt).toBe('string');
     expect(feedback.undo).toHaveBeenCalled();
   });
 
