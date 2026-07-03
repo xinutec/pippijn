@@ -9,7 +9,13 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { ApiService } from './api.service';
-import { type DeviceLatest, RANGE_OPTIONS, type RangeKey, aqiBand, cleanVoc } from './measurement.model';
+import {
+	type DeviceLatest,
+	RANGE_OPTIONS,
+	type RangeKey,
+	aqiBand,
+	cleanVoc,
+} from './measurement.model';
 import { RelativeTimePipe } from './relative-time.pipe';
 import { airSeries, climateSeries } from './series';
 import { ThemeService } from './theme.service';
@@ -123,10 +129,22 @@ export class App implements OnInit, OnDestroy {
 	});
 	// CO₂ & PM2.5: a single line from the air-quality device only.
 	protected readonly co2Series = computed(() =>
-		airSeries(this.devices(), this.api.historyByDevice(), 'CO₂', 'var(--chart-co2)', (m) => m.co2_ppm),
+		airSeries(
+			this.devices(),
+			this.api.historyByDevice(),
+			'CO₂',
+			'var(--chart-co2)',
+			(m) => m.co2_ppm,
+		),
 	);
 	protected readonly pm25Series = computed(() =>
-		airSeries(this.devices(), this.api.historyByDevice(), 'PM2.5', 'var(--chart-pm)', (m) => m.pm25),
+		airSeries(
+			this.devices(),
+			this.api.historyByDevice(),
+			'PM2.5',
+			'var(--chart-pm)',
+			(m) => m.pm25,
+		),
 	);
 	// Bluetooth signal (dBm): one line per device that reports rssi (the Govee
 	// sensors); empty series (e.g. the wired IQAir) are dropped.

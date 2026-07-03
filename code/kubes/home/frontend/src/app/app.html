@@ -64,9 +64,7 @@
 				<div class="climate-meta">
 					<div class="humidity">
 						<mat-icon>water_drop</mat-icon>
-						<span>
-							{{ airHum() != null ? (airHum()! | number: '1.0-0') : '—' }}% humidity
-						</span>
+						<span> {{ airHum() != null ? (airHum()! | number: '1.0-0') : '—' }}% humidity </span>
 					</div>
 					<div class="updated">
 						<mat-icon>schedule</mat-icon>
