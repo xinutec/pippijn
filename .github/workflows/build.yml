@@ -4,6 +4,11 @@ name: build
 on:
   push:
     branches: [main]
+    # Images build from node:24-alpine / rust:1-bookworm, never from the flake,
+    # so a flake.lock-only change (the monthly flake-update commit) can't affect
+    # any image — skip the rebuild. Mixed commits that also touch code still run.
+    paths-ignore:
+      - "**/flake.lock"
 
 jobs:
   inspircd:

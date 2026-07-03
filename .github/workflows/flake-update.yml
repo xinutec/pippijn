@@ -2,10 +2,13 @@
 name: flake-update
 
 # Keep each project's pinned nixpkgs (its flake.lock) current on a schedule, so
-# `nix develop` / direnv toolchains don't silently drift years behind. One PR
-# per project: a bad bump is isolated to its own PR, and the others still merge.
-# Validation is the repo's normal gate — merging to main runs build.yml
-# (verify + image build) exactly as any push does.
+# `nix develop` / direnv toolchains don't silently drift years behind.
+#
+# Pushes straight to main — no PR. The flake.lock feeds ONLY the local dev shell:
+# images build from node:24-alpine / rust:1-bookworm and CI verify uses
+# setup-node, so a bump can't affect prod or CI, and there is nothing for a PR
+# gate to validate. Worst case of a bad bump is a wonky local toolchain — revert
+# the one lock line. build.yml ignores flake.lock, so this doesn't rebuild images.
 
 on:
   schedule:
@@ -14,40 +17,30 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   update:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [health, home, life, messages]
     steps:
       - uses: actions/checkout@v6
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
 
-      - name: Update flake inputs
-        working-directory: code/kubes/${{ matrix.project }}
-        run: nix flake update
+      - name: Update every project's flake inputs
+        run: |
+          for p in health home life messages; do
+            (cd "code/kubes/$p" && nix flake update)
+          done
 
-      - name: Open PR
-        uses: peter-evans/create-pull-request@v7
-        with:
-          branch: flake-update/${{ matrix.project }}
-          delete-branch: true
-          add-paths: code/kubes/${{ matrix.project }}/flake.lock
-          commit-message: "${{ matrix.project }}: bump flake inputs"
-          author: "flake-update <actions@github.com>"
-          committer: "flake-update <actions@github.com>"
-          title: "${{ matrix.project }}: bump flake inputs"
-          body: |
-            Automated monthly bump of `code/kubes/${{ matrix.project }}/flake.lock`
-            (`nix flake update`).
-
-            Review the lock diff, then merge — merging to `main` runs the normal
-            `build.yml` gate (verify + image build) for this project, so a broken
-            bump surfaces there just like any push. If it breaks, revert this
-            one lock file.
+      - name: Commit & push if any lock changed
+        run: |
+          if git diff --quiet -- code/kubes/*/flake.lock; then
+            echo "no lock changes — nothing to do"
+            exit 0
+          fi
+          git config user.name "flake-update"
+          git config user.email "actions@github.com"
+          git add code/kubes/*/flake.lock
+          git commit -m "bump flake locks (monthly)"
+          git push
