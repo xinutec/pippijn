@@ -24,21 +24,22 @@
       background: color-mix(in srgb, var(--mat-sys-primary) 14%, transparent);
     }
   }
-  // Score ramp on the icons (matches the check-in strip + timeline).
+  // Score ramp on the icons — the shared wellbeing ramp (--wb-score-* in
+  // styles.scss), same as the check-in strip + timeline.
   .score-1 mat-icon {
-    color: var(--mat-sys-error);
+    color: var(--wb-score-1);
   }
   .score-2 mat-icon {
-    color: color-mix(in srgb, var(--mat-sys-error) 60%, var(--mat-sys-tertiary));
+    color: var(--wb-score-2);
   }
   .score-3 mat-icon {
-    color: var(--mat-sys-on-surface-variant);
+    color: var(--wb-score-3);
   }
   .score-4 mat-icon {
-    color: color-mix(in srgb, var(--mat-sys-primary) 70%, var(--mat-sys-tertiary));
+    color: var(--wb-score-4);
   }
   .score-5 mat-icon {
-    color: var(--mat-sys-primary);
+    color: var(--wb-score-5);
   }
 }
 

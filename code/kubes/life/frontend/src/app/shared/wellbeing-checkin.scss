@@ -38,21 +38,20 @@
     transform: scale(0.96);
   }
 
-  // The ramp: error (awful) → neutral → primary (great). color-mix keeps it
-  // legible in both light and dark themes.
+  // The shared wellbeing ramp (--wb-score-* in styles.scss).
   &.score-1 mat-icon {
-    color: var(--mat-sys-error);
+    color: var(--wb-score-1);
   }
   &.score-2 mat-icon {
-    color: color-mix(in srgb, var(--mat-sys-error) 60%, var(--mat-sys-tertiary));
+    color: var(--wb-score-2);
   }
   &.score-3 mat-icon {
-    color: var(--mat-sys-on-surface-variant);
+    color: var(--wb-score-3);
   }
   &.score-4 mat-icon {
-    color: color-mix(in srgb, var(--mat-sys-primary) 70%, var(--mat-sys-tertiary));
+    color: var(--wb-score-4);
   }
   &.score-5 mat-icon {
-    color: var(--mat-sys-primary);
+    color: var(--wb-score-5);
   }
 }

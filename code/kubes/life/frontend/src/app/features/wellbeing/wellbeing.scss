@@ -42,36 +42,37 @@
   }
 }
 
-// Shared score ramp for chart dots + timeline faces.
+// Chart dots + timeline faces, both driven by the shared wellbeing ramp
+// (--wb-score-* in styles.scss): faces colour the icon, dots fill the circle.
 .score-1 {
-  color: var(--mat-sys-error);
+  color: var(--wb-score-1);
 }
 .dot.score-1 {
-  fill: var(--mat-sys-error);
+  fill: var(--wb-score-1);
 }
 .score-2 {
-  color: color-mix(in srgb, var(--mat-sys-error) 60%, var(--mat-sys-tertiary));
+  color: var(--wb-score-2);
 }
 .dot.score-2 {
-  fill: color-mix(in srgb, var(--mat-sys-error) 60%, var(--mat-sys-tertiary));
+  fill: var(--wb-score-2);
 }
 .score-3 {
-  color: var(--mat-sys-on-surface-variant);
+  color: var(--wb-score-3);
 }
 .dot.score-3 {
-  fill: var(--mat-sys-on-surface-variant);
+  fill: var(--wb-score-3);
 }
 .score-4 {
-  color: color-mix(in srgb, var(--mat-sys-primary) 70%, var(--mat-sys-tertiary));
+  color: var(--wb-score-4);
 }
 .dot.score-4 {
-  fill: color-mix(in srgb, var(--mat-sys-primary) 70%, var(--mat-sys-tertiary));
+  fill: var(--wb-score-4);
 }
 .score-5 {
-  color: var(--mat-sys-primary);
+  color: var(--wb-score-5);
 }
 .dot.score-5 {
-  fill: var(--mat-sys-primary);
+  fill: var(--wb-score-5);
 }
 
 .day {

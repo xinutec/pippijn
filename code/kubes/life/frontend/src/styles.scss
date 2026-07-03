@@ -15,6 +15,17 @@ html {
       density: 0,
     )
   );
+
+  // Wellbeing score colour ramp — the ONE source of truth for the check-in
+  // faces, the trend-chart dots and the history timeline. A diverging scale
+  // through the neutral: strong red (awful) → soft red → grey (okay) → soft
+  // green → green (great). Every step references a --mat-sys token, so it
+  // adapts to light/dark automatically and stays legible in both.
+  --wb-score-1: var(--mat-sys-error);
+  --wb-score-2: color-mix(in srgb, var(--mat-sys-error) 60%, var(--mat-sys-on-surface-variant));
+  --wb-score-3: var(--mat-sys-on-surface-variant);
+  --wb-score-4: color-mix(in srgb, var(--mat-sys-primary) 60%, var(--mat-sys-on-surface-variant));
+  --wb-score-5: var(--mat-sys-primary);
 }
 
 body {
