@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { MatBadgeModule } from '@angular/material/badge';
 import { MatButtonModule } from '@angular/material/button';
+import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
@@ -27,6 +28,7 @@ interface NavItem {
     RouterLinkActive,
     MatBadgeModule,
     MatButtonModule,
+    MatCardModule,
     MatIconModule,
     MatMenuModule,
     MatProgressBarModule,

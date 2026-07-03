@@ -2,9 +2,10 @@ import { Component, inject, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
-import { MatSnackBar } from '@angular/material/snack-bar';
+import { MatListModule } from '@angular/material/list';
 
 import { BUILD_INFO } from '../../build-info';
+import { Feedback } from '../../shared/feedback';
 import { SwUpdates } from '../../sw-updates';
 
 /** Settings — the natural home for app-level bits (the build version today; NC
@@ -17,11 +18,11 @@ import { SwUpdates } from '../../sw-updates';
   selector: 'app-settings',
   templateUrl: './settings.html',
   styleUrl: './settings.scss',
-  imports: [MatCardModule, MatButtonModule, MatIconModule],
+  imports: [MatCardModule, MatButtonModule, MatIconModule, MatListModule],
 })
 export class Settings {
   private swUpdates = inject(SwUpdates);
-  private snack = inject(MatSnackBar);
+  private feedback = inject(Feedback);
 
   protected readonly build = BUILD_INFO;
   /** Localized build time, or '' when unknown (a bare/dev stamp). */
@@ -35,11 +36,11 @@ export class Settings {
     try {
       const result = await this.swUpdates.checkNow();
       if (result === 'updating') {
-        this.snack.open('New version found — updating…', undefined, { duration: 4000 });
+        this.feedback.notify('New version found — updating…');
       } else if (result === 'current') {
-        this.snack.open('You’re on the latest version.', 'OK', { duration: 3000 });
+        this.feedback.notify('You’re on the latest version.');
       } else {
-        this.snack.open('Updates aren’t available in this build.', 'OK', { duration: 3000 });
+        this.feedback.error('Updates aren’t available in this build.');
       }
     } finally {
       this.checking.set(false);

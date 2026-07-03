@@ -6,14 +6,18 @@
     <mat-card-subtitle>Life — your home, organised.</mat-card-subtitle>
   </mat-card-header>
   <mat-card-content>
-    <dl class="about">
-      <dt>Version</dt>
-      <dd class="mono">{{ build.sha }}</dd>
+    <mat-list>
+      <mat-list-item lines="2">
+        <span matListItemTitle>Version</span>
+        <span matListItemLine class="mono">{{ build.sha }}</span>
+      </mat-list-item>
       @if (builtAt) {
-        <dt>Built</dt>
-        <dd>{{ builtAt }}</dd>
+        <mat-list-item lines="2">
+          <span matListItemTitle>Built</span>
+          <span matListItemLine>{{ builtAt }}</span>
+        </mat-list-item>
       }
-    </dl>
+    </mat-list>
     <p class="hint">
       This is the build running in this tab. If it looks out of date, check for updates.
     </p>

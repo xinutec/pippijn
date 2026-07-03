@@ -68,8 +68,14 @@
   </nav>
 } @else {
   <div class="signin">
-    <h1>Life</h1>
-    <p>Your home, organised.</p>
-    <a mat-flat-button color="primary" href="/login">Sign in with Nextcloud</a>
+    <mat-card appearance="outlined" class="signin-card">
+      <mat-card-content>
+        <div class="wordmark"><mat-icon>spa</mat-icon> Life</div>
+        <p class="tagline">Your home, organised.</p>
+        <a mat-flat-button color="primary" href="/login">
+          <mat-icon>login</mat-icon> Sign in with Nextcloud
+        </a>
+      </mat-card-content>
+    </mat-card>
   </div>
 }
