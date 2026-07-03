@@ -32,6 +32,16 @@ html {
   --v-silent: var(--v-fail);
 }
 
+// The universal border-box reset every fleet app ships (life/home/health/
+// messages). Without it `width: 100%` + horizontal padding = wider than the
+// viewport — .content's 2×0.75rem padding made every page 24px too wide and
+// horizontally scrollable on the phone.
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   height: 100%;
