@@ -50,13 +50,15 @@
   </mat-card>
 }
 
-@if (!loaded()) {
-  <mat-progress-bar mode="indeterminate" />
-} @else if (loadError()) {
-  <p class="empty">Couldn’t load your recipes — are you online? <button mat-button (click)="reload()">Retry</button></p>
-} @else if (recipes().length === 0) {
-  <p class="empty">No recipes yet.</p>
-}
+<app-list-state
+  [loading]="!loaded()"
+  [error]="loadError()"
+  (retry)="reload()"
+  [empty]="recipes().length === 0"
+  emptyIcon="menu_book"
+  errorText="Couldn’t load your recipes — are you online?"
+  emptyText="No recipes yet. Tap + to add one."
+/>
 
 @for (recipe of recipes(); track recipe.id) {
   <mat-card class="recipe" appearance="outlined">

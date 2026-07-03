@@ -97,13 +97,14 @@
 
 <section>
   <h3>Items</h3>
-  @if (!itemsLoaded()) {
-    <mat-progress-bar mode="indeterminate" />
-  } @else if (itemsError()) {
-    <p class="empty">Couldn’t load — are you online? <button mat-button (click)="reloadItems()">Retry</button></p>
-  } @else if (items().length === 0) {
-    <p class="empty">No items yet — tap the + button.</p>
-  }
+  <app-list-state
+    [loading]="!itemsLoaded()"
+    [error]="itemsError()"
+    (retry)="reloadItems()"
+    [empty]="items().length === 0"
+    emptyIcon="inventory_2"
+    emptyText="No items yet — tap the + button."
+  />
   <mat-list>
     @for (it of items(); track it.id) {
       <mat-list-item lines="2">
@@ -134,13 +135,14 @@
 
 <section>
   <h3>Places</h3>
-  @if (!placesLoaded()) {
-    <mat-progress-bar mode="indeterminate" />
-  } @else if (placesError()) {
-    <p class="empty">Couldn’t load — are you online? <button mat-button (click)="reloadLocations()">Retry</button></p>
-  } @else if (locations().length === 0) {
-    <p class="empty">No places yet — tap “+ Place”.</p>
-  }
+  <app-list-state
+    [loading]="!placesLoaded()"
+    [error]="placesError()"
+    (retry)="reloadLocations()"
+    [empty]="locations().length === 0"
+    emptyIcon="inventory_2"
+    emptyText="No places yet — tap “+ Place”."
+  />
   <mat-list>
     @for (loc of locations(); track loc.id) {
       <mat-list-item lines="2">

@@ -1,13 +1,13 @@
 <h2>Sync conflicts</h2>
 
-@if (!loaded()) {
-  <mat-progress-bar mode="indeterminate" />
-} @else if (entries().length === 0) {
-  <p class="empty">
-    No conflicts. When the same field is edited on two devices while one is offline, the losing
-    value lands here for review.
-  </p>
-} @else {
+<app-list-state
+  [loading]="!loaded()"
+  [empty]="entries().length === 0"
+  emptyIcon="published_with_changes"
+  emptyText="No conflicts. When the same field is edited on two devices while one is offline, the losing value lands here for review."
+/>
+
+@if (loaded() && entries().length > 0) {
   <p class="hint">
     Both devices edited the same thing while apart. One version was kept — nothing was thrown away;
     pick which value should stand.

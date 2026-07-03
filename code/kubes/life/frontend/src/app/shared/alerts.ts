@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 
-import { LifeApi } from './life-api';
+import { LifeApi } from '../life-api';
 
 /** App-wide "needs your attention" counters, surfaced as badges on the menu.
  *  Currently just unresolved sync conflicts — the one thing that silently needs

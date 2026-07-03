@@ -1,12 +1,16 @@
 <h2>All items</h2>
 
-@if (!loaded()) {
-  <mat-progress-bar mode="indeterminate" />
-} @else if (loadError()) {
-  <p class="empty">Couldn’t load your items — are you online? <button mat-button (click)="reload()">Retry</button></p>
-} @else if (items().length === 0) {
-  <p class="empty">No items yet — add them from Inventory, or scan on the Buy tab.</p>
-} @else {
+<app-list-state
+  [loading]="!loaded()"
+  [error]="loadError()"
+  (retry)="reload()"
+  [empty]="items().length === 0"
+  emptyIcon="inventory_2"
+  errorText="Couldn’t load your items — are you online?"
+  emptyText="No items yet — add them from Inventory, or scan on the Buy tab."
+/>
+
+@if (loaded() && !loadError() && items().length > 0) {
   <div class="controls">
     <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter">
       <mat-label>Filter</mat-label>
@@ -30,7 +34,7 @@
 
   <p class="count">{{ count() }} item{{ count() === 1 ? '' : 's' }}{{ query() ? ' match' : '' }}</p>
   @if (count() === 0) {
-    <p class="empty">Nothing matches “{{ query() }}”.</p>
+    <app-list-state [empty]="true" emptyIcon="search_off" [emptyText]="'Nothing matches “' + query() + '”.'" />
   }
   <mat-list>
     @for (it of visible(); track it.id) {

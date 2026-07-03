@@ -1,10 +1,13 @@
 <h2>Recently deleted</h2>
 
-@if (!loaded()) {
-  <mat-progress-bar mode="indeterminate" />
-} @else if (entries().length === 0) {
-  <p class="empty">Nothing here. Deleted things land in this list and can be restored any time.</p>
-} @else {
+<app-list-state
+  [loading]="!loaded()"
+  [empty]="entries().length === 0"
+  emptyIcon="restore_from_trash"
+  emptyText="Nothing here. Deleted things land in this list and can be restored any time."
+/>
+
+@if (loaded() && entries().length > 0) {
   <p class="hint">Anything you delete stays here and can be restored any time.</p>
   <mat-list>
     @for (e of entries(); track e.kind + e.ref) {

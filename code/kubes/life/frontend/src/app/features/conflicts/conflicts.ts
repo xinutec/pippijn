@@ -2,10 +2,10 @@ import { Component, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSnackBar } from '@angular/material/snack-bar';
 
-import { Alerts } from '../../alerts';
+import { Alerts } from '../../shared/alerts';
+import { Feedback } from '../../shared/feedback';
+import { ListState } from '../../shared/list-state';
 import { LifeApi } from '../../life-api';
 import { ConflictEntry } from '../../models';
 import { SHOPPING_MERGE_FIELDS, ShoppingStore } from '../../sync/shopping-store';
@@ -22,11 +22,11 @@ const TODO_PATCHABLE: ReadonlySet<string> = new Set(TODO_MERGE_FIELDS);
   selector: 'app-conflicts',
   templateUrl: './conflicts.html',
   styleUrl: './conflicts.scss',
-  imports: [DatePipe, MatButtonModule, MatCardModule, MatProgressBarModule],
+  imports: [DatePipe, MatButtonModule, MatCardModule, ListState],
 })
 export class Conflicts {
   private api = inject(LifeApi);
-  private snack = inject(MatSnackBar);
+  private feedback = inject(Feedback);
   private shopping = inject(ShoppingStore);
   private todo = inject(TodoStore);
   private alerts = inject(Alerts);
@@ -45,7 +45,7 @@ export class Conflicts {
       },
       error: () => {
         this.loaded.set(true);
-        this.snack.open('Could not load conflicts — are you online?', 'OK', { duration: 4000 });
+        this.feedback.error('Could not load conflicts — are you online?');
       },
     });
   }
@@ -80,7 +80,7 @@ export class Conflicts {
       apply = this.todo.patch(e.ulid, { [e.field]: value });
     }
     if (!apply) {
-      this.snack.open('This conflict can no longer be applied.', 'OK', { duration: 4000 });
+      this.feedback.error('This conflict can no longer be applied.');
       return;
     }
     this.finish(e, apply);
@@ -105,7 +105,7 @@ export class Conflicts {
             next.delete(e.id);
             return next;
           });
-          this.snack.open('Could not resolve — are you online?', 'OK', { duration: 4000 });
+          this.feedback.error('Could not resolve — are you online?');
         },
       });
     });

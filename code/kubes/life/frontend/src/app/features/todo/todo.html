@@ -62,17 +62,16 @@
   }
 </div>
 
-@if (!loaded()) {
-  <mat-progress-bar mode="indeterminate" />
-} @else if (visible().length === 0) {
-  <p class="empty">
-    @if (readyOnly()) {
-      Nothing ready right now.
-    } @else {
-      No to-dos{{ filter() ? ' of this type' : '' }} yet. Tap + to add one.
-    }
-  </p>
-}
+<app-list-state
+  [loading]="!loaded()"
+  [empty]="visible().length === 0"
+  emptyIcon="checklist"
+  [emptyText]="
+    readyOnly()
+      ? 'Nothing ready right now.'
+      : 'No to-dos' + (filter() ? ' of this type' : '') + ' yet. Tap + to add one.'
+  "
+/>
 
 <mat-list>
   @for (it of visible(); track it.ulid) {

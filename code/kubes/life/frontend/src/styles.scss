@@ -25,6 +25,14 @@ body {
   font: var(--mat-sys-body-medium);
 }
 
+// A completed / bought item: struck through and dimmed. Global (not per-screen)
+// so Buy and To-do share one definition — and so it actually applies inside the
+// list screens' emulated-encapsulation styles.
+.done {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
 // The barcode scanner dialog is full-bleed (the camera fills its own box).
 .scanner-pane .mat-mdc-dialog-surface {
   padding: 0;

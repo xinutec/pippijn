@@ -7,10 +7,10 @@ import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSnackBar } from '@angular/material/snack-bar';
 
-import { revealAddForm } from '../../add-fab';
+import { revealAddForm } from '../../shared/add-fab';
+import { Feedback } from '../../shared/feedback';
+import { ListState } from '../../shared/list-state';
 import { LifeApi } from '../../life-api';
 import { Recipe, RecipeIngredient } from '../../models';
 
@@ -33,18 +33,18 @@ interface RecipeForm {
     MatChipsModule,
     MatFormFieldModule,
     MatInputModule,
-    MatProgressBarModule,
+    ListState,
   ],
 })
 export class Recipes {
   private api = inject(LifeApi);
-  private snack = inject(MatSnackBar);
+  private feedback = inject(Feedback);
 
   /** Online-only writes must not fail into silence: announce and move on. */
   private failed(what: string) {
     return (e: HttpErrorResponse) => {
       const hint = e.status === 0 ? ' — are you online?' : '';
-      this.snack.open(`Could not ${what}${hint}`, 'OK', { duration: 4000 });
+      this.feedback.error(`Could not ${what}${hint}`);
     };
   }
 
@@ -139,15 +139,12 @@ export class Recipes {
         this.reload();
         // Deletes are tombstones (restorable from Recently deleted); offer an
         // immediate Undo so a fat-finger costs one tap.
-        this.snack
-          .open('Recipe deleted', 'Undo', { duration: 6000 })
-          .onAction()
-          .subscribe(() => {
-            this.api.restoreTrash('recipe', String(id)).subscribe({
-              next: () => this.reload(),
-              error: this.failed('undo the delete'),
-            });
+        this.feedback.undo('Recipe deleted', () => {
+          this.api.restoreTrash('recipe', String(id)).subscribe({
+            next: () => this.reload(),
+            error: this.failed('undo the delete'),
           });
+        });
       },
       error: this.failed('delete the recipe'),
     });

@@ -6,11 +6,11 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { ExpiryInfo, expiryInfo } from '../../expiry';
 import { LifeApi } from '../../life-api';
 import { ProductThumb } from '../../product-thumb';
+import { ListState } from '../../shared/list-state';
 import { Item, Loc } from '../../models';
 
 type SortKey = 'name' | 'expiry';
@@ -31,8 +31,8 @@ type SortKey = 'name' | 'expiry';
     MatInputModule,
     MatListModule,
     MatIconModule,
-    MatProgressBarModule,
     ProductThumb,
+    ListState,
   ],
 })
 export class Items {

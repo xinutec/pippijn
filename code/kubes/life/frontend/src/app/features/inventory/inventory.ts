@@ -9,11 +9,11 @@ import { MatIconModule } from "@angular/material/icon";
 import { MatInputModule } from "@angular/material/input";
 import { MatListModule } from "@angular/material/list";
 import { MatMenuModule } from "@angular/material/menu";
-import { MatProgressBarModule } from "@angular/material/progress-bar";
 import { MatSelectModule } from "@angular/material/select";
-import { MatSnackBar } from "@angular/material/snack-bar";
 
-import { revealAddForm } from "../../add-fab";
+import { revealAddForm } from "../../shared/add-fab";
+import { Feedback } from "../../shared/feedback";
+import { ListState } from "../../shared/list-state";
 import { ExpiryInfo, expiryInfo } from "../../expiry";
 import { LifeApi } from "../../life-api";
 import { ProductThumb } from "../../product-thumb";
@@ -59,21 +59,21 @@ interface ItemForm {
     MatInputModule,
     MatSelectModule,
     MatMenuModule,
-    MatProgressBarModule,
     MatDialogModule,
     ProductThumb,
+    ListState,
   ],
 })
 export class Inventory {
   private api = inject(LifeApi);
   private dialog = inject(MatDialog);
-  private snack = inject(MatSnackBar);
+  private feedback = inject(Feedback);
 
   /** Online-only writes must not fail into silence: announce and move on. */
   private failed(what: string) {
     return (e: HttpErrorResponse) => {
       const hint = e.status === 0 ? " — are you online?" : "";
-      this.snack.open(`Could not ${what}${hint}`, "OK", { duration: 4000 });
+      this.feedback.error(`Could not ${what}${hint}`);
     };
   }
 
@@ -85,15 +85,12 @@ export class Inventory {
     ref: number,
     reload: () => void,
   ) {
-    this.snack
-      .open(`${what} deleted`, "Undo", { duration: 6000 })
-      .onAction()
-      .subscribe(() => {
-        this.api.restoreTrash(kind, String(ref)).subscribe({
-          next: () => reload(),
-          error: this.failed("undo the delete"),
-        });
+    this.feedback.undo(`${what} deleted`, () => {
+      this.api.restoreTrash(kind, String(ref)).subscribe({
+        next: () => reload(),
+        error: this.failed("undo the delete"),
       });
+    });
   }
 
   readonly kinds = KINDS;
@@ -309,19 +306,13 @@ export class Inventory {
           next: (p) => {
             if (!this.item().name.trim() && p.name)
               this.patchItem({ name: p.name });
-            this.snack.open(
-              p.name ? `Found: ${p.name}` : "Product found",
-              undefined,
-              { duration: 2500 },
-            );
+            this.feedback.notify(p.name ? `Found: ${p.name}` : "Product found");
           },
           error: (e: HttpErrorResponse) => {
-            this.snack.open(
+            this.feedback.error(
               e.status === 404
                 ? `No product found for ${code}.`
                 : "Lookup failed — are you online?",
-              "OK",
-              { duration: 4000 },
             );
           },
         });

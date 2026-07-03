@@ -9,12 +9,12 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSelectModule } from '@angular/material/select';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { map } from 'rxjs';
 
-import { revealAddForm } from '../../add-fab';
+import { revealAddForm } from '../../shared/add-fab';
+import { Feedback } from '../../shared/feedback';
+import { ListState } from '../../shared/list-state';
 import { LifeApi } from '../../life-api';
 import { TodoPriority, TodoType } from '../../models';
 import { TodoDoc, TodoStore } from '../../sync/todo-store';
@@ -54,15 +54,15 @@ export const prioRank = (p: TodoPriority | null): number => (p ? PRIO_RANK[p] : 
     MatFormFieldModule,
     MatInputModule,
     MatSelectModule,
-    MatProgressBarModule,
     MatBottomSheetModule,
+    ListState,
   ],
 })
 export class Todo {
   private store = inject(TodoStore);
   private sheet = inject(MatBottomSheet);
   private api = inject(LifeApi);
-  private snack = inject(MatSnackBar);
+  private feedback = inject(Feedback);
   readonly graph = inject(TodoGraph);
 
   constructor() {
@@ -153,21 +153,19 @@ export class Todo {
     // for synced rows (a re-push can't clear a tombstone; a 404 just means the
     // delete push hadn't arrived, and revive covers it).
     void this.store.remove(it.ulid);
-    let undone = false;
-    const ref = this.snack.open(`Deleted “${it.title}”`, 'Undo', { duration: 6000 });
-    ref.onAction().subscribe(() => {
-      undone = true;
-      void this.store.revive(it);
-      if (it.id != null) {
-        this.api.restoreTrash('todo', it.ulid).subscribe({
-          next: () => this.store.reSync(),
-          error: () => {},
-        });
-      }
-    });
-    ref.afterDismissed().subscribe(() => {
-      if (!undone) this.graph.removeLinksForTodo(it.ulid);
-    });
+    this.feedback.undo(
+      `Deleted “${it.title}”`,
+      () => {
+        void this.store.revive(it);
+        if (it.id != null) {
+          this.api.restoreTrash('todo', it.ulid).subscribe({
+            next: () => this.store.reSync(),
+            error: () => {},
+          });
+        }
+      },
+      () => this.graph.removeLinksForTodo(it.ulid),
+    );
   }
 
   openDetail(it: TodoDoc): void {

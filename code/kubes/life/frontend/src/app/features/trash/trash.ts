@@ -4,9 +4,9 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSnackBar } from '@angular/material/snack-bar';
 
+import { Feedback } from '../../shared/feedback';
+import { ListState } from '../../shared/list-state';
 import { LifeApi } from '../../life-api';
 import { TrashEntry, TrashKind } from '../../models';
 import { ShoppingStore } from '../../sync/shopping-store';
@@ -28,11 +28,11 @@ const KIND_META: Record<TrashKind, { icon: string; label: string }> = {
   selector: 'app-trash',
   templateUrl: './trash.html',
   styleUrl: './trash.scss',
-  imports: [DatePipe, MatButtonModule, MatIconModule, MatListModule, MatProgressBarModule],
+  imports: [DatePipe, MatButtonModule, MatIconModule, MatListModule, ListState],
 })
 export class Trash {
   private api = inject(LifeApi);
-  private snack = inject(MatSnackBar);
+  private feedback = inject(Feedback);
   private shoppingStore = inject(ShoppingStore);
   private todoStore = inject(TodoStore);
 
@@ -58,7 +58,7 @@ export class Trash {
       },
       error: () => {
         this.loaded.set(true);
-        this.snack.open('Could not load the trash — are you online?', 'OK', { duration: 4000 });
+        this.feedback.error('Could not load the trash — are you online?');
       },
     });
   }
@@ -77,7 +77,7 @@ export class Trash {
         // restored row is on screen when the user switches tabs.
         if (entry.kind === 'shopping') this.shoppingStore.reSync();
         if (entry.kind === 'todo') this.todoStore.reSync();
-        this.snack.open(`Restored “${entry.name}”`, undefined, { duration: 2500 });
+        this.feedback.notify(`Restored “${entry.name}”`);
       },
       error: (e: HttpErrorResponse) => {
         this.busy.update((s) => {
@@ -85,10 +85,8 @@ export class Trash {
           next.delete(entry.ref);
           return next;
         });
-        this.snack.open(
+        this.feedback.error(
           e.status === 404 ? 'Already restored elsewhere.' : 'Could not restore — are you online?',
-          'OK',
-          { duration: 4000 },
         );
         this.reload();
       },

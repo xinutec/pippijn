@@ -9,11 +9,11 @@ import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
 import { MatInputModule } from "@angular/material/input";
 import { MatListModule } from "@angular/material/list";
-import { MatProgressBarModule } from "@angular/material/progress-bar";
-import { MatSnackBar } from "@angular/material/snack-bar";
 import { catchError, forkJoin, map, of, tap } from "rxjs";
 
-import { revealAddForm } from "../../add-fab";
+import { revealAddForm } from "../../shared/add-fab";
+import { Feedback } from "../../shared/feedback";
+import { ListState } from "../../shared/list-state";
 import { LifeApi } from "../../life-api";
 import { ProductThumb } from "../../product-thumb";
 import { ScannerDialog } from "../scanner/scanner-dialog";
@@ -31,16 +31,16 @@ import { ShoppingDoc, ShoppingStore } from "../../sync/shopping-store";
     MatCheckboxModule,
     MatFormFieldModule,
     MatInputModule,
-    MatProgressBarModule,
     MatDialogModule,
     ProductThumb,
+    ListState,
   ],
 })
 export class Shopping {
   private store = inject(ShoppingStore);
   private api = inject(LifeApi);
   private dialog = inject(MatDialog);
-  private snack = inject(MatSnackBar);
+  private feedback = inject(Feedback);
 
   // Local-first: the list is the live RxDB query — instant, offline, reactive.
   readonly items = toSignal(this.store.items$, {
@@ -123,20 +123,14 @@ export class Shopping {
       next: (p) => {
         this.lookingUp.set(false);
         if (!this.name().trim() && p.name) this.name.set(p.name);
-        this.snack.open(
-          p.name ? `Found: ${p.name}` : "Product found",
-          undefined,
-          { duration: 2500 },
-        );
+        this.feedback.notify(p.name ? `Found: ${p.name}` : "Product found");
       },
       error: (e: HttpErrorResponse) => {
         this.lookingUp.set(false);
-        this.snack.open(
+        this.feedback.error(
           e.status === 404
             ? `No product found for ${code}.`
             : "Lookup failed — are you online?",
-          "OK",
-          { duration: 4000 },
         );
       },
     });
@@ -161,20 +155,17 @@ export class Shopping {
       docs.length === 1
         ? `Removed “${docs[0].name}”`
         : `Removed ${docs.length} items`;
-    this.snack
-      .open(what, "Undo", { duration: 6000 })
-      .onAction()
-      .subscribe(() => {
-        for (const doc of docs) {
-          void this.store.revive(doc);
-          if (doc.id != null) {
-            this.api.restoreTrash("shopping", doc.ulid).subscribe({
-              next: () => this.store.reSync(),
-              error: () => {}, // 404 = delete push never arrived; the revive covers it
-            });
-          }
+    this.feedback.undo(what, () => {
+      for (const doc of docs) {
+        void this.store.revive(doc);
+        if (doc.id != null) {
+          this.api.restoreTrash("shopping", doc.ulid).subscribe({
+            next: () => this.store.reSync(),
+            error: () => {}, // 404 = delete push never arrived; the revive covers it
+          });
         }
-      });
+      }
+    });
   }
 
   /** Convert ticked-off rows into inventory items. Online-only (needs the
@@ -197,20 +188,12 @@ export class Shopping {
       const ok = flags.filter(Boolean).length;
       const failed = flags.length - ok;
       if (failed > 0) {
-        this.snack.open(
+        this.feedback.error(
           `${ok} added to inventory; ${failed} failed and stayed on the list.`,
-          "OK",
-          {
-            duration: 5000,
-          },
         );
       } else {
-        this.snack.open(
+        this.feedback.notify(
           ok === 1 ? "Added to inventory." : `${ok} added to inventory.`,
-          undefined,
-          {
-            duration: 2500,
-          },
         );
       }
     });

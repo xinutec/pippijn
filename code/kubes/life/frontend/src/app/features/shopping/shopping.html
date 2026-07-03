@@ -32,11 +32,12 @@
 </div>
 }
 
-@if (!loaded()) {
-  <mat-progress-bar mode="indeterminate" />
-} @else if (items().length === 0) {
-  <p class="empty">Nothing on the list. Tap + to add what you need to buy.</p>
-}
+<app-list-state
+  [loading]="!loaded()"
+  [empty]="items().length === 0"
+  emptyIcon="shopping_cart"
+  emptyText="Nothing on the list. Tap + to add what you need to buy."
+/>
 
 <mat-list>
   @for (it of items(); track it.ulid) {

@@ -1,0 +1,18 @@
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else if (error()) {
+  <div class="state error" role="alert">
+    <mat-icon aria-hidden="true">cloud_off</mat-icon>
+    <p>{{ errorText() }}</p>
+    <button mat-stroked-button (click)="retry.emit()">
+      <mat-icon>refresh</mat-icon> Retry
+    </button>
+  </div>
+} @else if (empty()) {
+  <div class="state empty">
+    @if (emptyIcon(); as icon) {
+      <mat-icon aria-hidden="true">{{ icon }}</mat-icon>
+    }
+    <p>{{ emptyText() }}</p>
+  </div>
+}

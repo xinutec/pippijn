@@ -3,7 +3,7 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { Router } from '@angular/router';
 import type { RxConflictHandler } from 'rxdb';
 
-import { Alerts } from '../alerts';
+import { Alerts } from '../shared/alerts';
 import { LifeApi } from '../life-api';
 import { ConflictKind } from '../models';
 
