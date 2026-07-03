@@ -1,0 +1,53 @@
+---
+name: flake-update
+
+# Keep each project's pinned nixpkgs (its flake.lock) current on a schedule, so
+# `nix develop` / direnv toolchains don't silently drift years behind. One PR
+# per project: a bad bump is isolated to its own PR, and the others still merge.
+# Validation is the repo's normal gate — merging to main runs build.yml
+# (verify + image build) exactly as any push does.
+
+on:
+  schedule:
+    - cron: "0 6 1 * *" # 06:00 UTC on the 1st of each month
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [health, home, life, messages]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Update flake inputs
+        working-directory: code/kubes/${{ matrix.project }}
+        run: nix flake update
+
+      - name: Open PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: flake-update/${{ matrix.project }}
+          delete-branch: true
+          add-paths: code/kubes/${{ matrix.project }}/flake.lock
+          commit-message: "${{ matrix.project }}: bump flake inputs"
+          author: "flake-update <actions@github.com>"
+          committer: "flake-update <actions@github.com>"
+          title: "${{ matrix.project }}: bump flake inputs"
+          body: |
+            Automated monthly bump of `code/kubes/${{ matrix.project }}/flake.lock`
+            (`nix flake update`).
+
+            Review the lock diff, then merge — merging to `main` runs the normal
+            `build.yml` gate (verify + image build) for this project, so a broken
+            bump surfaces there just like any push. If it breaks, revert this
+            one lock file.

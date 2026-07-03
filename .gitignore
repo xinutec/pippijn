@@ -28,3 +28,6 @@
 /.kube
 /.local/state
 /result
+
+# direnv / nix-direnv per-project caches (unanchored: any project subdir)
+.direnv/
