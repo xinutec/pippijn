@@ -3,3 +3,7 @@
 /out-tsc
 /.angular
 /src/app/build-info.ts
+/test-results/
+/playwright-report/
+/.playwright/
+/ui-snapshots/
