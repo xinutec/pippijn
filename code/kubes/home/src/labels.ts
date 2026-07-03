@@ -32,7 +32,13 @@ const LABELS: Record<string, DeviceLabel> = {
 		order: 0,
 		type: "IQAir AirVisual Pro",
 	},
-	"govee-A562": { name: "govee-A562", airQuality: false, order: 1, type: "Govee H5075" },
+	"govee-A562": {
+		name: "govee-A562",
+		room: "Living Room",
+		airQuality: false,
+		order: 1,
+		type: "Govee H5075",
+	},
 	"govee-525D": {
 		name: "govee-525D",
 		room: "Kitchen",
