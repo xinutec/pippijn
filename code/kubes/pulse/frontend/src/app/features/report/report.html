@@ -1,0 +1,62 @@
+<section class="page">
+  @if (loading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+  @if (failed()) {
+    <p class="hint error">Report not found or pulse unreachable.</p>
+  }
+
+  @if (detail(); as d) {
+    <header class="head">
+      <h2>{{ d.collector }}</h2>
+      <span class="sub tnum">
+        {{ d.source }} · {{ d.collected_at | date: 'MMM d, HH:mm' }}
+        @if (d.duration_ms !== null) {
+          · {{ d.duration_ms }} ms
+        }
+      </span>
+    </header>
+
+    @for (s of sections(); track s.name) {
+      <h3 class="section">{{ s.name }}</h3>
+      <mat-card appearance="outlined">
+        <mat-card-content class="checks">
+          @for (c of s.checks; track $index) {
+            <a
+              class="check"
+              [routerLink]="['/history']"
+              [queryParams]="{
+                source: d.source,
+                collector: d.collector,
+                section: c.section,
+                label: c.label,
+              }"
+            >
+              <span class="dot" [class]="c.verdict"></span>
+              <div class="check-main">
+                <span class="label">{{ c.label }}</span>
+                @if (c.observed || c.expected) {
+                  <span class="obs">
+                    {{ c.observed }}
+                    @if (c.expected) {
+                      <span class="exp">(want {{ c.expected }})</span>
+                    }
+                  </span>
+                }
+                @if (c.detail) {
+                  <span class="detail">{{ c.detail }}</span>
+                }
+              </div>
+              @if (c.value !== null) {
+                <span class="value tnum">{{ c.value }}{{ c.unit }}</span>
+              }
+              @if (c.ref) {
+                <span class="ref tnum">{{ c.ref }}</span>
+              }
+            </a>
+          }
+        </mat-card-content>
+      </mat-card>
+    }
+  }
+</section>

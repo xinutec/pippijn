@@ -36,6 +36,19 @@ resource "cloudflare_dns_record" "org_messages" {
   proxied = false
 }
 
+# pulse.xinutec.org — fleet monitoring dashboard on isis, VPN-only. Resolves to
+# isis's WireGuard IP so it's unlisted publicly; the ingress also enforces a
+# 10.100.0.0/24 source-range whitelist (no login — the VPN is the gate). See
+# code/kubes/pulse.
+resource "cloudflare_dns_record" "org_pulse" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "pulse"
+  content = local.hosts.vpn_isis
+  ttl     = 3600
+  proxied = false
+}
+
 resource "cloudflare_dns_record" "org_apex" {
   zone_id = local.xinutec_org_id
   type    = "A"

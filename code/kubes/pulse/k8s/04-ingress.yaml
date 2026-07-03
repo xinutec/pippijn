@@ -1,0 +1,38 @@
+# VPN-only by DNS: pulse.xinutec.org → 10.100.0.2 (isis's WireGuard IP), so it
+# isn't listed on the public internet. UNLIKE messages, pulse also asserts a
+# source-range whitelist — pulse serves fleet-internal status and has no login,
+# so the VPN really is the whole gate; the write path is separately token-gated.
+#
+# ⚠️ whitelist-source-range is UNVERIFIED behind k3s servicelb (does the client's
+# WireGuard source IP survive to nginx, or is it SNAT'd to a node IP?). pulse is
+# the low-stakes place to test it. If the site 403s from a VPN client after
+# deploy, the source IP isn't surviving — remove the annotation to fall back to
+# messages-parity (DNS-only concealment) and revisit with externalTrafficPolicy.
+#
+# TLS uses the DNS-01 issuer `letsencrypt-dns` (shared with messages; already on
+# isis). HTTP-01 can't validate a host that resolves to a VPN-only IP.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pulse
+  namespace: pulse
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-dns"
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.100.0.0/24"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - pulse.xinutec.org
+      secretName: pulse-tls
+  rules:
+    - host: pulse.xinutec.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pulse-app
+                port:
+                  number: 80

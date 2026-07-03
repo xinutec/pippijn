@@ -1,0 +1,120 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: calc(env(safe-area-inset-top) + 0.6rem) 1rem 0.6rem;
+  background: var(--mat-sys-surface-container);
+  color: var(--mat-sys-on-surface);
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font: var(--mat-sys-title-medium);
+
+    mat-icon {
+      color: var(--mat-sys-primary);
+    }
+  }
+  .build {
+    font: var(--mat-sys-label-small);
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.content {
+  flex: 1;
+  // Room for the fixed bottom nav on phones.
+  padding: 0.5rem 0.75rem calc(70px + env(safe-area-inset-bottom));
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.nav {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-around;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--mat-sys-surface-container);
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  .tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    padding: 0.5rem 0;
+    text-decoration: none;
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-label-medium);
+
+    &.active {
+      color: var(--mat-sys-primary);
+    }
+  }
+
+  .tab-icon {
+    position: relative;
+    display: inline-flex;
+  }
+  .badge {
+    position: absolute;
+    top: -0.3rem;
+    left: 1rem;
+    min-width: 1rem;
+    height: 1rem;
+    padding: 0 0.2rem;
+    border-radius: 999px;
+    background: var(--v-fail);
+    color: var(--mat-sys-on-error);
+    font: var(--mat-sys-label-small);
+    line-height: 1rem;
+    text-align: center;
+  }
+}
+
+// From tablet up, the nav becomes a left rail.
+@media (min-width: 768px) {
+  :host {
+    flex-direction: row;
+  }
+  .topbar {
+    display: none;
+  }
+  .nav {
+    position: sticky;
+    top: 0;
+    inset: auto;
+    height: 100dvh;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    padding: 1rem 0.5rem;
+    border-top: none;
+    border-right: 1px solid var(--mat-sys-outline-variant);
+
+    .tab {
+      flex: none;
+    }
+    .badge {
+      left: 1.2rem;
+    }
+  }
+  .content {
+    padding-bottom: 1rem;
+  }
+}

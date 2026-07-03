@@ -1,0 +1,89 @@
+<section class="page">
+  <header class="head">
+    <h2>{{ label() }}</h2>
+    <span class="sub tnum">{{ source() }} · {{ collector() }} · {{ section() }}</span>
+  </header>
+
+  @if (loading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+  @if (failed()) {
+    <p class="hint error">Could not load history.</p>
+  } @else if (data() && data()!.points.length === 0) {
+    <p class="hint">No history recorded for this check yet.</p>
+  }
+
+  @if (data(); as d) {
+    @if (latest(); as l) {
+      <div class="current">
+        <span class="dot" [class]="l.verdict"></span>
+        @if (l.value !== null) {
+          <span class="val tnum">{{ l.value }}{{ d.unit }}</span>
+        }
+        <span class="verdict">{{ l.verdict }}</span>
+      </div>
+    }
+
+    @if (chart(); as ch) {
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <svg
+            class="chart"
+            [attr.viewBox]="'0 0 ' + w + ' ' + h"
+            preserveAspectRatio="none"
+            role="img"
+            [attr.aria-label]="'trend of ' + label()"
+          >
+            <path class="line" [attr.d]="ch.path" />
+            @for (dt of ch.dots; track $index) {
+              <circle
+                class="pt"
+                [class]="dt.verdict"
+                [attr.cx]="dt.x"
+                [attr.cy]="dt.y"
+                r="2.5"
+              >
+                <title>{{ dt.value }}{{ d.unit }} — {{ dt.at | date: 'MMM d, HH:mm' }}</title>
+              </circle>
+            }
+          </svg>
+          <div class="yaxis tnum">
+            <span>{{ ch.max }}{{ d.unit }}</span>
+            <span>{{ ch.min }}{{ d.unit }}</span>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    }
+
+    @if (ticks().length > 0) {
+      <h3>Verdict timeline</h3>
+      <svg
+        class="timeline"
+        [attr.viewBox]="'0 0 ' + w + ' 14'"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="verdict over time"
+      >
+        @for (tk of ticks(); track $index) {
+          <rect class="tick" [class]="tk.verdict" [attr.x]="tk.x - 1.5" y="2" width="3" height="10">
+            <title>{{ tk.verdict }} — {{ tk.at | date: 'MMM d, HH:mm' }}</title>
+          </rect>
+        }
+      </svg>
+    }
+
+    <h3>Recent runs</h3>
+    <div class="points">
+      @for (p of data()!.points.slice().reverse(); track $index) {
+        <div class="prow">
+          <span class="dot" [class]="p.verdict"></span>
+          <span class="pat tnum">{{ p.collected_at | date: 'MMM d, HH:mm' }}</span>
+          @if (p.value !== null) {
+            <span class="pval tnum">{{ p.value }}{{ d.unit }}</span>
+          }
+          <span class="pverdict">{{ p.verdict }}</span>
+        </div>
+      }
+    </div>
+  }
+</section>

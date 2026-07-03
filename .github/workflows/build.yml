@@ -204,3 +204,55 @@ jobs:
     secrets:
       username: ${{ secrets.DOCKERHUB_USERNAME }}
       password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+  # Fleet monitoring platform (Rust backend + Angular frontend). Gate the image
+  # on clippy + cargo test (DB round-trip tests run against a throwaway MariaDB).
+  pulse-verify:
+    runs-on: ubuntu-latest
+    container: rust:1-bookworm
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: pulse_test
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+    env:
+      PULSE_TEST_DATABASE_URL: mysql://root:root@mariadb:3306/pulse_test
+    defaults:
+      run:
+        working-directory: code/kubes/pulse
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup component add clippy
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test -- --test-threads=1
+
+  # Frontend static analysis: angular-eslint (incl. forbidding inline templates)
+  # + unit tests + a production build, same convention as messages/health.
+  pulse-fe-verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: code/kubes/pulse/frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npx ng build --configuration production
+
+  pulse:
+    needs: [pulse-verify, pulse-fe-verify]
+    uses: xinutec/pippijn/.github/workflows/docker.yml@main
+    with:
+      path: code/kubes/pulse
+      image: pulse
+    secrets:
+      username: ${{ secrets.DOCKERHUB_USERNAME }}
+      password: ${{ secrets.DOCKERHUB_PASSWORD }}
