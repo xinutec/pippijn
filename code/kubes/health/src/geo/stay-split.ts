@@ -495,6 +495,24 @@ const VEHICLE_LEG_PEAK_KMH = 20;
 /** A residual walk shorter than this on either side of the leg isn't
  *  worth emitting as its own row — fold it into the ride instead. */
 const VEHICLE_LEG_MIN_REMAINDER_S = 60;
+/** Single-hop speed floor: when the carved leg's entire evidence is ONE
+ *  inter-fix jump (zero interior fixes — no observed travel), the jump is
+ *  only believable as a ride at unambiguous vehicle pace. Measured on the
+ *  matched pair of confirmed days: the REAL one-stop Euston Square →
+ *  King's Cross tube hop (2026-06-22) shows a 900 m hop in 49 s — 66 km/h,
+ *  fixes caught mid-ride on the shallow cut-and-cover line — while the
+ *  phantom on the SAME corridor walked (2026-07-02) shows 858 m bridged in
+ *  ~2 min — 26 km/h, a stale pre-gap fix plus real walking, which then
+ *  became a fake "tube hop" and got the genuine UCLH stay renamed "Warren
+ *  Street". 35 km/h sits above anything reacquire drift or running
+ *  produces and below any actual mid-ride fix pair. Legs with observed
+ *  interior fixes keep the existing gates. Broader vetoes measured WRONG
+ *  on the corpus first: step-cadence (Fitbit logs arm-motion "steps"
+ *  during real rides — 10 journeys regressed), whole-segment
+ *  walk-plausibility and a minimum-gap rule (both killed the confirmed
+ *  06-22 hop, whose host walk is walk-plausible overall and whose hop gap
+ *  is SHORTER than the phantom's). */
+const VEHICLE_LEG_SINGLE_HOP_MIN_KMH = 35;
 
 /**
  * Split each `walking` segment that hides a vehicle leg into
@@ -585,6 +603,22 @@ export function splitWalksOnVehicleLeg<T extends TrackSegment>(
 		let driveEnd = fixes[b].ts;
 		if (driveStart - seg.startTs < VEHICLE_LEG_MIN_REMAINDER_S) driveStart = seg.startTs;
 		if (seg.endTs - driveEnd < VEHICLE_LEG_MIN_REMAINDER_S) driveEnd = seg.endTs;
+
+		// Single-hop speed check: with no interior fixes the "ride" is one
+		// unobserved jump — believable only at unambiguous vehicle pace.
+		// See VEHICLE_LEG_SINGLE_HOP_MIN_KMH.
+		if (b - a === 1) {
+			const hopKmh = ((netDist / Math.max(1, fixes[b].ts - fixes[a].ts)) * 3.6 * 10) / 10;
+			if (hopKmh < VEHICLE_LEG_SINGLE_HOP_MIN_KMH) {
+				if (debug) {
+					console.error(
+						`[vehicle-split]   skip: single unobserved hop at ${hopKmh.toFixed(0)} km/h — a reacquire, not a ride`,
+					);
+				}
+				out.push(seg);
+				continue;
+			}
+		}
 
 		// Train-bleed guard: a walk's tail accelerating into the next train
 		// (or its head decelerating out of the previous one) is the train

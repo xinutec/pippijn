@@ -123,4 +123,55 @@ describe("splitWalksOnVehicleLeg", () => {
 		const out = splitWalksOnVehicleLeg([drive], pts);
 		expect(out).toEqual([drive]);
 	});
+
+	// --- single-hop speed check (2026-07-02 UCLH "Warren Street" case) ----
+	// When the carved leg's evidence is one unobserved inter-fix jump, the
+	// jump is only a ride at unambiguous vehicle pace. Measured on the
+	// matched confirmed pair: the real one-stop tube hop shows 900 m in
+	// 49 s (66 km/h, fixes caught mid-ride); the phantom on the same
+	// corridor walked shows 858 m over ~2 min (26 km/h — a stale pre-gap
+	// fix plus real walking).
+	it("does NOT carve a ride from a single ambiguous-pace hop (reacquire)", () => {
+		const pts = [
+			fix(0, at(0), 4),
+			fix(60, at(70), 4),
+			fix(120, at(140), 5),
+			fix(180, at(220), 5),
+			fix(240, at(290), 4),
+			// -- 3-minute GPS gap; reacquired 830 m on: 17 km/h implied --
+			fix(420, at(1120), 45),
+			fix(480, at(1190), 4),
+			fix(540, at(1260), 5),
+			fix(600, at(1330), 4),
+			fix(660, at(1400), 5),
+			fix(720, at(1470), 4),
+			fix(780, at(1540), 4),
+			fix(840, at(1610), 5),
+			fix(900, at(1680), 4),
+		];
+		const out = splitWalksOnVehicleLeg([walk(0, 900)], pts);
+		expect(out).toHaveLength(1);
+		expect(out[0].mode).toBe("walking");
+	});
+
+	it("still carves a single-hop ride at unambiguous vehicle pace", () => {
+		// The confirmed 06-22 shape: one 900 m hop in 60 s (54 km/h) —
+		// fixes caught mid-ride on a shallow tube line.
+		const pts = [
+			fix(0, at(0), 4),
+			fix(60, at(70), 4),
+			fix(120, at(140), 5),
+			fix(180, at(220), 5),
+			fix(300, at(350), 4),
+			// -- one mid-ride hop: 900 m in 60 s --
+			fix(360, at(1250), 60),
+			fix(480, at(1320), 4),
+			fix(540, at(1390), 5),
+			fix(600, at(1460), 4),
+			fix(660, at(1530), 5),
+			fix(720, at(1600), 4),
+		];
+		const out = splitWalksOnVehicleLeg([walk(0, 720)], pts);
+		expect(out.some((s) => s.mode === "driving")).toBe(true);
+	});
 });
