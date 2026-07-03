@@ -36,15 +36,35 @@ body {
 	--safe-top: env(safe-area-inset-top, 0px);
 
 	// US-AQI band colours (EPA scale).
+	// dev-lint: allow-hardcoded-color EPA US-AQI band colour — a fixed external scale
 	--aqi-good: #2e9e5b;
+	// dev-lint: allow-hardcoded-color EPA US-AQI band colour — a fixed external scale
 	--aqi-moderate: #d6b400;
+	// dev-lint: allow-hardcoded-color EPA US-AQI band colour — a fixed external scale
 	--aqi-usg: #e8830c;
+	// dev-lint: allow-hardcoded-color EPA US-AQI band colour — a fixed external scale
 	--aqi-unhealthy: #d93434;
+	// dev-lint: allow-hardcoded-color EPA US-AQI band colour — a fixed external scale
 	--aqi-very-unhealthy: #8e44ad;
+	// dev-lint: allow-hardcoded-color EPA US-AQI band colour — a fixed external scale
 	--aqi-hazardous: #7e0023;
 
 	// Chart accents (the temperature chart uses --mat-sys-primary directly).
+	// dev-lint: allow-hardcoded-color chart accent — deliberate data-viz colour
 	--chart-co2: #ef6c00;
+	// dev-lint: allow-hardcoded-color chart accent — deliberate data-viz colour
 	--chart-humidity: #2f80ed;
+	// dev-lint: allow-hardcoded-color chart accent — deliberate data-viz colour
 	--chart-pm: #8e44ad;
+}
+
+:root {
+	// Data-viz display scale — hero/numeral sizes the M3 type roles don't
+	// cover (a dashboard's big readings). One source of truth; components
+	// reference these instead of inventing per-element rem sizes.
+	--display-hero: clamp(3.25rem, 12vw, 5rem);
+	--display-numeral-lg: clamp(2.25rem, 8vw, 3rem);
+	--display-numeral: 2rem;
+	--display-numeral-sm: 1.75rem;
+	--display-na: 1.25rem;
 }
