@@ -154,50 +154,24 @@ describe("splitWalksOnVehicleLeg", () => {
 		expect(out[0].mode).toBe("walking");
 	});
 
-	// The confirmed 06-22 shape: one 900 m hop in 60 s (54 km/h) —
-	// fixes caught mid-ride on a shallow tube line.
-	const midRideHopPts = [
-		fix(0, at(0), 4),
-		fix(60, at(70), 4),
-		fix(120, at(140), 5),
-		fix(180, at(220), 5),
-		fix(300, at(350), 4),
-		// -- one mid-ride hop: 900 m in 60 s --
-		fix(360, at(1250), 60),
-		fix(480, at(1320), 4),
-		fix(540, at(1390), 5),
-		fix(600, at(1460), 4),
-		fix(660, at(1530), 5),
-		fix(720, at(1600), 4),
-	];
-	const motionAt = (ts: number, velKmh: number | null) => ({ ts, lat: 0, lon: 0, cogDeg: null, velKmh, accM: 30 });
-
 	it("still carves a single-hop ride at unambiguous vehicle pace", () => {
-		const out = splitWalksOnVehicleLeg([walk(0, 720)], midRideHopPts);
-		expect(out.some((s) => s.mode === "driving")).toBe(true);
-	});
-
-	// --- Doppler contradiction (2026-07-02 UCLH phantom, round 2) ----------
-	// The phantom's hop implied 42 km/h while the phone's own velocity
-	// readings around it were all walking-pace (vel 1-9, one NULL at the
-	// degraded reacquire fix). A real shallow-line ride carries at least one
-	// vehicle-pace vel; a deep-tube gap has no motion fixes at all.
-	it("does NOT carve a fast single hop the phone's velocities contradict", () => {
-		const motion = [motionAt(300, 3), motionAt(330, null), motionAt(390, 2), motionAt(450, 5)];
-		const out = splitWalksOnVehicleLeg([walk(0, 720)], midRideHopPts, motion);
-		expect(out).toHaveLength(1);
-		expect(out[0].mode).toBe("walking");
-	});
-
-	it("keeps the split when one phone velocity corroborates the ride", () => {
-		const motion = [motionAt(300, 3), motionAt(360, 55), motionAt(450, 5)];
-		const out = splitWalksOnVehicleLeg([walk(0, 720)], midRideHopPts, motion);
-		expect(out.some((s) => s.mode === "driving")).toBe(true);
-	});
-
-	it("keeps the split when motion data is too thin to judge (one known vel)", () => {
-		const motion = [motionAt(390, 4), motionAt(420, null)];
-		const out = splitWalksOnVehicleLeg([walk(0, 720)], midRideHopPts, motion);
+		// The confirmed 06-22 shape: one 900 m hop in 60 s (54 km/h) —
+		// fixes caught mid-ride on a shallow tube line.
+		const pts = [
+			fix(0, at(0), 4),
+			fix(60, at(70), 4),
+			fix(120, at(140), 5),
+			fix(180, at(220), 5),
+			fix(300, at(350), 4),
+			// -- one mid-ride hop: 900 m in 60 s --
+			fix(360, at(1250), 60),
+			fix(480, at(1320), 4),
+			fix(540, at(1390), 5),
+			fix(600, at(1460), 4),
+			fix(660, at(1530), 5),
+			fix(720, at(1600), 4),
+		];
+		const out = splitWalksOnVehicleLeg([walk(0, 720)], pts);
 		expect(out.some((s) => s.mode === "driving")).toBe(true);
 	});
 });

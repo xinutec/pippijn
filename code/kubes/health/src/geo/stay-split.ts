@@ -41,7 +41,6 @@
  */
 
 import type { HrPoint, StepPoint } from "./biometrics.js";
-import type { MotionFix } from "./classification-inputs.js";
 import type { FilteredPoint } from "./kalman.js";
 import { samplesInWindow } from "./segment-util.js";
 import type { TrackSegment, TransportMode } from "./segments.js";
@@ -514,16 +513,6 @@ const VEHICLE_LEG_MIN_REMAINDER_S = 60;
  *  06-22 hop, whose host walk is walk-plausible overall and whose hop gap
  *  is SHORTER than the phantom's). */
 const VEHICLE_LEG_SINGLE_HOP_MIN_KMH = 35;
-/** Doppler-contradiction veto for single-hop legs (see the check below):
- *  how far around the hop to look for phone-reported velocities... */
-const HOP_VEL_WINDOW_S = 120;
-/** ...how many KNOWN (non-null) velocities are needed before absence-of-
- *  vehicle-pace counts as evidence (one lone reading could be a fluke)... */
-const HOP_VEL_MIN_SAMPLES = 2;
-/** ...and the pace that would corroborate a ride. Measured 2026-07-02: the
- *  phantom's window held vels of 1-9 km/h; a mid-ride fix reports the
- *  vehicle's actual speed. */
-const HOP_VEL_VEHICLE_KMH = 20;
 
 /**
  * Split each `walking` segment that hides a vehicle leg into
@@ -534,7 +523,6 @@ const HOP_VEL_VEHICLE_KMH = 20;
 export function splitWalksOnVehicleLeg<T extends TrackSegment>(
 	segments: readonly T[],
 	points: readonly FilteredPoint[],
-	motion: readonly MotionFix[] = [],
 ): T[] {
 	const debug = process.env.VEHICLE_SPLIT_DEBUG === "1";
 	const tt = (ts: number): string => new Date(ts * 1000).toISOString().slice(11, 16);
@@ -616,38 +604,15 @@ export function splitWalksOnVehicleLeg<T extends TrackSegment>(
 		if (driveStart - seg.startTs < VEHICLE_LEG_MIN_REMAINDER_S) driveStart = seg.startTs;
 		if (seg.endTs - driveEnd < VEHICLE_LEG_MIN_REMAINDER_S) driveEnd = seg.endTs;
 
-		// Single-hop checks: with no interior fixes the "ride" is one
-		// unobserved jump, and needs corroboration.
+		// Single-hop speed check: with no interior fixes the "ride" is one
+		// unobserved jump — believable only at unambiguous vehicle pace.
+		// See VEHICLE_LEG_SINGLE_HOP_MIN_KMH.
 		if (b - a === 1) {
-			// Pace floor: below unambiguous vehicle pace it's reacquire drift.
-			// See VEHICLE_LEG_SINGLE_HOP_MIN_KMH.
 			const hopKmh = ((netDist / Math.max(1, fixes[b].ts - fixes[a].ts)) * 3.6 * 10) / 10;
 			if (hopKmh < VEHICLE_LEG_SINGLE_HOP_MIN_KMH) {
 				if (debug) {
 					console.error(
 						`[vehicle-split]   skip: single unobserved hop at ${hopKmh.toFixed(0)} km/h — a reacquire, not a ride`,
-					);
-				}
-				out.push(seg);
-				continue;
-			}
-			// Doppler contradiction: the phone measures its own speed with each
-			// fix (motion_log `vel`). If every measured velocity around the
-			// alleged hop is walking-pace, the position jump is a stale fix
-			// reacquiring — the 2026-07-02 UCLH phantom implied 42 km/h while
-			// the phone reported vel=2 at departure with accuracy degrading to
-			// 100+ m at both endpoints. A real shallow-line ride carries at
-			// least one vehicle-pace vel; a deep-tube ride has NO motion fixes
-			// in the gap — both leave the split alone, as do pre-ingest days
-			// with no motion data at all. Positive contradiction only: NULL
-			// vels don't count as evidence either way.
-			const nearHop = motion.filter(
-				(m) => m.velKmh !== null && m.ts >= fixes[a].ts - HOP_VEL_WINDOW_S && m.ts <= fixes[b].ts + HOP_VEL_WINDOW_S,
-			);
-			if (nearHop.length >= HOP_VEL_MIN_SAMPLES && nearHop.every((m) => (m.velKmh ?? 0) < HOP_VEL_VEHICLE_KMH)) {
-				if (debug) {
-					console.error(
-						`[vehicle-split]   skip: ${nearHop.length} phone velocities around the hop all < ${HOP_VEL_VEHICLE_KMH} km/h — a reacquire, not a ride`,
 					);
 				}
 				out.push(seg);

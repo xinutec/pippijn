@@ -1260,7 +1260,7 @@ export async function computeVelocityFromInputs(
 		// already exists and the carved leg can still be bus-refined below.
 		{
 			name: "vehicleSplit",
-			run: (segs) => splitWalksOnVehicleLeg(segs, points, inputs.motionLog ?? []),
+			run: (segs) => splitWalksOnVehicleLeg(segs, points),
 		},
 
 		// Walk→vehicle boundary correction (#176): a drive's launch from the
