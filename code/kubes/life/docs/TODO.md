@@ -38,8 +38,16 @@ add new ones under the right section. Architecture/rationale lives in
 - [ ] **Expiry / "use soon"** — surface `expiry` (sort/flag soon + expired).
       Data already stored. (A first `/expiring` view was built then removed
       2026-06-29 — Pippijn wants a different approach; redo from scratch.)
-- [ ] **Extend `scenes/house.json` to the whole house** — Pippijn measures the
-      remaining rooms; decide how rooms compose (shared origin / offsets).
+- [~] **Extend `scenes/house.json` to the whole house** — built collaboratively
+      against the local preview (Pippijn measures each piece; see
+      `scenes/README.md` § "Live modelling workflow"). **Kitchen: both long walls
+      DONE 2026-07-03** — cooking run (worktop, hob, recessed sink+drainer,
+      dishwasher) + utility wall (larder, fridge, over-fridge cabinet, serving
+      hatch with pass-through worktop, base cabinet, divider, open shelves, mug
+      cubbies) + hall doorway + hatch cut through both wall layers. **Remaining in
+      the kitchen: oven/drawers tower, extractor hood, back door.** Then the other
+      rooms (dining, hall, upstairs); decide how rooms compose (shared origin /
+      offsets).
 - [ ] **Place cupboards in scene coordinates** → **"where is my X" → highlight
       in 3D** (parked: the demo box-highlight AND the item-name search page were
       both removed — 2026-07-02). Rebuild the lookup together with the highlight;
@@ -80,6 +88,14 @@ add new ones under the right section. Architecture/rationale lives in
 - [ ] **Shopping list refinements** — add a recipe's missing ingredients to the
       Buy list in one tap; low-stock auto-suggestions; carry category through
       buy→inventory (currently defaults to `other`).
+- [ ] **Recipe ingredients → product links** — a `recipe_ingredient.product_id`
+      FK so ingredients resolve to catalog products instead of matching by name
+      string ("cumin" vs "ground cumin" vs "cumin seeds" don't match today). This
+      is the weakest joint in the data model; it unlocks reliable have-it? /
+      missing-ingredient logic and the one-tap "add missing to Buy" above.
+- [ ] **Frontend: shared list-state component** — the loading / empty / error
+      triad is copy-pasted across items/inventory/recipes; extract one
+      `<app-list-state>` (or a structural directive) and de-dup the templates.
 - [ ] **Parsed net weight/volume → "how much is left at home"** — today the
       product's pack size is stored only as OFF's free-text `quantity_label`
       (e.g. `"950g"`), which is the right call *for now* (no parsing, no calc).
@@ -116,12 +132,15 @@ deletion/trash (B), field-level sync merge + conflict log (C).
       an unbought shopping item / uncooked recipe shows "ready".
 3. - [x] **Loading vs empty conflated** — lists flash "No items yet" on cold
       load before data arrives; needs loaded-state + progress indicator.
-4. - [ ] **Sha-tagged Docker images** — `:latest`-only means rollback is
-      impossible; CI already has `github.sha`.
+4. - [–] **Sha-tagged Docker images** — `:latest`-only means rollback is
+      impossible; CI already has `github.sha`. **Decided NOT to do (2026-07-02):
+      Pippijn rolls back via git revert + rebuild; images stay unversioned.**
 5. - [x] **Non-root container + k8s securityContext** — app runs as root, no
       hardening context on app or DB pods.
-6. - [ ] **Frontend CI gate** — eslint/vitest/build run only in the local
-      pre-push hook, not in CI (backend has `life-verify`).
+6. - [–] **Frontend CI gate** — eslint/vitest/build run only in the local
+      pre-push hook, not in CI (backend has `life-verify`). **Deferred
+      (2026-07-02): not now, maybe later — the pre-push hook covers it for a solo
+      dev.**
 7. - [x] **Thumb-reachable Add** — top-anchored multi-field add forms → FAB +
       bottom sheet (Buy/To-do/Inventory/Recipes).
 8. - [x] **Scanner: torch + manual entry** — no flashlight toggle, no "type it

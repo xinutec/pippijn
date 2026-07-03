@@ -52,3 +52,27 @@ hand. The 3D house view (`frontend/.../features/house`) renders from these.
 
 The renderer numbers each wall (global index across rooms, dev build only) so you
 can refer to "wall 14". `?red=14,5` on the `/house` URL tints those walls red.
+
+## Live modelling workflow
+
+The house is built up collaboratively, one measured piece at a time, against a
+live local preview:
+
+- `node scripts/house-preview.mjs` serves the dev frontend + this scene on
+  `http://localhost:4280` (LAN-reachable, so you can watch it on a phone). It
+  re-reads `house.json` on **every request**, so editing the scene + reloading
+  shows the change instantly — no DB, no backend, no auth. Build the dev
+  frontend once first: `cd frontend && npm run build`.
+- **Red = a guess.** Give an estimated furniture box `"color": "#ff5252"`, then
+  swap it to its real colour once the measurement lands. `?red=14,5` tints those
+  *walls* red the same way (see Dev aids). Furniture honours its own colour;
+  walls use the query param.
+- **A shared-wall opening must be cut into BOTH rooms' copies.** A door or hatch
+  between (say) kitchen and dining is an opening in the kitchen's wall *and* in
+  the dining room's wall — they're separate outlines drawn ~15 cm apart. Cut
+  only one side and you look through the near hole onto the still-solid far wall,
+  so the opening reads as opaque/floor-to-ceiling. (This is why doors already
+  work: they're listed in each room's `openings`.)
+- **Left/right is mirror-prone.** The default camera frames the house from one
+  side, so a wall viewed from behind swaps left↔right. Measure and place by
+  distance from a landmark (a corner, the hob, a doorway), not "on the left".
