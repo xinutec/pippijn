@@ -18,6 +18,8 @@ const doc = (over: Partial<TodoDoc>): TodoDoc => ({
   status: 'open',
   priority: null,
   notes: null,
+  notBefore: null,
+  due: null,
   rev: 0,
   ...over,
 });
@@ -37,6 +39,7 @@ describe('Todo', () => {
     };
     const graph = {
       statusOf: vi.fn(() => 'open'),
+      urgencyOf: vi.fn(() => 'none'),
       blockers: vi.fn(() => []),
       linkCount: vi.fn(() => 0),
       removeLinksForTodo: vi.fn(),
@@ -80,6 +83,7 @@ describe('Todo', () => {
       type: 'call',
       priority: null,
       notes: 'leaky tap',
+      due: null,
     });
     expect(c.title()).toBe('');
     expect(c.notes()).toBe('');

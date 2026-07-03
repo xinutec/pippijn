@@ -39,6 +39,18 @@ const PRIORITIES: readonly { value: TodoPriority; label: string }[] = [
   { value: 'low', label: 'Low' },
 ];
 
+/** ISO date for a quick-pick preset, relative to today (device-local). */
+function presetDate(kind: 'today' | 'tomorrow' | 'weekend' | 'nextweek'): string {
+  const d = new Date();
+  if (kind === 'tomorrow') d.setDate(d.getDate() + 1);
+  else if (kind === 'weekend') d.setDate(d.getDate() + ((6 - d.getDay() + 7) % 7)); // next Sat
+  else if (kind === 'nextweek') d.setDate(d.getDate() + (((1 - d.getDay() + 7) % 7) || 7)); // next Mon
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /** A connection group for display: a heading + its resolved rows. Each row is an
  *  edge (`edge` = its ulid, for removal) pointing at a `target`; `todoRef` is set
  *  when the target is itself a to-do, so we can traverse to it. */
@@ -173,6 +185,32 @@ export class TodoDetail implements OnDestroy {
 
   setPriority(priority: TodoPriority | null): void {
     void this.store.patch(this.ulid(), { priority });
+  }
+
+  readonly datePresets = [
+    { label: 'Today', kind: 'today' },
+    { label: 'Tomorrow', kind: 'tomorrow' },
+    { label: 'Weekend', kind: 'weekend' },
+    { label: 'Next week', kind: 'nextweek' },
+  ] as const;
+
+  // A cleared native date input emits '' — store that as null, not an empty date.
+  private clean(v: string | null): string | null {
+    return v && v.trim().length > 0 ? v : null;
+  }
+
+  setNotBefore(v: string | null): void {
+    void this.store.patch(this.ulid(), { notBefore: this.clean(v) });
+  }
+
+  setDue(v: string | null): void {
+    void this.store.patch(this.ulid(), { due: this.clean(v) });
+  }
+
+  applyPreset(field: 'notBefore' | 'due', kind: 'today' | 'tomorrow' | 'weekend' | 'nextweek'): void {
+    const iso = presetDate(kind);
+    if (field === 'notBefore') this.setNotBefore(iso);
+    else this.setDue(iso);
   }
 
   toggleDone(): void {

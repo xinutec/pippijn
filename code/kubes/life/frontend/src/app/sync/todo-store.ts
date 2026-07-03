@@ -21,6 +21,10 @@ export interface TodoDoc {
   status: TodoStatus;
   priority: TodoPriority | null;
   notes: string | null;
+  /** Start-gate (YYYY-MM-DD): can't act before this day → "waiting". */
+  notBefore: string | null;
+  /** Deadline (YYYY-MM-DD): drives urgency ordering. */
+  due: string | null;
   rev: number;
 }
 
@@ -29,7 +33,8 @@ type TodoCollection = RxCollection<TodoDoc>;
 const schema: RxJsonSchema<TodoDoc> = {
   // Bump the version + add a migration on ANY schema change, else existing local
   // DBs hit a hash mismatch. v1: `type` enum widened. v2: `priority` added.
-  version: 2,
+  // v3: `notBefore` + `due` timing added.
+  version: 3,
   primaryKey: 'ulid',
   type: 'object',
   properties: {
@@ -44,6 +49,8 @@ const schema: RxJsonSchema<TodoDoc> = {
     status: { type: 'string', enum: ['open', 'done'], maxLength: 8 },
     priority: { type: ['string', 'null'], maxLength: 8 },
     notes: { type: ['string', 'null'] },
+    notBefore: { type: ['string', 'null'], maxLength: 10 },
+    due: { type: ['string', 'null'], maxLength: 10 },
     rev: { type: 'number' },
   },
   required: ['ulid', 'title', 'type', 'status', 'rev'],
@@ -51,7 +58,15 @@ const schema: RxJsonSchema<TodoDoc> = {
 
 /** The content fields the 3-way merge diffs (see [[makeConflictHandler]]) —
  *  also the allowlist the Conflicts screen may patch on "use other". */
-export const TODO_MERGE_FIELDS = ['title', 'type', 'status', 'priority', 'notes'] as const;
+export const TODO_MERGE_FIELDS = [
+  'title',
+  'type',
+  'status',
+  'priority',
+  'notes',
+  'notBefore',
+  'due',
+] as const;
 
 /** Local-first store for the to-do list: the on-device RxDB collection is the
  *  source of truth; replication reconciles with /api/sync/todo in the background.
@@ -78,6 +93,8 @@ export class TodoStore {
     type: TodoType;
     priority: TodoPriority | null;
     notes: string | null;
+    notBefore?: string | null;
+    due?: string | null;
   }): Promise<void> {
     const col = await this.collection;
     await col.insert({
@@ -88,13 +105,17 @@ export class TodoStore {
       status: 'open',
       priority: input.priority,
       notes: input.notes,
+      notBefore: input.notBefore ?? null,
+      due: input.due ?? null,
       rev: 0,
     });
   }
 
   async patch(
     key: string,
-    fields: Partial<Pick<TodoDoc, 'title' | 'type' | 'status' | 'priority' | 'notes'>>,
+    fields: Partial<
+      Pick<TodoDoc, 'title' | 'type' | 'status' | 'priority' | 'notes' | 'notBefore' | 'due'>
+    >,
   ): Promise<void> {
     const doc = await this.find(key);
     await doc?.incrementalPatch(fields);
@@ -140,6 +161,11 @@ export class TodoStore {
     const col = await this.lifeDb.collection('todo', schema, handler, {
       1: (doc: Record<string, unknown>) => doc, // enum widened; existing docs already valid
       2: (doc: Record<string, unknown>) => ({ ...doc, priority: doc['priority'] ?? null }), // add priority field
+      3: (doc: Record<string, unknown>) => ({
+        ...doc,
+        notBefore: doc['notBefore'] ?? null,
+        due: doc['due'] ?? null,
+      }), // add timing fields
     });
     this.startReplication(col);
     return col;

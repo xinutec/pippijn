@@ -30,6 +30,10 @@
       }
     </mat-select>
   </mat-form-field>
+  <mat-form-field appearance="outline" class="type">
+    <mat-label>Due</mat-label>
+    <input matInput type="date" [ngModel]="newDue()" (ngModelChange)="newDue.set($event || null)" />
+  </mat-form-field>
   <mat-form-field appearance="outline" class="grow">
     <mat-label>Notes (optional)</mat-label>
     <input matInput [ngModel]="notes()" (ngModelChange)="notes.set($event)" (keyup.enter)="add()" />
@@ -91,6 +95,9 @@
         @if (it.priority) {
           <span class="pill prio-{{ it.priority }}">{{ priorityLabel(it.priority) }}</span>
         }
+        @if (dueChip(it); as dc) {
+          <span class="pill {{ dc.cls }}"><mat-icon>event</mat-icon> {{ dc.label }}</span>
+        }
         <mat-icon class="type-icon" [attr.aria-label]="typeLabel(it.type)">{{ typeIcon(it.type) }}</mat-icon>
         @if (st === 'blocked') {
           <span class="pill blocked"><mat-icon>lock</mat-icon> waiting on {{ blockerCount(it) }}</span>
@@ -110,6 +117,39 @@
     </mat-list-item>
   }
 </mat-list>
+
+@if (waitingCount() > 0) {
+  <button mat-button class="waiting-toggle" (click)="showWaiting.set(!showWaiting())">
+    <mat-icon>{{ showWaiting() ? 'expand_less' : 'expand_more' }}</mat-icon>
+    Waiting {{ waitingCount() }}
+  </button>
+  @if (showWaiting()) {
+    <mat-list>
+      @for (it of waiting(); track it.ulid) {
+        <mat-list-item>
+          <mat-icon matListItemIcon aria-hidden="true">schedule</mat-icon>
+          <span
+            matListItemTitle
+            class="tappable"
+            role="button"
+            tabindex="0"
+            (click)="openDetail(it)"
+            (keydown.enter)="openDetail(it)"
+          >
+            {{ it.title }}
+          </span>
+          <span matListItemLine class="meta">
+            <span class="pill waiting"><mat-icon>schedule</mat-icon> {{ fromLabel(it) }}</span>
+            <mat-icon class="type-icon" [attr.aria-label]="typeLabel(it.type)">{{ typeIcon(it.type) }}</mat-icon>
+          </span>
+          <button matListItemMeta mat-icon-button (click)="remove(it)" aria-label="Delete">
+            <mat-icon>delete</mat-icon>
+          </button>
+        </mat-list-item>
+      }
+    </mat-list>
+  }
+}
 
 <div class="fab-anchor">
   <button mat-fab class="add-fab" (click)="toggleAdd()" [attr.aria-label]="showAdd() ? 'Close the add form' : 'Add a to-do'">

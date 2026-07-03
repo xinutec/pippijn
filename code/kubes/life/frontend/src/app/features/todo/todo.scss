@@ -45,6 +45,13 @@
   opacity: 0.72;
 }
 
+// The collapsed "Waiting (N)" divider button between the actionable list and the
+// parked, future-dated to-dos.
+.waiting-toggle {
+  margin: 0.5rem 0 0.25rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
@@ -66,6 +73,21 @@
   }
   &.links {
     background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
+  }
+  // Deadline pressure: overdue / due-today share the error tint; a deadline
+  // within 3 days is the softer tertiary; a future start-gate is neutral.
+  &.overdue {
+    background: color-mix(in srgb, var(--mat-sys-error) 20%, transparent);
+    color: var(--mat-sys-on-error-container);
+    font-weight: 600;
+  }
+  &.due-soon {
+    background: color-mix(in srgb, var(--mat-sys-tertiary) 24%, transparent);
+    color: var(--mat-sys-on-tertiary-container);
+  }
+  &.waiting {
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
+    color: var(--mat-sys-on-surface-variant);
   }
   &.prio-high {
     background: color-mix(in srgb, var(--mat-sys-error) 24%, transparent);

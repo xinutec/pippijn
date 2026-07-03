@@ -6,6 +6,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -122,6 +123,12 @@ pub struct Todo {
     pub status: TodoStatus,
     pub priority: Option<TodoPriority>,
     pub notes: Option<String>,
+    /// Start-gate: don't surface / can't act before this day (drives "waiting";
+    /// doubles as snooze). `None` = no gate.
+    #[serde(rename = "notBefore")]
+    pub not_before: Option<NaiveDate>,
+    /// Deadline (drives urgency ordering). `None` = no deadline.
+    pub due: Option<NaiveDate>,
 }
 
 /// Request body for creating a to-do. New to-dos start `open`.
@@ -134,9 +141,13 @@ pub struct NewTodo {
     pub priority: Option<TodoPriority>,
     #[serde(default)]
     pub notes: Option<String>,
+    #[serde(rename = "notBefore", default)]
+    pub not_before: Option<NaiveDate>,
+    #[serde(default)]
+    pub due: Option<NaiveDate>,
 }
 
-/// Full update (edits, the type, the priority, and the open/done toggle).
+/// Full update (edits, the type, the priority, the timing, and open/done).
 #[derive(Debug, Deserialize)]
 pub struct UpdateTodo {
     pub title: String,
@@ -147,6 +158,10 @@ pub struct UpdateTodo {
     pub priority: Option<TodoPriority>,
     #[serde(default)]
     pub notes: Option<String>,
+    #[serde(rename = "notBefore", default)]
+    pub not_before: Option<NaiveDate>,
+    #[serde(default)]
+    pub due: Option<NaiveDate>,
 }
 
 /// How a to-do connects to its target. Directional: the edge runs *from* the

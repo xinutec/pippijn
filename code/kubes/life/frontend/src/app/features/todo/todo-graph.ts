@@ -1,4 +1,4 @@
-import { Injectable, computed, inject } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { BehaviorSubject, Observable, of } from 'rxjs';
 import { catchError, map, switchMap } from 'rxjs/operators';
@@ -23,7 +23,18 @@ export interface ResolvedLink {
   target: LinkTarget;
 }
 
-export type TodoState = 'done' | 'blocked' | 'ready' | 'open';
+export type TodoState = 'done' | 'blocked' | 'waiting' | 'ready' | 'open';
+
+/** Deadline pressure, orthogonal to `TodoState`. Derived from `due` vs today. */
+export type Urgency = 'overdue' | 'today' | 'soon' | 'none';
+
+/** The device-local calendar day as `YYYY-MM-DD` (the user's day, not UTC). */
+function todayISO(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 const TARGET_ICON: Record<TargetKind, string> = {
   todo: 'task_alt',
@@ -46,6 +57,47 @@ export class TodoGraph {
   private linkStore = inject(TodoLinkStore);
   private shopping = inject(ShoppingStore);
   private api = inject(LifeApi);
+
+  // "Today" as a signal so waiting/overdue states recompute when the day rolls
+  // over or the app regains focus — no reload needed. Updated at midnight and on
+  // visibility regain.
+  private readonly _today = signal(todayISO());
+  readonly today = this._today.asReadonly();
+
+  constructor() {
+    const refresh = () => this._today.set(todayISO());
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') refresh();
+      });
+    }
+    const scheduleMidnight = () => {
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 30);
+      setTimeout(() => {
+        refresh();
+        scheduleMidnight();
+      }, next.getTime() - now.getTime());
+    };
+    scheduleMidnight();
+  }
+
+  /** Whole days from today to an ISO date (negative = in the past). */
+  daysUntil(iso: string): number {
+    const a = Date.parse(this.today() + 'T00:00:00Z');
+    const b = Date.parse(iso + 'T00:00:00Z');
+    return Math.round((b - a) / 86_400_000);
+  }
+
+  /** Deadline pressure from `due`. Done or undated to-dos have none. */
+  urgencyOf(todo: TodoDoc): Urgency {
+    if (todo.status === 'done' || !todo.due) return 'none';
+    const d = this.daysUntil(todo.due);
+    if (d < 0) return 'overdue';
+    if (d === 0) return 'today';
+    if (d <= 3) return 'soon';
+    return 'none';
+  }
 
   readonly todoItems = toSignal(this.todos.items$, { initialValue: [] as TodoDoc[] });
   readonly links = toSignal(this.linkStore.links$, { initialValue: [] as TodoLinkDoc[] });
@@ -163,13 +215,14 @@ export class TodoGraph {
     return out;
   }
 
-  /** Derived lifecycle state: blocked while any derivable dependency (to-do /
-   *  shopping) is unfinished; ready = open with such dependencies, all met.
-   *  Links to stateless targets don't count — a to-do isn't "ready" merely for
-   *  being connected to a recipe. */
+  /** Derived lifecycle state, in precedence order: done → blocked (an unfinished
+   *  dependency) → waiting (a future start-gate) → ready (open with deps, all
+   *  met) → open. An external gate (blocker) outranks a self-imposed one
+   *  (not_before). Links to stateless targets don't make a to-do "ready". */
   statusOf(todo: TodoDoc): TodoState {
     if (todo.status === 'done') return 'done';
     if (this.blockers(todo.ulid).length > 0) return 'blocked';
+    if (todo.notBefore && this.daysUntil(todo.notBefore) > 0) return 'waiting';
     const hasDeps = this.links().some(
       (l) =>
         l.from === todo.ulid &&

@@ -6,4 +6,13 @@ import type { TodoType } from "./TodoType";
 /**
  * A to-do as returned by the API.
  */
-export type Todo = { id: number, title: string, type: TodoType, status: TodoStatus, priority: TodoPriority | null, notes: string | null, };
+export type Todo = { id: number, title: string, type: TodoType, status: TodoStatus, priority: TodoPriority | null, notes: string | null, 
+/**
+ * Start-gate: don't surface / can't act before this day (drives "waiting";
+ * doubles as snooze). `None` = no gate.
+ */
+notBefore: string | null, 
+/**
+ * Deadline (drives urgency ordering). `None` = no deadline.
+ */
+due: string | null, };

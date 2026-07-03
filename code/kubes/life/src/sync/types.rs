@@ -6,6 +6,7 @@
 //! envelopes are generic over the document type so each collection reuses them.
 //! See `docs/proposals/offline-first.md`.
 
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 /// One shopping row as it travels over sync. `rev` is the server revision; a pull
@@ -46,6 +47,10 @@ pub struct TodoDoc {
     #[serde(default)]
     pub priority: Option<String>,
     pub notes: Option<String>,
+    #[serde(rename = "notBefore", default)]
+    pub not_before: Option<NaiveDate>,
+    #[serde(default)]
+    pub due: Option<NaiveDate>,
     #[serde(rename = "_deleted", default)]
     pub deleted: bool,
     #[serde(default)]

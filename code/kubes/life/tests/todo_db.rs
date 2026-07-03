@@ -2,11 +2,16 @@
 //! set; skips otherwise. Covers repo CRUD (types + status + soft-delete) and a
 //! sync pull/push round-trip (the offline path).
 
+use chrono::NaiveDate;
 use life::db;
 use life::sync::repo as sync_repo;
 use life::sync::types::{PushEntry, TodoDoc};
 use life::todo::repo;
 use life::todo::types::{NewTodo, TodoPriority, TodoStatus, TodoType, UpdateTodo};
+
+fn date(y: i32, m: u32, d: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(y, m, d).unwrap()
+}
 
 #[tokio::test]
 async fn todo_crud_and_sync_against_real_db() {
@@ -33,6 +38,8 @@ async fn todo_crud_and_sync_against_real_db() {
             todo_type: TodoType::Purchase,
             priority: None,
             notes: None,
+            not_before: None,
+            due: None,
         },
     )
     .await
@@ -45,6 +52,8 @@ async fn todo_crud_and_sync_against_real_db() {
             todo_type: TodoType::Call,
             priority: Some(TodoPriority::High),
             notes: Some("re-book cleaning".into()),
+            not_before: None,
+            due: Some(date(2026, 7, 10)),
         },
     )
     .await
@@ -55,10 +64,12 @@ async fn todo_crud_and_sync_against_real_db() {
     assert_eq!(milk.status, TodoStatus::Open);
     assert_eq!(milk.todo_type, TodoType::Purchase);
     assert_eq!(milk.priority, None);
+    assert_eq!(milk.due, None);
     let dentist = all.iter().find(|t| t.title == "Call dentist").unwrap();
     assert_eq!(dentist.priority, Some(TodoPriority::High));
+    assert_eq!(dentist.due, Some(date(2026, 7, 10)));
 
-    // Update: mark done, set a priority, change notes.
+    // Update: mark done, set a priority, change notes, add timing.
     let done = repo::update(
         &pool,
         user,
@@ -69,6 +80,8 @@ async fn todo_crud_and_sync_against_real_db() {
             status: TodoStatus::Done,
             priority: Some(TodoPriority::Medium),
             notes: Some("got oat milk".into()),
+            not_before: Some(date(2026, 7, 5)),
+            due: Some(date(2026, 7, 20)),
         },
     )
     .await
@@ -77,6 +90,8 @@ async fn todo_crud_and_sync_against_real_db() {
     assert_eq!(done.status, TodoStatus::Done);
     assert_eq!(done.priority, Some(TodoPriority::Medium));
     assert_eq!(done.notes.as_deref(), Some("got oat milk"));
+    assert_eq!(done.not_before, Some(date(2026, 7, 5)));
+    assert_eq!(done.due, Some(date(2026, 7, 20)));
 
     // Soft delete hides it from reads.
     assert!(repo::delete(&pool, user, milk.id).await.unwrap());
@@ -109,6 +124,8 @@ async fn todo_crud_and_sync_against_real_db() {
             status: "open".into(),
             priority: Some("low".into()),
             notes: None,
+            not_before: None,
+            due: Some(date(2026, 8, 1)),
             deleted: false,
             rev: 0,
         },
@@ -121,5 +138,6 @@ async fn todo_crud_and_sync_against_real_db() {
     let after_push = repo::list(&pool, user).await.unwrap();
     assert!(after_push.iter().any(|t| t.title == "Pay rent"
         && t.todo_type == TodoType::Call
-        && t.priority == Some(TodoPriority::Low)));
+        && t.priority == Some(TodoPriority::Low)
+        && t.due == Some(date(2026, 8, 1))));
 }

@@ -16,9 +16,18 @@ const todo = (over: Partial<TodoDoc>): TodoDoc => ({
   status: 'open',
   priority: null,
   notes: null,
+  notBefore: null,
+  due: null,
   rev: 0,
   ...over,
 });
+
+/** ISO date `n` days from today (device-local), for timing tests. */
+const isoOffset = (n: number): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 const link = (over: Partial<TodoLinkDoc>): TodoLinkDoc => ({
   ulid: 'l',
@@ -138,5 +147,29 @@ describe('TodoGraph — ready/blocked derivation', () => {
     expect(items).toHaveBeenCalledTimes(1); // initial load
     g.refreshCatalogs();
     expect(items).toHaveBeenCalledTimes(2);
+  });
+
+  it('a future start-gate makes a to-do "waiting"; a past one does not', () => {
+    const { g } = make([], []);
+    expect(g.statusOf(todo({ ulid: 'a', notBefore: isoOffset(3) }))).toBe('waiting');
+    expect(g.statusOf(todo({ ulid: 'a', notBefore: isoOffset(0) }))).toBe('open'); // today = actionable
+    expect(g.statusOf(todo({ ulid: 'a', notBefore: isoOffset(-1) }))).toBe('open');
+  });
+
+  it('a blocker outranks a future start-gate (blocked beats waiting)', () => {
+    const { g } = make(
+      [todo({ ulid: 'a', notBefore: isoOffset(5) }), todo({ ulid: 'b', status: 'open' })],
+      [link({ from: 'a', kind: 'depends_on', targetKind: 'todo', targetRef: 'b' })],
+    );
+    expect(g.statusOf(todo({ ulid: 'a', notBefore: isoOffset(5) }))).toBe('blocked');
+  });
+
+  it('urgency is derived from the due date', () => {
+    const { g } = make([], []);
+    expect(g.urgencyOf(todo({ due: isoOffset(-2) }))).toBe('overdue');
+    expect(g.urgencyOf(todo({ due: isoOffset(0) }))).toBe('today');
+    expect(g.urgencyOf(todo({ due: isoOffset(2) }))).toBe('soon');
+    expect(g.urgencyOf(todo({ due: isoOffset(10) }))).toBe('none');
+    expect(g.urgencyOf(todo({ due: isoOffset(-2), status: 'done' }))).toBe('none'); // done clears it
   });
 });

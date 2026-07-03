@@ -3,6 +3,7 @@
 //! (shopping + to-do — see `docs/proposals/offline-first.md`).
 
 use anyhow::Result;
+use chrono::NaiveDate;
 use sqlx::{MySqlConnection, MySqlPool};
 use ulid::Ulid;
 
@@ -201,6 +202,8 @@ struct TodoDocRow {
     status: String,
     priority: Option<String>,
     notes: Option<String>,
+    not_before: Option<NaiveDate>,
+    due: Option<NaiveDate>,
     deleted: i64,
     rev: u64,
 }
@@ -215,6 +218,8 @@ impl From<TodoDocRow> for TodoDoc {
             status: r.status,
             priority: r.priority,
             notes: r.notes,
+            not_before: r.not_before,
+            due: r.due,
             deleted: r.deleted != 0,
             rev: r.rev,
         }
@@ -228,7 +233,7 @@ pub async fn pull_todo(
     limit: u64,
 ) -> Result<PullResponse<TodoDoc>> {
     let rows: Vec<TodoDocRow> = sqlx::query_as(
-        "SELECT id, ulid, title, todo_type, status, priority, notes, \
+        "SELECT id, ulid, title, todo_type, status, priority, notes, not_before, due, \
          CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
          FROM todos WHERE user_id = ? AND rev > ? ORDER BY rev ASC LIMIT ?",
     )
@@ -258,7 +263,7 @@ pub async fn push_todo(
 
         let mut tx = pool.begin().await?;
         let current: Option<TodoDocRow> = sqlx::query_as(
-            "SELECT id, ulid, title, todo_type, status, priority, notes, \
+            "SELECT id, ulid, title, todo_type, status, priority, notes, not_before, due, \
              CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
              FROM todos WHERE ulid = ? AND user_id = ? FOR UPDATE",
         )
@@ -276,6 +281,7 @@ pub async fn push_todo(
             // Set-only tombstone — see the shopping push above.
             sqlx::query(
                 "UPDATE todos SET title = ?, todo_type = ?, status = ?, priority = ?, notes = ?, \
+                 not_before = ?, due = ?, \
                  deleted_at = COALESCE(deleted_at, IF(?, NOW(), NULL)), \
                  rev = ?, updated_at = NOW() WHERE ulid = ? AND user_id = ?",
             )
@@ -284,6 +290,8 @@ pub async fn push_todo(
             .bind(&new.status)
             .bind(&new.priority)
             .bind(&new.notes)
+            .bind(new.not_before)
+            .bind(new.due)
             .bind(new.deleted)
             .bind(rev)
             .bind(&new.ulid)
@@ -294,9 +302,9 @@ pub async fn push_todo(
             let rev = next_rev(&mut tx).await?;
             sqlx::query(
                 "INSERT INTO todos \
-                 (user_id, ulid, title, todo_type, status, priority, notes, deleted_at, rev, \
-                  created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, IF(?, NOW(), NULL), ?, NOW(), NOW())",
+                 (user_id, ulid, title, todo_type, status, priority, notes, not_before, due, \
+                  deleted_at, rev, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, IF(?, NOW(), NULL), ?, NOW(), NOW())",
             )
             .bind(user_id)
             .bind(&new.ulid)
@@ -305,6 +313,8 @@ pub async fn push_todo(
             .bind(&new.status)
             .bind(&new.priority)
             .bind(&new.notes)
+            .bind(new.not_before)
+            .bind(new.due)
             .bind(new.deleted)
             .bind(rev)
             .execute(&mut *tx)

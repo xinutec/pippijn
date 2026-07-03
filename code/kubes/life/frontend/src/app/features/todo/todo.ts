@@ -91,30 +91,87 @@ export class Todo {
   readonly title = signal('');
   readonly newType = signal<TodoType>('purchase');
   readonly newPriority = signal<TodoPriority | null>(null);
+  readonly newDue = signal<string | null>(null);
   readonly notes = signal('');
   /** null = show all types. */
   readonly filter = signal<TodoType | null>(null);
   /** Show only to-dos the graph says are ready (unblocked, with dependencies). */
   readonly readyOnly = signal(false);
+  /** Whether the collapsed "Waiting" section is expanded. */
+  readonly showWaiting = signal(false);
 
+  /** Actionable to-dos (waiting ones are split into their own section below).
+   *  Order: open-before-done → urgency (overdue→today→soon→later) → priority →
+   *  due date → title. */
   readonly visible = computed(() => {
     const f = this.filter();
     const ready = this.readyOnly();
-    // Open before done, then by priority (high→low→unset), then title.
     return this.items()
       .filter((t) => (f ? t.type === f : true))
+      .filter((t) => this.graph.statusOf(t) !== 'waiting')
       .filter((t) => (ready ? this.graph.statusOf(t) === 'ready' : true))
+      .slice()
+      .sort(this.compare);
+  });
+
+  /** To-dos gated by a future start date — parked in a collapsed section so the
+   *  main list only shows what can be acted on. Hidden entirely under "Ready". */
+  readonly waiting = computed(() => {
+    if (this.readyOnly()) return [] as TodoDoc[];
+    const f = this.filter();
+    return this.items()
+      .filter((t) => (f ? t.type === f : true))
+      .filter((t) => this.graph.statusOf(t) === 'waiting')
       .slice()
       .sort(
         (a, b) =>
-          Number(a.status === 'done') - Number(b.status === 'done') ||
-          prioRank(a.priority) - prioRank(b.priority) ||
-          a.title.localeCompare(b.title),
+          (a.notBefore ?? '').localeCompare(b.notBefore ?? '') || a.title.localeCompare(b.title),
       );
   });
+  readonly waitingCount = computed(() => this.waiting().length);
+
   readonly readyCount = computed(
     () => this.items().filter((t) => this.graph.statusOf(t) === 'ready').length,
   );
+
+  private urgencyRank(t: TodoDoc): number {
+    switch (this.graph.urgencyOf(t)) {
+      case 'overdue':
+        return 0;
+      case 'today':
+        return 1;
+      case 'soon':
+        return 2;
+      default:
+        return 3;
+    }
+  }
+  private compare = (a: TodoDoc, b: TodoDoc): number =>
+    Number(a.status === 'done') - Number(b.status === 'done') ||
+    this.urgencyRank(a) - this.urgencyRank(b) ||
+    prioRank(a.priority) - prioRank(b.priority) ||
+    (a.due ?? '9999-99-99').localeCompare(b.due ?? '9999-99-99') ||
+    a.title.localeCompare(b.title);
+
+  /** The urgency chip for a row, or null when there's nothing pressing to show
+   *  (done, undated, or a deadline more than 3 days out). */
+  dueChip(it: TodoDoc): { label: string; cls: string } | null {
+    const u = this.graph.urgencyOf(it);
+    if (u === 'none' || !it.due) return null;
+    const d = this.graph.daysUntil(it.due);
+    let label: string;
+    if (u === 'overdue') label = d === -1 ? 'overdue 1d' : `overdue ${-d}d`;
+    else if (u === 'today') label = 'due today';
+    else label = d === 1 ? 'due tomorrow' : `due in ${d}d`;
+    return { label, cls: u === 'soon' ? 'due-soon' : 'overdue' };
+  }
+
+  /** "from Sat 5 Jul" — when a waiting to-do becomes actionable. */
+  fromLabel(it: TodoDoc): string {
+    if (!it.notBefore) return '';
+    const d = new Date(it.notBefore + 'T00:00:00');
+    return 'from ' + d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  }
 
   add(): void {
     const title = this.title().trim();
@@ -124,10 +181,12 @@ export class Todo {
       type: this.newType(),
       priority: this.newPriority(),
       notes: this.notes().trim() || null,
+      due: this.newDue(),
     });
     this.title.set('');
     this.notes.set('');
     this.newPriority.set(null);
+    this.newDue.set(null);
   }
 
   setPriority(it: TodoDoc, priority: TodoPriority | null): void {

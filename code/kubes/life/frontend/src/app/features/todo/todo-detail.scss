@@ -21,6 +21,36 @@
   align-self: flex-start;
 }
 
+.timing {
+  h4 {
+    margin: 0.25rem 0 0.35rem;
+  }
+  .timing-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+
+    mat-form-field {
+      flex: 0 0 auto;
+      width: 10rem;
+    }
+    .presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+
+      button {
+        // Compact preset chips.
+        --mat-standard-button-toggle-height: 32px;
+        min-width: 0;
+        padding: 0 0.6rem;
+      }
+    }
+  }
+}
+
 .banner {
   display: flex;
   align-items: center;

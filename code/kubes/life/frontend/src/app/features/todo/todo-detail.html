@@ -64,6 +64,42 @@
       ></textarea>
     </mat-form-field>
 
+    <div class="timing">
+      <h4>Timing</h4>
+      <div class="timing-row">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+          <mat-label>Start after</mat-label>
+          <input matInput type="date" [ngModel]="td.notBefore" (ngModelChange)="setNotBefore($event)" />
+          @if (td.notBefore) {
+            <button matSuffix mat-icon-button (click)="setNotBefore(null)" aria-label="Clear start">
+              <mat-icon>close</mat-icon>
+            </button>
+          }
+        </mat-form-field>
+        <div class="presets">
+          @for (p of datePresets; track p.kind) {
+            <button mat-stroked-button (click)="applyPreset('notBefore', p.kind)">{{ p.label }}</button>
+          }
+        </div>
+      </div>
+      <div class="timing-row">
+        <mat-form-field appearance="outline" subscriptSizing="dynamic">
+          <mat-label>Due</mat-label>
+          <input matInput type="date" [ngModel]="td.due" (ngModelChange)="setDue($event)" />
+          @if (td.due) {
+            <button matSuffix mat-icon-button (click)="setDue(null)" aria-label="Clear due">
+              <mat-icon>close</mat-icon>
+            </button>
+          }
+        </mat-form-field>
+        <div class="presets">
+          @for (p of datePresets; track p.kind) {
+            <button mat-stroked-button (click)="applyPreset('due', p.kind)">{{ p.label }}</button>
+          }
+        </div>
+      </div>
+    </div>
+
     @for (grp of groups(); track grp.heading) {
       <div class="group">
         <h4>{{ grp.heading }}</h4>
