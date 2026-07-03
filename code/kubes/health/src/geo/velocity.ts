@@ -824,6 +824,7 @@ export async function computeVelocityFromInputs(
 							return {
 								...seg,
 								place: wp.displayName,
+								focusPlaceId: wp.id,
 								...(namedCity ? { city: namedCity } : {}),
 							};
 						}
@@ -841,6 +842,7 @@ export async function computeVelocityFromInputs(
 							return {
 								...seg,
 								place: wp.amenityLabel,
+								focusPlaceId: wp.id,
 								...(namedCity ? { city: namedCity } : {}),
 							};
 						}
@@ -863,6 +865,7 @@ export async function computeVelocityFromInputs(
 						return {
 							...seg,
 							place: placeLabel(place),
+							focusPlaceId: wp.id,
 							...(city ? { city } : {}),
 						};
 					}
@@ -1513,7 +1516,20 @@ export async function computeVelocityFromInputs(
 					if (segPoints.length === 0) continue;
 					const cLat = segPoints.reduce((a, p) => a + p.lat, 0) / segPoints.length;
 					const cLon = segPoints.reduce((a, p) => a + p.lon, 0) / segPoints.length;
-					const station = await stationAtTransitInterchange(out, i, cLat, cLon, inputs.osm);
+					// Provenance guard: a stay the posterior assigned to an
+					// established focus place is a destination, not a platform —
+					// pass its visit-days so the labeller can refuse the rename.
+					const focus =
+						s.focusPlaceId !== undefined ? inputs.knownPlaces.find((p) => p.id === s.focusPlaceId) : undefined;
+					const station = await stationAtTransitInterchange(
+						out,
+						i,
+						cLat,
+						cLon,
+						inputs.osm,
+						undefined,
+						focus?.uniqueDays,
+					);
 					if (station !== null && station !== s.place) {
 						out[i] = {
 							...s,

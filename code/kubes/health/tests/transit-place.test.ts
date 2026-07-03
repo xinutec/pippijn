@@ -134,4 +134,32 @@ describe("stationAtTransitInterchange", () => {
 		const segs = [seg("walking", 0, 5), seg("stationary", 5, 40), seg("walking", 45, 5)];
 		expect(await stationAtTransitInterchange(segs, 1, LAT, LON, bakerOsm)).toBeNull();
 	});
+
+	// --- established-focus-place guard (2026-07-02 UCLH → "Warren Street") --
+	// A stay the place prior confidently assigned to an established focus
+	// place is a genuine destination even when a ride brackets each side:
+	// the RT visit sat 5 m from a 6-day hospital focus place, between the
+	// morning tube and a one-stop hop onward, and got renamed after the
+	// station 100 m away. Trains on both sides prove a JOURNEY structure,
+	// not that the stop between them was a platform.
+	it("does NOT rename a stay assigned to an established focus place", async () => {
+		const segs = [
+			seg("train", 0, 25),
+			seg("walking", 25, 10),
+			seg("stationary", 35, 10), // the hospital visit — i=2
+			seg("walking", 45, 6),
+			seg("train", 51, 2), // one-stop hop onward
+		];
+		expect(await stationAtTransitInterchange(segs, 2, LAT, LON, bakerOsm, undefined, 6)).toBeNull();
+	});
+
+	it("still renames when the stay's focus place is too new to trust", async () => {
+		const segs = [seg("train", 0, 2), seg("stationary", 2, 4), seg("train", 6, 8)];
+		expect(await stationAtTransitInterchange(segs, 1, LAT, LON, bakerOsm, undefined, 1)).toBe("Baker Street");
+	});
+
+	it("still renames when the stay has no focus-place provenance", async () => {
+		const segs = [seg("train", 0, 2), seg("stationary", 2, 4), seg("train", 6, 8)];
+		expect(await stationAtTransitInterchange(segs, 1, LAT, LON, bakerOsm, undefined, undefined)).toBe("Baker Street");
+	});
 });

@@ -54,6 +54,19 @@ export const INTERCHANGE_WALK_MAX_S = 720;
  *  outbound and a return train hours apart), not an interchange. */
 export const INTERCHANGE_DWELL_MAX_S = 900;
 
+/** Established-focus-place guard: a stay the place prior confidently
+ *  assigned to a focus place visited on at least this many distinct days
+ *  is a genuine destination, and keeps its label even when train legs
+ *  bracket it. Trains on both sides prove a JOURNEY structure — not that
+ *  the stop between them was a platform (2026-07-02, user-confirmed: an
+ *  RT visit 5 m from the 6-day UCLH focus place, between the morning
+ *  tube and a REAL one-stop hop onward, was renamed "Warren Street"
+ *  after the station 100 m away; the intervening street walks passed the
+ *  short-walk check). One-off focus places stay overridable — the
+ *  06-29 Baker Street case this pass exists for must keep working even
+ *  if a low-evidence cluster ever mines at a platform. */
+export const INTERCHANGE_FOCUS_GUARD_MIN_DAYS = 3;
+
 interface InterchangeSeg {
 	mode: TransportMode;
 	refinedMode?: TransportMode;
@@ -104,9 +117,12 @@ export async function stationAtTransitInterchange(
 	lon: number,
 	osm: Pick<OsmAdapter, "nearbyStations">,
 	radiusM: number = STATION_AT_ALIGHT_RADIUS_M,
+	stayFocusDays?: number,
 ): Promise<string | null> {
 	const stay = segments[i];
 	if (stay === undefined || stay.endTs - stay.startTs > INTERCHANGE_DWELL_MAX_S) return null;
+	// Established-destination guard — see INTERCHANGE_FOCUS_GUARD_MIN_DAYS.
+	if (stayFocusDays !== undefined && stayFocusDays >= INTERCHANGE_FOCUS_GUARD_MIN_DAYS) return null;
 	const before = bracketingTrain(segments, i - 1, i - 2);
 	const after = bracketingTrain(segments, i + 1, i + 2);
 	if (!before || !after) return null;

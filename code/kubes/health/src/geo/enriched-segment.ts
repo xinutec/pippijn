@@ -19,6 +19,14 @@ import type { TrackSegment, TransportMode } from "./segments.js";
 
 export interface EnrichedSegment extends TrackSegment {
 	place?: string; // human-readable place name (for stationary segments)
+	/** Provenance: the focus place whose posterior won this stay's label
+	 *  (`pickBestPlace` winner). Absent when the label came from OSM
+	 *  lookup at a place the prior didn't recognise. Lets late passes
+	 *  tell an established personal destination from an incidental stop —
+	 *  the interchange labeller must not rename a stay at a many-visit
+	 *  focus place after a nearby station (the 2026-07-02 UCLH →
+	 *  "Warren Street" case, user-confirmed). Typed like `KnownPlace.id`. */
+	focusPlaceId?: string | number;
 	city?: string; // city/town/village (for stationary segments) — frontend groups consecutive same-city segments
 	/** Mean lat/lon of this stay's GPS fixes. Attached for stationary
 	 *  segments by `attachStayCentroids` so the co-location merge can compare
