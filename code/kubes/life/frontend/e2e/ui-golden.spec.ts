@@ -81,3 +81,61 @@ test('to-do edit sheet — golden @ phone width', async ({ page }) => {
   // dates) is excluded, which is what keeps this baseline deterministic.
   await expect(sheet).toHaveScreenshot('todo-edit-sheet.png');
 });
+
+/**
+ * A real finger swipe up the open sheet. The sheet is capped at 80vh and its
+ * form is taller than that, so "Delete to-do" sits below the fold at rest;
+ * swiping up should scroll the sheet body and bring it fully into view. We
+ * drive genuine touch events through CDP (Input.dispatchTouchEvent) rather
+ * than a wheel/scrollTop shortcut, so this also proves touch-scrolling works
+ * inside the bottom sheet — the exact gesture a thumb makes on the phone.
+ */
+test('to-do edit sheet — golden after swiping up @ phone width', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/todo');
+  await page.getByText('Call the GP', { exact: false }).click();
+
+  const sheet = page.locator('.mat-bottom-sheet-container');
+  await sheet.waitFor();
+  const deleteBtn = page.getByRole('button', { name: 'Delete to-do' });
+  await deleteBtn.waitFor();
+  await page.evaluate(() => document.fonts.ready);
+
+  // The sheet slides up on open; measuring or swiping mid-animation reads a
+  // half-risen sheet. Wait until it's settled at the viewport bottom.
+  await expect
+    .poll(() => sheet.evaluate((el) => Math.round(el.getBoundingClientRect().bottom - window.innerHeight)))
+    .toBeLessThanOrEqual(1);
+
+  // Precondition: the button we want to reveal really is off-screen at rest —
+  // otherwise the swipe would be a no-op and the test would prove nothing.
+  expect(await deleteBtn.evaluate((el) => el.getBoundingClientRect().bottom > window.innerHeight)).toBe(
+    true,
+  );
+
+  // One upward flick through CDP touch: start low in the sheet, drag up past
+  // the top of the viewport in steps (a fast, long throw so momentum carries
+  // the short scroll all the way to the bottom, where it clamps).
+  const touch = await page.context().newCDPSession(page);
+  const x = 206; // sheet horizontal centre (412 / 2)
+  const yStart = 780;
+  const yEnd = 120;
+  const steps = 12;
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: yStart }] });
+  for (let i = 1; i <= steps; i++) {
+    const y = yStart + ((yEnd - yStart) * i) / steps;
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] });
+  }
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+  // The one scroller (the sheet container) is at the bottom, clamped, and
+  // Delete is now fully on-screen. Poll: momentum settles over a few frames.
+  await expect
+    .poll(() => sheet.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop))
+    .toBeLessThanOrEqual(1);
+  expect(await deleteBtn.evaluate((el) => el.getBoundingClientRect().bottom <= window.innerHeight)).toBe(
+    true,
+  );
+
+  await expect(sheet).toHaveScreenshot('todo-edit-sheet-swiped-up.png');
+});

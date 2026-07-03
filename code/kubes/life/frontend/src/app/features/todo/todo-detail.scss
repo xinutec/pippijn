@@ -3,8 +3,9 @@
   flex-direction: column;
   gap: 0.6rem;
   padding: 0.25rem 0.25rem 1rem;
-  max-height: 80vh;
-  overflow-y: auto;
+  // No max-height / overflow here: mat-bottom-sheet-container already caps at
+  // 80vh and scrolls. A second scroller nested inside it means a swipe scrolls
+  // whichever the finger lands on and the two fight — one scroller is correct.
 }
 
 .head {
