@@ -106,10 +106,20 @@
   }
 }
 
+// The default two-line item is the tight 64px MDC box, sized for plain
+// supporting *text*. Our second line is filled pills, which paint their whole
+// line box, so at 64px they crowd the title's descenders. 72px is the actual
+// M3 spec height for a two-line item; resize via the list's own token.
+mat-list {
+  --mat-list-list-item-two-line-container-height: 72px;
+}
+
 .meta {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  // Pills have no leading of their own (text lines do) — restore the gap.
+  margin-top: 0.25rem;
 
   .type-icon {
     font-size: 1.05rem;
