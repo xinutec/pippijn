@@ -41,9 +41,17 @@ export interface OverlapPair {
  * pixels in BOTH axes (so merely-touching edges and sub-pixel antialiasing
  * seams don't count). Pure DOM — serialised into `page.evaluate`.
  */
-export function findTextOverlaps(tol: number): OverlapPair[] {
+export function findTextOverlaps(args: [string | null, number]): OverlapPair[] {
+	const [rootSel, tol] = args;
+	// Scope to a container when given — measuring a modal (a bottom sheet)
+	// means measuring only ITS text. An open sheet is opaque and covers the
+	// list behind it, but getClientRects can't see occlusion, so a whole-body
+	// scan would count the covered list text as colliding with the sheet text
+	// drawn on top. That's a false positive; the container scope removes it.
+	const root = rootSel ? document.querySelector(rootSel) : document.body;
+	if (!root) return [];
 	const rects: TextRect[] = [];
-	const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
 	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 		const text = (node.textContent ?? "").trim();
 		if (!text) continue;
@@ -73,25 +81,134 @@ export function findTextOverlaps(tol: number): OverlapPair[] {
 }
 
 /**
- * Assert no two pieces of rendered text overlap. On failure, lists the
- * colliding text and by how much, so the report says *what* collided
- * rather than just "pixels differ". Always leaves a full-page screenshot
- * artifact for the eye-check this whole tool exists to make routine.
+ * Write a full-page screenshot to a stable, predictable path (pass OR fail) —
+ * eyeballing the render is the habit this whole tool exists to make cheap.
+ * Playwright's own report dir is wiped on a passing test, so we keep our own
+ * copy under ui-snapshots/ (git-ignored). Returns nothing; also attaches it to
+ * the test report.
  */
-export async function expectNoTextOverlaps(page: Page, testInfo: TestInfo, tol = 1.5): Promise<void> {
-	// Always leave a screenshot at a stable, predictable path (pass OR
-	// fail) — eyeballing the render is the habit this tool exists to make
-	// cheap. Playwright's own report dir is wiped on a passing test, so we
-	// write our own copy under ui-snapshots/ (git-ignored).
+async function leaveSnapshot(page: Page, testInfo: TestInfo): Promise<void> {
 	const slug = testInfo.title.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
 	const path = join(testInfo.project.testDir, "..", "ui-snapshots", `${slug}.png`);
 	await mkdir(dirname(path), { recursive: true });
 	const shot = await page.screenshot({ fullPage: true, path });
 	await testInfo.attach("rendered", { body: shot, contentType: "image/png" });
+}
 
-	const overlaps = await page.evaluate(findTextOverlaps, tol);
+/**
+ * Assert no two pieces of rendered text overlap. On failure, lists the
+ * colliding text and by how much, so the report says *what* collided
+ * rather than just "pixels differ". Always leaves a full-page screenshot
+ * artifact for the eye-check this whole tool exists to make routine.
+ */
+export async function expectNoTextOverlaps(
+	page: Page,
+	testInfo: TestInfo,
+	rootSel: string | null = null,
+	tol = 1.5,
+): Promise<void> {
+	await leaveSnapshot(page, testInfo);
+
+	const overlaps = await page.evaluate(findTextOverlaps, [rootSel, tol] as [string | null, number]);
 	const detail = overlaps
 		.map((p) => `  "${p.a.text}" ∩ "${p.b.text}" — ${p.overlap.w.toFixed(1)}×${p.overlap.h.toFixed(1)}px`)
 		.join("\n");
 	expect(overlaps, `Text overlaps detected:\n${detail}`).toEqual([]);
+}
+
+/** An element whose right edge spills past the viewport (or the given root). */
+export interface Overflower {
+	sel: string;
+	text: string;
+	/** How far past the right edge it reaches, in px. */
+	spill: number;
+}
+
+/**
+ * Runs in the browser. The other layout failure class at a phone width: content
+ * wider than the screen. A too-wide element either forces a horizontal page
+ * scroll (nothing on a phone should scroll sideways) or spills out of a fixed
+ * container like a bottom sheet. The mat-button-toggle-group is the classic
+ * culprit — it lays its options in one non-wrapping row, so five typed options
+ * with icons happily exceed 412px.
+ *
+ * We flag every visible element whose right edge sits more than `tol` past
+ * `root`'s right edge — EXCEPT ones inside an element that scrolls horizontally
+ * on purpose (overflow-x: auto/scroll), since there the content is reachable by
+ * design. `args` is [rootSel|null, tol]; a null root means the viewport.
+ */
+export function findHorizontalOverflow(args: [string | null, number]): {
+	rootWidth: number;
+	scrollOverflow: number;
+	offenders: Overflower[];
+} {
+	const [rootSel, tol] = args;
+	const root = rootSel ? document.querySelector(rootSel) : document.documentElement;
+	if (!root) return { rootWidth: 0, scrollOverflow: 0, offenders: [] };
+	const rootRect = root.getBoundingClientRect();
+	const rightEdge = rootSel ? rootRect.right : window.innerWidth;
+
+	const scrolls = (el: Element): boolean => {
+		const ox = getComputedStyle(el).overflowX;
+		return ox === "auto" || ox === "scroll";
+	};
+	const inScrollContainer = (el: Element): boolean => {
+		for (let p = el.parentElement; p && p !== root.parentElement; p = p.parentElement) {
+			if (scrolls(p)) return true;
+		}
+		return false;
+	};
+	const describe = (el: Element): string => {
+		const cls = typeof el.className === "string" && el.className.trim()
+			? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".")
+			: "";
+		return el.tagName.toLowerCase() + cls;
+	};
+
+	const seen = new Set<string>();
+	const offenders: Overflower[] = [];
+	for (const el of Array.from(root.querySelectorAll("*"))) {
+		const style = getComputedStyle(el);
+		if (style.visibility === "hidden" || style.display === "none") continue;
+		if (inScrollContainer(el)) continue;
+		const r = el.getBoundingClientRect();
+		if (r.width < 1 || r.height < 1) continue;
+		const spill = r.right - rightEdge;
+		if (spill <= tol) continue;
+		const sel = describe(el);
+		// One row per (selector, rounded-spill) so a stack of nested offenders
+		// that all spill by the same amount collapses to its outermost note.
+		const key = `${sel}@${Math.round(spill)}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		offenders.push({ sel, text: (el.textContent ?? "").trim().slice(0, 40), spill });
+	}
+	offenders.sort((a, b) => b.spill - a.spill);
+
+	// scrollWidth vs clientWidth on the root is the single scalar "does it spill"
+	// signal, independent of the per-element attribution above.
+	const scrollOverflow = rootSel
+		? (root as HTMLElement).scrollWidth - (root as HTMLElement).clientWidth
+		: document.documentElement.scrollWidth - document.documentElement.clientWidth;
+	return { rootWidth: rightEdge - rootRect.left, scrollOverflow, offenders };
+}
+
+/**
+ * Assert nothing spills past the right edge at a phone width. `rootSel` scopes
+ * the check to a container (e.g. an open bottom sheet); omit it to check the
+ * whole viewport. Leaves the same screenshot artifact as the overlap check.
+ */
+export async function expectNoHorizontalOverflow(
+	page: Page,
+	testInfo: TestInfo,
+	rootSel: string | null = null,
+	tol = 1,
+): Promise<void> {
+	await leaveSnapshot(page, testInfo);
+
+	const { offenders } = await page.evaluate(findHorizontalOverflow, [rootSel, tol] as [string | null, number]);
+	const detail = offenders
+		.map((o) => `  ${o.sel} — spills ${o.spill.toFixed(1)}px${o.text ? ` — "${o.text}"` : ""}`)
+		.join("\n");
+	expect(offenders, `Horizontal overflow at phone width:\n${detail}`).toEqual([]);
 }

@@ -18,7 +18,10 @@ export default defineConfig({
   timeout: 90_000,
   use: {
     baseURL: `http://localhost:${PORT}`,
-    viewport: { width: 390, height: 844 },
+    // Pixel 9 CSS viewport (1080×2424 physical ÷ 2.625 DPR) — the phone this app
+    // is actually used on. The layout checks below (text overlap, horizontal
+    // overflow) are all measured at this width.
+    viewport: { width: 412, height: 915 },
     screenshot: 'only-on-failure',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],

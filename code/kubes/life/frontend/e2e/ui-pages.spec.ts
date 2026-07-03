@@ -1,12 +1,15 @@
-import { test, type Page } from '@playwright/test';
-import { expectNoTextOverlaps } from './ui-overlap';
+import { test, expect, type Page } from '@playwright/test';
+import { expectNoTextOverlaps, expectNoHorizontalOverflow } from './ui-overlap';
 
 /**
  * UI-measurement checks (ported from the health-sync frontend): render the
- * main screens at a phone viewport with the backend mocked and busy data,
- * and assert no two pieces of rendered text collide. This is the failure
- * class that reads fine in source and only shows at 390px (the to-do rows'
- * pills crowding the title were exactly this).
+ * main screens at a phone viewport (Pixel 9, 412px — see playwright.config)
+ * with the backend mocked and busy data, and assert the two layout failure
+ * classes that read fine in source and only show on a real phone:
+ *   1. no two pieces of rendered text collide (the to-do rows' pills crowding
+ *      the title were exactly this), and
+ *   2. nothing spills past the right edge (a bottom sheet's toggle-groups are
+ *      the classic culprit).
  *
  * The service worker is blocked: SW-controlled fetches bypass page.route,
  * and these tests are about layout, not offline (e2e/offline*.spec.ts).
@@ -88,42 +91,82 @@ async function mockApi(page: Page): Promise<void> {
   await page.route('**/api/sync/wellbeing*', sync(WELLBEING));
 }
 
-test('today — busy composition: no text overlaps @ 390px', async ({ page }, testInfo) => {
+test('today — busy composition: lays out cleanly @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto('/today');
   await page.getByText('Needs you').waitFor();
   await page.getByText('Call the GP', { exact: false }).waitFor();
   await page.getByText('Expiring soon').waitFor();
   await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
 });
 
-test('to-do list — pills in rows: no text overlaps @ 390px', async ({ page }, testInfo) => {
+test('to-do list — pills in rows: lays out cleanly @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto('/todo');
   await page.getByText('Call the GP', { exact: false }).waitFor();
   await page.getByText('overdue', { exact: false }).first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
 });
 
-test('wellbeing — chart + timeline: no text overlaps @ 390px', async ({ page }, testInfo) => {
+test('wellbeing — chart + timeline: lays out cleanly @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto('/wellbeing');
   await page.getByText('How do you feel right now?').waitFor();
   await page.getByText('Last 14 days').waitFor();
   await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
 });
 
-test('buy — list + bought bar: no text overlaps @ 390px', async ({ page }, testInfo) => {
+test('buy — list + bought bar: lays out cleanly @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto('/shopping');
   await page.getByText('Greek yoghurt', { exact: false }).waitFor();
   await page.getByText('add to inventory', { exact: false }).waitFor();
   await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
 });
 
-test('settings — about card: no text overlaps @ 390px', async ({ page }, testInfo) => {
+test('settings — about card: lays out cleanly @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto('/settings');
   await page.getByRole('button', { name: 'Check for updates' }).waitFor();
   await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
+// The one the user asked for by name: tapping a to-do opens the edit sheet — a
+// dense form (two mat-button-toggle-groups, notes, two date rows with presets,
+// connections, a search box, delete). Everything the overlap check can't catch
+// on a static page lives here: this sheet is where a too-wide toggle-group
+// spills off the right of a phone. Check both the sheet's contents overlap-free
+// AND that nothing in it overflows the sheet horizontally.
+test('to-do detail — tapping a to-do opens a clean edit sheet @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockApi(page);
+  await page.goto('/todo');
+  // Tap the to-do title (role=button span) — the same gesture a thumb makes.
+  await page.getByText('Call the GP', { exact: false }).click();
+
+  // The bottom sheet is the .detail container; wait for its far-down controls so
+  // the whole form (not just the header) has laid out before we measure.
+  const sheet = page.locator('.detail');
+  await sheet.waitFor();
+  await page.getByRole('button', { name: 'Delete to-do' }).waitFor();
+  await page.getByText('Add connection').waitFor();
+
+  // Scope both measurements to the open sheet — it's the component under test,
+  // and an opaque modal over the list would otherwise register false overlaps
+  // against the (occluded) list text behind it.
+  await expectNoTextOverlaps(page, testInfo, '.detail');
+  // The sheet's content must fit the sheet's width, whatever it works out to.
+  await expectNoHorizontalOverflow(page, testInfo, '.detail');
+  // And the page as a whole must never scroll sideways.
+  await expectNoHorizontalOverflow(page, testInfo);
+
+  // Sanity: the fields the form promises are actually rendered in the sheet.
+  await expect(sheet.getByLabel('Title')).toHaveValue('Call the GP about the referral letter');
+  await expect(sheet.getByText('Timing')).toBeVisible();
 });
