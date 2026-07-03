@@ -12,6 +12,7 @@
     "watch": "ng build --watch --configuration development",
     "pretest": "node scripts/stamp-version.mjs",
     "test": "ng test --watch=false",
+    "prelint": "node scripts/stamp-version.mjs",
     "lint": "eslint src"
   },
   "dependencies": {
