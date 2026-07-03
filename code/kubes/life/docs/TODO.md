@@ -44,14 +44,22 @@ add new ones under the right section. Architecture/rationale lives in
       trash/conflict integration); **D** Today landing screen (default route);
       **F** self-hosted fonts + sign-in card + settings mat-list. Universal
       Undo landed inside A (all deletes route through `Feedback.undo`).
-      **Remaining (E, deferred — opinionated, wants a visual check):** convert
-      Shopping/Inventory/Recipes *add/edit* from inline forms to FAB → bottom
-      sheet; and (F leftover) swap the custom top bar for `mat-toolbar`.
-- [ ] **Expiry / "use soon"** — surface `expiry` (sort/flag soon + expired).
-      Data already stored. (A first `/expiring` view was built then removed
-      2026-06-29 — Pippijn wants a different approach; redo from scratch.
-      Current candidate: the "Expiring soon" card on the proposed Today
-      screen — proposal §3.6.)
+      **E and beyond shipped 2026-07-03** after Pippijn delegated UI style
+      ("standard over custom, no style check-ins"): **G** `mat-toolbar` shell,
+      standard account icon-button, M3 bottom-nav active pill, shell type on
+      the M3 scale; **H** one add/edit grammar — FAB → bottom sheet on
+      Buy/Inventory/Recipes/To-do (`<app-sheet-header>` + global `.sheet-form`;
+      add-sheets stay open for burst entry, edit-sheets close on save; to-do
+      TYPES/PRIORITIES deduped into `todo-meta.ts`); **I** M3 type scale
+      everywhere + one global `.pill`/`.expiry` grammar; **J** actionable
+      Today rows (tick with Undo, tap → detail sheet) + a Playwright
+      rendered-pixels gate (`npm run ui-check`, e2e/ui-pages.spec.ts: 390px,
+      mocked busy data, no-text-overlap assertion — caught the `nutrition`
+      mat-icon rendering as literal text on day one; classic Material Icons
+      has no such glyph).
+- [ ] **Expiry / "use soon"** — surfaced as the "Expiring soon" card on Today
+      (increment D; expired/soon colouring via the global `.expiry` grammar).
+      Kept open only for: is a dedicated fuller view wanted beyond the card?
 - [~] **Extend `scenes/house.json` to the whole house** — built collaboratively
       against the local preview (Pippijn measures each piece; see
       `scenes/README.md` § "Live modelling workflow"). **Kitchen: both long walls
