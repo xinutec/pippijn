@@ -11,6 +11,15 @@ html {
   );
 }
 
+// Universal border-box reset (fleet convention, DL-ANGULAR-BOX-SIZING-RESET):
+// without it `width: 100%` + side padding renders wider than the viewport and
+// the page scrolls sideways on a phone. Previously patched per-element.
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html,
 body {
   height: 100%;

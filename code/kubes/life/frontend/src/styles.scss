@@ -28,6 +28,15 @@ html {
   --wb-score-5: var(--mat-sys-primary);
 }
 
+// Universal border-box reset (fleet convention, DL-ANGULAR-BOX-SIZING-RESET):
+// without it `width: 100%` + side padding renders wider than the viewport and
+// the page scrolls sideways on a phone. Previously patched per-element here.
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   height: 100%;
