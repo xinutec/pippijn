@@ -45,9 +45,10 @@ and *letting the data choose the model*, not the fit itself:
 
 **Result:** a single additive **offset per device** is all the data supports.
 Linear and quadratic terms were *worse* on held-out time — they overfit the
-narrow ~24–26 °C range. A gain or curve could only be justified by data spanning
-a much wider (seasonal) temperature range; because storage is raw, re-running the
-script then will upgrade the model order on its own if the evidence appears.
+narrow indoor range each derivation samples. A gain or curve could only be
+justified by data spanning a much wider (seasonal) temperature range; because
+storage is raw, re-running the script then will upgrade the model order on its
+own if the evidence appears.
 
 ## The reference choice
 
@@ -68,7 +69,9 @@ measured truth.
 
 ## Re-calibrating
 
-1. Re-run `xinutec-infra/mac-mini/sensor-calibrate.py` (sensors co-located).
+1. Re-run `xinutec-infra/mac-mini/sensor-calibrate.py` (sensors co-located). It
+   derives from the **past 24 h** by default; `--hours N` or `--from/--to` widen
+   the window (a longer window gives more steady points and a firmer fit).
 2. Copy the chosen anchor's offsets into `OFFSETS` in `src/calibration.ts`.
 3. Deploy. Offsets travel with the sensor, so they stay valid after a unit is
    moved to its room.
