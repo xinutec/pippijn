@@ -1,4 +1,5 @@
-import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { httpResource } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import { DatePipe } from '@angular/common';
 import { MatCardModule } from '@angular/material/card';
@@ -6,7 +7,6 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { CheckOut, ReportDetail } from '../../models';
-import { PulseApi } from '../../pulse-api';
 
 interface Section {
   name: string;
@@ -15,23 +15,24 @@ interface Section {
 
 @Component({
   selector: 'app-report',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, DatePipe, MatCardModule, MatIconModule, MatProgressBarModule],
   templateUrl: './report.html',
   styleUrl: './report.scss',
 })
 export class Report {
-  private api = inject(PulseApi);
-
   /** Bound from the :id route param (withComponentInputBinding). */
   readonly id = input.required<string>();
 
-  readonly detail = signal<ReportDetail | null>(null);
-  readonly failed = signal(false);
-  readonly loading = signal(true);
+  // Reads id() in the request factory, so the resource re-fetches whenever the
+  // route id changes — no manual effect/subscription.
+  readonly detail = httpResource<ReportDetail>(
+    () => `/api/reports/${encodeURIComponent(this.id())}`,
+  );
 
   /** Checks grouped under their section header, in report order. */
   readonly sections = computed<Section[]>(() => {
-    const d = this.detail();
+    const d = this.detail.value();
     if (!d) return [];
     const order: string[] = [];
     const bySection = new Map<string, CheckOut[]>();
@@ -44,24 +45,4 @@ export class Report {
     }
     return order.map((name) => ({ name, checks: bySection.get(name)! }));
   });
-
-  constructor() {
-    // Reload whenever the route id changes.
-    effect(() => {
-      const id = this.id();
-      this.loading.set(true);
-      this.failed.set(false);
-      this.detail.set(null);
-      this.api.report(id).subscribe({
-        next: (d) => {
-          this.detail.set(d);
-          this.loading.set(false);
-        },
-        error: () => {
-          this.failed.set(true);
-          this.loading.set(false);
-        },
-      });
-    });
-  }
 }

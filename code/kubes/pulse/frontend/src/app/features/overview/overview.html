@@ -2,23 +2,26 @@
   <header class="head">
     <div>
       <h2>Overview</h2>
-      @if (entries()) {
-        <span class="sub tnum">
-          {{ summary().ok }} ok · {{ summary().problem }} need attention
-        </span>
-      }
+      <span class="sub tnum">
+        {{ summary().ok }} ok · {{ summary().problem }} need attention
+      </span>
     </div>
-    <button mat-icon-button (click)="load()" [disabled]="loading()" aria-label="Refresh">
+    <button
+      mat-icon-button
+      (click)="overview.reload()"
+      [disabled]="overview.isLoading()"
+      aria-label="Refresh"
+    >
       <mat-icon>refresh</mat-icon>
     </button>
   </header>
 
-  @if (loading()) {
+  @if (overview.isLoading()) {
     <mat-progress-bar mode="indeterminate" />
   }
-  @if (failed()) {
+  @if (overview.error()) {
     <p class="hint error">Could not load status — is pulse reachable on the VPN?</p>
-  } @else if (entries() && entries()!.length === 0) {
+  } @else if (!overview.isLoading() && overview.value().length === 0) {
     <p class="hint">No reports yet. Once a producer pushes, its status shows here.</p>
   }
 

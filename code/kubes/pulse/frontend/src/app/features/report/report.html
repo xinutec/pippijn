@@ -1,12 +1,12 @@
 <section class="page">
-  @if (loading()) {
+  @if (detail.isLoading()) {
     <mat-progress-bar mode="indeterminate" />
   }
-  @if (failed()) {
+  @if (detail.error()) {
     <p class="hint error">Report not found or pulse unreachable.</p>
   }
 
-  @if (detail(); as d) {
+  @if (detail.value(); as d) {
     <header class="head">
       <h2>{{ d.collector }}</h2>
       <span class="sub tnum">

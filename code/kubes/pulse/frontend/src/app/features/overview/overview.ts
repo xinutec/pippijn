@@ -1,4 +1,5 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed } from '@angular/core';
+import { httpResource } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -6,7 +7,6 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { OverviewEntry } from '../../models';
-import { PulseApi } from '../../pulse-api';
 import { formatAge, freshnessLabel, tileClass } from '../../status';
 
 interface SourceGroup {
@@ -16,16 +16,15 @@ interface SourceGroup {
 
 @Component({
   selector: 'app-overview',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, MatButtonModule, MatCardModule, MatIconModule, MatProgressBarModule],
   templateUrl: './overview.html',
   styleUrl: './overview.scss',
 })
 export class Overview {
-  private api = inject(PulseApi);
-
-  readonly entries = signal<OverviewEntry[] | null>(null);
-  readonly failed = signal(false);
-  readonly loading = signal(true);
+  // Signal-native fetch: re-runs never (static URL) but exposes value/isLoading/
+  // error/reload without a manual subscription. reload() backs the refresh button.
+  readonly overview = httpResource<OverviewEntry[]>(() => '/api/overview', { defaultValue: [] });
 
   readonly tileClass = tileClass;
   readonly formatAge = formatAge;
@@ -33,10 +32,8 @@ export class Overview {
 
   /** Group collectors under their source machine, source order preserved. */
   readonly groups = computed<SourceGroup[]>(() => {
-    const list = this.entries();
-    if (!list) return [];
     const bySource = new Map<string, OverviewEntry[]>();
-    for (const e of list) {
+    for (const e of this.overview.value()) {
       const arr = bySource.get(e.source) ?? [];
       arr.push(e);
       bySource.set(e.source, arr);
@@ -46,32 +43,12 @@ export class Overview {
 
   /** Headline counts across every collector for the summary strip. */
   readonly summary = computed(() => {
-    const list = this.entries() ?? [];
     let ok = 0;
     let problem = 0;
-    for (const e of list) {
+    for (const e of this.overview.value()) {
       if (e.freshness !== 'fresh' || e.fail > 0 || e.warn > 0) problem++;
       else ok++;
     }
-    return { ok, problem, total: list.length };
+    return { ok, problem, total: this.overview.value().length };
   });
-
-  constructor() {
-    this.load();
-  }
-
-  load(): void {
-    this.loading.set(true);
-    this.failed.set(false);
-    this.api.overview().subscribe({
-      next: (e) => {
-        this.entries.set(e);
-        this.loading.set(false);
-      },
-      error: () => {
-        this.failed.set(true);
-        this.loading.set(false);
-      },
-    });
-  }
 }

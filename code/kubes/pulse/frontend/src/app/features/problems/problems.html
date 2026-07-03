@@ -1,15 +1,20 @@
 <section class="page">
   <header class="head">
     <h2>Problems</h2>
-    <button mat-icon-button (click)="load()" [disabled]="loading()" aria-label="Refresh">
+    <button
+      mat-icon-button
+      (click)="data.reload()"
+      [disabled]="data.isLoading()"
+      aria-label="Refresh"
+    >
       <mat-icon>refresh</mat-icon>
     </button>
   </header>
 
-  @if (loading()) {
+  @if (data.isLoading()) {
     <mat-progress-bar mode="indeterminate" />
   }
-  @if (failed()) {
+  @if (data.error()) {
     <p class="hint error">Could not load status — is pulse reachable on the VPN?</p>
   } @else if (nothingWrong()) {
     <div class="all-clear">
@@ -18,7 +23,7 @@
     </div>
   }
 
-  @if (data(); as d) {
+  @if (data.value(); as d) {
     @if (d.stale.length > 0) {
       <h3>Silent / overdue collectors</h3>
       <div class="list">
