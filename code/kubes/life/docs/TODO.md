@@ -35,13 +35,18 @@ add new ones under the right section. Architecture/rationale lives in
 
 ## Next up
 
-- [ ] **Wellbeing · to-do timing · UI quality** — three-part plan in
-      `docs/proposals/wellbeing-timing-ux.md` (2026-07-03): 5-point wellbeing
-      check-ins (new sync entity), `not_before`/`due` on to-dos (waiting +
-      urgency states), and the interaction-grammar overhaul (shared
-      `<app-list-state>`, add/edit bottom sheets, universal Undo, Today
-      landing screen). Increments A–F; supersedes the standalone
-      "shared list-state component" backlog item below.
+- [x] **Wellbeing · to-do timing · UI quality** — plan in
+      `docs/proposals/wellbeing-timing-ux.md` (2026-07-03). SHIPPED as six
+      increments, all deployed: **A** shared `<app-list-state>` + `Feedback`
+      service across the 7 list screens; **B** `not_before`/`due` on to-dos
+      (waiting + urgency states, sort, chips, presets); **C** wellbeing
+      tracking (new sync entity, face check-in, 14-day trend + timeline,
+      trash/conflict integration); **D** Today landing screen (default route);
+      **F** self-hosted fonts + sign-in card + settings mat-list. Universal
+      Undo landed inside A (all deletes route through `Feedback.undo`).
+      **Remaining (E, deferred — opinionated, wants a visual check):** convert
+      Shopping/Inventory/Recipes *add/edit* from inline forms to FAB → bottom
+      sheet; and (F leftover) swap the custom top bar for `mat-toolbar`.
 - [ ] **Expiry / "use soon"** — surface `expiry` (sort/flag soon + expired).
       Data already stored. (A first `/expiring` view was built then removed
       2026-06-29 — Pippijn wants a different approach; redo from scratch.
