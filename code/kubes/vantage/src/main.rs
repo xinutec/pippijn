@@ -3,8 +3,8 @@
 //! in the `vantage` library crate.
 
 use anyhow::Result;
-use vantage::{config::Config, db, report::retention, routes, state::AppState};
 use tracing_subscriber::EnvFilter;
+use vantage::{config::Config, db, report::retention, routes, state::AppState};
 
 #[tokio::main]
 async fn main() -> Result<()> {

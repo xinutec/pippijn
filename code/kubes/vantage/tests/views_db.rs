@@ -2,9 +2,9 @@
 //! VANTAGE_TEST_DATABASE_URL like the other DB tests.
 
 use chrono::{Duration, Utc};
+use ulid::Ulid;
 use vantage::report::repo;
 use vantage::report::types::{CheckUpload, ReportUpload, Verdict};
-use ulid::Ulid;
 
 mod common;
 

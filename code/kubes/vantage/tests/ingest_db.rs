@@ -4,9 +4,9 @@
 //! and the overview/problems views.
 
 use chrono::{Duration, Utc};
+use ulid::Ulid;
 use vantage::report::repo;
 use vantage::report::types::{CheckUpload, Freshness, ReportUpload, Verdict};
-use ulid::Ulid;
 
 mod common;
 

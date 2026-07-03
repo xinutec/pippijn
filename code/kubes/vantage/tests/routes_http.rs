@@ -5,10 +5,10 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use tower::ServiceExt;
 use vantage::config::Config;
 use vantage::routes;
 use vantage::state::AppState;
-use tower::ServiceExt;
 
 fn app() -> axum::Router {
     let pool = sqlx::mysql::MySqlPoolOptions::new()
