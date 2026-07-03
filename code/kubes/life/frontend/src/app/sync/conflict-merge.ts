@@ -15,6 +15,37 @@ export interface FieldConflict {
   theirs: unknown;
 }
 
+/** A per-document record of what `resolve()` actually did — the merge path is
+ *  otherwise invisible (the isEqual push-loss bug went undetected precisely
+ *  because nothing here logs). `mine`/`theirs`/`collided` name the fields that
+ *  resolved each way, so a stray edit "disturbed" by a merge leaves a trace. */
+export interface MergeTrace {
+  ulid: string;
+  /** Fields taken from this device (I changed them since the assumed base). */
+  mine: string[];
+  /** Fields left to the server value that the OTHER device changed — the branch
+   *  that pulls in remote edits; the one to watch for clobbered local work. */
+  theirs: string[];
+  /** Fields both sides changed to different values: local won, server logged. */
+  collided: string[];
+  /** The whole doc resolved to a tombstone (a delete won). */
+  deleted: boolean;
+  /** No assumed base to diff against → the local doc won wholesale. */
+  noBase: boolean;
+}
+
+/** Default merge observer: DevTools "Verbose"-level only, so it's silent in
+ *  normal use but readable over CDP when diagnosing a sync. */
+function logMergeTrace(t: MergeTrace): void {
+  console.debug('[conflict:resolve]', t.ulid, {
+    mine: t.mine,
+    theirs: t.theirs,
+    collided: t.collided,
+    ...(t.deleted ? { deleted: true } : {}),
+    ...(t.noBase ? { noBase: true } : {}),
+  });
+}
+
 /** Build a field-level 3-way-merge conflict handler for a synced collection.
  *
  *  A conflict means the same row changed on two devices while one was offline.
@@ -35,7 +66,11 @@ export interface FieldConflict {
 export function makeConflictHandler<T extends { rev: number }>(opts: {
   fields: readonly (keyof T & string)[];
   onConflicts?: (kept: T & { _deleted: boolean }, conflicts: FieldConflict[]) => void;
+  /** Observe every resolve() decision. Defaults to a `console.debug` trace;
+   *  a test injects a spy to assert the merge disturbed no local edit. */
+  trace?: (t: MergeTrace) => void;
 }): RxConflictHandler<T> {
+  const trace = opts.trace ?? logMergeTrace;
   return {
     /** Replication equality. RxDB asks this in BOTH directions, and the
      *  upstream one is load-bearing: `isEqual(assumedMaster, current,
@@ -51,18 +86,42 @@ export function makeConflictHandler<T extends { rev: number }>(opts: {
       (!!a._deleted ||
         (a.rev === b.rev && opts.fields.every((f) => Object.is(a[f] ?? null, b[f] ?? null)))),
     resolve: ({ realMasterState: real, newDocumentState: mine, assumedMasterState: assumed }) => {
-      if (real._deleted) return Promise.resolve(real);
-      if (!assumed) return Promise.resolve(mine); // no base to diff against
+      const id = (mine as { ulid?: string }).ulid ?? '?';
+      if (real._deleted) {
+        trace({ ulid: id, mine: [], theirs: [], collided: [], deleted: true, noBase: false });
+        return Promise.resolve(real);
+      }
+      if (!assumed) {
+        // No base to diff against → the local doc wins wholesale.
+        trace({ ulid: id, mine: [], theirs: [], collided: [], deleted: !!mine._deleted, noBase: true });
+        return Promise.resolve(mine);
+      }
       const merged = { ...real };
       const conflicts: FieldConflict[] = [];
+      const tookMine: string[] = [];
+      const tookTheirs: string[] = [];
       for (const f of opts.fields) {
-        if (Object.is(mine[f], assumed[f])) continue; // I didn't touch it → theirs
+        if (Object.is(mine[f], assumed[f])) {
+          // I didn't touch it → keep the master's value; note when that pulls
+          // in a genuine remote change (real ≠ base), not just an unchanged field.
+          if (!Object.is(real[f], assumed[f])) tookTheirs.push(f);
+          continue;
+        }
         if (!Object.is(real[f], assumed[f]) && !Object.is(mine[f], real[f])) {
           conflicts.push({ field: f, mine: mine[f], theirs: real[f] });
         }
         merged[f] = mine[f];
+        tookMine.push(f);
       }
       if (mine._deleted) merged._deleted = true;
+      trace({
+        ulid: id,
+        mine: tookMine,
+        theirs: tookTheirs,
+        collided: conflicts.map((c) => c.field),
+        deleted: !!mine._deleted,
+        noBase: false,
+      });
       if (conflicts.length > 0) opts.onConflicts?.(mine, conflicts);
       return Promise.resolve(merged);
     },

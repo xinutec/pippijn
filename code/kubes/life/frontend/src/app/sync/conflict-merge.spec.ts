@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { FieldConflict, makeConflictHandler } from './conflict-merge';
+import { FieldConflict, MergeTrace, makeConflictHandler } from './conflict-merge';
 import { ShoppingDoc } from './shopping-store';
 
 type MasterDoc = ShoppingDoc & { _deleted: boolean };
@@ -21,10 +21,11 @@ const base: MasterDoc = {
 
 function setup() {
   const onConflicts = vi.fn<(kept: MasterDoc, conflicts: FieldConflict[]) => void>();
-  const handler = makeConflictHandler<ShoppingDoc>({ fields: FIELDS, onConflicts });
+  const trace = vi.fn<(t: MergeTrace) => void>();
+  const handler = makeConflictHandler<ShoppingDoc>({ fields: FIELDS, onConflicts, trace });
   const resolve = (real: MasterDoc, mine: MasterDoc, assumed: MasterDoc | undefined = base) =>
     handler.resolve({ realMasterState: real, newDocumentState: mine, assumedMasterState: assumed }, 'test');
-  return { handler, resolve, onConflicts };
+  return { handler, resolve, onConflicts, trace };
 }
 
 describe('field-level 3-way merge', () => {
@@ -95,6 +96,42 @@ describe('field-level 3-way merge', () => {
       'test',
     );
     expect(merged).toBe(mine);
+  });
+
+  it('traces the per-field merge outcome so the path is observable', async () => {
+    const { resolve, trace } = setup();
+    // Three fields move at once: I renamed + repriced; the other device set the
+    // unit and ALSO renamed (a real collision on name).
+    const real = { ...base, name: 'Skyr', unit: 'kg', rev: 6 };
+    const mine = { ...base, name: 'Kefir', quantity: 4 };
+    await resolve(real, mine);
+    expect(trace).toHaveBeenCalledOnce();
+    const t = trace.mock.calls[0][0];
+    expect(t.ulid).toBe('a');
+    expect(t.mine.sort()).toEqual(['name', 'quantity']); // fields I changed → mine
+    expect(t.theirs).toEqual(['unit']); // field only they changed → survives
+    expect(t.collided).toEqual(['name']); // both changed name → local won, logged
+    expect(t.deleted).toBe(false);
+    expect(t.noBase).toBe(false);
+  });
+
+  it('trace does not flag an untouched field as theirs', async () => {
+    const { resolve, trace } = setup();
+    // Only I changed anything; nothing of theirs moved off the base.
+    await resolve({ ...base, rev: 6 }, { ...base, done: true });
+    const t = trace.mock.calls[0][0];
+    expect(t.mine).toEqual(['done']);
+    expect(t.theirs).toEqual([]); // no remote change to pull in
+    expect(t.collided).toEqual([]);
+  });
+
+  it('trace marks the no-base wholesale-local path', async () => {
+    const { handler, trace } = setup();
+    await handler.resolve(
+      { realMasterState: { ...base, name: 'server', rev: 6 }, newDocumentState: { ...base, name: 'local' }, assumedMasterState: undefined },
+      'test',
+    );
+    expect(trace.mock.calls[0][0]).toMatchObject({ ulid: 'a', noBase: true, mine: [], theirs: [] });
   });
 
   it('isEqual compares revision, deleted flag AND content fields', () => {
