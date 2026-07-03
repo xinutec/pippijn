@@ -51,6 +51,10 @@ export class ApiService {
 
 	private timer: ReturnType<typeof setInterval> | null = null;
 
+	// Guards against out-of-order history responses: a slow in-flight fetch for
+	// the previous range must not overwrite the newer range's data when it lands.
+	private historyGeneration = 0;
+
 	/** Load devices + history, then auto-refresh both on a timer. */
 	start(): void {
 		void this.init();
@@ -95,6 +99,7 @@ export class ApiService {
 	}
 
 	async refreshHistory(quiet = false): Promise<void> {
+		const generation = ++this.historyGeneration;
 		const devices = this._devices().map((d) => d.device);
 		if (devices.length === 0) {
 			this._historyByDevice.set({});
@@ -121,12 +126,17 @@ export class ApiService {
 					return [device, rows ?? []] as const;
 				}),
 			);
+			if (generation !== this.historyGeneration) {
+				return; // A newer refresh superseded this one; drop the stale result.
+			}
 			this._historyByDevice.set(Object.fromEntries(entries));
 			this._historyError.set(null);
 		} catch {
-			this._historyError.set('Could not load history.');
+			if (generation === this.historyGeneration) {
+				this._historyError.set('Could not load history.');
+			}
 		} finally {
-			if (!quiet) {
+			if (!quiet && generation === this.historyGeneration) {
 				this._historyLoading.set(false);
 			}
 		}

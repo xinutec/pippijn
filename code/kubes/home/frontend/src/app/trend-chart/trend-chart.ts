@@ -10,7 +10,6 @@ import {
 	viewChild,
 } from '@angular/core';
 import {
-	CategoryScale,
 	Chart,
 	type ChartConfiguration,
 	Filler,
@@ -31,7 +30,6 @@ Chart.register(
 	LineElement,
 	PointElement,
 	LinearScale,
-	CategoryScale,
 	TimeScale,
 	Filler,
 	Legend,
@@ -161,6 +159,9 @@ export class TrendChart implements AfterViewInit, OnDestroy {
 
 		const decimals = this.decimals();
 		const unit = this.unit();
+		// Renders happen right after a fetch, so "now" matches the window the
+		// data was queried with closely enough to anchor the axis.
+		const now = Date.now();
 
 		const config: ChartConfiguration<'line', TrendPoint[]> = {
 			type: 'line',
@@ -198,6 +199,11 @@ export class TrendChart implements AfterViewInit, OnDestroy {
 				scales: {
 					x: {
 						type: 'time',
+						// Pin the axis to the selected range (now − span … now) so a
+						// "30 d" chart spans 30 days even when the data is sparse,
+						// instead of auto-fitting the data extent.
+						min: now - this.spanMs(),
+						max: now,
 						time: { tooltipFormat: 'PPp' },
 						grid: { display: false },
 						border: { display: false },

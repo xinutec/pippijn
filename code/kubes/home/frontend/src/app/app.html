@@ -38,6 +38,13 @@
 		</div>
 	}
 
+	@if (historyError()) {
+		<div class="banner banner-error">
+			<mat-icon>show_chart</mat-icon>
+			<span>{{ historyError() }} The charts may be out of date.</span>
+		</div>
+	}
+
 	@if (isEmpty()) {
 		<section class="empty-state">
 			<mat-icon class="empty-icon">sensors</mat-icon>
@@ -63,7 +70,7 @@
 					</div>
 					<div class="updated">
 						<mat-icon>schedule</mat-icon>
-						<span>Updated {{ airDevice()?.ts | relativeTime }}</span>
+						<span>Updated {{ airDevice()?.ts | relativeTime: now() }}</span>
 					</div>
 				</div>
 			</div>
@@ -155,7 +162,7 @@
 							</span>
 						</div>
 						<div class="room-foot">
-							<span class="room-updated">{{ d.ts | relativeTime }}</span>
+							<span class="room-updated">{{ d.ts | relativeTime: now() }}</span>
 							@if (d.battery != null) {
 								<span class="room-battery" [class.low]="d.battery <= 20" matTooltip="Battery">
 									<mat-icon>{{ d.battery <= 20 ? 'battery_alert' : 'battery_full' }}</mat-icon>

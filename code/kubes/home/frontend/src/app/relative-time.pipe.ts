@@ -1,9 +1,15 @@
 import { Pipe, type PipeTransform } from '@angular/core';
 
-/** Formats an ISO timestamp as a short relative string, e.g. "3 min ago". */
+/**
+ * Formats an ISO timestamp as a short relative string, e.g. "3 min ago".
+ *
+ * Pure pipes only re-run when an argument changes, so callers must pass a
+ * ticking `now` (ms epoch) — otherwise the label freezes at whatever it said
+ * when the timestamp last changed, hiding a sensor that has gone quiet.
+ */
 @Pipe({ name: 'relativeTime' })
 export class RelativeTimePipe implements PipeTransform {
-	transform(iso: string | null | undefined): string {
+	transform(iso: string | null | undefined, now: number): string {
 		if (!iso) {
 			return 'never';
 		}
@@ -11,7 +17,7 @@ export class RelativeTimePipe implements PipeTransform {
 		if (Number.isNaN(then)) {
 			return 'unknown';
 		}
-		const seconds = Math.round((Date.now() - then) / 1000);
+		const seconds = Math.round((now - then) / 1000);
 		if (seconds < 5) {
 			return 'just now';
 		}

@@ -60,8 +60,14 @@ export class App implements OnInit, OnDestroy {
 	protected readonly airDevice = this.api.airDevice;
 	protected readonly devicesError = this.api.devicesError;
 	protected readonly historyLoading = this.api.historyLoading;
+	protected readonly historyError = this.api.historyError;
 	protected readonly range = this.api.range;
 	protected readonly isEmpty = this.api.isEmpty;
+
+	// Ticks every 30s so the "updated … ago" labels keep counting even when no
+	// new reading arrives (a quiet sensor should visibly go stale).
+	protected readonly now = signal(Date.now());
+	private nowTimer: ReturnType<typeof setInterval> | null = null;
 
 	/** Span of the active range in ms, for chart x-axis sizing. */
 	protected readonly spanMs = computed(() => {
@@ -132,10 +138,15 @@ export class App implements OnInit, OnDestroy {
 
 	ngOnInit(): void {
 		this.api.start();
+		this.nowTimer ??= setInterval(() => this.now.set(Date.now()), 30_000);
 	}
 
 	ngOnDestroy(): void {
 		this.api.stop();
+		if (this.nowTimer !== null) {
+			clearInterval(this.nowTimer);
+			this.nowTimer = null;
+		}
 	}
 
 	protected onRange(key: RangeKey): void {
