@@ -97,10 +97,21 @@ describe('field-level 3-way merge', () => {
     expect(merged).toBe(mine);
   });
 
-  it('isEqual compares revision + deleted flag', () => {
+  it('isEqual compares revision, deleted flag AND content fields', () => {
     const { handler } = setup();
     expect(handler.isEqual(base, { ...base }, 'test')).toBe(true);
     expect(handler.isEqual(base, { ...base, rev: 6 }, 'test')).toBe(false);
     expect(handler.isEqual(base, { ...base, _deleted: true }, 'test')).toBe(false);
+    // THE push-loss regression: an edit changes content but not rev (revs are
+    // server-minted). isEqual=true here told RxDB's upstream "already
+    // replicated" and the edit was silently never pushed.
+    expect(handler.isEqual(base, { ...base, name: 'Kefir' }, 'test')).toBe(false);
+    expect(handler.isEqual(base, { ...base, quantity: 3 }, 'test')).toBe(false);
+    // undefined and null are the same absence (wire sends null explicitly).
+    expect(handler.isEqual({ ...base, unit: undefined as unknown as null }, { ...base, unit: null }, 'test')).toBe(true);
+    // Two tombstones are equal regardless of content — nothing left to sync.
+    expect(
+      handler.isEqual({ ...base, _deleted: true }, { ...base, name: 'Old', _deleted: true }, 'test'),
+    ).toBe(true);
   });
 });

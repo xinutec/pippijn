@@ -144,7 +144,9 @@ export class ShoppingStore {
   private startReplication(collection: ShoppingCollection): void {
     this.replication = startHttpReplication<ShoppingDoc>({
       collection,
-      identifier: 'shopping-http-sync',
+      // '-v2': replication-state reset after the isEqual push-loss bug — see
+      // the comment in wellbeing-store.ts.
+      identifier: 'shopping-http-sync-v2',
       path: '/api/sync/shopping',
       syncError: this.syncError,
       label: 'shopping sync',

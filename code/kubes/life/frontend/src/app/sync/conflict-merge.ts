@@ -37,7 +37,19 @@ export function makeConflictHandler<T extends { rev: number }>(opts: {
   onConflicts?: (kept: T & { _deleted: boolean }, conflicts: FieldConflict[]) => void;
 }): RxConflictHandler<T> {
   return {
-    isEqual: (a, b) => a.rev === b.rev && !!a._deleted === !!b._deleted,
+    /** Replication equality. RxDB asks this in BOTH directions, and the
+     *  upstream one is load-bearing: `isEqual(assumedMaster, current,
+     *  'upstream-check-if-equal')` decides whether a local doc still needs
+     *  pushing — `false` is what queues the push. Revs are server-minted, so
+     *  a local edit changes content but NOT `rev`; comparing rev alone judged
+     *  every field edit "already replicated" and silently dropped it (the
+     *  2026-07-03 push-loss bug — see replication-push.spec.ts). The content
+     *  fields must be compared too. `?? null` folds undefined into null so an
+     *  absent optional equals the wire's explicit null. */
+    isEqual: (a, b) =>
+      !!a._deleted === !!b._deleted &&
+      (!!a._deleted ||
+        (a.rev === b.rev && opts.fields.every((f) => Object.is(a[f] ?? null, b[f] ?? null)))),
     resolve: ({ realMasterState: real, newDocumentState: mine, assumedMasterState: assumed }) => {
       if (real._deleted) return Promise.resolve(real);
       if (!assumed) return Promise.resolve(mine); // no base to diff against

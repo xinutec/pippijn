@@ -174,7 +174,9 @@ export class TodoStore {
   private startReplication(collection: TodoCollection): void {
     this.replication = startHttpReplication<TodoDoc>({
       collection,
-      identifier: 'todo-http-sync',
+      // '-v2': replication-state reset after the isEqual push-loss bug — see
+      // the comment in wellbeing-store.ts.
+      identifier: 'todo-http-sync-v2',
       path: '/api/sync/todo',
       syncError: this.syncError,
       label: 'todo sync',
