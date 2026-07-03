@@ -3,4 +3,4 @@
 /**
  * Which synced collection the conflicted row belongs to.
  */
-export type ConflictKind = "shopping" | "todo";
+export type ConflictKind = "shopping" | "todo" | "wellbeing";

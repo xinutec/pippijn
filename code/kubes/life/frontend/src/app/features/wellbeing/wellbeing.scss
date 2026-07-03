@@ -1,0 +1,111 @@
+.prompt {
+  margin: 0.5rem 0 0.5rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.trend {
+  margin: 1rem 0 0.5rem;
+
+  .chart {
+    width: 100%;
+    height: 96px;
+    display: block;
+  }
+  .mid {
+    stroke: var(--mat-sys-outline-variant);
+    stroke-width: 0.5;
+    stroke-dasharray: 3 3;
+  }
+  .axis {
+    display: flex;
+    justify-content: space-between;
+    flex-direction: column;
+    float: left;
+    height: 96px;
+    margin-right: 0.4rem;
+    font-size: 0.62rem;
+    color: var(--mat-sys-on-surface-variant);
+  }
+  .caption {
+    margin: 0.15rem 0 0;
+    font-size: 0.72rem;
+    text-align: right;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+// Shared score ramp for chart dots + timeline faces.
+.score-1 {
+  color: var(--mat-sys-error);
+}
+.dot.score-1 {
+  fill: var(--mat-sys-error);
+}
+.score-2 {
+  color: color-mix(in srgb, var(--mat-sys-error) 60%, var(--mat-sys-tertiary));
+}
+.dot.score-2 {
+  fill: color-mix(in srgb, var(--mat-sys-error) 60%, var(--mat-sys-tertiary));
+}
+.score-3 {
+  color: var(--mat-sys-on-surface-variant);
+}
+.dot.score-3 {
+  fill: var(--mat-sys-on-surface-variant);
+}
+.score-4 {
+  color: color-mix(in srgb, var(--mat-sys-primary) 70%, var(--mat-sys-tertiary));
+}
+.dot.score-4 {
+  fill: color-mix(in srgb, var(--mat-sys-primary) 70%, var(--mat-sys-tertiary));
+}
+.score-5 {
+  color: var(--mat-sys-primary);
+}
+.dot.score-5 {
+  fill: var(--mat-sys-primary);
+}
+
+.day {
+  margin-top: 1rem;
+
+  h3 {
+    margin: 0 0 0.4rem;
+    font-size: 0.95rem;
+  }
+  .entries {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .entry {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: 999px;
+    background: var(--mat-sys-surface-container-low);
+    cursor: pointer;
+
+    mat-icon {
+      width: 22px;
+      height: 22px;
+      font-size: 22px;
+    }
+    .t {
+      font-size: 0.8rem;
+      font-variant-numeric: tabular-nums;
+      color: var(--mat-sys-on-surface);
+    }
+    .has-note {
+      width: 15px;
+      height: 15px;
+      font-size: 15px;
+      color: var(--mat-sys-on-surface-variant);
+    }
+    &:hover {
+      background: var(--mat-sys-surface-container-high);
+    }
+  }
+}

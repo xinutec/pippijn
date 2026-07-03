@@ -3,11 +3,13 @@
 //! (shopping + to-do — see `docs/proposals/offline-first.md`).
 
 use anyhow::Result;
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use sqlx::{MySqlConnection, MySqlPool};
 use ulid::Ulid;
 
-use super::types::{Checkpoint, PullResponse, PushEntry, ShoppingDoc, TodoDoc, TodoLinkDoc};
+use super::types::{
+    Checkpoint, PullResponse, PushEntry, ShoppingDoc, TodoDoc, TodoLinkDoc, WellbeingDoc,
+};
 
 /// Allocate the next global revision, **inside the caller's transaction**. The
 /// `LAST_INSERT_ID(val + 1)` trick bumps and returns the counter atomically; the
@@ -498,4 +500,121 @@ pub async fn dedupe_todo_links(pool: &MySqlPool) -> Result<u64> {
         n += res.rows_affected();
     }
     Ok(n)
+}
+
+// ---- wellbeing --------------------------------------------------------------
+
+#[derive(sqlx::FromRow)]
+struct WellbeingDocRow {
+    id: u64,
+    ulid: String,
+    recorded_at: NaiveDateTime,
+    score: u8,
+    note: Option<String>,
+    deleted: i64,
+    rev: u64,
+}
+
+impl From<WellbeingDocRow> for WellbeingDoc {
+    fn from(r: WellbeingDocRow) -> Self {
+        WellbeingDoc {
+            ulid: r.ulid,
+            id: Some(r.id),
+            recorded_at: DateTime::from_naive_utc_and_offset(r.recorded_at, Utc),
+            score: r.score,
+            note: r.note,
+            deleted: r.deleted != 0,
+            rev: r.rev,
+        }
+    }
+}
+
+pub async fn pull_wellbeing(
+    pool: &MySqlPool,
+    user_id: &str,
+    since: u64,
+    limit: u64,
+) -> Result<PullResponse<WellbeingDoc>> {
+    let rows: Vec<WellbeingDocRow> = sqlx::query_as(
+        "SELECT id, ulid, recorded_at, score, note, \
+         CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
+         FROM wellbeing WHERE user_id = ? AND rev > ? ORDER BY rev ASC LIMIT ?",
+    )
+    .bind(user_id)
+    .bind(since)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    let checkpoint = Checkpoint {
+        rev: rows.last().map_or(since, |r| r.rev),
+    };
+    Ok(PullResponse {
+        documents: rows.into_iter().map(Into::into).collect(),
+        checkpoint,
+    })
+}
+
+pub async fn push_wellbeing(
+    pool: &MySqlPool,
+    user_id: &str,
+    entries: Vec<PushEntry<WellbeingDoc>>,
+) -> Result<Vec<WellbeingDoc>> {
+    let mut conflicts = Vec::new();
+    for entry in entries {
+        let new = entry.new_document_state;
+        let assumed_rev = entry.assumed_master_state.map(|d| d.rev);
+        let recorded = new.recorded_at.naive_utc();
+
+        let mut tx = pool.begin().await?;
+        let current: Option<WellbeingDocRow> = sqlx::query_as(
+            "SELECT id, ulid, recorded_at, score, note, \
+             CAST(deleted_at IS NOT NULL AS SIGNED) AS deleted, rev \
+             FROM wellbeing WHERE ulid = ? AND user_id = ? FOR UPDATE",
+        )
+        .bind(&new.ulid)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(cur) = current {
+            if assumed_rev != Some(cur.rev) {
+                conflicts.push(cur.into());
+                continue;
+            }
+            let rev = next_rev(&mut tx).await?;
+            // Set-only tombstone — a push can never clear a delete.
+            sqlx::query(
+                "UPDATE wellbeing SET recorded_at = ?, score = ?, note = ?, \
+                 deleted_at = COALESCE(deleted_at, IF(?, NOW(), NULL)), \
+                 rev = ?, updated_at = NOW() WHERE ulid = ? AND user_id = ?",
+            )
+            .bind(recorded)
+            .bind(new.score)
+            .bind(&new.note)
+            .bind(new.deleted)
+            .bind(rev)
+            .bind(&new.ulid)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            let rev = next_rev(&mut tx).await?;
+            sqlx::query(
+                "INSERT INTO wellbeing \
+                 (user_id, ulid, recorded_at, score, note, deleted_at, rev, created_at, updated_at) \
+                 VALUES (?, ?, ?, ?, ?, IF(?, NOW(), NULL), ?, NOW(), NOW())",
+            )
+            .bind(user_id)
+            .bind(&new.ulid)
+            .bind(recorded)
+            .bind(new.score)
+            .bind(&new.note)
+            .bind(new.deleted)
+            .bind(rev)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+    }
+    Ok(conflicts)
 }

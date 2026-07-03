@@ -1,0 +1,46 @@
+@if (entry(); as e) {
+  <div class="sheet">
+    <div class="head">
+      <h3>Edit check-in</h3>
+      <button mat-icon-button (click)="close()" aria-label="Close"><mat-icon>close</mat-icon></button>
+    </div>
+
+    <div class="faces" role="group" aria-label="Score">
+      @for (s of scores; track s.score) {
+        <button
+          type="button"
+          class="face score-{{ s.score }}"
+          [class.on]="e.score === s.score"
+          [attr.aria-label]="s.label"
+          [attr.aria-pressed]="e.score === s.score"
+          (click)="setScore(s.score)"
+        >
+          <mat-icon>{{ s.icon }}</mat-icon>
+        </button>
+      }
+    </div>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="full">
+      <mat-label>When</mat-label>
+      <input matInput type="datetime-local" [ngModel]="localTime()" (ngModelChange)="setTime($event)" />
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="full">
+      <mat-label>Note</mat-label>
+      <textarea
+        matInput
+        rows="2"
+        [ngModel]="note()"
+        (ngModelChange)="note.set($event)"
+        (blur)="saveNote()"
+        placeholder="what was going on?"
+      ></textarea>
+    </mat-form-field>
+
+    <button mat-button color="warn" class="delete" (click)="remove()">
+      <mat-icon>delete</mat-icon> Delete check-in
+    </button>
+  </div>
+} @else {
+  <p class="gone">This check-in was deleted.</p>
+}

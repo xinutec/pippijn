@@ -1,0 +1,14 @@
+<div class="checkin" role="group" aria-label="How do you feel right now?">
+  @for (s of scores; track s.score) {
+    <button
+      type="button"
+      class="face score-{{ s.score }}"
+      [attr.aria-label]="'Log feeling: ' + s.label"
+      [title]="s.label"
+      (click)="log(s.score)"
+    >
+      <mat-icon>{{ s.icon }}</mat-icon>
+      <span class="lbl">{{ s.label }}</span>
+    </button>
+  }
+</div>

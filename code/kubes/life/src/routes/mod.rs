@@ -68,6 +68,10 @@ pub fn router(state: AppState) -> Router {
             "/sync/todo-link",
             get(sync::pull_todo_link).post(sync::push_todo_link),
         )
+        .route(
+            "/sync/wellbeing",
+            get(sync::pull_wellbeing).post(sync::push_wellbeing),
+        )
         .route("/conflicts", get(conflicts::list).post(conflicts::create))
         .route("/conflicts/{id}/resolve", post(conflicts::resolve))
         .route("/trash", get(trash::list))

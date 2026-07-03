@@ -6,6 +6,7 @@ import { LifeApi } from '../../life-api';
 import { TrashEntry } from '../../models';
 import { ShoppingStore } from '../../sync/shopping-store';
 import { TodoStore } from '../../sync/todo-store';
+import { WellbeingStore } from '../../sync/wellbeing-store';
 import { Trash } from './trash';
 
 const ENTRIES: TrashEntry[] = [
@@ -21,12 +22,14 @@ function mount(api: Partial<Record<'trash' | 'restoreTrash', unknown>> = {}) {
   };
   const shopping = { reSync: vi.fn() };
   const todo = { reSync: vi.fn() };
+  const wellbeing = { reSync: vi.fn() };
   TestBed.configureTestingModule({
     imports: [Trash],
     providers: [
       { provide: LifeApi, useValue: apiMock },
       { provide: ShoppingStore, useValue: shopping },
       { provide: TodoStore, useValue: todo },
+      { provide: WellbeingStore, useValue: wellbeing },
     ],
   });
   const fixture = TestBed.createComponent(Trash);

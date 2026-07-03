@@ -11,6 +11,7 @@ use crate::inventory::repo as inventory_repo;
 use crate::recipes::repo as recipes_repo;
 use crate::shopping::repo as shopping_repo;
 use crate::todo::repo as todo_repo;
+use crate::wellbeing::repo as wellbeing_repo;
 
 #[derive(sqlx::FromRow)]
 struct Row {
@@ -33,7 +34,7 @@ impl Row {
 /// Everything in the user's trash, newest deletion first.
 pub async fn list(pool: &MySqlPool, user_id: &str) -> Result<Vec<TrashEntry>> {
     // One query per kind; merged + sorted in memory (the trash is small).
-    let queries: [(TrashKind, &str); 5] = [
+    let queries: [(TrashKind, &str); 6] = [
         (
             TrashKind::Item,
             "SELECT CAST(i.id AS CHAR) AS ref_, COALESCE(p.name, i.name, '') AS name, \
@@ -62,6 +63,12 @@ pub async fn list(pool: &MySqlPool, user_id: &str) -> Result<Vec<TrashEntry>> {
             TrashKind::Todo,
             "SELECT ulid AS ref_, title AS name, deleted_at FROM todos \
              WHERE user_id = ? AND deleted_at IS NOT NULL AND ulid IS NOT NULL",
+        ),
+        (
+            TrashKind::Wellbeing,
+            // A check-in has no title; synthesise a label from its score.
+            "SELECT ulid AS ref_, CONCAT('Check-in (', score, '/5)') AS name, deleted_at \
+             FROM wellbeing WHERE user_id = ? AND deleted_at IS NOT NULL AND ulid IS NOT NULL",
         ),
     ];
 
@@ -92,5 +99,6 @@ pub async fn restore(pool: &MySqlPool, user_id: &str, kind: TrashKind, r: &str) 
         },
         TrashKind::Shopping => shopping_repo::restore(pool, user_id, r).await,
         TrashKind::Todo => todo_repo::restore(pool, user_id, r).await,
+        TrashKind::Wellbeing => wellbeing_repo::restore(pool, user_id, r).await,
     }
 }

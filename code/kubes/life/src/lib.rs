@@ -16,3 +16,4 @@ pub mod state;
 pub mod sync;
 pub mod todo;
 pub mod trash;
+pub mod wellbeing;

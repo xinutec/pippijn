@@ -9,6 +9,7 @@ import { Settings } from './features/settings/settings';
 import { Shopping } from './features/shopping/shopping';
 import { Todo } from './features/todo/todo';
 import { Trash } from './features/trash/trash';
+import { Wellbeing } from './features/wellbeing/wellbeing';
 
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'inventory' },
@@ -18,6 +19,7 @@ export const routes: Routes = [
   { path: 'house', title: 'Life · house', component: House },
   { path: 'items', title: 'Life · all items', component: Items },
   { path: 'todo', title: 'Life · to-do', component: Todo },
+  { path: 'wellbeing', title: 'Life · wellbeing', component: Wellbeing },
   { path: 'trash', title: 'Life · recently deleted', component: Trash },
   { path: 'conflicts', title: 'Life · sync conflicts', component: Conflicts },
   { path: 'settings', title: 'Life · settings', component: Settings },

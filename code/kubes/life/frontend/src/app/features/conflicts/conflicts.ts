@@ -10,9 +10,11 @@ import { LifeApi } from '../../life-api';
 import { ConflictEntry } from '../../models';
 import { SHOPPING_MERGE_FIELDS, ShoppingStore } from '../../sync/shopping-store';
 import { TODO_MERGE_FIELDS, TodoStore } from '../../sync/todo-store';
+import { WELLBEING_MERGE_FIELDS, WellbeingStore } from '../../sync/wellbeing-store';
 
 const SHOPPING_PATCHABLE: ReadonlySet<string> = new Set(SHOPPING_MERGE_FIELDS);
 const TODO_PATCHABLE: ReadonlySet<string> = new Set(TODO_MERGE_FIELDS);
+const WELLBEING_PATCHABLE: ReadonlySet<string> = new Set(WELLBEING_MERGE_FIELDS);
 
 /** Sync conflicts: both devices edited the same field while apart. The merge
  *  already kept one version (the device that pushed); this screen shows the
@@ -29,6 +31,7 @@ export class Conflicts {
   private feedback = inject(Feedback);
   private shopping = inject(ShoppingStore);
   private todo = inject(TodoStore);
+  private wellbeing = inject(WellbeingStore);
   private alerts = inject(Alerts);
 
   readonly entries = signal<ConflictEntry[]>([]);
@@ -78,6 +81,8 @@ export class Conflicts {
       apply = this.shopping.patch(e.ulid, { [e.field]: value });
     } else if (e.kind === 'todo' && TODO_PATCHABLE.has(e.field)) {
       apply = this.todo.patch(e.ulid, { [e.field]: value });
+    } else if (e.kind === 'wellbeing' && WELLBEING_PATCHABLE.has(e.field)) {
+      apply = this.wellbeing.patch(e.ulid, { [e.field]: value });
     }
     if (!apply) {
       this.feedback.error('This conflict can no longer be applied.');

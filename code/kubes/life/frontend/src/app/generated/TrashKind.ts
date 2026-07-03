@@ -3,4 +3,4 @@
 /**
  * Which table a trash entry lives in.
  */
-export type TrashKind = "item" | "location" | "recipe" | "shopping" | "todo";
+export type TrashKind = "item" | "location" | "recipe" | "shopping" | "todo" | "wellbeing";

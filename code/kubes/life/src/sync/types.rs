@@ -6,7 +6,7 @@
 //! envelopes are generic over the document type so each collection reuses them.
 //! See `docs/proposals/offline-first.md`.
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 /// One shopping row as it travels over sync. `rev` is the server revision; a pull
@@ -51,6 +51,23 @@ pub struct TodoDoc {
     pub not_before: Option<NaiveDate>,
     #[serde(default)]
     pub due: Option<NaiveDate>,
+    #[serde(rename = "_deleted", default)]
+    pub deleted: bool,
+    #[serde(default)]
+    pub rev: u64,
+}
+
+/// One wellbeing check-in as it travels over sync. `recorded_at` is the moment
+/// the feeling was (UTC, RFC3339 on the wire); `score` is 1..5.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WellbeingDoc {
+    pub ulid: String,
+    #[serde(default)]
+    pub id: Option<u64>,
+    #[serde(rename = "recordedAt")]
+    pub recorded_at: DateTime<Utc>,
+    pub score: u8,
+    pub note: Option<String>,
     #[serde(rename = "_deleted", default)]
     pub deleted: bool,
     #[serde(default)]

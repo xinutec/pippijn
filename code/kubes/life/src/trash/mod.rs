@@ -25,6 +25,7 @@ pub enum TrashKind {
     Recipe,
     Shopping,
     Todo,
+    Wellbeing,
 }
 
 impl fmt::Display for TrashKind {
@@ -35,6 +36,7 @@ impl fmt::Display for TrashKind {
             TrashKind::Recipe => "recipe",
             TrashKind::Shopping => "shopping",
             TrashKind::Todo => "todo",
+            TrashKind::Wellbeing => "wellbeing",
         };
         f.write_str(s)
     }
@@ -49,6 +51,7 @@ impl FromStr for TrashKind {
             "recipe" => Ok(TrashKind::Recipe),
             "shopping" => Ok(TrashKind::Shopping),
             "todo" => Ok(TrashKind::Todo),
+            "wellbeing" => Ok(TrashKind::Wellbeing),
             other => Err(format!("unknown trash kind {other:?}")),
         }
     }

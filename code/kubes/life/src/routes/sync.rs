@@ -10,7 +10,9 @@ use crate::error::AppError;
 use crate::session::AuthUser;
 use crate::state::AppState;
 use crate::sync::repo;
-use crate::sync::types::{PullResponse, PushEntry, ShoppingDoc, TodoDoc, TodoLinkDoc};
+use crate::sync::types::{
+    PullResponse, PushEntry, ShoppingDoc, TodoDoc, TodoLinkDoc, WellbeingDoc,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct PullQuery {
@@ -113,5 +115,35 @@ pub async fn push_todo_link(
     let pushed = entries.len();
     let conflicts = repo::push_todo_link(&app.pool, &user.user_id, entries).await?;
     tracing::debug!(user = %user.user_id, pushed, conflicts = conflicts.len(), "sync push todo-link");
+    Ok(Json(conflicts))
+}
+
+/// GET /api/sync/wellbeing?since=<rev>&limit=<n>
+pub async fn pull_wellbeing(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Query(q): Query<PullQuery>,
+) -> Result<Json<PullResponse<WellbeingDoc>>, AppError> {
+    let limit = q.limit.clamp(1, 1000);
+    let res = repo::pull_wellbeing(&app.pool, &user.user_id, q.since, limit).await?;
+    tracing::debug!(
+        user = %user.user_id,
+        since = q.since,
+        returned = res.documents.len(),
+        checkpoint = res.checkpoint.rev,
+        "sync pull wellbeing"
+    );
+    Ok(Json(res))
+}
+
+/// POST /api/sync/wellbeing — body: array of `{newDocumentState, assumedMasterState}`.
+pub async fn push_wellbeing(
+    State(app): State<AppState>,
+    AuthUser(user): AuthUser,
+    Json(entries): Json<Vec<PushEntry<WellbeingDoc>>>,
+) -> Result<Json<Vec<WellbeingDoc>>, AppError> {
+    let pushed = entries.len();
+    let conflicts = repo::push_wellbeing(&app.pool, &user.user_id, entries).await?;
+    tracing::debug!(user = %user.user_id, pushed, conflicts = conflicts.len(), "sync push wellbeing");
     Ok(Json(conflicts))
 }

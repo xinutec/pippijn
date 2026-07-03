@@ -6,6 +6,7 @@ import { LifeApi } from '../../life-api';
 import { ConflictEntry } from '../../models';
 import { ShoppingStore } from '../../sync/shopping-store';
 import { TodoStore } from '../../sync/todo-store';
+import { WellbeingStore } from '../../sync/wellbeing-store';
 import { Conflicts } from './conflicts';
 
 const ENTRIES: ConflictEntry[] = [
@@ -28,12 +29,14 @@ function mount() {
   };
   const shopping = { patch: vi.fn(() => Promise.resolve()) };
   const todo = { patch: vi.fn(() => Promise.resolve()) };
+  const wellbeing = { patch: vi.fn(() => Promise.resolve()) };
   TestBed.configureTestingModule({
     imports: [Conflicts],
     providers: [
       { provide: LifeApi, useValue: api },
       { provide: ShoppingStore, useValue: shopping },
       { provide: TodoStore, useValue: todo },
+      { provide: WellbeingStore, useValue: wellbeing },
     ],
   });
   const fixture = TestBed.createComponent(Conflicts);

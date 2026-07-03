@@ -16,6 +16,7 @@ use ts_rs::TS;
 pub enum ConflictKind {
     Shopping,
     Todo,
+    Wellbeing,
 }
 
 impl std::fmt::Display for ConflictKind {
@@ -23,6 +24,7 @@ impl std::fmt::Display for ConflictKind {
         f.write_str(match self {
             ConflictKind::Shopping => "shopping",
             ConflictKind::Todo => "todo",
+            ConflictKind::Wellbeing => "wellbeing",
         })
     }
 }
@@ -33,6 +35,7 @@ impl std::str::FromStr for ConflictKind {
         match s {
             "shopping" => Ok(ConflictKind::Shopping),
             "todo" => Ok(ConflictKind::Todo),
+            "wellbeing" => Ok(ConflictKind::Wellbeing),
             other => Err(format!("unknown conflict kind {other:?}")),
         }
     }

@@ -11,6 +11,7 @@ import { LifeApi } from '../../life-api';
 import { TrashEntry, TrashKind } from '../../models';
 import { ShoppingStore } from '../../sync/shopping-store';
 import { TodoStore } from '../../sync/todo-store';
+import { WellbeingStore } from '../../sync/wellbeing-store';
 
 /** Icon + label per kind — matching the nav so the origin is recognisable. */
 const KIND_META: Record<TrashKind, { icon: string; label: string }> = {
@@ -19,6 +20,7 @@ const KIND_META: Record<TrashKind, { icon: string; label: string }> = {
   recipe: { icon: 'menu_book', label: 'Recipe' },
   shopping: { icon: 'shopping_cart', label: 'Buy' },
   todo: { icon: 'checklist', label: 'To-do' },
+  wellbeing: { icon: 'mood', label: 'Wellbeing' },
 };
 
 /** Recently deleted — everything ever deleted, restorable with one tap.
@@ -35,6 +37,7 @@ export class Trash {
   private feedback = inject(Feedback);
   private shoppingStore = inject(ShoppingStore);
   private todoStore = inject(TodoStore);
+  private wellbeingStore = inject(WellbeingStore);
 
   readonly entries = signal<TrashEntry[]>([]);
   /** Distinguish "still loading" from "trash is empty" — no false empty flash. */
@@ -77,6 +80,7 @@ export class Trash {
         // restored row is on screen when the user switches tabs.
         if (entry.kind === 'shopping') this.shoppingStore.reSync();
         if (entry.kind === 'todo') this.todoStore.reSync();
+        if (entry.kind === 'wellbeing') this.wellbeingStore.reSync();
         this.feedback.notify(`Restored “${entry.name}”`);
       },
       error: (e: HttpErrorResponse) => {

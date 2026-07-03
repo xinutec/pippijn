@@ -1,0 +1,58 @@
+.checkin {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.face {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.6rem 0.25rem;
+  min-height: 48px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface-variant);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    transform 0.06s;
+
+  mat-icon {
+    width: 30px;
+    height: 30px;
+    font-size: 30px;
+  }
+  .lbl {
+    font-size: 0.7rem;
+    text-transform: capitalize;
+  }
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+  }
+  &:active {
+    transform: scale(0.96);
+  }
+
+  // The ramp: error (awful) → neutral → primary (great). color-mix keeps it
+  // legible in both light and dark themes.
+  &.score-1 mat-icon {
+    color: var(--mat-sys-error);
+  }
+  &.score-2 mat-icon {
+    color: color-mix(in srgb, var(--mat-sys-error) 60%, var(--mat-sys-tertiary));
+  }
+  &.score-3 mat-icon {
+    color: var(--mat-sys-on-surface-variant);
+  }
+  &.score-4 mat-icon {
+    color: color-mix(in srgb, var(--mat-sys-primary) 70%, var(--mat-sys-tertiary));
+  }
+  &.score-5 mat-icon {
+    color: var(--mat-sys-primary);
+  }
+}
