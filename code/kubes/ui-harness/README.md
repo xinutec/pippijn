@@ -18,6 +18,14 @@ one shared implementation:
 import { expectNoTextOverlaps, expectNoHorizontalOverflow } from '../../../ui-harness/src/ui-harness';
 ```
 
+The consuming app needs `@playwright/test` in its own `devDependencies` (the
+config and specs import it). This module does **not** — it imports only
+*types* from Playwright (erased at transpile) and throws plain errors instead
+of calling `expect`, so it never loads a second copy of the runner. That's
+load-bearing: two `@playwright/test` instances make every suite die with
+"No tests found", which is exactly what a shared module that carried its own
+copy would cause.
+
 Config convention (the viewport MUST live in the project `use`, not the
 global one — a device spread carries its own viewport and project-level
 `use` overrides global; that exact mistake ran life's "phone" tests at
@@ -62,8 +70,13 @@ test('the suite really runs at phone geometry', async ({ page }) => {
 
 ## Self-tests
 
-`npm install && npm test` here runs the package's own fixture specs
-(`page.setContent` DOM fixtures — no app server): the ellipsis-phantom and
-clip-model false-positive cases, real overlap/overflow detection, and the
-allow-list. Run them after any change to the measurement functions — five
-apps consume this file.
+`npm test` here runs the package's own fixture specs (`page.setContent` DOM
+fixtures — no app server): the ellipsis-phantom, clip-model and
+icon-glyph-vs-badge false-positive cases, real overlap/overflow detection,
+and the allow-list. Run them after any change to the measurement functions —
+five apps consume this file.
+
+No `npm install`: this package carries no dependencies of its own. Its
+`node_modules` is a **symlink to `../life/frontend/node_modules`**, purely so
+the fixture specs above find a Playwright to run under. `npm install` here
+would clobber that symlink — don't.
