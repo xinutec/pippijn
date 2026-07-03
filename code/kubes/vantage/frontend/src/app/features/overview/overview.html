@@ -1,0 +1,61 @@
+<section class="page">
+  <header class="head">
+    <div>
+      <h2>Overview</h2>
+      <span class="sub tnum">
+        {{ summary().ok }} ok · {{ summary().problem }} need attention
+      </span>
+    </div>
+    <button
+      mat-icon-button
+      (click)="overview.reload()"
+      [disabled]="overview.isLoading()"
+      aria-label="Refresh"
+    >
+      <mat-icon>refresh</mat-icon>
+    </button>
+  </header>
+
+  @if (overview.isLoading()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+  @if (overview.error()) {
+    <p class="hint error">Could not load status — is vantage reachable on the VPN?</p>
+  } @else if (!overview.isLoading() && overview.value().length === 0) {
+    <p class="hint">No reports yet. Once a producer pushes, its status shows here.</p>
+  }
+
+  @for (g of groups(); track g.source) {
+    <h3 class="source">{{ g.source }}</h3>
+    <div class="tiles">
+      @for (c of g.collectors; track c.collector) {
+        <a class="tile-link" [routerLink]="['/reports', c.report_id]">
+          <mat-card appearance="outlined" class="tile" [class]="tileClass(c.worst, c.freshness)">
+            <mat-card-content>
+              <div class="tile-top">
+                <span class="dot" [class]="tileClass(c.worst, c.freshness)"></span>
+                <span class="collector">{{ c.collector }}</span>
+                @if (freshnessLabel(c.freshness); as fl) {
+                  <span class="pill" [class]="c.freshness">{{ fl }}</span>
+                }
+              </div>
+              <div class="counts tnum">
+                @if (c.fail > 0) {
+                  <span class="pill fail">{{ c.fail }} fail</span>
+                }
+                @if (c.warn > 0) {
+                  <span class="pill warn">{{ c.warn }} warn</span>
+                }
+                <span class="pill pass">{{ c.pass }} pass</span>
+                @if (c.skip > 0) {
+                  <span class="pill skip">{{ c.skip }} skip</span>
+                }
+              </div>
+              <div class="age tnum">{{ formatAge(c.age_s) }}</div>
+            </mat-card-content>
+          </mat-card>
+        </a>
+      }
+    </div>
+  }
+</section>

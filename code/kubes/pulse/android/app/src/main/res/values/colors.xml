@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Adaptive-icon background: orange for pulse (its web theme's palette) —
-         distinct on the launcher from the other web apps. -->
-    <color name="ic_launcher_background">#E65100</color>
-</resources>

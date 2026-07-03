@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vantage-app
+  namespace: vantage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vantage-app
+  template:
+    metadata:
+      labels:
+        app: vantage-app
+    spec:
+      # Matches the nonroot user baked into the image (Dockerfile, uid 65532).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: xinutec/vantage:latest
+          # The app never writes to disk, so the whole root fs can be read-only.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+          env:
+            # Full mysql:// DSN (carries the DB password) — kept whole in the secret.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: vantage-secret
+                  key: DATABASE_URL
+            # Comma-separated source:token pairs — the ingest credentials. A
+            # producer can only ever write as its mapped source (see src/auth.rs).
+            - name: VANTAGE_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: vantage-secret
+                  key: VANTAGE_TOKENS
+            # info = one line per /api request (TraceLayer); vantage=debug adds our
+            # own ingest detail. Third-party crates stay at info (quiet).
+            - name: RUST_LOG
+              value: info,vantage=debug
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vantage-app
+  namespace: vantage
+spec:
+  selector:
+    app: vantage-app
+  ports:
+    - port: 80
+      targetPort: 8080

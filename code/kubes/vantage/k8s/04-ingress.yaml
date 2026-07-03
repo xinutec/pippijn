@@ -1,0 +1,39 @@
+# VPN-only by DNS: vantage.xinutec.org → 10.100.0.2 (isis's WireGuard IP), so it
+# isn't listed on the public internet. This is messages-parity: obscurity, not a
+# firewall — the isis ingress also answers on the public IP. The actual gate on
+# the WRITE path is the ingest bearer token (src/auth.rs); reads are open to
+# anything that can route to the VPN IP.
+#
+# NOTE: a `whitelist-source-range: 10.100.0.0/24` annotation was TRIED and REMOVED
+# (2026-07-03). Behind k3s servicelb the client's WireGuard source IP is SNAT'd
+# before it reaches nginx, so the rule 403s even a legitimate VPN client. Making
+# the source IP survive needs a cluster-wide ingress change (externalTrafficPolicy:
+# Local + forwarded-headers) affecting every service — deliberately not done. If
+# true L7 VPN-only enforcement is ever wanted, that's the lever to revisit.
+#
+# TLS uses the DNS-01 issuer `letsencrypt-dns` (shared with messages; already on
+# isis). HTTP-01 can't validate a host that resolves to a VPN-only IP.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vantage
+  namespace: vantage
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-dns"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - vantage.xinutec.org
+      secretName: vantage-tls
+  rules:
+    - host: vantage.xinutec.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vantage-app
+                port:
+                  number: 80
