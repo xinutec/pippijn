@@ -13,6 +13,20 @@ const PORT = 4271;
 export default defineConfig({
   testDir: './e2e',
   reporter: [['list']],
+  // Golden screenshots (e2e/ui-golden.spec.ts). One committed baseline per
+  // name — no {projectName}/{platform} suffix, because these only ever run on
+  // one machine (a dev's Mac; CI runs Rust only, never Playwright — see
+  // .github/workflows/build.yml). Update them with `npm run ui-golden:update`.
+  snapshotPathTemplate: 'e2e/__screenshots__/{arg}{ext}',
+  expect: {
+    toHaveScreenshot: {
+      // A hair of tolerance for sub-pixel antialiasing seams; a real visual
+      // change moves far more than 1% of the pixels.
+      maxDiffPixelRatio: 0.01,
+      animations: 'disabled',
+      caret: 'hide',
+    },
+  },
   // SW registration + full prefetch can take a while on a cold headless run, and
   // the in-test waits run up to 60s; keep the per-test budget above them.
   timeout: 90_000,
