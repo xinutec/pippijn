@@ -11,7 +11,7 @@ describe("labelFor", () => {
 	});
 
 	it("leaves an unsited sensor without a room", () => {
-		expect(labelFor("govee-B7AC").room).toBeUndefined();
+		expect(labelFor("govee-267F").room).toBeUndefined();
 	});
 
 	it("treats Govee sensors as climate-only", () => {
