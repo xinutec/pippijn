@@ -5,8 +5,15 @@
 // appears on the dashboard immediately, just unnamed.
 
 export interface DeviceLabel {
-	/** Human name shown in the UI — a room, once the sensor is sited. */
+	/** Human name shown in the UI — the device's own name (e.g. "IQAir"). */
 	name: string;
+	/**
+	 * Physical location, once the sensor is sited. Orthogonal to the device id:
+	 * moving a unit to another room is a one-line edit here (and its calibration
+	 * offset travels with it), no DB migration. Optional — an unsited sensor has
+	 * none and the UI falls back to its name/id.
+	 */
+	room?: string;
 	/** True for the whole-home air-quality sensor (CO₂/PM/AQI/VOC). */
 	airQuality: boolean;
 	/** UI sort order; lower sorts first. */
@@ -16,9 +23,15 @@ export interface DeviceLabel {
 }
 
 // The air-quality sensor first, then the four Govee climate sensors. Set each
-// Govee `name` to its room once placed; until then it shows its device id.
+// sensor's `room` once it's placed; until then the UI shows its name/device id.
 const LABELS: Record<string, DeviceLabel> = {
-	airvisual: { name: "IQAir", airQuality: true, order: 0, type: "IQAir AirVisual Pro" },
+	airvisual: {
+		name: "IQAir",
+		room: "Bedroom",
+		airQuality: true,
+		order: 0,
+		type: "IQAir AirVisual Pro",
+	},
 	"govee-A562": { name: "govee-A562", airQuality: false, order: 1, type: "Govee H5075" },
 	"govee-525D": { name: "govee-525D", airQuality: false, order: 2, type: "Govee H5075" },
 	"govee-B7AC": { name: "govee-B7AC", airQuality: false, order: 3, type: "Govee H5075" },

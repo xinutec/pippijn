@@ -144,7 +144,7 @@
 				@for (d of devices(); track d.device) {
 					<mat-card class="room-card" appearance="outlined">
 						<div class="room-name">
-							<span>{{ d.label.name }}</span>
+							<span>{{ d.label.room ?? d.label.name }}</span>
 							@if (d.label.airQuality) {
 								<mat-icon class="room-air" matTooltip="Air-quality sensor">eco</mat-icon>
 							}

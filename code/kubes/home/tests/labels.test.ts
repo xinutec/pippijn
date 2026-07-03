@@ -7,6 +7,11 @@ describe("labelFor", () => {
 		expect(l.airQuality).toBe(true);
 		expect(l.order).toBe(0);
 		expect(l.type).toBe("IQAir AirVisual Pro");
+		expect(l.room).toBe("Bedroom");
+	});
+
+	it("leaves an unsited sensor without a room", () => {
+		expect(labelFor("govee-A562").room).toBeUndefined();
 	});
 
 	it("treats Govee sensors as climate-only", () => {
