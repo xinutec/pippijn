@@ -48,11 +48,21 @@ mat-list {
 }
 
 .meta {
-  display: inline-flex;
+  // Block-level flex, NOT inline-flex: an inline-flex sizes to max-content,
+  // so with nowrap pills + a note the row itself grows past the list item on
+  // a phone (paint-clipped by the MDC content box, but the note then hard-cuts
+  // mid-glyph). Block flex is capped at the item width; pills and icon keep
+  // their size and only the note shrinks, ending in a clean ellipsis.
+  display: flex;
+  max-width: 100%;
   align-items: center;
   gap: 0.4rem;
   // Pills have no leading of their own (text lines do) — restore the gap.
   margin-top: 0.25rem;
+
+  > * {
+    flex: 0 0 auto;
+  }
 
   .type-icon {
     font-size: 1.05rem;
@@ -61,7 +71,12 @@ mat-list {
     opacity: 0.8;
   }
   .note {
+    flex: 0 1 auto;
+    min-width: 0;
     opacity: 0.8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

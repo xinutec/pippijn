@@ -32,13 +32,17 @@ export default defineConfig({
   timeout: 90_000,
   use: {
     baseURL: `http://localhost:${PORT}`,
-    // Pixel 9 CSS viewport (1080×2424 physical ÷ 2.625 DPR) — the phone this app
-    // is actually used on. The layout checks below (text overlap, horizontal
-    // overflow) are all measured at this width.
-    viewport: { width: 412, height: 915 },
     screenshot: 'only-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // Emulate the phone this app is actually used on (Pixel 9 ≈ the Pixel 7
+  // preset: 412 CSS px wide, mobile UA, touch). The viewport MUST live here in
+  // the project's `use`, not the global one: a device spread carries its own
+  // viewport, and project-level `use` overrides global — which is exactly how
+  // an earlier `...devices['Desktop Chrome']` here silently ran every "phone
+  // width" test at 1280×720. deviceScaleFactor is forced to 1 so golden PNGs
+  // stay small; CSS-pixel geometry (what the layout checks measure) is
+  // identical at any DPR.
+  projects: [{ name: 'chromium', use: { ...devices['Pixel 7'], deviceScaleFactor: 1 } }],
   webServer: {
     // serve.mjs serves dist/life-web/browser; `npm run e2e` builds it first.
     // reuseExistingServer: attach to a serve.mjs you started yourself if one is

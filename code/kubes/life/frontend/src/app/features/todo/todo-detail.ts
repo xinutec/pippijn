@@ -6,8 +6,8 @@ import {
   MAT_BOTTOM_SHEET_DATA,
 } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
-import { MatButtonToggleModule } from '@angular/material/button-toggle';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -53,8 +53,8 @@ interface Group {
   imports: [
     FormsModule,
     MatButtonModule,
-    MatButtonToggleModule,
     MatCheckboxModule,
+    MatChipsModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -166,12 +166,22 @@ export class TodoDetail implements OnDestroy {
     void this.store.patch(this.ulid(), { notes: this.notes().trim() || null });
   }
 
-  setType(type: TodoType): void {
+  // The chip listboxes emit undefined on a deselect. The selected chip is
+  // locked ([selectable]=false), so that shouldn't happen — but guard anyway:
+  // type always has a value, and priority's "none" is the explicit null chip.
+  setType(type: TodoType | undefined): void {
+    if (type == null) return;
     void this.store.patch(this.ulid(), { type });
   }
 
-  setPriority(priority: TodoPriority | null): void {
+  setPriority(priority: TodoPriority | null | undefined): void {
+    if (priority === undefined) return;
     void this.store.patch(this.ulid(), { priority });
+  }
+
+  setAddKind(kind: LinkKind | undefined): void {
+    if (kind == null) return;
+    this.addKind.set(kind);
   }
 
   readonly datePresets = [

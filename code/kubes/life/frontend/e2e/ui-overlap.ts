@@ -26,6 +26,8 @@ export interface TextRect {
 	y: number;
 	w: number;
 	h: number;
+	/** Which text node this came from — same-node rects never "collide". */
+	node?: number;
 }
 
 export interface OverlapPair {
@@ -52,6 +54,7 @@ export function findTextOverlaps(args: [string | null, number]): OverlapPair[] {
 	if (!root) return [];
 	const rects: TextRect[] = [];
 	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+	let nodeIdx = 0;
 	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 		const text = (node.textContent ?? "").trim();
 		if (!text) continue;
@@ -59,11 +62,31 @@ export function findTextOverlaps(args: [string | null, number]): OverlapPair[] {
 		if (!parent) continue;
 		const style = getComputedStyle(parent);
 		if (style.visibility === "hidden" || style.display === "none" || style.opacity === "0") continue;
+		nodeIdx++;
 		const range = document.createRange();
 		range.selectNodeContents(node);
 		for (const r of Array.from(range.getClientRects())) {
-			if (r.width < 1 || r.height < 1) continue;
-			rects.push({ text, x: r.x, y: r.y, w: r.width, h: r.height });
+			// Clip the glyph box to every overflow-clipping ancestor: an
+			// ellipsized nowrap line reports its FULL laid-out width here, but
+			// everything past the ancestor's `overflow: hidden` edge is never
+			// painted, so it can't visually collide with anything. Without this,
+			// every ellipsized list title "overlaps" the pill sitting after it.
+			let x1 = r.x;
+			let y1 = r.y;
+			let x2 = r.right;
+			let y2 = r.bottom;
+			for (let p: Element | null = parent; p; p = p.parentElement) {
+				const ps = getComputedStyle(p);
+				if (ps.overflowX !== "visible" || ps.overflowY !== "visible") {
+					const pb = p.getBoundingClientRect();
+					x1 = Math.max(x1, pb.x);
+					y1 = Math.max(y1, pb.y);
+					x2 = Math.min(x2, pb.right);
+					y2 = Math.min(y2, pb.bottom);
+				}
+			}
+			if (x2 - x1 < 1 || y2 - y1 < 1) continue;
+			rects.push({ text, x: x1, y: y1, w: x2 - x1, h: y2 - y1, node: nodeIdx });
 		}
 	}
 
@@ -72,6 +95,9 @@ export function findTextOverlaps(args: [string | null, number]): OverlapPair[] {
 		for (let j = i + 1; j < rects.length; j++) {
 			const a = rects[i];
 			const b = rects[j];
+			// One text node can't collide with itself — Chrome reports an extra
+			// same-position fragment rect for ellipsized text.
+			if (a.node === b.node) continue;
 			const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
 			const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
 			if (ox > tol && oy > tol) pairs.push({ a, b, overlap: { w: ox, h: oy } });
@@ -133,31 +159,28 @@ export interface Overflower {
  * with icons happily exceed 412px.
  *
  * We flag every visible element whose right edge sits more than `tol` past
- * `root`'s right edge — EXCEPT ones inside an element that scrolls horizontally
- * on purpose (overflow-x: auto/scroll), since there the content is reachable by
- * design. `args` is [rootSel|null, tol]; a null root means the viewport.
+ * `root`'s right edge — EXCEPT ones inside a container named in `allow`, an
+ * explicit list of selectors for the few places that scroll horizontally on
+ * purpose. Explicit, because the "obvious" computed-style test (overflow-x:
+ * auto/scroll) is a trap: per CSS, `overflow-y: auto` forces overflow-x to
+ * compute to auto as well, so every merely-vertically-scrollable container
+ * (a bottom sheet's body, say) silently exempted everything inside it — which
+ * is exactly how a 497px toggle row hid inside a 380px sheet.
+ * `args` is [rootSel|null, tol, allow]; a null root means the viewport.
  */
-export function findHorizontalOverflow(args: [string | null, number]): {
+export function findHorizontalOverflow(args: [string | null, number, string[]]): {
 	rootWidth: number;
 	scrollOverflow: number;
 	offenders: Overflower[];
 } {
-	const [rootSel, tol] = args;
+	const [rootSel, tol, allow] = args;
 	const root = rootSel ? document.querySelector(rootSel) : document.documentElement;
 	if (!root) return { rootWidth: 0, scrollOverflow: 0, offenders: [] };
 	const rootRect = root.getBoundingClientRect();
 	const rightEdge = rootSel ? rootRect.right : window.innerWidth;
 
-	const scrolls = (el: Element): boolean => {
-		const ox = getComputedStyle(el).overflowX;
-		return ox === "auto" || ox === "scroll";
-	};
-	const inScrollContainer = (el: Element): boolean => {
-		for (let p = el.parentElement; p && p !== root.parentElement; p = p.parentElement) {
-			if (scrolls(p)) return true;
-		}
-		return false;
-	};
+	const inAllowedScroller = (el: Element): boolean =>
+		allow.some((sel) => el.closest(sel) !== null);
 	const describe = (el: Element): string => {
 		const cls = typeof el.className === "string" && el.className.trim()
 			? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".")
@@ -170,7 +193,7 @@ export function findHorizontalOverflow(args: [string | null, number]): {
 	for (const el of Array.from(root.querySelectorAll("*"))) {
 		const style = getComputedStyle(el);
 		if (style.visibility === "hidden" || style.display === "none") continue;
-		if (inScrollContainer(el)) continue;
+		if (inAllowedScroller(el)) continue;
 		const r = el.getBoundingClientRect();
 		if (r.width < 1 || r.height < 1) continue;
 		const spill = r.right - rightEdge;
@@ -196,17 +219,24 @@ export function findHorizontalOverflow(args: [string | null, number]): {
 /**
  * Assert nothing spills past the right edge at a phone width. `rootSel` scopes
  * the check to a container (e.g. an open bottom sheet); omit it to check the
- * whole viewport. Leaves the same screenshot artifact as the overlap check.
+ * whole viewport. `allow` names containers that scroll horizontally on purpose
+ * (see findHorizontalOverflow for why this is an explicit list). Leaves the
+ * same screenshot artifact as the overlap check.
  */
 export async function expectNoHorizontalOverflow(
 	page: Page,
 	testInfo: TestInfo,
 	rootSel: string | null = null,
+	allow: string[] = [],
 	tol = 1,
 ): Promise<void> {
 	await leaveSnapshot(page, testInfo);
 
-	const { offenders } = await page.evaluate(findHorizontalOverflow, [rootSel, tol] as [string | null, number]);
+	const { offenders } = await page.evaluate(findHorizontalOverflow, [rootSel, tol, allow] as [
+		string | null,
+		number,
+		string[],
+	]);
 	const detail = offenders
 		.map((o) => `  ${o.sel} — spills ${o.spill.toFixed(1)}px${o.text ? ` — "${o.text}"` : ""}`)
 		.join("\n");

@@ -15,30 +15,30 @@
       <button mat-icon-button (click)="close()" aria-label="Close"><mat-icon>close</mat-icon></button>
     </div>
 
-    <mat-button-toggle-group
-      class="type"
-      aria-label="Type"
-      [ngModel]="td.type"
-      (ngModelChange)="setType($event)"
-      hideSingleSelectionIndicator
-    >
+    <!-- Chips, not a button-toggle-group: a toggle group is one non-wrapping
+         row, and five icon+label options are ~500px — wider than a phone. Chip
+         listboxes wrap, and match the type-filter grammar on the list screen.
+         The selected chip is locked ([selectable]=false ⇒ taps on it are
+         ignored), so a to-do always has a type / an explicit priority row. -->
+    <mat-chip-listbox class="choice" aria-label="Type" [ngModel]="td.type" (ngModelChange)="setType($event)">
       @for (t of types; track t.value) {
-        <mat-button-toggle [value]="t.value"><mat-icon>{{ t.icon }}</mat-icon> {{ t.label }}</mat-button-toggle>
+        <mat-chip-option [value]="t.value" [selectable]="td.type !== t.value">
+          <mat-icon matChipAvatar>{{ t.icon }}</mat-icon> {{ t.label }}
+        </mat-chip-option>
       }
-    </mat-button-toggle-group>
+    </mat-chip-listbox>
 
-    <mat-button-toggle-group
-      class="type"
+    <mat-chip-listbox
+      class="choice"
       aria-label="Priority"
       [ngModel]="td.priority"
       (ngModelChange)="setPriority($event)"
-      hideSingleSelectionIndicator
     >
-      <mat-button-toggle [value]="null">No priority</mat-button-toggle>
+      <mat-chip-option [value]="null" [selectable]="td.priority !== null">No priority</mat-chip-option>
       @for (p of priorities; track p.value) {
-        <mat-button-toggle [value]="p.value">{{ p.label }}</mat-button-toggle>
+        <mat-chip-option [value]="p.value" [selectable]="td.priority !== p.value">{{ p.label }}</mat-chip-option>
       }
-    </mat-button-toggle-group>
+    </mat-chip-listbox>
 
     @if (state() === 'blocked') {
       <div class="banner blocked">
@@ -138,17 +138,16 @@
 
     <div class="add-link">
       <h4>Add connection</h4>
-      <mat-button-toggle-group
+      <mat-chip-listbox
         class="kind"
         aria-label="Connection type"
         [ngModel]="addKind()"
-        (ngModelChange)="addKind.set($event)"
-        hideSingleSelectionIndicator
+        (ngModelChange)="setAddKind($event)"
       >
         @for (k of kinds; track k.value) {
-          <mat-button-toggle [value]="k.value">{{ k.label }}</mat-button-toggle>
+          <mat-chip-option [value]="k.value" [selectable]="addKind() !== k.value">{{ k.label }}</mat-chip-option>
         }
-      </mat-button-toggle-group>
+      </mat-chip-listbox>
       <mat-form-field appearance="outline" class="search" subscriptSizing="dynamic">
         <mat-icon matPrefix>search</mat-icon>
         <mat-label>Link to…</mat-label>

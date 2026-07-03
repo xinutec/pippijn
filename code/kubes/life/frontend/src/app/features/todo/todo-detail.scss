@@ -17,7 +17,8 @@
   }
 }
 
-.type {
+// The type/priority chip rows (mat-chip-listbox wraps on its own).
+.choice {
   align-self: flex-start;
 }
 
@@ -43,7 +44,6 @@
 
       button {
         // Compact preset chips.
-        --mat-standard-button-toggle-height: 32px;
         min-width: 0;
         padding: 0 0.6rem;
       }
