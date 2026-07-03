@@ -6,6 +6,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatToolbarModule } from '@angular/material/toolbar';
 
 import { Alerts } from './shared/alerts';
 import { LifeApi } from './life-api';
@@ -32,6 +33,7 @@ interface NavItem {
     MatIconModule,
     MatMenuModule,
     MatProgressBarModule,
+    MatToolbarModule,
   ],
 })
 export class App {

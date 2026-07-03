@@ -27,28 +27,25 @@ $topbar-h: 56px;
 $bottomnav-h: 60px;
 $rail-w: 220px;
 
+// mat-toolbar provides the surface + type; this block only pins it and adds
+// the edge-to-edge safe-area handling (viewport-fit=cover): grow the bar by
+// the status-bar/notch inset and pad its content below it. Fixed to BOTH
+// horizontal edges — required by the Android WebView (see .fab-anchor note
+// in styles.scss).
 .topbar {
+  --mat-toolbar-container-background-color: var(--mat-sys-surface-container);
   position: fixed;
   inset: 0 0 auto 0;
-  // Edge-to-edge (viewport-fit=cover): grow the bar by the status-bar/notch inset
-  // and pad its content below it; the bar's surface fills the strip above. border-box
-  // keeps the height total (inset included) regardless of the page's box-sizing.
   box-sizing: border-box;
   height: calc(#{$topbar-h} + env(safe-area-inset-top));
-  display: flex;
-  align-items: center;
   gap: 0.25rem;
-  padding: 0 0.5rem 0 1rem;
-  padding-top: env(safe-area-inset-top);
-  background: var(--mat-sys-surface-container);
+  padding: env(safe-area-inset-top) 0.5rem 0 1rem;
   border-bottom: 1px solid var(--mat-sys-outline-variant);
   z-index: 10;
 }
 
 .brand {
-  font-weight: 500;
-  font-size: 1.3rem;
-  letter-spacing: 0.5px;
+  font: var(--mat-sys-title-large);
 }
 
 .spacer {
@@ -57,7 +54,7 @@ $rail-w: 220px;
 
 .acct-name {
   padding: 0.5rem 1rem;
-  font-weight: 500;
+  font: var(--mat-sys-title-small);
   opacity: 0.8;
 }
 
@@ -69,29 +66,18 @@ $rail-w: 220px;
   border-radius: 999px;
   background: var(--mat-sys-error);
   color: var(--mat-sys-on-error);
-  font-size: 0.75rem;
+  font: var(--mat-sys-label-small);
   line-height: 1.25rem;
   text-align: center;
 }
 
+// A standard mat-icon-button hosting the avatar image (ripple, focus, and
+// 48px touch target come free). The flex centring is for the img child —
+// mat-icon-button only auto-centres mat-icons.
 .acct-btn {
-  flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  margin: 0;
-  border: 0;
-  background: transparent;
-  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  color: var(--mat-sys-on-surface);
-
-  &:hover {
-    background: var(--mat-sys-surface-container-high);
-  }
 
   .avatar {
     width: 32px;
@@ -99,12 +85,6 @@ $rail-w: 220px;
     border-radius: 50%;
     object-fit: cover;
     display: block;
-  }
-
-  mat-icon {
-    font-size: 28px;
-    width: 28px;
-    height: 28px;
   }
 }
 
@@ -136,6 +116,18 @@ $rail-w: 220px;
     text-decoration: none;
     color: var(--mat-sys-on-surface-variant);
 
+    // M3 navigation-bar geometry: the icon sits in a pill-shaped indicator
+    // that fills with secondary-container on the active tab.
+    .ind {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 56px;
+      height: 30px;
+      border-radius: 999px;
+      transition: background 0.15s;
+    }
+
     mat-icon {
       font-size: 1.5rem;
       width: 1.5rem;
@@ -143,12 +135,19 @@ $rail-w: 220px;
     }
 
     .label {
-      font-size: 0.68rem;
-      letter-spacing: 0.2px;
+      font: var(--mat-sys-label-medium);
     }
 
     &.active {
-      color: var(--mat-sys-primary);
+      color: var(--mat-sys-on-surface);
+
+      .ind {
+        background: var(--mat-sys-secondary-container);
+        color: var(--mat-sys-on-secondary-container);
+      }
+      .label {
+        font-weight: 700;
+      }
     }
   }
 }
@@ -180,13 +179,27 @@ $rail-w: 220px;
       border-radius: 0 999px 999px 0;
       margin-right: 0.5rem;
 
+      // The rail's indicator is the whole row (M3 drawer style) — collapse
+      // the mobile icon pill so it doesn't double up.
+      .ind {
+        width: auto;
+        height: auto;
+      }
+
       .label {
-        font-size: 0.95rem;
+        font: var(--mat-sys-label-large);
       }
 
       &.active {
         background: var(--mat-sys-secondary-container);
         color: var(--mat-sys-on-secondary-container);
+
+        .ind {
+          background: transparent;
+        }
+        .label {
+          font-weight: 700;
+        }
       }
     }
   }
@@ -209,8 +222,7 @@ $rail-w: 220px;
     align-items: center;
     justify-content: center;
     gap: 0.4rem;
-    font-weight: 300;
-    font-size: 2.6rem;
+    font: var(--mat-sys-display-small);
 
     mat-icon {
       width: 2.4rem;
