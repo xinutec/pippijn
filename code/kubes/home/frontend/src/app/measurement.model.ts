@@ -17,6 +17,8 @@ export interface Measurement {
 /** Display overlay for a device, as returned alongside its latest reading. */
 export interface DeviceLabel {
 	name: string;
+	/** Physical location; absent until the sensor is sited (UI falls back to name). */
+	room?: string;
 	airQuality: boolean;
 	order: number;
 	type: string;
