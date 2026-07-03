@@ -33,6 +33,18 @@
     </mat-menu>
     <span class="brand">Life</span>
     <span class="spacer"></span>
+    @if (sync.health() !== 'synced') {
+      <span
+        class="sync-status"
+        [class.sync-status--error]="sync.health() === 'error'"
+        role="status"
+        aria-live="polite"
+        [matTooltip]="sync.message()"
+        [attr.aria-label]="sync.message()"
+      >
+        <mat-icon>{{ sync.health() === 'offline' ? 'cloud_off' : 'sync_problem' }}</mat-icon>
+      </span>
+    }
     <button class="acct-btn" type="button" mat-icon-button [matMenuTriggerFor]="acct" aria-label="Account">
       @if (user.avatarUrl && !avatarError()) {
         <img class="avatar" [src]="user.avatarUrl" alt="" (error)="avatarError.set(true)" />

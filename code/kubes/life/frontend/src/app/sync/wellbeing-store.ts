@@ -7,6 +7,7 @@ import { type RxCollection, type RxJsonSchema } from 'rxdb';
 import { ConflictReporter, makeConflictHandler } from './conflict-merge';
 import { LifeDb } from './life-db';
 import { startHttpReplication } from './replication';
+import { SyncStatus } from './sync-status';
 
 /** A wellbeing check-in as stored locally. `recordedAt` is an ISO-8601 UTC
  *  instant (the moment the feeling was — may be backdated); `score` is 1..5.
@@ -51,6 +52,7 @@ export class WellbeingStore {
 
   private lifeDb = inject(LifeDb);
   private reporter = inject(ConflictReporter);
+  private syncStatus = inject(SyncStatus);
   private readonly collection = this.init();
   private replication?: ReturnType<typeof startHttpReplication<WellbeingDoc>>;
 
@@ -128,6 +130,7 @@ export class WellbeingStore {
       identifier: 'wellbeing-http-sync-v2',
       path: '/api/sync/wellbeing',
       syncError: this.syncError,
+      syncStatus: this.syncStatus,
       label: 'wellbeing sync',
     });
   }

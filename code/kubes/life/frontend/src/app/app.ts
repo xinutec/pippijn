@@ -7,11 +7,13 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatToolbarModule } from '@angular/material/toolbar';
+import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { Alerts } from './shared/alerts';
 import { LifeApi } from './life-api';
 import { Me } from './models';
 import { SwUpdates } from './sw-updates';
+import { SyncStatus } from './sync/sync-status';
 
 interface NavItem {
   path: string;
@@ -34,12 +36,14 @@ interface NavItem {
     MatMenuModule,
     MatProgressBarModule,
     MatToolbarModule,
+    MatTooltipModule,
   ],
 })
 export class App {
   private api = inject(LifeApi);
   private swUpdates = inject(SwUpdates);
   protected readonly alerts = inject(Alerts);
+  protected readonly sync = inject(SyncStatus);
 
   readonly me = signal<Me | null>(null);
   readonly loading = signal(true);

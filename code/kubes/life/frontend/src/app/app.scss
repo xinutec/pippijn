@@ -52,6 +52,20 @@ $rail-w: 220px;
   flex: 1;
 }
 
+// Persistent sync-health indicator — only rendered when NOT synced. Offline is
+// a calm, muted state (edits are safe locally); a real error is the warn colour
+// because "saved but not reaching the server" needs the eye.
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.25rem;
+  color: var(--mat-sys-on-surface-variant);
+
+  &.sync-status--error {
+    color: var(--mat-sys-error);
+  }
+}
+
 .acct-name {
   padding: 0.5rem 1rem;
   font: var(--mat-sys-title-small);

@@ -7,6 +7,7 @@ import { type RxCollection, type RxConflictHandler, type RxJsonSchema } from 'rx
 import { LinkKind, TargetKind } from '../models';
 import { LifeDb } from './life-db';
 import { startHttpReplication } from './replication';
+import { SyncStatus } from './sync-status';
 
 /** A to-do connection stored locally. `from` is the source to-do's ulid; the
  *  target is a soft ref (`targetRef` interpreted per `targetKind`). Mirrors the
@@ -60,6 +61,7 @@ export class TodoLinkStore {
   readonly syncError = signal<string | null>(null);
 
   private lifeDb = inject(LifeDb);
+  private syncStatus = inject(SyncStatus);
   private readonly collection = this.init();
 
   /** Live, non-deleted connection edges. */
@@ -121,6 +123,7 @@ export class TodoLinkStore {
       identifier: 'todo-link-http-sync',
       path: '/api/sync/todo-link',
       syncError: this.syncError,
+      syncStatus: this.syncStatus,
       label: 'todo-link sync',
     });
   }

@@ -8,6 +8,7 @@ import { TodoPriority, TodoStatus, TodoType } from '../models';
 import { ConflictReporter, makeConflictHandler } from './conflict-merge';
 import { LifeDb } from './life-db';
 import { startHttpReplication } from './replication';
+import { SyncStatus } from './sync-status';
 
 /** A to-do row as stored locally. `ulid` is the stable identity; `rev` is the
  *  last server revision seen (set by sync, not local edits); `id` is the server
@@ -78,6 +79,7 @@ export class TodoStore {
 
   private lifeDb = inject(LifeDb);
   private reporter = inject(ConflictReporter);
+  private syncStatus = inject(SyncStatus);
   private readonly collection = this.init();
   private replication?: ReturnType<typeof startHttpReplication<TodoDoc>>;
 
@@ -179,6 +181,7 @@ export class TodoStore {
       identifier: 'todo-http-sync-v2',
       path: '/api/sync/todo',
       syncError: this.syncError,
+      syncStatus: this.syncStatus,
       label: 'todo sync',
     });
   }

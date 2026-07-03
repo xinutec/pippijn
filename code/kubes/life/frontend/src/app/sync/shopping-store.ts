@@ -7,6 +7,7 @@ import { type RxCollection, type RxJsonSchema } from 'rxdb';
 import { ConflictReporter, makeConflictHandler } from './conflict-merge';
 import { startHttpReplication } from './replication';
 import { LifeDb } from './life-db';
+import { SyncStatus } from './sync-status';
 
 /** A shopping row as stored locally. `ulid` is the stable identity; `rev` is the
  *  last server revision seen (set by sync, not by local edits); `id` is the
@@ -56,6 +57,7 @@ export class ShoppingStore {
 
   private lifeDb = inject(LifeDb);
   private reporter = inject(ConflictReporter);
+  private syncStatus = inject(SyncStatus);
   private readonly collection = this.init();
   private replication?: ReturnType<typeof startHttpReplication<ShoppingDoc>>;
 
@@ -149,6 +151,7 @@ export class ShoppingStore {
       identifier: 'shopping-http-sync-v2',
       path: '/api/sync/shopping',
       syncError: this.syncError,
+      syncStatus: this.syncStatus,
       label: 'shopping sync',
     });
   }
