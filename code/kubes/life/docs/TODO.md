@@ -35,9 +35,18 @@ add new ones under the right section. Architecture/rationale lives in
 
 ## Next up
 
+- [ ] **Wellbeing · to-do timing · UI quality** — three-part plan in
+      `docs/proposals/wellbeing-timing-ux.md` (2026-07-03): 5-point wellbeing
+      check-ins (new sync entity), `not_before`/`due` on to-dos (waiting +
+      urgency states), and the interaction-grammar overhaul (shared
+      `<app-list-state>`, add/edit bottom sheets, universal Undo, Today
+      landing screen). Increments A–F; supersedes the standalone
+      "shared list-state component" backlog item below.
 - [ ] **Expiry / "use soon"** — surface `expiry` (sort/flag soon + expired).
       Data already stored. (A first `/expiring` view was built then removed
-      2026-06-29 — Pippijn wants a different approach; redo from scratch.)
+      2026-06-29 — Pippijn wants a different approach; redo from scratch.
+      Current candidate: the "Expiring soon" card on the proposed Today
+      screen — proposal §3.6.)
 - [~] **Extend `scenes/house.json` to the whole house** — built collaboratively
       against the local preview (Pippijn measures each piece; see
       `scenes/README.md` § "Live modelling workflow"). **Kitchen: both long walls
@@ -96,6 +105,7 @@ add new ones under the right section. Architecture/rationale lives in
 - [ ] **Frontend: shared list-state component** — the loading / empty / error
       triad is copy-pasted across items/inventory/recipes; extract one
       `<app-list-state>` (or a structural directive) and de-dup the templates.
+      (Now increment A of `docs/proposals/wellbeing-timing-ux.md`.)
 - [ ] **Parsed net weight/volume → "how much is left at home"** — today the
       product's pack size is stored only as OFF's free-text `quantity_label`
       (e.g. `"950g"`), which is the right call *for now* (no parsing, no calc).
