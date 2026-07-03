@@ -6,10 +6,21 @@
 .trend {
   margin: 1rem 0 0.5rem;
 
+  // Axis labels beside the plot; the axis column stretches to the svg's
+  // rendered height, so the two always line up.
+  .plot {
+    display: flex;
+    gap: 0.4rem;
+  }
   .chart {
-    width: 100%;
-    height: 96px;
+    flex: 1;
+    min-width: 0;
     display: block;
+    height: auto;
+    // Match the viewBox ratio (CHART.w / CHART.h in wellbeing.ts) so the svg
+    // scales uniformly — preserveAspectRatio="none" squashed the dots into
+    // ellipses at any other rendered ratio.
+    aspect-ratio: 300 / 96;
   }
   .mid {
     stroke: var(--mat-sys-outline-variant);
@@ -20,9 +31,6 @@
     display: flex;
     justify-content: space-between;
     flex-direction: column;
-    float: left;
-    height: 96px;
-    margin-right: 0.4rem;
     font-size: 0.62rem;
     color: var(--mat-sys-on-surface-variant);
   }

@@ -5,21 +5,22 @@
 
 @if (hasChart()) {
   <div class="trend">
-    <div class="axis" aria-hidden="true">
-      <span>great</span><span>okay</span><span>awful</span>
+    <div class="plot">
+      <div class="axis" aria-hidden="true">
+        <span>great</span><span>okay</span><span>awful</span>
+      </div>
+      <svg
+        class="chart"
+        [attr.viewBox]="'0 0 ' + chart().w + ' ' + chart().h"
+        role="img"
+        aria-label="Your mood over the last 14 days"
+      >
+        <line class="mid" [attr.x1]="0" [attr.x2]="chart().w" [attr.y1]="chart().h / 2" [attr.y2]="chart().h / 2" />
+        @for (dot of chart().dots; track $index) {
+          <circle class="dot score-{{ dot.score }}" [attr.cx]="dot.cx" [attr.cy]="dot.cy" r="3.5" />
+        }
+      </svg>
     </div>
-    <svg
-      class="chart"
-      [attr.viewBox]="'0 0 ' + chart().w + ' ' + chart().h"
-      preserveAspectRatio="none"
-      role="img"
-      aria-label="Your mood over the last 14 days"
-    >
-      <line class="mid" [attr.x1]="0" [attr.x2]="chart().w" [attr.y1]="chart().h / 2" [attr.y2]="chart().h / 2" />
-      @for (dot of chart().dots; track $index) {
-        <circle class="dot score-{{ dot.score }}" [attr.cx]="dot.cx" [attr.cy]="dot.cy" r="3.5" />
-      }
-    </svg>
     <p class="caption">Last 14 days</p>
   </div>
 }
