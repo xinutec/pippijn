@@ -1,7 +1,7 @@
 @if (loading()) {
   <mat-progress-bar mode="indeterminate" />
 } @else if (me(); as user) {
-  <mat-toolbar color="primary" class="bar">
+  <mat-toolbar class="bar">
     <span class="brand">messages</span>
     <span class="spacer"></span>
     <span class="user">{{ user.display_name }}</span>
@@ -68,6 +68,6 @@
   <div class="signin">
     <h1>messages</h1>
     <p>Your Signal &amp; Google Chat archive.</p>
-    <a mat-flat-button color="primary" href="/login">Sign in with Nextcloud</a>
+    <a mat-flat-button href="/login">Sign in with Nextcloud</a>
   </div>
 }

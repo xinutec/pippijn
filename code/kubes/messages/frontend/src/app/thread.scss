@@ -34,7 +34,7 @@
   }
   h2 {
     margin: 0;
-    font-size: 1.1rem;
+    font: var(--mat-sys-title-medium);
   }
 }
 
@@ -71,9 +71,9 @@
 
   span {
     display: inline-block;
-    background: rgba(0, 0, 0, 0.58); // translucent pill, legible over content in either theme
-    color: #fff;
-    font-size: 0.7rem;
+    background: color-mix(in srgb, var(--mat-sys-inverse-surface) 82%, transparent); // translucent pill, legible over content in either theme
+    color: var(--mat-sys-inverse-on-surface);
+    font: var(--mat-sys-label-small);
     padding: 0.1rem 0.6rem;
     border-radius: 1rem;
   }
@@ -84,7 +84,7 @@
   margin: 0.4rem 0;
   padding: 0.4rem 0.6rem;
   border-radius: 0.5rem;
-  background: rgba(0, 0, 0, 0.05);
+  background: color-mix(in srgb, var(--mat-sys-on-surface) 5%, transparent);
   // NB no `content-visibility: auto` here: the window is capped (thread.ts), so
   // the bubbles are cheap to render in full. content-visibility would render
   // off-screen rows at a GUESSED height and resize them to real when scrolled
@@ -93,10 +93,10 @@
 
   &.out {
     margin-left: auto;
-    background: rgba(33, 150, 243, 0.15);
+    background: color-mix(in srgb, var(--mat-sys-primary) 15%, transparent);
   }
   .meta {
-    font-size: 0.75rem;
+    font: var(--mat-sys-label-small);
     opacity: 0.7;
     display: flex;
     gap: 0.5rem;
@@ -127,7 +127,7 @@
       display: inline-flex;
       align-items: center;
       gap: 0.2rem;
-      font-size: 0.85rem;
+      font: var(--mat-sys-body-medium);
     }
     .unavailable {
       opacity: 0.6;
@@ -141,8 +141,8 @@
   .reactions {
     margin-top: 0.25rem;
     .chip {
-      font-size: 0.8rem;
-      background: rgba(0, 0, 0, 0.08);
+      font: var(--mat-sys-label-medium);
+      background: color-mix(in srgb, var(--mat-sys-on-surface) 8%, transparent);
       border-radius: 1rem;
       padding: 0 0.4rem;
       margin-right: 0.25rem;
