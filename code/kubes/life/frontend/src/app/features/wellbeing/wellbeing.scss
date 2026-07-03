@@ -84,9 +84,12 @@
   .entries {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    // Row gap ≥ 14px so the chips' extended touch targets (±7px, below)
+    // never overlap a vertically adjacent chip's.
+    gap: 0.9rem 0.5rem;
   }
   .entry {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
@@ -95,6 +98,16 @@
     border-radius: 999px;
     background: var(--mat-sys-surface-container-low);
     cursor: pointer;
+
+    // The chip is ~34px tall; extend the hit area to the 48px touch minimum
+    // without growing the visual — the same trick as Material's own
+    // touch-target overlay. (.entries' row gap is sized so extended targets
+    // of adjacent rows can't overlap.)
+    &::after {
+      content: '';
+      position: absolute;
+      inset: -7px 0;
+    }
 
     mat-icon {
       width: 22px;

@@ -28,7 +28,7 @@
       <mat-icon>{{ lookingUp() ? 'hourglass_top' : 'search' }}</mat-icon>
     </button>
   </mat-form-field>
-  <button mat-flat-button color="primary" (click)="add()">Add</button>
+  <button mat-flat-button (click)="add()">Add</button>
 </div>
 }
 
@@ -66,7 +66,7 @@
 
 @if (doneCount() > 0) {
   <div class="bought-actions">
-    <button mat-flat-button color="primary" (click)="buyDone()">
+    <button mat-flat-button (click)="buyDone()">
       <mat-icon>add_shopping_cart</mat-icon>
       Got {{ doneCount() }} → add to inventory
     </button>

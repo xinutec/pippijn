@@ -33,6 +33,14 @@ body {
   opacity: 0.55;
 }
 
+// Keyboard focus for the custom role="button" spans (to-do titles etc.) —
+// Material components bring their own focus treatment; these don't.
+.tappable:focus-visible {
+  outline: 2px solid var(--mat-sys-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 // A destructive text button (the Delete actions in edit sheets). M3 themes
 // ignore the old color="warn" input, so tint via the button's own tokens.
 button.danger {

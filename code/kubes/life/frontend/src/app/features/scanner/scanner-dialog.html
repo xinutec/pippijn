@@ -33,7 +33,7 @@
           (keyup.enter)="submitManual()"
         />
       </mat-form-field>
-      <button mat-flat-button color="primary" (click)="submitManual()" [disabled]="!manualCode().trim()">
+      <button mat-flat-button (click)="submitManual()" [disabled]="!manualCode().trim()">
         Use
       </button>
     </div>

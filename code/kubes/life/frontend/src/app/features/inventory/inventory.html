@@ -54,7 +54,7 @@
         </button>
       </mat-form-field>
       <div class="form-actions">
-        <button mat-flat-button color="primary" (click)="saveItem()">
+        <button mat-flat-button (click)="saveItem()">
           {{ editingId() ? 'Save' : 'Add item' }}
         </button>
         @if (editingId()) {
@@ -89,7 +89,7 @@
         </mat-select>
       </mat-form-field>
       <div class="form-actions">
-        <button mat-flat-button color="primary" (click)="addPlace()">Add place</button>
+        <button mat-flat-button (click)="addPlace()">Add place</button>
       </div>
     </mat-card-content>
   </mat-card>

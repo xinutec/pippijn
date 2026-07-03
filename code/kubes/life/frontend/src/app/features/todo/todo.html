@@ -38,7 +38,7 @@
     <mat-label>Notes (optional)</mat-label>
     <input matInput [ngModel]="notes()" (ngModelChange)="notes.set($event)" (keyup.enter)="add()" />
   </mat-form-field>
-  <button mat-flat-button color="primary" (click)="add()" [disabled]="!title().trim()">Add</button>
+  <button mat-flat-button (click)="add()" [disabled]="!title().trim()">Add</button>
 </div>
 }
 
