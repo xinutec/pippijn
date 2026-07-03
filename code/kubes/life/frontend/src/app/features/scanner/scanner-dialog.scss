@@ -2,6 +2,7 @@
   position: relative;
   width: min(92vw, 420px);
   aspect-ratio: 3 / 4;
+  // dev-lint: allow-hardcoded-color camera viewfinder scrim — deliberately theme-independent over live video
   background: #000;
   border-radius: 8px;
   overflow: hidden;
@@ -19,8 +20,10 @@
   .reticle {
     position: absolute;
     inset: 28% 12%;
+    // dev-lint: allow-hardcoded-color camera viewfinder scrim — deliberately theme-independent over live video
     border: 2px solid rgba(255, 255, 255, 0.85);
     border-radius: 8px;
+    // dev-lint: allow-hardcoded-color camera viewfinder scrim — deliberately theme-independent over live video
     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
   }
 
@@ -30,8 +33,10 @@
     left: 0;
     right: 0;
     text-align: center;
+    // dev-lint: allow-hardcoded-color camera viewfinder scrim — deliberately theme-independent over live video
     color: #fff;
     // Legible over a bright barcode / camera feed.
+    // dev-lint: allow-hardcoded-color camera viewfinder scrim — deliberately theme-independent over live video
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
     margin: 0;
   }
@@ -42,7 +47,9 @@
     position: absolute;
     top: 0.5rem;
     right: 0.5rem;
+    // dev-lint: allow-hardcoded-color camera viewfinder scrim — deliberately theme-independent over live video
     color: #fff;
+    // dev-lint: allow-hardcoded-color camera viewfinder scrim — deliberately theme-independent over live video
     background: rgba(0, 0, 0, 0.4);
   }
 
@@ -55,6 +62,7 @@
     display: flex;
     gap: 0.5rem;
     align-items: center;
+    // dev-lint: allow-hardcoded-color camera viewfinder scrim — deliberately theme-independent over live video
     background: rgba(0, 0, 0, 0.65);
     border-radius: 8px;
     padding: 0.5rem;
@@ -65,6 +73,7 @@
   }
 
   .err {
+    // dev-lint: allow-hardcoded-color camera viewfinder scrim — deliberately theme-independent over live video
     color: #fff;
     text-align: center;
     padding: 1.5rem;
@@ -87,6 +96,7 @@
     gap: 0.5rem;
 
     .type-instead {
+      // dev-lint: allow-hardcoded-color camera viewfinder scrim — deliberately theme-independent over live video
       color: #fff;
     }
   }
