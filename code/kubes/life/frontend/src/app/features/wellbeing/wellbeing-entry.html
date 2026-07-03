@@ -1,9 +1,6 @@
 @if (entry(); as e) {
-  <div class="sheet">
-    <div class="head">
-      <h3>Edit check-in</h3>
-      <button mat-icon-button (click)="close()" aria-label="Close"><mat-icon>close</mat-icon></button>
-    </div>
+  <div class="sheet-form">
+    <app-sheet-header title="Edit check-in" (closed)="close()" />
 
     <div class="faces" role="group" aria-label="Score">
       @for (s of scores; track s.score) {

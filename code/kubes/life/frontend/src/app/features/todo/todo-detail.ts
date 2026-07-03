@@ -12,31 +12,18 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
-import { MatSnackBar } from '@angular/material/snack-bar';
 
+import { Feedback } from '../../shared/feedback';
 import { LifeApi } from '../../life-api';
 import { LinkKind, TodoPriority, TodoType } from '../../models';
 import { TodoStore } from '../../sync/todo-store';
 import { LinkTarget, TodoGraph } from './todo-graph';
-
-const TYPES: readonly { value: TodoType; label: string; icon: string }[] = [
-  { value: 'purchase', label: 'Purchase', icon: 'shopping_bag' },
-  { value: 'call', label: 'Call', icon: 'call' },
-  { value: 'appointment', label: 'Appointment', icon: 'event' },
-  { value: 'admin', label: 'Admin', icon: 'description' },
-  { value: 'task', label: 'Task', icon: 'task_alt' },
-];
+import { PRIORITIES, TODO_TYPES } from './todo-meta';
 
 const KINDS: readonly { value: LinkKind; label: string }[] = [
   { value: 'depends_on', label: 'Depends on' },
   { value: 'subtask', label: 'Subtask' },
   { value: 'related', label: 'Related' },
-];
-
-const PRIORITIES: readonly { value: TodoPriority; label: string }[] = [
-  { value: 'high', label: 'High' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'low', label: 'Low' },
 ];
 
 /** ISO date for a quick-pick preset, relative to today (device-local). */
@@ -95,7 +82,7 @@ export class TodoDetail implements OnDestroy {
   private store = inject(TodoStore);
   private sheet = inject(MatBottomSheet);
   private api = inject(LifeApi);
-  private snack = inject(MatSnackBar);
+  private feedback = inject(Feedback);
   readonly graph = inject(TodoGraph);
 
   constructor() {
@@ -103,7 +90,7 @@ export class TodoDetail implements OnDestroy {
     this.graph.refreshCatalogs();
   }
 
-  readonly types = TYPES;
+  readonly types = TODO_TYPES;
   readonly kinds = KINDS;
   readonly priorities = PRIORITIES;
   readonly ulid = signal(this.data.ulid);
@@ -167,7 +154,7 @@ export class TodoDetail implements OnDestroy {
   readonly results = computed(() => this.graph.search(this.query(), this.ulid()));
 
   typeMeta(type: TodoType) {
-    return TYPES.find((t) => t.value === type) ?? { label: type, icon: 'task_alt' };
+    return TODO_TYPES.find((t) => t.value === type) ?? { label: type, icon: 'task_alt' };
   }
 
   saveTitle(): void {
@@ -252,21 +239,19 @@ export class TodoDetail implements OnDestroy {
     // Undo mirrors the list view: revive locally + authoritative server restore
     // for synced rows. Link removal is deferred to the Undo window's close so an
     // undo brings the to-do back with its connections intact.
-    let undone = false;
-    const ref = this.snack.open(`Deleted “${doc.title}”`, 'Undo', { duration: 6000 });
-    ref.onAction().subscribe(() => {
-      undone = true;
-      void this.store.revive(doc);
-      if (doc.id != null) {
-        this.api.restoreTrash('todo', doc.ulid).subscribe({
-          next: () => this.store.reSync(),
-          error: () => {},
-        });
-      }
-    });
-    ref.afterDismissed().subscribe(() => {
-      if (!undone) this.graph.removeLinksForTodo(key);
-    });
+    this.feedback.undo(
+      `Deleted “${doc.title}”`,
+      () => {
+        void this.store.revive(doc);
+        if (doc.id != null) {
+          this.api.restoreTrash('todo', doc.ulid).subscribe({
+            next: () => this.store.reSync(),
+            error: () => {},
+          });
+        }
+      },
+      () => this.graph.removeLinksForTodo(key),
+    );
   }
 
   close(): void {

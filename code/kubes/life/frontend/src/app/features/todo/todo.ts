@@ -5,40 +5,19 @@ import { MatBottomSheet, MatBottomSheetModule } from '@angular/material/bottom-s
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatChipsModule } from '@angular/material/chips';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 import { MatListModule } from '@angular/material/list';
-import { MatSelectModule } from '@angular/material/select';
 import { map } from 'rxjs';
 
-import { revealAddForm } from '../../shared/add-fab';
 import { Feedback } from '../../shared/feedback';
 import { ListState } from '../../shared/list-state';
 import { LifeApi } from '../../life-api';
 import { TodoPriority, TodoType } from '../../models';
 import { TodoDoc, TodoStore } from '../../sync/todo-store';
+import { TodoAddSheet } from './todo-add-sheet';
 import { TodoDetail } from './todo-detail';
 import { TodoGraph, TodoState } from './todo-graph';
-
-/** The to-do types, with display label + Material icon. Extend alongside the
- *  backend `TodoType` enum when a new kind is added. */
-const TYPES: readonly { value: TodoType; label: string; icon: string }[] = [
-  { value: 'purchase', label: 'Purchase', icon: 'shopping_bag' },
-  { value: 'call', label: 'Call', icon: 'call' },
-  { value: 'appointment', label: 'Appointment', icon: 'event' },
-  { value: 'admin', label: 'Admin', icon: 'description' },
-  { value: 'task', label: 'Task', icon: 'task_alt' },
-];
-
-export const PRIORITIES: readonly { value: TodoPriority; label: string }[] = [
-  { value: 'high', label: 'High' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'low', label: 'Low' },
-];
-const PRIO_RANK: Record<TodoPriority, number> = { high: 0, medium: 1, low: 2 };
-/** Sort rank: high → medium → low → unset. */
-export const prioRank = (p: TodoPriority | null): number => (p ? PRIO_RANK[p] : 3);
+import { PRIORITIES, TODO_TYPES, prioRank } from './todo-meta';
 
 @Component({
   selector: 'app-todo',
@@ -51,9 +30,6 @@ export const prioRank = (p: TodoPriority | null): number => (p ? PRIO_RANK[p] : 
     MatButtonModule,
     MatCheckboxModule,
     MatChipsModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatSelectModule,
     MatBottomSheetModule,
     ListState,
   ],
@@ -76,23 +52,16 @@ export class Todo {
    *  spinner, not a flash of "no to-dos". */
   readonly loaded = toSignal(this.store.items$.pipe(map(() => true)), { initialValue: false });
   readonly syncError = this.store.syncError;
-  readonly types = TYPES;
+  readonly types = TODO_TYPES;
   readonly priorities = PRIORITIES;
 
-  /** The add form is collapsed by default (list first); the FAB reveals it. */
-  readonly showAdd = signal(false);
-  toggleAdd(): void {
-    this.showAdd.update((v) => !v);
-    if (this.showAdd()) revealAddForm();
+  /** The FAB's action: the quick-capture sheet. */
+  openAdd(): void {
+    this.sheet.open(TodoAddSheet);
   }
 
-  // Form + filters are signals: the app is zoneless, so a signal write is what
+  // Filters are signals: the app is zoneless, so a signal write is what
   // schedules the view refresh.
-  readonly title = signal('');
-  readonly newType = signal<TodoType>('purchase');
-  readonly newPriority = signal<TodoPriority | null>(null);
-  readonly newDue = signal<string | null>(null);
-  readonly notes = signal('');
   /** null = show all types. */
   readonly filter = signal<TodoType | null>(null);
   /** Show only to-dos the graph says are ready (unblocked, with dependencies). */
@@ -173,22 +142,6 @@ export class Todo {
     return 'from ' + d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
   }
 
-  add(): void {
-    const title = this.title().trim();
-    if (!title) return;
-    void this.store.add({
-      title,
-      type: this.newType(),
-      priority: this.newPriority(),
-      notes: this.notes().trim() || null,
-      due: this.newDue(),
-    });
-    this.title.set('');
-    this.notes.set('');
-    this.newPriority.set(null);
-    this.newDue.set(null);
-  }
-
   setPriority(it: TodoDoc, priority: TodoPriority | null): void {
     void this.store.patch(it.ulid, { priority });
   }
@@ -244,10 +197,10 @@ export class Todo {
   }
 
   typeIcon(type: TodoType): string {
-    return TYPES.find((t) => t.value === type)?.icon ?? 'task_alt';
+    return TODO_TYPES.find((t) => t.value === type)?.icon ?? 'task_alt';
   }
 
   typeLabel(type: TodoType): string {
-    return TYPES.find((t) => t.value === type)?.label ?? type;
+    return TODO_TYPES.find((t) => t.value === type)?.label ?? type;
   }
 }

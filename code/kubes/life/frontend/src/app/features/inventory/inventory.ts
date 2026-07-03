@@ -1,72 +1,37 @@
 import { HttpErrorResponse } from "@angular/common/http";
 import { Component, computed, inject, signal } from "@angular/core";
-import { FormsModule } from "@angular/forms";
+import { MatBottomSheet, MatBottomSheetModule } from "@angular/material/bottom-sheet";
 import { MatButtonModule } from "@angular/material/button";
-import { MatCardModule } from "@angular/material/card";
-import { MatDialog, MatDialogModule } from "@angular/material/dialog";
-import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
-import { MatInputModule } from "@angular/material/input";
 import { MatListModule } from "@angular/material/list";
 import { MatMenuModule } from "@angular/material/menu";
-import { MatSelectModule } from "@angular/material/select";
 
-import { revealAddForm } from "../../shared/add-fab";
 import { Feedback } from "../../shared/feedback";
 import { ListState } from "../../shared/list-state";
 import { ExpiryInfo, expiryInfo } from "../../expiry";
 import { LifeApi } from "../../life-api";
 import { ProductThumb } from "../../product-thumb";
-import { Item, ItemCategory, Loc, LocationKind } from "../../models";
-import { ScannerDialog } from "../scanner/scanner-dialog";
-
-const KINDS: LocationKind[] = ["house", "room", "cupboard", "fridge", "layer"];
-const CATEGORIES: ItemCategory[] = [
-  "food",
-  "medication",
-  "tool",
-  "document",
-  "other",
-];
-
-interface PlaceForm {
-  kind: LocationKind;
-  name: string;
-  parent_id: number | null;
-}
-
-interface ItemForm {
-  name: string;
-  category: ItemCategory;
-  quantity: number | null;
-  unit: string | null;
-  expiry: string | null;
-  location_id: number | null;
-  barcode: string | null;
-}
+import { Item, Loc } from "../../models";
+import { ItemSheet, ItemSheetData } from "./item-sheet";
+import { PlaceSheet, PlaceSheetData } from "./place-sheet";
 
 @Component({
   selector: "app-inventory",
   templateUrl: "./inventory.html",
   styleUrl: "./inventory.scss",
   imports: [
-    FormsModule,
+    MatBottomSheetModule,
     MatListModule,
     MatIconModule,
-    MatCardModule,
     MatButtonModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatSelectModule,
     MatMenuModule,
-    MatDialogModule,
     ProductThumb,
     ListState,
   ],
 })
 export class Inventory {
   private api = inject(LifeApi);
-  private dialog = inject(MatDialog);
+  private sheet = inject(MatBottomSheet);
   private feedback = inject(Feedback);
 
   /** Online-only writes must not fail into silence: announce and move on. */
@@ -93,9 +58,6 @@ export class Inventory {
     });
   }
 
-  readonly kinds = KINDS;
-  readonly categories = CATEGORIES;
-
   readonly items = signal<Item[]>([]);
   readonly locations = signal<Loc[]>([]);
   /** Pre-fetch, empty lists mean "still loading", not "nothing yet". */
@@ -111,37 +73,37 @@ export class Inventory {
     this.locations().map((l) => ({ id: l.id, label: this.pathOf(l.id) })),
   );
 
-  // Form state is signal-backed (zoneless: a signal write is what refreshes the
-  // view, including from async scan/lookup callbacks). Bind in the template with
-  // [ngModel]="form().field" (ngModelChange)="patchX({ field: $event })".
-  readonly place = signal<PlaceForm>(this.emptyPlace());
-  readonly item = signal<ItemForm>(this.emptyItem());
-  patchPlace(p: Partial<PlaceForm>): void {
-    this.place.update((f) => ({ ...f, ...p }));
-  }
-  patchItem(p: Partial<ItemForm>): void {
-    this.item.update((f) => ({ ...f, ...p }));
-  }
-  readonly editingId = signal<number | null>(null);
-  readonly showItemForm = signal(false);
-  readonly showPlaceForm = signal(false);
-
-  toggleItemForm(): void {
-    this.showItemForm.update((v) => !v);
-  }
-  /** The FAB's action: reveal the item form (the screen's primary add) and
-   *  jump to it — it lives at the top of the scroll. */
-  fabAddItem(): void {
-    this.toggleItemForm();
-    if (this.showItemForm()) revealAddForm();
-  }
-  togglePlaceForm(): void {
-    this.showPlaceForm.update((v) => !v);
-  }
-
   constructor() {
     this.reloadItems();
     this.reloadLocations();
+  }
+
+  /** The FAB's action: the add-item sheet. */
+  addItem(): void {
+    this.openItemSheet({ locations: this.locationOptions() });
+  }
+
+  editItem(it: Item): void {
+    this.openItemSheet({ item: it, locations: this.locationOptions() });
+  }
+
+  private openItemSheet(data: ItemSheetData): void {
+    this.sheet
+      .open<ItemSheet, ItemSheetData, boolean>(ItemSheet, { data })
+      .afterDismissed()
+      .subscribe((saved) => {
+        if (saved) this.reloadItems();
+      });
+  }
+
+  addPlace(): void {
+    const data: PlaceSheetData = { locations: this.locationOptions() };
+    this.sheet
+      .open<PlaceSheet, PlaceSheetData, boolean>(PlaceSheet, { data })
+      .afterDismissed()
+      .subscribe((saved) => {
+        if (saved) this.reloadLocations();
+      });
   }
 
   reloadItems(): void {
@@ -169,20 +131,6 @@ export class Inventory {
         this.placesError.set(true);
       },
     });
-  }
-  private emptyPlace(): PlaceForm {
-    return { kind: "cupboard", name: "", parent_id: null };
-  }
-  private emptyItem(): ItemForm {
-    return {
-      name: "",
-      category: "food",
-      quantity: null,
-      unit: null,
-      expiry: null,
-      location_id: null,
-      barcode: null,
-    };
   }
 
   /** Root→leaf breadcrumb for a location id, resolved client-side. */
@@ -218,17 +166,6 @@ export class Inventory {
     return this.pathOf(id).split(" › ").slice(-2).join(" › ");
   }
 
-  addPlace(): void {
-    if (!this.place().name.trim()) return;
-    this.api.createLocation({ ...this.place() }).subscribe({
-      next: () => {
-        this.place.set(this.emptyPlace());
-        this.reloadLocations();
-      },
-      error: this.failed("add the place"),
-    });
-  }
-
   deletePlace(id: number): void {
     this.api.deleteLocation(id).subscribe({
       next: () => {
@@ -241,82 +178,6 @@ export class Inventory {
       },
       error: this.failed("delete the place"),
     });
-  }
-
-  saveItem(): void {
-    if (!this.item().name.trim()) return;
-    const body = { ...this.item() };
-    const id = this.editingId();
-    const req = id ? this.api.updateItem(id, body) : this.api.createItem(body);
-    const trimmed = this.item().barcode?.trim();
-    const barcode = trimmed !== undefined && trimmed !== "" ? trimmed : null;
-    req.subscribe({
-      next: () => {
-        this.cancelEdit();
-        // Cache the product image (if a barcode was set) before refreshing.
-        if (barcode) {
-          this.api
-            .lookupProduct(barcode)
-            .subscribe({
-              next: () => this.reloadItems(),
-              error: () => this.reloadItems(),
-            });
-        } else {
-          this.reloadItems();
-        }
-      },
-      error: this.failed("save the item"),
-    });
-  }
-
-  editItem(it: Item): void {
-    this.item.set({
-      name: it.name,
-      category: it.category,
-      quantity: it.quantity,
-      unit: it.unit,
-      expiry: it.expiry,
-      location_id: it.location_id,
-      barcode: it.barcode,
-    });
-    this.editingId.set(it.id);
-    this.showItemForm.set(true);
-    revealAddForm(); // the form is at the top of the scroll — bring it into view
-  }
-
-  cancelEdit(): void {
-    this.item.set(this.emptyItem());
-    this.editingId.set(null);
-  }
-
-  /** Scan a barcode into the item form; look up to cache + prefill the name.
-   *  Every outcome is announced — a scan that ends in silence reads as "the
-   *  scanner is broken". */
-  scan(): void {
-    this.dialog
-      .open<ScannerDialog, unknown, string | null>(ScannerDialog, {
-        panelClass: "scanner-pane",
-        ariaLabel: "Barcode scanner",
-      })
-      .afterClosed()
-      .subscribe((code) => {
-        if (!code) return;
-        this.patchItem({ barcode: code });
-        this.api.lookupProduct(code).subscribe({
-          next: (p) => {
-            if (!this.item().name.trim() && p.name)
-              this.patchItem({ name: p.name });
-            this.feedback.notify(p.name ? `Found: ${p.name}` : "Product found");
-          },
-          error: (e: HttpErrorResponse) => {
-            this.feedback.error(
-              e.status === 404
-                ? `No product found for ${code}.`
-                : "Lookup failed — are you online?",
-            );
-          },
-        });
-      });
   }
 
   deleteItem(id: number): void {

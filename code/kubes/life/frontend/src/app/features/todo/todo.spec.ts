@@ -71,31 +71,6 @@ describe('Todo', () => {
     return { fixture: TestBed.createComponent(Todo), store, graph, sheet, action$, dismissed$ };
   }
 
-  it('adds a typed to-do and clears the form', () => {
-    const { fixture, store } = setup();
-    const c = fixture.componentInstance;
-    c.title.set('Call plumber');
-    c.newType.set('call');
-    c.notes.set('leaky tap');
-    c.add();
-    expect(store.add).toHaveBeenCalledWith({
-      title: 'Call plumber',
-      type: 'call',
-      priority: null,
-      notes: 'leaky tap',
-      due: null,
-    });
-    expect(c.title()).toBe('');
-    expect(c.notes()).toBe('');
-  });
-
-  it('ignores a blank title', () => {
-    const { fixture, store } = setup();
-    fixture.componentInstance.title.set('   ');
-    fixture.componentInstance.add();
-    expect(store.add).not.toHaveBeenCalled();
-  });
-
   it('toggles status open ↔ done', () => {
     const { fixture, store } = setup();
     fixture.componentInstance.toggle(doc({ ulid: 'a', status: 'open' }));

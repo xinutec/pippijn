@@ -1,37 +1,29 @@
-import { HttpErrorResponse } from "@angular/common/http";
-import { Component, computed, inject, signal } from "@angular/core";
+import { Component, computed, inject } from "@angular/core";
 import { toSignal } from "@angular/core/rxjs-interop";
-import { FormsModule } from "@angular/forms";
+import { MatBottomSheet, MatBottomSheetModule } from "@angular/material/bottom-sheet";
 import { MatButtonModule } from "@angular/material/button";
 import { MatCheckboxModule } from "@angular/material/checkbox";
-import { MatDialog, MatDialogModule } from "@angular/material/dialog";
-import { MatFormFieldModule } from "@angular/material/form-field";
 import { MatIconModule } from "@angular/material/icon";
-import { MatInputModule } from "@angular/material/input";
 import { MatListModule } from "@angular/material/list";
 import { catchError, forkJoin, map, of, tap } from "rxjs";
 
-import { revealAddForm } from "../../shared/add-fab";
 import { Feedback } from "../../shared/feedback";
 import { ListState } from "../../shared/list-state";
 import { LifeApi } from "../../life-api";
 import { ProductThumb } from "../../product-thumb";
-import { ScannerDialog } from "../scanner/scanner-dialog";
 import { ShoppingDoc, ShoppingStore } from "../../sync/shopping-store";
+import { ShoppingItemSheet } from "./shopping-item-sheet";
 
 @Component({
   selector: "app-shopping",
   templateUrl: "./shopping.html",
   styleUrl: "./shopping.scss",
   imports: [
-    FormsModule,
+    MatBottomSheetModule,
     MatListModule,
     MatIconModule,
     MatButtonModule,
     MatCheckboxModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatDialogModule,
     ProductThumb,
     ListState,
   ],
@@ -39,7 +31,7 @@ import { ShoppingDoc, ShoppingStore } from "../../sync/shopping-store";
 export class Shopping {
   private store = inject(ShoppingStore);
   private api = inject(LifeApi);
-  private dialog = inject(MatDialog);
+  private sheet = inject(MatBottomSheet);
   private feedback = inject(Feedback);
 
   // Local-first: the list is the live RxDB query — instant, offline, reactive.
@@ -56,84 +48,14 @@ export class Shopping {
   );
   readonly syncError = this.store.syncError;
 
-  // Form fields are signals: the app is zoneless, so a signal write (incl. from
-  // an async scan/lookup callback) is what schedules the view refresh.
-  readonly name = signal("");
-  readonly quantity = signal<number | null>(null);
-  readonly unit = signal<string | null>(null);
-  readonly barcode = signal("");
-
-  /** The add form is collapsed by default (list first); the FAB reveals it. */
-  readonly showAdd = signal(false);
-  toggleAdd(): void {
-    this.showAdd.update((v) => !v);
-    if (this.showAdd()) revealAddForm();
+  /** The FAB's action: the add sheet (stays open for burst entry). */
+  openAdd(): void {
+    this.sheet.open(ShoppingItemSheet);
   }
 
-  add(): void {
-    if (!this.name().trim()) return;
-    const barcode = this.barcode().trim() || null;
-    const unit = this.unit()?.trim();
-    // Optimistic, local — succeeds offline.
-    void this.store.add({
-      name: this.name().trim(),
-      quantity: this.quantity(),
-      unit: unit !== undefined && unit !== "" ? unit : null,
-      barcode,
-    });
-    // Best-effort online: warm the product (image) cache for the thumbnail.
-    // Ignored offline; the row is already added locally.
-    if (barcode)
-      this.api
-        .lookupProduct(barcode)
-        .subscribe({ next: () => {}, error: () => {} });
-    this.name.set("");
-    this.quantity.set(null);
-    this.unit.set(null);
-    this.barcode.set("");
-  }
-
-  /** Open the camera scanner; on a detected code, fill the field and look up. */
-  scan(): void {
-    this.dialog
-      .open<ScannerDialog, unknown, string | null>(ScannerDialog, {
-        panelClass: "scanner-pane",
-        ariaLabel: "Barcode scanner",
-      })
-      .afterClosed()
-      .subscribe((code) => {
-        if (code) {
-          this.barcode.set(code);
-          this.lookup();
-        }
-      });
-  }
-
-  /** True while a barcode lookup is in flight — dims the field's search icon. */
-  readonly lookingUp = signal(false);
-
-  /** Look up the typed barcode on Open Food Facts; prefill the name if empty.
-   *  Every outcome is announced — a scan that ends in silence reads as "the
-   *  scanner is broken". */
-  lookup(): void {
-    const code = this.barcode().trim();
-    if (!code) return;
-    this.lookingUp.set(true);
-    this.api.lookupProduct(code).subscribe({
-      next: (p) => {
-        this.lookingUp.set(false);
-        if (!this.name().trim() && p.name) this.name.set(p.name);
-        this.feedback.notify(p.name ? `Found: ${p.name}` : "Product found");
-      },
-      error: (e: HttpErrorResponse) => {
-        this.lookingUp.set(false);
-        this.feedback.error(
-          e.status === 404
-            ? `No product found for ${code}.`
-            : "Lookup failed — are you online?",
-        );
-      },
-    });
+  /** Tap a row title: the same sheet, pre-filled. */
+  edit(it: ShoppingDoc): void {
+    this.sheet.open(ShoppingItemSheet, { data: { ulid: it.ulid } });
   }
 
   toggle(it: ShoppingDoc): void {

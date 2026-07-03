@@ -4,34 +4,6 @@
   <p class="sync-warn">{{ err }}</p>
 }
 
-@if (showAdd()) {
-<div class="add">
-  <mat-form-field appearance="outline" class="grow">
-    <mat-label>Need to buy…</mat-label>
-    <input matInput [ngModel]="name()" (ngModelChange)="name.set($event)" (keyup.enter)="add()" placeholder="e.g. Yoghurt" />
-  </mat-form-field>
-  <mat-form-field appearance="outline" class="narrow">
-    <mat-label>Qty</mat-label>
-    <input matInput type="number" inputmode="decimal" [ngModel]="quantity()" (ngModelChange)="quantity.set($event)" (keyup.enter)="add()" />
-  </mat-form-field>
-  <mat-form-field appearance="outline" class="narrow">
-    <mat-label>Unit</mat-label>
-    <input matInput [ngModel]="unit()" (ngModelChange)="unit.set($event)" (keyup.enter)="add()" />
-  </mat-form-field>
-  <mat-form-field appearance="outline" class="grow">
-    <mat-label>Barcode</mat-label>
-    <input matInput [ngModel]="barcode()" (ngModelChange)="barcode.set($event)" inputmode="numeric" (keyup.enter)="lookup()" />
-    <button matSuffix mat-icon-button (click)="scan()" aria-label="Scan barcode">
-      <mat-icon>photo_camera</mat-icon>
-    </button>
-    <button matSuffix mat-icon-button (click)="lookup()" [disabled]="lookingUp()" aria-label="Look up product">
-      <mat-icon>{{ lookingUp() ? 'hourglass_top' : 'search' }}</mat-icon>
-    </button>
-  </mat-form-field>
-  <button mat-flat-button (click)="add()">Add</button>
-</div>
-}
-
 <app-list-state
   [loading]="!loaded()"
   [empty]="items().length === 0"
@@ -48,7 +20,14 @@
         (change)="toggle(it)"
         [attr.aria-label]="'Bought ' + it.name"
       ></mat-checkbox>
-      <span matListItemTitle class="row-title">
+      <span
+        matListItemTitle
+        class="row-title tappable"
+        role="button"
+        tabindex="0"
+        (click)="edit(it)"
+        (keydown.enter)="edit(it)"
+      >
         @if (it.barcode) {
           <app-product-thumb class="inline-thumb" [barcode]="it.barcode" />
         }
@@ -74,12 +53,11 @@
   </div>
 }
 
-<!-- Hidden while the "bought → inventory" bar owns the bottom, unless the add
-     form is already open (so you can still close it). -->
-@if (doneCount() === 0 || showAdd()) {
-<div class="fab-anchor">
-  <button mat-fab class="add-fab" (click)="toggleAdd()" [attr.aria-label]="showAdd() ? 'Close the add form' : 'Add to the list'">
-    <mat-icon>{{ showAdd() ? 'close' : 'add' }}</mat-icon>
-  </button>
-</div>
+<!-- Hidden while the "bought → inventory" bar owns the bottom. -->
+@if (doneCount() === 0) {
+  <div class="fab-anchor">
+    <button mat-fab class="add-fab" (click)="openAdd()" aria-label="Add to the list">
+      <mat-icon>add</mat-icon>
+    </button>
+  </div>
 }

@@ -12,7 +12,7 @@ import { Item } from '../../models';
 import { WellbeingCheckin } from '../../shared/wellbeing-checkin';
 import { ShoppingDoc, ShoppingStore } from '../../sync/shopping-store';
 import { TodoDoc } from '../../sync/todo-store';
-import { prioRank } from '../todo/todo';
+import { prioRank } from '../todo/todo-meta';
 import { TodoGraph, Urgency } from '../todo/todo-graph';
 
 /** One to-do surfaced on Today, with a short reason chip. */

@@ -11,6 +11,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 
 import { Feedback } from '../../shared/feedback';
+import { SheetHeader } from '../../shared/sheet-header';
 import { WELLBEING_SCORES } from '../../shared/wellbeing-checkin';
 import { WellbeingDoc, WellbeingStore } from '../../sync/wellbeing-store';
 
@@ -27,7 +28,7 @@ function toLocalInput(iso: string): string {
   selector: 'app-wellbeing-entry',
   templateUrl: './wellbeing-entry.html',
   styleUrl: './wellbeing-entry.scss',
-  imports: [FormsModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule],
+  imports: [FormsModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule, SheetHeader],
 })
 export class WellbeingEntry implements OnDestroy {
   private ref = inject(MatBottomSheetRef<WellbeingEntry>);

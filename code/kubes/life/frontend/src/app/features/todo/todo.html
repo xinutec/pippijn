@@ -4,44 +4,6 @@
   <p class="sync-warn">{{ err }}</p>
 }
 
-@if (showAdd()) {
-<div class="add">
-  <mat-form-field appearance="outline" class="grow">
-    <mat-label>New to-do…</mat-label>
-    <input matInput [ngModel]="title()" (ngModelChange)="title.set($event)" (keyup.enter)="add()" placeholder="e.g. Buy milk" />
-  </mat-form-field>
-  <mat-form-field appearance="outline" class="type">
-    <mat-label>Type</mat-label>
-    <mat-select [ngModel]="newType()" (ngModelChange)="newType.set($event)">
-      @for (t of types; track t.value) {
-        <mat-option [value]="t.value">
-          <mat-icon>{{ t.icon }}</mat-icon>
-          {{ t.label }}
-        </mat-option>
-      }
-    </mat-select>
-  </mat-form-field>
-  <mat-form-field appearance="outline" class="type">
-    <mat-label>Priority</mat-label>
-    <mat-select [ngModel]="newPriority()" (ngModelChange)="newPriority.set($event)">
-      <mat-option [value]="null">None</mat-option>
-      @for (p of priorities; track p.value) {
-        <mat-option [value]="p.value">{{ p.label }}</mat-option>
-      }
-    </mat-select>
-  </mat-form-field>
-  <mat-form-field appearance="outline" class="type">
-    <mat-label>Due</mat-label>
-    <input matInput type="date" [ngModel]="newDue()" (ngModelChange)="newDue.set($event || null)" />
-  </mat-form-field>
-  <mat-form-field appearance="outline" class="grow">
-    <mat-label>Notes (optional)</mat-label>
-    <input matInput [ngModel]="notes()" (ngModelChange)="notes.set($event)" (keyup.enter)="add()" />
-  </mat-form-field>
-  <button mat-flat-button (click)="add()" [disabled]="!title().trim()">Add</button>
-</div>
-}
-
 <div class="filters">
   <mat-chip-listbox
     class="type-filter"
@@ -152,7 +114,7 @@
 }
 
 <div class="fab-anchor">
-  <button mat-fab class="add-fab" (click)="toggleAdd()" [attr.aria-label]="showAdd() ? 'Close the add form' : 'Add a to-do'">
-    <mat-icon>{{ showAdd() ? 'close' : 'add' }}</mat-icon>
+  <button mat-fab class="add-fab" (click)="openAdd()" aria-label="Add a to-do">
+    <mat-icon>add</mat-icon>
   </button>
 </div>

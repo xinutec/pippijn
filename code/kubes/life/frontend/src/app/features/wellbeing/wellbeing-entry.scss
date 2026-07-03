@@ -1,20 +1,4 @@
-.sheet {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-  padding: 0.25rem 0.25rem 1rem;
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  h3 {
-    margin: 0;
-  }
-}
-
+// Layout comes from the shared .sheet-form scaffold (styles.scss).
 .faces {
   display: flex;
   gap: 0.5rem;

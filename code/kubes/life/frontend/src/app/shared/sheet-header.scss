@@ -1,0 +1,10 @@
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  h3 {
+    margin: 0;
+    font: var(--mat-sys-title-medium);
+  }
+}

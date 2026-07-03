@@ -1,0 +1,62 @@
+<div class="sheet-form">
+  <app-sheet-header title="New to-do" (closed)="close()" />
+
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Title</mat-label>
+    <input
+      matInput
+      [ngModel]="title()"
+      (ngModelChange)="title.set($event)"
+      (keyup.enter)="add()"
+      placeholder="e.g. Buy milk"
+    />
+  </mat-form-field>
+
+  <div class="pair">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Type</mat-label>
+      <mat-select [ngModel]="type()" (ngModelChange)="type.set($event)">
+        @for (t of types; track t.value) {
+          <mat-option [value]="t.value">
+            <mat-icon>{{ t.icon }}</mat-icon>
+            {{ t.label }}
+          </mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Priority</mat-label>
+      <mat-select [ngModel]="priority()" (ngModelChange)="priority.set($event)">
+        <mat-option [value]="null">None</mat-option>
+        @for (p of priorities; track p.value) {
+          <mat-option [value]="p.value">{{ p.label }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  <div class="pair">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Due</mat-label>
+      <input
+        matInput
+        type="date"
+        [ngModel]="due()"
+        (ngModelChange)="due.set($event || null)"
+      />
+    </mat-form-field>
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Notes (optional)</mat-label>
+      <input
+        matInput
+        [ngModel]="notes()"
+        (ngModelChange)="notes.set($event)"
+        (keyup.enter)="add()"
+      />
+    </mat-form-field>
+  </div>
+
+  <div class="actions">
+    <button mat-flat-button (click)="add()" [disabled]="!title().trim()">Add</button>
+  </div>
+</div>

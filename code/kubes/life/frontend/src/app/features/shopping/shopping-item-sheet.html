@@ -1,0 +1,67 @@
+<div class="sheet-form">
+  <app-sheet-header [title]="editing ? 'Edit item' : 'Need to buy…'" (closed)="close()" />
+
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Name</mat-label>
+    <input
+      matInput
+      [ngModel]="name()"
+      (ngModelChange)="name.set($event)"
+      (keyup.enter)="save()"
+      placeholder="e.g. Yoghurt"
+    />
+  </mat-form-field>
+
+  <div class="pair">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Qty</mat-label>
+      <input
+        matInput
+        type="number"
+        inputmode="decimal"
+        [ngModel]="quantity()"
+        (ngModelChange)="quantity.set($event)"
+        (keyup.enter)="save()"
+      />
+    </mat-form-field>
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Unit</mat-label>
+      <input
+        matInput
+        [ngModel]="unit()"
+        (ngModelChange)="unit.set($event)"
+        (keyup.enter)="save()"
+        placeholder="g, jar…"
+      />
+    </mat-form-field>
+  </div>
+
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Barcode</mat-label>
+    <input
+      matInput
+      inputmode="numeric"
+      [ngModel]="barcode()"
+      (ngModelChange)="barcode.set($event)"
+      (keyup.enter)="lookup()"
+    />
+    <button matSuffix mat-icon-button (click)="scan()" aria-label="Scan barcode">
+      <mat-icon>photo_camera</mat-icon>
+    </button>
+    <button
+      matSuffix
+      mat-icon-button
+      (click)="lookup()"
+      [disabled]="lookingUp()"
+      aria-label="Look up product"
+    >
+      <mat-icon>{{ lookingUp() ? 'hourglass_top' : 'search' }}</mat-icon>
+    </button>
+  </mat-form-field>
+
+  <div class="actions">
+    <button mat-flat-button (click)="save()" [disabled]="!name().trim()">
+      {{ editing ? 'Save' : 'Add' }}
+    </button>
+  </div>
+</div>

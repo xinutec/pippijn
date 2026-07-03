@@ -1,0 +1,77 @@
+<div class="sheet-form">
+  <app-sheet-header title="New recipe" (closed)="close()" />
+
+  <div class="pair">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Name</mat-label>
+      <input
+        matInput
+        [ngModel]="form().name"
+        (ngModelChange)="patch({ name: $event })"
+        placeholder="e.g. Dal"
+      />
+    </mat-form-field>
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="servings">
+      <mat-label>Servings</mat-label>
+      <input
+        matInput
+        type="number"
+        inputmode="numeric"
+        [ngModel]="form().servings"
+        (ngModelChange)="patch({ servings: $event })"
+      />
+    </mat-form-field>
+  </div>
+
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Instructions</mat-label>
+    <textarea
+      matInput
+      rows="2"
+      [ngModel]="form().instructions"
+      (ngModelChange)="patch({ instructions: $event })"
+    ></textarea>
+  </mat-form-field>
+
+  <p class="ing-label">Ingredients</p>
+  @for (ing of form().ingredients; track $index) {
+    <div class="pair">
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Name</mat-label>
+        <input
+          matInput
+          [ngModel]="ing.name"
+          (ngModelChange)="patchIngredient($index, { name: $event })"
+        />
+      </mat-form-field>
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Qty</mat-label>
+        <input
+          matInput
+          type="number"
+          inputmode="decimal"
+          [ngModel]="ing.quantity"
+          (ngModelChange)="patchIngredient($index, { quantity: $event })"
+        />
+      </mat-form-field>
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Unit</mat-label>
+        <input
+          matInput
+          [ngModel]="ing.unit"
+          (ngModelChange)="patchIngredient($index, { unit: $event })"
+        />
+      </mat-form-field>
+      <button mat-icon-button (click)="removeIngredientRow($index)" aria-label="Remove ingredient">
+        <mat-icon>close</mat-icon>
+      </button>
+    </div>
+  }
+
+  <div class="actions">
+    <button mat-button (click)="addIngredientRow()"><mat-icon>add</mat-icon> Ingredient</button>
+    <button mat-flat-button (click)="save()" [disabled]="!form().name.trim() || saving()">
+      Create recipe
+    </button>
+  </div>
+</div>

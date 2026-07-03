@@ -33,6 +33,33 @@ body {
   opacity: 0.55;
 }
 
+// The add/edit bottom-sheet grammar: one column of outline fields, a
+// field-pair row helper, and a right-aligned action row. Global so every
+// sheet (shopping, inventory, recipes, to-do…) shares one definition.
+.sheet-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.25rem 0.25rem 1rem;
+
+  .pair {
+    display: flex;
+    gap: 0.6rem;
+
+    > * {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.5rem;
+  }
+}
+
 // Keyboard focus for the custom role="button" spans (to-do titles etc.) —
 // Material components bring their own focus treatment; these don't.
 .tappable:focus-visible {
@@ -69,8 +96,8 @@ button.danger {
 }
 
 // The per-screen "add" FAB, parked bottom-right above the bottom tab bar so the
-// primary capture action is thumb-reachable (the add forms live at the top of
-// the scroll — see add-fab.ts).
+// primary capture action is thumb-reachable (it opens the screen's add
+// bottom sheet).
 //
 // It lives inside a full-width fixed BAR rather than being a right-anchored
 // fixed button directly. Android WebView (wide-viewport + viewport-fit=cover)

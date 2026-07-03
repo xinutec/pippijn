@@ -1,0 +1,40 @@
+<div class="sheet-form">
+  <app-sheet-header title="Register a place" (closed)="close()" />
+
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Name</mat-label>
+    <input
+      matInput
+      [ngModel]="name()"
+      (ngModelChange)="name.set($event)"
+      (keyup.enter)="save()"
+      placeholder="e.g. Spice cupboard"
+    />
+  </mat-form-field>
+
+  <div class="pair">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Kind</mat-label>
+      <mat-select [ngModel]="kind()" (ngModelChange)="kind.set($event)">
+        @for (k of kinds; track k) {
+          <mat-option [value]="k">{{ k }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Inside</mat-label>
+      <mat-select [ngModel]="parentId()" (ngModelChange)="parentId.set($event)">
+        <mat-option [value]="null">— top level —</mat-option>
+        @for (o of locations; track o.id) {
+          <mat-option [value]="o.id">{{ o.label }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  <div class="actions">
+    <button mat-flat-button (click)="save()" [disabled]="!name().trim() || saving()">
+      Add place
+    </button>
+  </div>
+</div>

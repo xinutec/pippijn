@@ -1,0 +1,84 @@
+<div class="sheet-form">
+  <app-sheet-header [title]="editing ? 'Edit item' : 'Add an item'" (closed)="close()" />
+
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Name</mat-label>
+    <input
+      matInput
+      [ngModel]="form().name"
+      (ngModelChange)="patch({ name: $event })"
+      placeholder="e.g. Cumin"
+    />
+  </mat-form-field>
+
+  <div class="pair">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Category</mat-label>
+      <mat-select [ngModel]="form().category" (ngModelChange)="patch({ category: $event })">
+        @for (c of categories; track c) {
+          <mat-option [value]="c">{{ c }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Location</mat-label>
+      <mat-select [ngModel]="form().location_id" (ngModelChange)="patch({ location_id: $event })">
+        <mat-option [value]="null">— none —</mat-option>
+        @for (o of locations; track o.id) {
+          <mat-option [value]="o.id">{{ o.label }}</mat-option>
+        }
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  <div class="pair">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Qty</mat-label>
+      <input
+        matInput
+        type="number"
+        inputmode="decimal"
+        [ngModel]="form().quantity"
+        (ngModelChange)="patch({ quantity: $event })"
+      />
+    </mat-form-field>
+    <mat-form-field appearance="outline" subscriptSizing="dynamic">
+      <mat-label>Unit</mat-label>
+      <input
+        matInput
+        [ngModel]="form().unit"
+        (ngModelChange)="patch({ unit: $event })"
+        placeholder="jar, g…"
+      />
+    </mat-form-field>
+  </div>
+
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Expiry</mat-label>
+    <input
+      matInput
+      type="date"
+      [ngModel]="form().expiry"
+      (ngModelChange)="patch({ expiry: $event })"
+    />
+  </mat-form-field>
+
+  <mat-form-field appearance="outline" subscriptSizing="dynamic">
+    <mat-label>Barcode</mat-label>
+    <input
+      matInput
+      inputmode="numeric"
+      [ngModel]="form().barcode"
+      (ngModelChange)="patch({ barcode: $event })"
+    />
+    <button matSuffix mat-icon-button (click)="scan()" aria-label="Scan barcode">
+      <mat-icon>photo_camera</mat-icon>
+    </button>
+  </mat-form-field>
+
+  <div class="actions">
+    <button mat-flat-button (click)="save()" [disabled]="!form().name.trim() || saving()">
+      {{ editing ? 'Save' : 'Add item' }}
+    </button>
+  </div>
+</div>

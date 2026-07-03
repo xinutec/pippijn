@@ -1,0 +1,14 @@
+// Refinements over the shared .sheet-form grammar (styles.scss).
+.pair > button {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.servings {
+  flex: 0 1 7rem;
+}
+
+.ing-label {
+  margin: 0.25rem 0 0;
+  font: var(--mat-sys-title-small);
+}

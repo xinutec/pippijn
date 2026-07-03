@@ -3,53 +3,6 @@
 </div>
 <p class="summary">{{ cookableCount() }} cookable with what's in stock.</p>
 
-@if (showForm()) {
-  <mat-card appearance="outlined" class="new">
-    <mat-card-header><mat-card-title>New recipe</mat-card-title></mat-card-header>
-  <mat-card-content>
-    <div class="row">
-      <mat-form-field appearance="outline">
-        <mat-label>Name</mat-label>
-        <input matInput [ngModel]="form().name" (ngModelChange)="patchForm({ name: $event })" placeholder="e.g. Dal" />
-      </mat-form-field>
-      <mat-form-field appearance="outline" class="narrow">
-        <mat-label>Servings</mat-label>
-        <input matInput type="number" inputmode="numeric" [ngModel]="form().servings" (ngModelChange)="patchForm({ servings: $event })" />
-      </mat-form-field>
-    </div>
-    <mat-form-field appearance="outline" class="full">
-      <mat-label>Instructions</mat-label>
-      <textarea matInput rows="2" [ngModel]="form().instructions" (ngModelChange)="patchForm({ instructions: $event })"></textarea>
-    </mat-form-field>
-
-    <p class="ing-label">Ingredients</p>
-    @for (ing of form().ingredients; track $index) {
-      <div class="row">
-        <mat-form-field appearance="outline">
-          <mat-label>Name</mat-label>
-          <input matInput [ngModel]="ing.name" (ngModelChange)="patchIngredient($index, { name: $event })" />
-        </mat-form-field>
-        <mat-form-field appearance="outline" class="narrow">
-          <mat-label>Qty</mat-label>
-          <input matInput type="number" inputmode="decimal" [ngModel]="ing.quantity" (ngModelChange)="patchIngredient($index, { quantity: $event })" />
-        </mat-form-field>
-        <mat-form-field appearance="outline" class="narrow">
-          <mat-label>Unit</mat-label>
-          <input matInput [ngModel]="ing.unit" (ngModelChange)="patchIngredient($index, { unit: $event })" />
-        </mat-form-field>
-        <button mat-icon-button (click)="removeIngredientRow($index)" aria-label="Remove">
-          <mat-icon>close</mat-icon>
-        </button>
-      </div>
-    }
-    <div class="actions">
-      <button mat-button (click)="addIngredientRow()"><mat-icon>add</mat-icon> Ingredient</button>
-      <button mat-flat-button (click)="createRecipe()">Create recipe</button>
-    </div>
-  </mat-card-content>
-  </mat-card>
-}
-
 <app-list-state
   [loading]="!loaded()"
   [error]="loadError()"
@@ -109,12 +62,7 @@
 }
 
 <div class="fab-anchor">
-  <button
-    mat-fab
-    class="add-fab"
-    (click)="fabAddRecipe()"
-    [attr.aria-label]="showForm() ? 'Close the recipe form' : 'Add a recipe'"
-  >
-    <mat-icon>{{ showForm() ? 'close' : 'add' }}</mat-icon>
+  <button mat-fab class="add-fab" (click)="addRecipe()" aria-label="Add a recipe">
+    <mat-icon>add</mat-icon>
   </button>
 </div>
