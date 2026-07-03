@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { swipeUp } from '../../../ui-harness/src/ui-harness';
 
 /**
  * Golden-image check — the pixel-diff safety net the layout assertions in
@@ -113,20 +114,10 @@ test('to-do edit sheet — golden after swiping up @ phone width', async ({ page
     true,
   );
 
-  // One upward flick through CDP touch: start low in the sheet, drag up past
-  // the top of the viewport in steps (a fast, long throw so momentum carries
-  // the short scroll all the way to the bottom, where it clamps).
-  const touch = await page.context().newCDPSession(page);
-  const x = 206; // sheet horizontal centre (412 / 2)
-  const yStart = 780;
-  const yEnd = 120;
-  const steps = 12;
-  await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: yStart }] });
-  for (let i = 1; i <= steps; i++) {
-    const y = yStart + ((yEnd - yStart) * i) / steps;
-    await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] });
-  }
-  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  // One upward flick through real CDP touch (shared ui-harness swipeUp): a
+  // fast, long throw so momentum carries the short scroll all the way to the
+  // bottom, where it clamps.
+  await swipeUp(page, { from: 780, to: 120 });
 
   // The one scroller (the sheet container) is at the bottom, clamped, and
   // Delete is now fully on-screen. Poll: momentum settles over a few frames.

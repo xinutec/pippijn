@@ -1,14 +1,19 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { expect, type Page, type TestInfo } from "@playwright/test";
+import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
 
 /**
- * UI measurement helpers — render a page in a real browser and assert
- * things about the *rendered pixels*, not the source. Born from a string
- * of settings-page bugs (a long `mat-hint` overflowing onto the action
- * buttons; a date `<p>` colliding with the field below it) that all read
- * fine in the code and were only visible at a phone viewport. Reading the
- * source twice certified them "high quality"; the render disagreed.
+ * ui-harness — the fleet's shared phone-width layout checks (L2 of
+ * dev-lint/docs/layout-quality-architecture.md). Render a page in a real
+ * browser at true device geometry and assert about the *painted pixels*,
+ * not the source. Born in the life app from a string of bugs that all read
+ * fine in code and were only visible on the phone: a 497px toggle row in a
+ * 380px sheet, nested scrollers that broke swipe, text colliding at 412px.
+ *
+ * Consumed by RELATIVE import from each app's e2e/ (Playwright transpiles
+ * TS outside node_modules; a file: dep symlink would not be transpiled).
+ * Change here → run this package's own fixture specs (npm test) — five
+ * apps ride on these functions.
  *
  * The core signal is text-on-text collision. In a correct layout, no two
  * pieces of text ever share the same pixels. We measure each piece of
@@ -177,7 +182,12 @@ export function findHorizontalOverflow(args: [string | null, number, string[]]):
 	const root = rootSel ? document.querySelector(rootSel) : document.documentElement;
 	if (!root) return { rootWidth: 0, scrollOverflow: 0, offenders: [] };
 	const rootRect = root.getBoundingClientRect();
-	const rightEdge = rootSel ? rootRect.right : window.innerWidth;
+	// documentElement.clientWidth, NOT window.innerWidth: under mobile
+	// emulation an overflowing page EXPANDS innerWidth to the layout width
+	// (700px div → innerWidth 700), so an innerWidth-keyed check goes blind
+	// exactly when there's something to catch. clientWidth stays the true
+	// viewport. (Found by this package's own fixture specs.)
+	const rightEdge = rootSel ? rootRect.right : document.documentElement.clientWidth;
 
 	const inAllowedScroller = (el: Element): boolean =>
 		allow.some((sel) => el.closest(sel) !== null);
@@ -241,4 +251,90 @@ export async function expectNoHorizontalOverflow(
 		.map((o) => `  ${o.sel} — spills ${o.spill.toFixed(1)}px${o.text ? ` — "${o.text}"` : ""}`)
 		.join("\n");
 	expect(offenders, `Horizontal overflow at phone width:\n${detail}`).toEqual([]);
+}
+
+/**
+ * The checker-checker. Life's "phone width" suite silently ran at 1280×720
+ * for months because a device spread in the PROJECT `use` overrode the
+ * global viewport — every assertion measured a desktop render while the
+ * test titles said 390px. One spec per app calls this; if emulation ever
+ * silently drops again, the whole suite fails loudly instead of lying.
+ */
+export async function expectViewportIsPhone(page: Page, width = 412): Promise<void> {
+	const geo = await page.evaluate(() => ({
+		// clientWidth, not innerWidth — innerWidth expands with overflowing
+		// content under mobile emulation, and an app bug shouldn't read as a
+		// broken test config.
+		w: document.documentElement.clientWidth,
+		touch: navigator.maxTouchPoints > 0,
+	}));
+	expect(geo.w, `viewport width is ${geo.w}, expected the phone's ${width} CSS px`).toBe(width);
+	expect(geo.touch, "touch emulation is off — the device preset was lost").toBe(true);
+}
+
+/**
+ * A real finger flick up the screen via CDP touch events (touchStart → N
+ * touchMoves → touchEnd), NOT a scrollTop/wheel shortcut — it proves the
+ * gesture itself works. That distinction found a real bug: nested scrollers
+ * in a bottom sheet each ate part of the swipe and the bottom was
+ * unreachable, while element.scrollTop happily reached it.
+ */
+export async function swipeUp(
+	page: Page,
+	opts: { x?: number; from?: number; to?: number; steps?: number } = {},
+): Promise<void> {
+	const vp = page.viewportSize();
+	const x = opts.x ?? Math.round((vp?.width ?? 412) / 2);
+	const from = opts.from ?? Math.round((vp?.height ?? 915) * 0.85);
+	const to = opts.to ?? Math.round((vp?.height ?? 915) * 0.15);
+	const steps = opts.steps ?? 12;
+	const touch = await page.context().newCDPSession(page);
+	await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: from }] });
+	for (let i = 1; i <= steps; i++) {
+		const y = from + ((to - from) * i) / steps;
+		await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y }] });
+	}
+	await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+	await touch.detach();
+}
+
+/**
+ * Assert `target` can actually be reached by swiping: flick up (repeatedly,
+ * bounded) until its bottom edge is inside the viewport, then require the
+ * scroller (`scrollerSel`) to be clamped at or before its scroll end. Fails
+ * when nested scrollers fight over the gesture or the target simply can't
+ * come on-screen.
+ */
+export async function expectReachableByScroll(
+	page: Page,
+	target: Locator,
+	scrollerSel: string,
+	maxSwipes = 6,
+): Promise<void> {
+	for (let i = 0; i < maxSwipes; i++) {
+		const visible = await target.evaluate(
+			(el) => el.getBoundingClientRect().bottom <= window.innerHeight,
+		);
+		if (visible) break;
+		await swipeUp(page);
+		// Let scroll momentum settle before re-measuring.
+		await page
+			.locator(scrollerSel)
+			.evaluate(
+				(el) =>
+					new Promise<void>((done) => {
+						let last = el.scrollTop;
+						const tick = () => {
+							if (el.scrollTop === last) return done();
+							last = el.scrollTop;
+							requestAnimationFrame(tick);
+						};
+						requestAnimationFrame(tick);
+					}),
+			);
+	}
+	expect(
+		await target.evaluate((el) => el.getBoundingClientRect().bottom <= window.innerHeight),
+		`target still below the fold after ${maxSwipes} swipes — is a nested scroller eating the gesture?`,
+	).toBe(true);
 }

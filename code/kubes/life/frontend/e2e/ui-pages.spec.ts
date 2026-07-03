@@ -1,5 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
-import { expectNoTextOverlaps, expectNoHorizontalOverflow } from './ui-overlap';
+// The fleet-shared harness (code/kubes/ui-harness) — relative import, since
+// Playwright transpiles TS outside node_modules but not inside it.
+import {
+  expectNoTextOverlaps,
+  expectNoHorizontalOverflow,
+  expectViewportIsPhone,
+} from '../../../ui-harness/src/ui-harness';
 
 /**
  * UI-measurement checks (ported from the health-sync frontend): render the
@@ -90,6 +96,15 @@ async function mockApi(page: Page): Promise<void> {
   await page.route('**/api/sync/shopping*', sync(SHOPPING));
   await page.route('**/api/sync/wellbeing*', sync(WELLBEING));
 }
+
+// The checker-checker: this suite once ran at 1280×720 for months while its
+// titles said "phone width" (a device spread overrode the viewport). If
+// emulation ever silently drops again, fail HERE, loudly.
+test('the suite really runs at phone geometry', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/today');
+  await expectViewportIsPhone(page);
+});
 
 test('today — busy composition: lays out cleanly @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
