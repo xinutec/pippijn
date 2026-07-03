@@ -61,6 +61,18 @@ test('paint-clipped text does not collide through an overflow:hidden edge', asyn
   expect(pairs).toEqual([]);
 });
 
+test('a badge sitting on an icon glyph is NOT a collision', async ({ page }) => {
+  // matBadge over a mat-icon: the icon's ligature word ("warning") is a glyph,
+  // not text, and a badge on its corner is intended. Must stay silent.
+  await page.setContent(phonePage(`
+    <div style="position: relative; display: inline-flex; font: 16px sans-serif;">
+      <mat-icon class="material-icons" style="font-family: sans-serif;">warning</mat-icon>
+      <span style="position: absolute; top: 0; right: 0;">3</span>
+    </div>`));
+  const pairs = await page.evaluate(findTextOverlaps, [null, 1.5] as [string | null, number]);
+  expect(pairs).toEqual([]);
+});
+
 test('detects an element spilling past the viewport', async ({ page }) => {
   await page.setContent(phonePage(`
     <div style="width: 700px; height: 40px; background: tomato;">too wide for a 412px phone</div>`));

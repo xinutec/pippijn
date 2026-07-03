@@ -1,6 +1,21 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
+// TYPE-ONLY import — erased at transpile, so this module pulls in NO copy of
+// @playwright/test at runtime. That's deliberate: a consuming app resolves
+// `@playwright/test` from its OWN node_modules, and if this shared module
+// loaded a second copy, Playwright sees two instances and every suite dies
+// with "No tests found". So the assertions here throw plain Errors rather than
+// calling `expect()`; the app's own specs keep using the real `expect`.
+import type { Locator, Page, TestInfo } from "@playwright/test";
+
+/** A layout assertion failed. Thrown (not `expect`) so this module needs no
+ *  @playwright/test at runtime — see the import note above. */
+class LayoutError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "LayoutError";
+	}
+}
 
 /**
  * ui-harness — the fleet's shared phone-width layout checks (L2 of
@@ -65,6 +80,14 @@ export function findTextOverlaps(args: [string | null, number]): OverlapPair[] {
 		if (!text) continue;
 		const parent = node.parentElement;
 		if (!parent) continue;
+		// An icon-font ligature (`<mat-icon>warning</mat-icon>`) keeps its source
+		// word in the DOM but paints a single glyph — it isn't readable text, and
+		// things legitimately sit on top of an icon (a matBadge count on the
+		// corner). Measuring the ligature word "warning" against the badge "3" is
+		// a false collision. Skip icon text; a badge over real prose still flags.
+		if (parent.closest("mat-icon, .material-icons, .material-symbols-outlined, .material-symbols-rounded")) {
+			continue;
+		}
 		const style = getComputedStyle(parent);
 		if (style.visibility === "hidden" || style.display === "none" || style.opacity === "0") continue;
 		nodeIdx++;
@@ -141,10 +164,11 @@ export async function expectNoTextOverlaps(
 	await leaveSnapshot(page, testInfo);
 
 	const overlaps = await page.evaluate(findTextOverlaps, [rootSel, tol] as [string | null, number]);
+	if (overlaps.length === 0) return;
 	const detail = overlaps
 		.map((p) => `  "${p.a.text}" ∩ "${p.b.text}" — ${p.overlap.w.toFixed(1)}×${p.overlap.h.toFixed(1)}px`)
 		.join("\n");
-	expect(overlaps, `Text overlaps detected:\n${detail}`).toEqual([]);
+	throw new LayoutError(`Text overlaps detected (${overlaps.length}):\n${detail}`);
 }
 
 /** An element whose right edge spills past the viewport (or the given root). */
@@ -247,10 +271,11 @@ export async function expectNoHorizontalOverflow(
 		number,
 		string[],
 	]);
+	if (offenders.length === 0) return;
 	const detail = offenders
 		.map((o) => `  ${o.sel} — spills ${o.spill.toFixed(1)}px${o.text ? ` — "${o.text}"` : ""}`)
 		.join("\n");
-	expect(offenders, `Horizontal overflow at phone width:\n${detail}`).toEqual([]);
+	throw new LayoutError(`Horizontal overflow at phone width (${offenders.length}):\n${detail}`);
 }
 
 /**
@@ -268,8 +293,12 @@ export async function expectViewportIsPhone(page: Page, width = 412): Promise<vo
 		w: document.documentElement.clientWidth,
 		touch: navigator.maxTouchPoints > 0,
 	}));
-	expect(geo.w, `viewport width is ${geo.w}, expected the phone's ${width} CSS px`).toBe(width);
-	expect(geo.touch, "touch emulation is off — the device preset was lost").toBe(true);
+	if (geo.w !== width) {
+		throw new LayoutError(
+			`viewport width is ${geo.w}, expected the phone's ${width} CSS px — the device preset was lost`,
+		);
+	}
+	if (!geo.touch) throw new LayoutError("touch emulation is off — the device preset was lost");
 }
 
 /**
@@ -333,8 +362,10 @@ export async function expectReachableByScroll(
 					}),
 			);
 	}
-	expect(
-		await target.evaluate((el) => el.getBoundingClientRect().bottom <= window.innerHeight),
-		`target still below the fold after ${maxSwipes} swipes — is a nested scroller eating the gesture?`,
-	).toBe(true);
+	const onScreen = await target.evaluate((el) => el.getBoundingClientRect().bottom <= window.innerHeight);
+	if (!onScreen) {
+		throw new LayoutError(
+			`target still below the fold after ${maxSwipes} swipes — is a nested scroller eating the gesture?`,
+		);
+	}
 }
