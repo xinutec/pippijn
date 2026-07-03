@@ -40,3 +40,11 @@ export function formatAge(seconds: number): string {
   const days = Math.round(hours / 24);
   return `${days}d ago`;
 }
+
+/** Format a numeric reading with its unit: symbol units attach (`43%`), word
+ *  units get a space (`0 violations`, `68 days`), no unit is just the number. */
+export function fmtValue(value: number, unit: string | null | undefined): string {
+  if (!unit) return `${value}`;
+  const attached = unit === '%' || unit === '°' || unit === '°C';
+  return attached ? `${value}${unit}` : `${value} ${unit}`;
+}

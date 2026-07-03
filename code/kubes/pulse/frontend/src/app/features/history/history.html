@@ -18,7 +18,7 @@
       <div class="current">
         <span class="dot" [class]="l.verdict"></span>
         @if (l.value !== null) {
-          <span class="val tnum">{{ l.value }}{{ d.unit }}</span>
+          <span class="val tnum">{{ fmt(l.value, d.unit) }}</span>
         }
         <span class="verdict">{{ l.verdict }}</span>
       </div>
@@ -43,13 +43,13 @@
                 [attr.cy]="dt.y"
                 r="2.5"
               >
-                <title>{{ dt.value }}{{ d.unit }} — {{ dt.at | date: 'MMM d, HH:mm' }}</title>
+                <title>{{ fmt(dt.value, d.unit) }} — {{ dt.at | date: 'MMM d, HH:mm' }}</title>
               </circle>
             }
           </svg>
           <div class="yaxis tnum">
-            <span>{{ ch.max }}{{ d.unit }}</span>
-            <span>{{ ch.min }}{{ d.unit }}</span>
+            <span>{{ fmt(ch.max, d.unit) }}</span>
+            <span>{{ fmt(ch.min, d.unit) }}</span>
           </div>
         </mat-card-content>
       </mat-card>
@@ -79,7 +79,7 @@
           <span class="dot" [class]="p.verdict"></span>
           <span class="pat tnum">{{ p.collected_at | date: 'MMM d, HH:mm' }}</span>
           @if (p.value !== null) {
-            <span class="pval tnum">{{ p.value }}{{ d.unit }}</span>
+            <span class="pval tnum">{{ fmt(p.value, d.unit) }}</span>
           }
           <span class="pverdict">{{ p.verdict }}</span>
         </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAge, freshnessLabel, tileClass } from './status';
+import { fmtValue, formatAge, freshnessLabel, tileClass } from './status';
 
 describe('status helpers', () => {
   it('tile shows worst verdict when fresh', () => {
@@ -19,6 +19,14 @@ describe('status helpers', () => {
     expect(freshnessLabel('fresh')).toBeNull();
     expect(freshnessLabel('overdue')).toBe('overdue');
     expect(freshnessLabel('silent')).toBe('no data');
+  });
+
+  it('attaches symbol units, spaces word units', () => {
+    expect(fmtValue(43, '%')).toBe('43%');
+    expect(fmtValue(0, 'violations')).toBe('0 violations');
+    expect(fmtValue(68, 'days')).toBe('68 days');
+    expect(fmtValue(12, null)).toBe('12');
+    expect(fmtValue(21, '')).toBe('21');
   });
 
   it('formats age in coarse human units', () => {

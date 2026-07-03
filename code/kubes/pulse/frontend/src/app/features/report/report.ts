@@ -7,6 +7,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { CheckOut, ReportDetail } from '../../models';
+import { fmtValue } from '../../status';
 
 interface Section {
   name: string;
@@ -23,6 +24,8 @@ interface Section {
 export class Report {
   /** Bound from the :id route param (withComponentInputBinding). */
   readonly id = input.required<string>();
+
+  readonly fmt = fmtValue;
 
   // Reads id() in the request factory, so the resource re-fetches whenever the
   // route id changes — no manual effect/subscription.

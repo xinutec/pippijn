@@ -6,6 +6,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { History as HistoryData, Verdict } from '../../models';
+import { fmtValue } from '../../status';
 
 const W = 320;
 const H = 90;
@@ -58,6 +59,7 @@ export class History {
 
   readonly w = W;
   readonly h = H;
+  readonly fmt = fmtValue;
 
   /** Time-ordered verdict ticks for the full timeline strip (numeric or not). */
   readonly ticks = computed<Tick[]>(() => {

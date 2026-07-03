@@ -48,7 +48,7 @@
                 }
               </div>
               @if (c.value !== null) {
-                <span class="value tnum">{{ c.value }}{{ c.unit }}</span>
+                <span class="value tnum">{{ fmt(c.value, c.unit) }}</span>
               }
               @if (c.ref) {
                 <span class="ref tnum">{{ c.ref }}</span>
