@@ -57,7 +57,7 @@
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
-  font-size: 0.9rem;
+  font: var(--mat-sys-body-medium);
 
   mat-icon {
     flex: 0 0 auto;
@@ -76,7 +76,7 @@
     padding: 0.05rem 0.4rem;
     border-radius: 999px;
     background: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
-    font-size: 0.8rem;
+    font: var(--mat-sys-label-medium);
   }
 }
 
@@ -87,7 +87,7 @@
 .group {
   h4 {
     margin: 0.25rem 0 0;
-    font-size: 0.8rem;
+    font: var(--mat-sys-label-medium);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     opacity: 0.6;
@@ -96,7 +96,7 @@
 
 .kindlabel {
   opacity: 0.6;
-  font-size: 0.75rem;
+  font: var(--mat-sys-label-small);
   text-transform: capitalize;
 }
 
@@ -110,7 +110,7 @@
 .add-link {
   h4 {
     margin: 0.5rem 0 0.35rem;
-    font-size: 0.8rem;
+    font: var(--mat-sys-label-medium);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     opacity: 0.6;
@@ -127,7 +127,7 @@
   }
   .empty {
     opacity: 0.6;
-    font-size: 0.85rem;
+    font: var(--mat-sys-body-medium);
   }
 }
 

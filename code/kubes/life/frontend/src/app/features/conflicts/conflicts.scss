@@ -1,6 +1,5 @@
 .hint {
   opacity: 0.65;
-  font-size: 0.9rem;
 }
 
 .conflict {
@@ -24,7 +23,7 @@
     flex-direction: column;
 
     .tag {
-      font-size: 0.72rem;
+      font: var(--mat-sys-label-small);
       text-transform: uppercase;
       letter-spacing: 0.03em;
       color: var(--mat-sys-on-surface-variant);
@@ -38,7 +37,7 @@
   }
 
   .when {
-    font-size: 0.75rem;
+    font: var(--mat-sys-label-small);
     color: var(--mat-sys-on-surface-variant);
   }
 }

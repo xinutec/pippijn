@@ -19,7 +19,6 @@
     align-items: center;
     gap: 0.4rem;
     margin: 0;
-    font-size: 1rem;
 
     mat-icon {
       width: 20px;
@@ -35,40 +34,7 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-// Small status pills, matching the to-do list's grammar.
-.pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
-
-  &.overdue {
-    background: color-mix(in srgb, var(--mat-sys-error) 20%, transparent);
-    color: var(--mat-sys-on-error-container);
-    font-weight: 600;
-  }
-  &.due-soon {
-    background: color-mix(in srgb, var(--mat-sys-tertiary) 24%, transparent);
-    color: var(--mat-sys-on-tertiary-container);
-  }
-  &.ready {
-    background: color-mix(in srgb, var(--mat-sys-primary) 20%, transparent);
-  }
-}
-
-.expiry {
-  font-variant-numeric: tabular-nums;
-  font-size: 0.82rem;
-  &.expired {
-    color: var(--mat-sys-error);
-    font-weight: 600;
-  }
-  &.soon {
-    color: var(--mat-sys-tertiary);
-    font-weight: 500;
-  }
-}
+// Pills + expiry colours come from the global grammar (styles.scss).
 
 .shortcuts {
   display: flex;
@@ -85,7 +51,8 @@
       border-radius: 999px;
       background: var(--mat-sys-primary);
       color: var(--mat-sys-on-primary);
-      font-size: 0.75rem;
+      font: var(--mat-sys-label-small);
+      line-height: 1.4;
     }
   }
 }

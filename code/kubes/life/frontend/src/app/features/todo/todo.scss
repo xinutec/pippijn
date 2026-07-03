@@ -37,59 +37,7 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.15rem;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-
-  mat-icon {
-    font-size: 0.85rem;
-    width: 0.85rem;
-    height: 0.85rem;
-  }
-  &.blocked {
-    background: color-mix(in srgb, var(--mat-sys-error) 18%, transparent);
-  }
-  &.ready {
-    background: color-mix(in srgb, var(--mat-sys-primary) 20%, transparent);
-  }
-  &.links {
-    background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
-  }
-  // Deadline pressure: overdue / due-today share the error tint; a deadline
-  // within 3 days is the softer tertiary; a future start-gate is neutral.
-  &.overdue {
-    background: color-mix(in srgb, var(--mat-sys-error) 20%, transparent);
-    color: var(--mat-sys-on-error-container);
-    font-weight: 600;
-  }
-  &.due-soon {
-    background: color-mix(in srgb, var(--mat-sys-tertiary) 24%, transparent);
-    color: var(--mat-sys-on-tertiary-container);
-  }
-  &.waiting {
-    background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
-    color: var(--mat-sys-on-surface-variant);
-  }
-  &.prio-high {
-    background: color-mix(in srgb, var(--mat-sys-error) 24%, transparent);
-    color: var(--mat-sys-on-error-container);
-    font-weight: 600;
-  }
-  &.prio-medium {
-    // Theme-token pair (not a hardcoded orange) so it stays legible in dark mode.
-    background: color-mix(in srgb, var(--mat-sys-tertiary) 26%, transparent);
-    color: var(--mat-sys-on-tertiary-container);
-    font-weight: 600;
-  }
-  &.prio-low {
-    background: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
-    color: var(--mat-sys-on-surface);
-  }
-}
+// Pills come from the global .pill grammar (styles.scss).
 
 // The default two-line item is the tight 64px MDC box, sized for plain
 // supporting *text*. Our second line is filled pills, which paint their whole

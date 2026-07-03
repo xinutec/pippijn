@@ -25,12 +25,93 @@ body {
   font: var(--mat-sys-body-medium);
 }
 
+// Page + section headings on the M3 type scale — one definition, no
+// per-screen font-size improvisation.
+h2 {
+  font: var(--mat-sys-title-large);
+  margin: 0.5rem 0 0.75rem;
+}
+h3 {
+  font: var(--mat-sys-title-medium);
+  margin: 0 0 0.4rem;
+}
+
 // A completed / bought item: struck through and dimmed. Global (not per-screen)
 // so Buy and To-do share one definition — and so it actually applies inside the
 // list screens' emulated-encapsulation styles.
 .done {
   text-decoration: line-through;
   opacity: 0.55;
+}
+
+// Status pills — the one badge grammar for to-do urgency/priority/state, Today
+// chips, and anything else that needs a compact tinted label. Tints are
+// color-mix over theme tokens so both themes stay legible.
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font: var(--mat-sys-label-medium);
+
+  mat-icon {
+    font-size: 0.85rem;
+    width: 0.85rem;
+    height: 0.85rem;
+  }
+  &.blocked {
+    background: color-mix(in srgb, var(--mat-sys-error) 18%, transparent);
+  }
+  &.ready {
+    background: color-mix(in srgb, var(--mat-sys-primary) 20%, transparent);
+  }
+  &.links {
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
+  }
+  // Deadline pressure: overdue / due-today share the error tint; a deadline
+  // within 3 days is the softer tertiary; a future start-gate is neutral.
+  &.overdue {
+    background: color-mix(in srgb, var(--mat-sys-error) 20%, transparent);
+    color: var(--mat-sys-on-error-container);
+    font-weight: 700;
+  }
+  &.due-soon {
+    background: color-mix(in srgb, var(--mat-sys-tertiary) 24%, transparent);
+    color: var(--mat-sys-on-tertiary-container);
+  }
+  &.waiting {
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
+    color: var(--mat-sys-on-surface-variant);
+  }
+  &.prio-high {
+    background: color-mix(in srgb, var(--mat-sys-error) 24%, transparent);
+    color: var(--mat-sys-on-error-container);
+    font-weight: 700;
+  }
+  &.prio-medium {
+    background: color-mix(in srgb, var(--mat-sys-tertiary) 26%, transparent);
+    color: var(--mat-sys-on-tertiary-container);
+    font-weight: 700;
+  }
+  &.prio-low {
+    background: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
+    color: var(--mat-sys-on-surface);
+  }
+}
+
+// Expiry urgency text (inventory, food, Today) — colour says how urgent.
+.expiry {
+  font-variant-numeric: tabular-nums;
+
+  &.expired {
+    color: var(--mat-sys-error);
+    font-weight: 700;
+  }
+  &.soon {
+    color: var(--mat-sys-tertiary);
+    font-weight: 500;
+  }
 }
 
 // The add/edit bottom-sheet grammar: one column of outline fields, a
@@ -92,7 +173,7 @@ button.danger {
   border-radius: 8px;
   background: var(--mat-sys-error-container);
   color: var(--mat-sys-on-error-container);
-  font-size: 0.9rem;
+  font: var(--mat-sys-body-medium);
 }
 
 // The per-screen "add" FAB, parked bottom-right above the bottom tab bar so the

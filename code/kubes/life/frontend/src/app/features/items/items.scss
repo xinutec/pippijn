@@ -22,18 +22,12 @@
   font-weight: 400;
 }
 
+// Colours from the global .expiry grammar; the date is quieter until urgent.
 .expiry {
-  font-variant-numeric: tabular-nums;
   opacity: 0.8;
 
-  &.expired {
-    color: var(--mat-sys-error);
-    opacity: 1;
-    font-weight: 500;
-  }
+  &.expired,
   &.soon {
-    color: var(--mat-sys-tertiary);
     opacity: 1;
-    font-weight: 500;
   }
 }
