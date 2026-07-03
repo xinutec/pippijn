@@ -30,7 +30,7 @@ export function climateSeries(
 	return devices.map((d, i) => {
 		const off = offsetOf(d);
 		return {
-			label: d.label.name,
+			label: d.label.room ?? d.label.name,
 			color: ROOM_COLORS[i % ROOM_COLORS.length],
 			points: toTrendPoints(history[d.device] ?? [], pick).map((p) => ({ x: p.x, y: p.y + off })),
 		};

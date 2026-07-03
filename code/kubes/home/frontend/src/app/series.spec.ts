@@ -58,6 +58,13 @@ describe('climateSeries', () => {
 		expect(s[0].color).not.toBe(s[1].color);
 	});
 
+	it('labels a sited device by its room, falling back to the id when unsited', () => {
+		const sited = dev('govee-525D', false, 2);
+		sited.label = { ...sited.label, room: 'Kitchen' };
+		const s = climateSeries([sited, dev('govee-B7AC', false, 3)], {}, (m) => m.temp_c);
+		expect(s.map((x) => x.label)).toEqual(['Kitchen', 'govee-B7AC']);
+	});
+
 	it('yields an empty points array for a device with no history', () => {
 		const s = climateSeries([dev('govee-A562', false, 1)], {}, (m) => m.temp_c);
 		expect(s[0].points).toEqual([]);
