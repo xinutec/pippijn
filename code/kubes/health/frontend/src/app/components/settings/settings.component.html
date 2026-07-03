@@ -58,13 +58,13 @@
 		@if (health.shareStatus(); as s) {
 			<mat-card-actions align="end">
 				@if (s.active) {
-					<button mat-button color="warn" (click)="revoke()">Revoke</button>
+					<button mat-button class="danger" (click)="revoke()">Revoke</button>
 					<button mat-stroked-button (click)="rotate(s.daysBack ?? 7)">Generate new link</button>
-					<button mat-raised-button color="primary" (click)="updateDays()" [disabled]="editDays() === s.daysBack">
+					<button mat-flat-button (click)="updateDays()" [disabled]="editDays() === s.daysBack">
 						Update days
 					</button>
 				} @else {
-					<button mat-raised-button color="primary" (click)="create()">Create share link</button>
+					<button mat-flat-button (click)="create()">Create share link</button>
 				}
 			</mat-card-actions>
 		}

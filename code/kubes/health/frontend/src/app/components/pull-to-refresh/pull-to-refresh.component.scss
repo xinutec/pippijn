@@ -28,7 +28,7 @@
 .ptr-arrow.armed {
   // Flip the arrow once the pull is far enough to trigger.
   transform: rotate(180deg);
-  color: var(--mat-sys-primary, #3b82f6);
+  color: var(--mat-sys-primary);
 }
 
 .ptr-content {

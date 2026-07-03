@@ -9,11 +9,11 @@
 .meta {
 	margin-left: auto;
 	align-self: center;
-	font-size: 0.85rem;
+	font: var(--mat-sys-body-medium);
 	color: var(--text-secondary);
 }
 
 .map-controls {
 	margin-top: 8px;
-	font-size: 0.85rem;
+	font: var(--mat-sys-body-medium);
 }

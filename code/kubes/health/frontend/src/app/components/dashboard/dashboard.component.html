@@ -1,7 +1,7 @@
 @if (!authenticated()) {
 	<div class="prompt">
 		<h2>Sign in to view your health data</h2>
-		<a mat-raised-button color="primary" href="/login">Sign in with Nextcloud</a>
+		<a mat-flat-button href="/login">Sign in with Nextcloud</a>
 	</div>
 } @else if (loading()) {
 	<div class="app-loading">
@@ -12,7 +12,7 @@
 	<div class="prompt">
 		<h2>Link your Fitbit account</h2>
 		<p>Connect your Fitbit to start tracking your health data.</p>
-		<a mat-raised-button color="primary" href="/fitbit/auth">Link Fitbit</a>
+		<a mat-flat-button href="/fitbit/auth">Link Fitbit</a>
 	</div>
 } @else {
 	<app-pull-to-refresh
