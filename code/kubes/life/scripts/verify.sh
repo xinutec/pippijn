@@ -10,4 +10,4 @@ nix develop -c bash -c '
   cargo clippy --all-targets -- -D warnings
   ( cd frontend && npm run lint && npx ng build && npm test )
 '
-nix run "$HOME/Code/dev-lint" -- src frontend/src
+nix run "$HOME/Code/dev-lint" -- .

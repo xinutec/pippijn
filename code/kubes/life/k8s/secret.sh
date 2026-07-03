@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Run once on isis (as root) to create the life k8s secret. Generates the DB
 # and session secrets; the Nextcloud OAuth2 client values are passed in:
 #
@@ -6,7 +6,7 @@
 #
 # (From Nextcloud admin → Settings → Security → OAuth 2.0, client "life",
 #  redirect https://life.xinutec.org/auth/callback.)
-set -eu
+set -euo pipefail
 
 : "${NC_CLIENT_ID:?set NC_CLIENT_ID}"
 : "${NC_CLIENT_SECRET:?set NC_CLIENT_SECRET}"
