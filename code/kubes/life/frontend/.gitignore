@@ -10,3 +10,4 @@
 
 # Generated at build time by scripts/stamp-version.mjs
 /src/app/build-info.ts
+/ui-snapshots/

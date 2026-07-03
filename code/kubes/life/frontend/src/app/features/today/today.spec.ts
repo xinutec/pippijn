@@ -1,9 +1,12 @@
 import { TestBed } from '@angular/core/testing';
+import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { of } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 
+import { Feedback } from '../../shared/feedback';
 import { LifeApi } from '../../life-api';
 import { ShoppingStore } from '../../sync/shopping-store';
+import { TodoStore } from '../../sync/todo-store';
 import { TodoGraph } from '../todo/todo-graph';
 import { Today } from './today';
 
@@ -32,6 +35,7 @@ describe('Today', () => {
     const todos = opts.todos ?? [];
     const api = { items: vi.fn(() => of(opts.items ?? [])) };
     const shopping = { items$: of(opts.shopping ?? []) };
+    const todoStore = { setStatus: vi.fn().mockResolvedValue(undefined) };
     const graph = {
       todoItems: () => todos,
       statusOf: vi.fn((t: { ulid: string }) => opts.state?.[t.ulid] ?? 'open'),
@@ -43,14 +47,17 @@ describe('Today', () => {
         Today,
         { provide: LifeApi, useValue: api },
         { provide: ShoppingStore, useValue: shopping },
+        { provide: TodoStore, useValue: todoStore },
         { provide: TodoGraph, useValue: graph },
+        { provide: MatBottomSheet, useValue: { open: vi.fn() } },
+        { provide: Feedback, useValue: { undo: vi.fn() } },
       ],
     });
-    return TestBed.inject(Today);
+    return { c: TestBed.inject(Today), todoStore };
   }
 
   it('surfaces overdue and ready to-dos, hiding blocked/waiting/done/plain-open', () => {
-    const t = setup({
+    const { c: t } = setup({
       todos: [
         todo('overdue', { due: '2026-01-01' }),
         todo('ready'),
@@ -74,7 +81,7 @@ describe('Today', () => {
   });
 
   it('lists only expired/soon items, soonest first', () => {
-    const t = setup({
+    const { c: t } = setup({
       items: [
         { id: 1, name: 'Old milk', expiry: '2026-01-01' }, // expired
         { id: 2, name: 'Fresh', expiry: '2099-01-01' }, // ok → hidden
@@ -85,7 +92,17 @@ describe('Today', () => {
   });
 
   it('counts unbought shopping items', () => {
-    const t = setup({ shopping: [{ done: false }, { done: false }, { done: true }] });
+    const { c: t } = setup({ shopping: [{ done: false }, { done: false }, { done: true }] });
     expect(t.buyCount()).toBe(2);
+  });
+
+  it('ticking a row completes the to-do and offers Undo back to open', () => {
+    const { c: t, todoStore } = setup({});
+    const feedback = TestBed.inject(Feedback) as unknown as { undo: ReturnType<typeof vi.fn> };
+    t.complete(todo('a') as never);
+    expect(todoStore.setStatus).toHaveBeenCalledWith('a', 'done');
+    const undoFn = (feedback.undo.mock.calls[0] as [string, () => void])[1];
+    undoFn();
+    expect(todoStore.setStatus).toHaveBeenCalledWith('a', 'open');
   });
 });

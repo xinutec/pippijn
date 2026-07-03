@@ -13,6 +13,7 @@
     "pretest": "node scripts/stamp-version.mjs",
     "test": "ng test --watch=false",
     "e2e": "ng build && playwright test",
+    "ui-check": "playwright test e2e/ui-pages.spec.ts",
     "lint": "eslint src"
   },
   "dependencies": {

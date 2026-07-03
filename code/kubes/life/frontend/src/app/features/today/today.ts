@@ -1,18 +1,22 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
+import { MatBottomSheet, MatBottomSheetModule } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
 
 import { ExpiryInfo, expiryInfo } from '../../expiry';
+import { Feedback } from '../../shared/feedback';
 import { LifeApi } from '../../life-api';
 import { Item } from '../../models';
 import { WellbeingCheckin } from '../../shared/wellbeing-checkin';
 import { ShoppingDoc, ShoppingStore } from '../../sync/shopping-store';
-import { TodoDoc } from '../../sync/todo-store';
+import { TodoDoc, TodoStore } from '../../sync/todo-store';
 import { prioRank } from '../todo/todo-meta';
+import { TodoDetail } from '../todo/todo-detail';
 import { TodoGraph, Urgency } from '../todo/todo-graph';
 
 /** One to-do surfaced on Today, with a short reason chip. */
@@ -32,8 +36,10 @@ const URGENCY_RANK: Record<Urgency, number> = { overdue: 0, today: 1, soon: 2, n
   styleUrl: './today.scss',
   imports: [
     RouterLink,
+    MatBottomSheetModule,
     MatButtonModule,
     MatCardModule,
+    MatCheckboxModule,
     MatIconModule,
     MatListModule,
     WellbeingCheckin,
@@ -42,7 +48,10 @@ const URGENCY_RANK: Record<Urgency, number> = { overdue: 0, today: 1, soon: 2, n
 export class Today {
   private api = inject(LifeApi);
   private shopping = inject(ShoppingStore);
+  private todos = inject(TodoStore);
   private graph = inject(TodoGraph);
+  private sheet = inject(MatBottomSheet);
+  private feedback = inject(Feedback);
 
   private readonly items = signal<Item[]>([]);
   private readonly shoppingItems = toSignal(this.shopping.items$, {
@@ -83,6 +92,18 @@ export class Today {
   });
 
   readonly buyCount = computed(() => this.shoppingItems().filter((i) => !i.done).length);
+
+  /** Tick a to-do off right from Today (rows here are never blocked — the
+   *  attention filter excludes those). Undo puts it back. */
+  complete(todo: TodoDoc): void {
+    void this.todos.setStatus(todo.ulid, 'done');
+    this.feedback.undo(`Done: ${todo.title}`, () => void this.todos.setStatus(todo.ulid, 'open'));
+  }
+
+  /** Tap the title: the full to-do editor, same as in the list. */
+  open(todo: TodoDoc): void {
+    this.sheet.open(TodoDetail, { data: { ulid: todo.ulid } });
+  }
 
   private chip(todo: TodoDoc, urgency: Urgency): { label: string; cls: string } | null {
     if (urgency !== 'none' && todo.due) {
