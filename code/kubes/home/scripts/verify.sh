@@ -5,4 +5,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 nix develop -c npm run verify
-nix run "$HOME/Code/dev-lint" -- src frontend/src
+nix run "$HOME/Code/dev-lint" -- .
