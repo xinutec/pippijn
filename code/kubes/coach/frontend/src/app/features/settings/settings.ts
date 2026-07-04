@@ -25,21 +25,25 @@ export class SettingsPage {
   private api = inject(CoachApi);
   private swUpdates = inject(SwUpdates);
 
-  form: Settings | null = null;
+  // Signal so a zoneless view refreshes when the async load/save resolves. The
+  // form fields two-way-bind to the held object's properties (mutating them in
+  // place is fine — only the object reference is swapped via .set()).
+  readonly form = signal<Settings | null>(null);
   readonly saving = signal(false);
   readonly saved = signal(false);
   readonly updateMsg = signal("");
 
   constructor() {
-    this.api.settings().subscribe((s) => (this.form = s));
+    this.api.settings().subscribe((s) => this.form.set(s));
   }
 
   save(): void {
-    if (!this.form) return;
+    const f = this.form();
+    if (!f) return;
     this.saving.set(true);
-    this.api.patchSettings({ ...this.form }).subscribe({
+    this.api.patchSettings({ ...f }).subscribe({
       next: (s) => {
-        this.form = s;
+        this.form.set(s);
         this.saving.set(false);
         this.saved.set(true);
         setTimeout(() => this.saved.set(false), 2000);

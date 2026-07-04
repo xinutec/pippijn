@@ -87,7 +87,10 @@
   <div class="add-pin">
     <mat-form-field appearance="outline">
       <mat-label>Exercise</mat-label>
-      <mat-select [(ngModel)]="pinExerciseId">
+      <mat-select
+        [ngModel]="pinExerciseId()"
+        (ngModelChange)="pinExerciseId.set($event)"
+      >
         @for (e of exercises(); track e.id) {
           <mat-option [value]="e.id">{{ e.name }}</mat-option>
         }

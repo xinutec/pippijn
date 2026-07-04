@@ -43,8 +43,10 @@ export class ProgramPage {
   readonly selectedWeek = signal(1);
   readonly savedId = signal<number | null>(null);
 
-  // Add-pin form.
-  pinExerciseId: number | null = null;
+  // Add-pin form. exerciseId is a signal (set asynchronously after the load, so
+  // a zoneless view must be refreshed); weekday/sets are only user-typed via
+  // ngModel, so plain fields are fine.
+  readonly pinExerciseId = signal<number | null>(null);
   pinWeekday = 0;
   pinSets = 1;
 
@@ -62,7 +64,7 @@ export class ProgramPage {
         this.detail.set(detail);
         this.exercises.set(exercises);
         this.exMap.set(new Map(exercises.map((e) => [e.id, e])));
-        this.pinExerciseId = exercises[0]?.id ?? null;
+        this.pinExerciseId.set(exercises[0]?.id ?? null);
         if (detail) this.selectedWeek.set(this.currentWeek(detail));
         this.loading.set(false);
       },
@@ -140,10 +142,11 @@ export class ProgramPage {
 
   addPin(): void {
     const d = this.detail();
-    if (!d || this.pinExerciseId == null) return;
+    const exId = this.pinExerciseId();
+    if (!d || exId == null) return;
     this.api
       .upsertPin(d.program.id, {
-        exerciseId: this.pinExerciseId,
+        exerciseId: exId,
         weekday: this.pinWeekday,
         sets: this.pinSets,
       })
