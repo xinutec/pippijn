@@ -191,3 +191,12 @@ resource "cloudflare_dns_record" "org_life" {
   ttl     = 3600
   proxied = false
 }
+
+resource "cloudflare_dns_record" "org_coach" {
+  zone_id = local.xinutec_org_id
+  type    = "CNAME"
+  name    = "coach"
+  content = "isis.xinutec.org"
+  ttl     = 3600
+  proxied = false
+}

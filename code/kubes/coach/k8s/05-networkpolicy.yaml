@@ -1,0 +1,21 @@
+# Only the coach app may reach the DB — the namespace is internet-adjacent via
+# the ingress, so anything else (compromised pod elsewhere in the cluster)
+# gets no path to MariaDB. This policy is safe and IS applied by sync.sh.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: coach-db-from-app-only
+  namespace: coach
+spec:
+  podSelector:
+    matchLabels:
+      app: coach-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: coach-app
+      ports:
+        - port: 3306

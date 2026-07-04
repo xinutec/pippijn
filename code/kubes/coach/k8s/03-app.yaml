@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coach-app
+  namespace: coach
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coach-app
+  template:
+    metadata:
+      labels:
+        app: coach-app
+    spec:
+      # Matches the nonroot user baked into the image (Dockerfile, uid 65532).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: xinutec/coach:latest
+          # The app never writes to disk, so the whole root fs can be read-only.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+          env:
+            # Full mysql:// DSN (carries the DB password) — kept whole in the secret.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: coach-secret
+                  key: DATABASE_URL
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coach-secret
+                  key: SESSION_SECRET
+            - name: NC_BASE_URL
+              value: https://dash.xinutec.org
+            - name: NC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: coach-secret
+                  key: NC_CLIENT_ID
+            - name: NC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coach-secret
+                  key: NC_CLIENT_SECRET
+            - name: NC_REDIRECT_URI
+              value: https://coach.xinutec.org/auth/callback
+            # info = one line per /api request (TraceLayer); coach=debug adds our own
+            # low-volume sync/product detail. Third-party crates stay at info (quiet).
+            - name: RUST_LOG
+              value: info,coach=debug
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: coach-app
+  namespace: coach
+spec:
+  selector:
+    app: coach-app
+  ports:
+    - port: 80
+      targetPort: 8080

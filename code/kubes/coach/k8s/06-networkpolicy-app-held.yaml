@@ -1,0 +1,28 @@
+# The app should only be reachable through the nginx ingress controller, so no
+# other pod can hit the API directly and bypass the ingress' TLS termination.
+#
+# ⚠️ NOT APPLIED (and sync.sh deliberately skips this file). k3s enforces
+# NetworkPolicy via kube-router, which does NOT exempt node-sourced kubelet
+# health-probe traffic — this policy as written would drop the liveness/readiness
+# probes, mark the pod NotReady, and take the site down. Before applying, add an
+# ingress rule that also admits the probe source (e.g. an ipBlock for the
+# node/pod CIDR) and verify probes stay green on a live pod. The DB policy in
+# 05-networkpolicy.yaml is the safe one and IS applied.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: coach-app-from-ingress-only
+  namespace: coach
+spec:
+  podSelector:
+    matchLabels:
+      app: coach-app
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8080

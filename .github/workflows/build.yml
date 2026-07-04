@@ -146,6 +146,44 @@ jobs:
       username: ${{ secrets.DOCKERHUB_USERNAME }}
       password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
+  # coach — training tracker + adaptive pacing coach (Rust backend + Angular
+  # frontend). The pacing engine tests are pure (no DB), so no MariaDB service.
+  coach-verify:
+    runs-on: ubuntu-latest
+    container: rust:1-bookworm
+    defaults:
+      run:
+        working-directory: code/kubes/coach
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup component add clippy
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  coach-fe-verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: code/kubes/coach/frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run lint
+      - run: npx ng build --configuration production
+
+  coach:
+    needs: [coach-verify, coach-fe-verify]
+    uses: xinutec/pippijn/.github/workflows/docker.yml@main
+    with:
+      path: code/kubes/coach
+      image: coach
+    secrets:
+      username: ${{ secrets.DOCKERHUB_USERNAME }}
+      password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
   # Message-archive viewer (Rust backend + Angular frontend) over the Signal +
   # Google Chat data in the signal DB. Gate on clippy + cargo test (no DB needed).
   messages-verify:
