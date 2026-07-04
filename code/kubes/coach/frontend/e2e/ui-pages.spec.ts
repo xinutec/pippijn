@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 // The fleet-shared harness (code/kubes/ui-harness) — relative import, since
 // Playwright transpiles TS outside node_modules but not inside it.
 import {
@@ -86,6 +86,20 @@ test("today — busy composition: clean + all controls reachable @ phone", async
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
   await expectNoOccludedControls(page, testInfo);
+});
+
+// Regression: an unauthenticated visitor (no session → /api/me 401s) must get a
+// visible way in. The app once swallowed the 401 and rendered empty chrome with
+// no login affordance and no redirect — "where is the login?". Now it shows a
+// sign-in card that links to /login (→ Nextcloud OAuth).
+test("signed-out — the sign-in card offers a way in @ phone", async ({ page }, testInfo) => {
+  await page.route("**/api/me", (r) => r.fulfill({ status: 401, json: {} }));
+  await page.goto("/today");
+  const signIn = page.getByRole("link", { name: "Sign in with Nextcloud" });
+  await signIn.waitFor();
+  await expect(signIn).toHaveAttribute("href", "/login");
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
 });
 
 test("settings — clean + reachable @ phone", async ({ page }, testInfo) => {
