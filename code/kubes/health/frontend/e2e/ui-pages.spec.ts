@@ -129,22 +129,32 @@ test("dashboard Trends tab — no text overlaps @ phone width", async ({ page },
 	await expectNoTextOverlaps(page, testInfo);
 });
 
-// KNOWN-FAILING, tracked (2026-07-04): a real bug the harness caught — the
-// Trends tab scrolls sideways on a phone, spilling ~185px past 412px. The whole
-// .tab-content inflates: even the non-chart .trend-range row spills equally, so
-// one over-wide element (the chart.js baseChart canvases) drags everything with
-// it. NOTE: the obvious fixes do NOT work and each made it WORSE (tried
-// 2026-07-04): chart `maintainAspectRatio:false`, a fixed-height chart
-// container, AND `.charts-row` minmax(0,1fr) — individually and combined — all
-// increased the spill (185→305px). So it is a deeper Material mat-tab-body ×
-// chart.js responsive-sizing interaction, not a one-line chart-options change;
-// it needs real investigation (likely constraining the tab-body/tab-content
-// width so chart.js has a bounded width to fill). Remove `.fixme` once fixed.
-// See dev-lint/docs/layout-quality-architecture.md (L4 → fix loop).
-test.fixme("dashboard Trends tab — charts must not overflow the phone width", async ({ page }, testInfo) => {
+test("dashboard Trends tab — charts must not overflow the phone width", async ({ page }, testInfo) => {
 	await mockApi(page);
 	await page.goto("/");
+	// Kill CSS transitions/animations: the Material tab-slide translates the whole
+	// tab-body ~55px right mid-animation, so a measurement taken during the slide
+	// reads every child's right edge as past the viewport (a transient that
+	// self-corrects when the slide lands at translateX(0)). We want the SETTLED
+	// layout, so disable animations and let the tab switch instantly.
+	await page.addStyleTag({
+		content: "*,*::before,*::after{transition:none!important;animation:none!important}",
+	});
 	await page.getByRole("tab", { name: "Trends" }).click();
 	await page.getByText("Resting Heart Rate").waitFor();
+	// Also wait for chart.js's ResizeObserver to settle the canvas width.
+	await page.locator("app-steps-chart canvas").waitFor();
+	await page.waitForFunction(
+		() => {
+			const c = document.querySelector("app-steps-chart canvas");
+			if (!c) return false;
+			const w = Math.round(c.getBoundingClientRect().width);
+			const prev = (window as unknown as { __w?: number }).__w;
+			(window as unknown as { __w?: number }).__w = w;
+			return w > 0 && prev === w;
+		},
+		null,
+		{ polling: 120, timeout: 10_000 },
+	);
 	await expectNoHorizontalOverflow(page, testInfo);
 });
