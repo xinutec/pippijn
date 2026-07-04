@@ -172,7 +172,10 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm run lint
-      - run: npx ng build --configuration production
+      # ui-check builds (prod) then runs the shared layout harness (text overlap,
+      # horizontal overflow, occluded controls) at phone + wide viewports.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run ui-check
 
   coach:
     needs: [coach-verify, coach-fe-verify]
