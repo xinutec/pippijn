@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Adaptive-icon background: indigo for the life home-OS app —
-         distinct on the launcher from the other web apps. -->
-    <color name="ic_launcher_background">#283593</color>
+    <!-- Adaptive-icon background: orange for coach — matches the app's orange
+         Material theme and stays distinct on the launcher from life (indigo),
+         home, health, and recall. -->
+    <color name="ic_launcher_background">#EF6C00</color>
 </resources>
