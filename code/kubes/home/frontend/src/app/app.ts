@@ -193,6 +193,15 @@ export class App implements OnInit, OnDestroy {
 		writeLocal('showIds', v ? 'on' : 'off');
 	}
 
+	/**
+	 * The distinguishing part of a device id for display: the `govee-` prefix is
+	 * shared across every Govee sensor, so only the MAC suffix (e.g. `A562`) tells
+	 * them apart. Non-Govee ids (e.g. `airvisual`) are shown whole.
+	 */
+	protected shortId(device: string): string {
+		return device.replace(/^govee-/, '');
+	}
+
 	/** Offset to add to a device's reading for `key`; 0 when calibration is off/absent. */
 	private off(d: DeviceLatest, key: 'temp_c' | 'humidity'): number {
 		const v = d.offset?.[key];

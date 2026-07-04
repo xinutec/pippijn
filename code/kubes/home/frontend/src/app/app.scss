@@ -335,15 +335,19 @@
 }
 
 .room-id {
-	margin-left: 0.4rem;
-	padding: 0.05rem 0.3rem;
-	border-radius: 0.25rem;
-	background: var(--mat-sys-surface-container-highest);
-	color: var(--mat-sys-on-surface);
-	font: var(--mat-sys-label-small);
 	font-family: ui-monospace, monospace;
 	letter-spacing: 0.02em;
+	color: var(--mat-sys-on-surface-variant);
+	white-space: nowrap;
 	user-select: all;
+}
+
+// A middle-dot separates the id from the model name, so the type line reads
+// "Govee H5075 · A562" without inventing a box that could wrap or widen the card.
+.room-id::before {
+	content: '·';
+	margin: 0 0.35rem;
+	color: var(--mat-sys-outline);
 }
 
 .room-readings {
@@ -415,6 +419,21 @@
 .section-title {
 	font: var(--mat-sys-title-large);
 	margin: 0;
+}
+
+// Header row for the Rooms section: title on the left, the "Show IDs" toggle on
+// the right. The toggle lives here — not the global toolbar — because it only
+// affects the room cards, and a second toolbar control overflowed phone width.
+.rooms-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.ids-toggle {
+	font: var(--mat-sys-label-large);
 }
 
 .range-toggle {

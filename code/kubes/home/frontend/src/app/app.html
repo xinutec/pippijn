@@ -15,14 +15,6 @@
 	>
 		Calibrated
 	</mat-slide-toggle>
-	<mat-slide-toggle
-		class="cal-toggle"
-		[checked]="showIds()"
-		(change)="toggleShowIds()"
-		matTooltip="Show each sensor's device id (for relabelling a moved sensor)"
-	>
-		Show IDs
-	</mat-slide-toggle>
 	<button
 		matIconButton
 		type="button"
@@ -147,7 +139,17 @@
 
 		<!-- Per-room current temperature & humidity -->
 		<section class="rooms">
-			<h3 class="section-title">Rooms</h3>
+			<div class="rooms-head">
+				<h3 class="section-title">Rooms</h3>
+				<mat-slide-toggle
+					class="ids-toggle"
+					[checked]="showIds()"
+					(change)="toggleShowIds()"
+					matTooltip="Show each sensor's device id (for relabelling a moved sensor)"
+				>
+					Show IDs
+				</mat-slide-toggle>
+			</div>
 			<div class="room-grid">
 				@for (d of devices(); track d.device; let i = $index) {
 					<mat-card class="room-card" appearance="outlined">
@@ -160,7 +162,7 @@
 						<div class="room-type">
 							{{ d.label.type }}
 							@if (showIds()) {
-								<span class="room-id">{{ d.device }}</span>
+								<span class="room-id">{{ shortId(d.device) }}</span>
 							}
 						</div>
 						<div class="room-readings">

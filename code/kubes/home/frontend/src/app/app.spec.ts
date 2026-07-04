@@ -29,13 +29,16 @@ describe('App', () => {
 		expect(compiled.querySelector('.brand-title')?.textContent).toContain('Home');
 	});
 
-	it('offers a "Show IDs" toggle, off by default', async () => {
-		const fixture = TestBed.createComponent(App);
-		fixture.detectChanges();
-		await fixture.whenStable();
-		const compiled = fixture.nativeElement as HTMLElement;
-		const labels = [...compiled.querySelectorAll('mat-slide-toggle')].map((t) => t.textContent);
-		expect(labels.some((l) => l?.includes('Show IDs'))).toBe(true);
-		expect(fixture.componentInstance['showIds']()).toBe(false);
+	it('has a "Show IDs" preference, off by default, that toggles', () => {
+		const app = TestBed.createComponent(App).componentInstance;
+		expect(app['showIds']()).toBe(false);
+		app['toggleShowIds']();
+		expect(app['showIds']()).toBe(true);
+	});
+
+	it('shortId shows only the distinguishing Govee suffix, other ids whole', () => {
+		const app = TestBed.createComponent(App).componentInstance;
+		expect(app['shortId']('govee-A562')).toBe('A562');
+		expect(app['shortId']('airvisual')).toBe('airvisual');
 	});
 });
