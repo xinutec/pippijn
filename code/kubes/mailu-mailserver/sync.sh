@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -euo pipefail
+
 sudo helm upgrade --install mailu mailu/mailu --version 2.1.1 -n mailu-mailserver --create-namespace --values values.yaml --values secrets.yaml
 
 # Workaround: chart 2.1.1's clamav probes check /tmp/clamd.pid which

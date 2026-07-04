@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -eux
+set -euxo pipefail
 
 cd "$HOME/code/kubes/ircd/inspircd"
 

@@ -1,3 +1,6 @@
+# dev-lint: allow-root-user — the entrypoint must run as root: it starts sshd
+# (service ssh start), manages /etc/ssh host keys, and chowns k8s-mounted
+# volumes, then drops to the unprivileged irssi user via `su - irssi`.
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

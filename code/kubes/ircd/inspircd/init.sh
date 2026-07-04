@@ -1,4 +1,7 @@
 #!/bin/sh
+# dev-lint: allow-no-strict-mode — container entrypoint: it must exec inspircd
+# even if the startup `git pull` fails transiently; `set -e` would abort before
+# exec and crashloop the server instead of starting with the baked-in config.
 
 # The first time, the secrets need to be copied into the container. After
 # that, these are persisted while the shared configs are not.

@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -eux
+set -euxo pipefail
 
 ssh toktok -t 'cd /src/workspace && bazel build --config=debug --config=linux-arm64-musl //toxic'
 scp toktok:/src/workspace/bazel-bin/toxic/toxic .

@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -eux
+set -euxo pipefail
 
 for home in home/*; do
   user="${home/home\/}"

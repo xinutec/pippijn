@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -eux
+set -euxo pipefail
 
 # Fix up permissions, in case kubernetes provided us with an overly permissive
 # home directory or with incorrect ownership.

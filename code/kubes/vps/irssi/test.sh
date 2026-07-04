@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -eux
+set -euxo pipefail
 
 docker build -t xinutec/irssi:test .
 docker run \
