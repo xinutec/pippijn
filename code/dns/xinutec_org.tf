@@ -86,6 +86,27 @@ resource "cloudflare_dns_record" "org_odin" {
   proxied = false
 }
 
+# nocodb.xinutec.org and sinterklaas.xinutec.org — public web apps served by the
+# amun ingress. Both were on INWX and were missed in the Cloudflare migration;
+# re-added here as identical A records to amun's public IP.
+resource "cloudflare_dns_record" "org_nocodb" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "nocodb"
+  content = local.hosts.amun
+  ttl     = 3600
+  proxied = false
+}
+
+resource "cloudflare_dns_record" "org_sinterklaas" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "sinterklaas"
+  content = local.hosts.amun
+  ttl     = 3600
+  proxied = false
+}
+
 # --- CNAMEs ---
 
 resource "cloudflare_dns_record" "org_mail" {
