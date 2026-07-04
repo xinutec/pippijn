@@ -129,16 +129,18 @@ test("dashboard Trends tab — no text overlaps @ phone width", async ({ page },
 	await expectNoTextOverlaps(page, testInfo);
 });
 
-// KNOWN-FAILING, tracked (2026-07-04): this is the real bug the harness caught
-// on landing — the Trends tab scrolls sideways on a phone, spilling ~185px past
-// 412px. Root cause is chart.js `maintainAspectRatio: true` on every *-chart
-// component: the canvas sizes itself by aspect ratio instead of shrinking to
-// its phone-narrow container, forcing .charts-row → .tab-content wider than the
-// viewport (every responsive chart then sizes to that inflated width and
-// spills equally). The fix is a per-chart-component change
-// (maintainAspectRatio:false + a fixed-height wrapper), out of scope for the
-// harness port that first surfaced it. Remove `.fixme` once the charts are made
-// responsive. See dev-lint/docs/layout-quality-architecture.md (L4 → fix loop).
+// KNOWN-FAILING, tracked (2026-07-04): a real bug the harness caught — the
+// Trends tab scrolls sideways on a phone, spilling ~185px past 412px. The whole
+// .tab-content inflates: even the non-chart .trend-range row spills equally, so
+// one over-wide element (the chart.js baseChart canvases) drags everything with
+// it. NOTE: the obvious fixes do NOT work and each made it WORSE (tried
+// 2026-07-04): chart `maintainAspectRatio:false`, a fixed-height chart
+// container, AND `.charts-row` minmax(0,1fr) — individually and combined — all
+// increased the spill (185→305px). So it is a deeper Material mat-tab-body ×
+// chart.js responsive-sizing interaction, not a one-line chart-options change;
+// it needs real investigation (likely constraining the tab-body/tab-content
+// width so chart.js has a bounded width to fill). Remove `.fixme` once fixed.
+// See dev-lint/docs/layout-quality-architecture.md (L4 → fix loop).
 test.fixme("dashboard Trends tab — charts must not overflow the phone width", async ({ page }, testInfo) => {
 	await mockApi(page);
 	await page.goto("/");
