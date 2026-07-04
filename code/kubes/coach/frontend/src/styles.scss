@@ -108,9 +108,3 @@ h3 {
     pointer-events: auto;
   }
 }
-
-@media (min-width: 768px) {
-  .fab-anchor {
-    padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
-  }
-}
