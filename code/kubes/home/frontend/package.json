@@ -8,6 +8,7 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "lint": "ng lint",
+    "ui-check": "playwright test",
     "format": "prettier --write \"src/**/*.{ts,html,scss,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,html,scss,json}\""
   },
@@ -36,6 +37,7 @@
     "@angular/cli": "^22.0.5",
     "@angular/compiler-cli": "^22.0.4",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.1",
     "angular-eslint": "^22.0.0",
     "eslint": "^10.6.0",
     "jsdom": "^29.1.1",
