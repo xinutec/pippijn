@@ -9,7 +9,8 @@
     "watch": "ng build --watch --configuration development",
     "lint": "eslint src",
     "test": "ng test --watch=false",
-    "ui-check": "playwright test"
+    "ui-check": "playwright test",
+    "e2e:behaviour": "playwright test --config playwright.behaviour.config.ts"
   },
   "dependencies": {
     "@angular/cdk": "^22.0.3",

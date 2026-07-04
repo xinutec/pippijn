@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectIconFontLoaded, expectNoTextOverlaps } from "./ui-overlap";
+import { expectIconFontLoaded, expectNoTextOverlaps } from "../../../ui-harness/src/ui-harness";
 
 /**
  * Render the authenticated app shell at a phone viewport with the backend
@@ -24,14 +24,14 @@ async function mockApi(page: Page): Promise<void> {
   await page.route("**/api/conversations", (r) => r.fulfill({ json: CONVERSATIONS }));
 }
 
-test("authenticated shell renders: icon font loaded, no text overlaps @ 390px", async ({ page }) => {
+test("authenticated shell renders: icon font loaded, no text overlaps @ phone width", async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto("/");
   // The search field (with its prefix icon) is the spot the bug showed up.
   await page.getByPlaceholder("Search messages").waitFor();
   await page.getByText("Alice").waitFor();
   await expectIconFontLoaded(page);
-  await expectNoTextOverlaps(page);
+  await expectNoTextOverlaps(page, testInfo);
 });
 
 // Two days, each tall enough (25 messages) to exceed the viewport so a day's
@@ -92,7 +92,7 @@ test("message bubbles are not content-visibility:auto (would jump on scroll-up)"
   expect(cv).not.toBe("auto");
 });
 
-test("a scrolled multi-day thread does not stack date separators", async ({ page }) => {
+test("a scrolled multi-day thread does not stack date separators", async ({ page }, testInfo) => {
   await mockApi(page);
   await page.route("**/api/conversations/**/messages**", (r) =>
     r.fulfill({ json: { messages: multiDayThread(), has_more: false, next_cursor: null } }),
@@ -106,7 +106,7 @@ test("a scrolled multi-day thread does not stack date separators", async ({ page
     if (t) t.scrollTop = t.scrollHeight;
   });
   await page.waitForTimeout(150);
-  await expectNoTextOverlaps(page);
+  await expectNoTextOverlaps(page, testInfo);
 });
 
 test("the current day's date stays pinned at the top while scrolling", async ({ page }) => {

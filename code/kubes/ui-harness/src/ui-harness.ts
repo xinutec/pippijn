@@ -302,6 +302,38 @@ export async function expectViewportIsPhone(page: Page, width = 412): Promise<vo
 }
 
 /**
+ * Assert the icon font face is present AND loaded, so `mat-icon` ligatures
+ * render as glyphs rather than their literal fallback word — a `mat-icon`
+ * showing the text "search" (because the icon font isn't loaded) is the exact
+ * bug that shipped once when the wrong font family was linked, and it also
+ * reads as a text overlap against the field it sits in.
+ *
+ * `document.fonts.check('24px "Material Icons"')` is NOT usable here: it
+ * returns `true` even when the family doesn't exist (nothing to load). We
+ * require a FontFace with that family in the set at `status === "loaded"`.
+ * Fonts load lazily once a glyph uses them, so poll until it settles; a
+ * missing family never settles → fails. `family` names the icon font face.
+ */
+export async function expectIconFontLoaded(page: Page, family = "Material Icons"): Promise<void> {
+	const loaded = await page
+		.waitForFunction(
+			(fam) =>
+				Array.from(document.fonts).some(
+					(f) => f.family.replace(/['"]/g, "") === fam && f.status === "loaded",
+				),
+			family,
+			{ timeout: 10_000 },
+		)
+		.then(() => true)
+		.catch(() => false);
+	if (!loaded) {
+		throw new LayoutError(
+			`the "${family}" font face never loaded — mat-icon will show ligature text`,
+		);
+	}
+}
+
+/**
  * A real finger flick up the screen via CDP touch events (touchStart → N
  * touchMoves → touchEnd), NOT a scrollTop/wheel shortcut — it proves the
  * gesture itself works. That distinction found a real bug: nested scrollers
