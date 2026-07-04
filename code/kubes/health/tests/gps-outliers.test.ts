@@ -28,11 +28,11 @@ describe("dropGpsOutliers", () => {
 
 	it("drops an isolated rogue fix far from the cluster", () => {
 		const points: FilteredPoint[] = [];
-		// 10 fixes at Wembley.
+		// 10 fixes at Ashvale.
 		for (let i = 0; i < 10; i++) points.push(fix(1_700_000_000 + i * 60, 51.57, -0.28));
 		// 1 rogue fix at Karlsruhe (~600km away).
 		points.push(fix(1_700_000_000 + 10 * 60, 49.0, 8.4));
-		// 10 more fixes at Wembley.
+		// 10 more fixes at Ashvale.
 		for (let i = 11; i < 21; i++) points.push(fix(1_700_000_000 + i * 60, 51.57, -0.28));
 		const filtered = dropGpsOutliers(points);
 		expect(filtered).toHaveLength(20); // 21 - 1 rogue

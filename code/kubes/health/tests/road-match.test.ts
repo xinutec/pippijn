@@ -20,14 +20,14 @@ import { describe, expect, it } from "vitest";
 import { fractionOffRoad, matchRoadSegment, projectPointToSegment, type RoadGeometry } from "../src/geo/road-match.js";
 
 /** An L of two streets meeting at a shared corner:
- *  - "Barn Rise"  runs W→E along lat 51.5600, lon -0.2900 → -0.2800
- *  - "Forty Lane" runs S→N along lon -0.2800, lat 51.5600 → 51.5700
+ *  - "Larch Rise"  runs W→E along lat 51.5600, lon -0.2900 → -0.2800
+ *  - "Quarry Lane" runs S→N along lon -0.2800, lat 51.5600 → 51.5700
  *  They share the corner node (51.5600, -0.2800). */
 const L_NETWORK: RoadGeometry = {
 	ways: [
 		{
 			osmId: 1,
-			name: "Barn Rise",
+			name: "Larch Rise",
 			subtype: "residential",
 			coords: [
 				[51.56, -0.29],
@@ -37,7 +37,7 @@ const L_NETWORK: RoadGeometry = {
 		},
 		{
 			osmId: 2,
-			name: "Forty Lane",
+			name: "Quarry Lane",
 			subtype: "tertiary",
 			coords: [
 				[51.56, -0.28],
@@ -97,7 +97,7 @@ describe("projectPointToSegment", () => {
 
 describe("fractionOffRoad (confidence gate)", () => {
 	it("is near zero when the fixes already hug a road, high when they don't", () => {
-		// Fixes within a few metres of Barn Rise (lat 51.5600).
+		// Fixes within a few metres of Larch Rise (lat 51.5600).
 		const onRoad = track([
 			[51.5601, -0.2895],
 			[51.5599, -0.288],
@@ -117,7 +117,7 @@ describe("fractionOffRoad (confidence gate)", () => {
 
 describe("matchRoadSegment", () => {
 	it("follows the streets around the corner instead of cutting across the block", () => {
-		// A car drives Barn Rise W→E then turns N onto Forty Lane. The raw
+		// A car drives Larch Rise W→E then turns N onto Quarry Lane. The raw
 		// fixes are noisy (±~12 m) and one cuts the corner toward the
 		// diagonal — the exact pattern that draws a line through the block.
 		const fixes = track([
@@ -263,8 +263,8 @@ describe("matchRoadSegment", () => {
 	});
 
 	it("does not return a wildly longer detour than the raw track", () => {
-		// Straight drive E along Barn Rise — the match must stay on the
-		// street, never loop around via Forty Lane.
+		// Straight drive E along Larch Rise — the match must stay on the
+		// street, never loop around via Quarry Lane.
 		const fixes = track([
 			[51.5601, -0.2895],
 			[51.5599, -0.288],
@@ -276,7 +276,7 @@ describe("matchRoadSegment", () => {
 		expect(result).not.toBeNull();
 		if (!result) return;
 		for (const p of result.path) {
-			// Stays on Barn Rise: latitude pinned, never wanders up Forty Lane.
+			// Stays on Larch Rise: latitude pinned, never wanders up Quarry Lane.
 			expect(Math.abs(p.lat - 51.56)).toBeLessThan(1e-4);
 		}
 	});

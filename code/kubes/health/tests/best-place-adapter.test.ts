@@ -36,7 +36,7 @@ function landmark(
 
 function venueResult(amenity: string, type: string): NominatimResult {
 	return {
-		displayName: `${amenity}, Wembley, London`,
+		displayName: `${amenity}, Ashvale, London`,
 		type,
 		category: "amenity",
 		address: { amenity, road: "Acacia Avenue", city: "Greater London" },

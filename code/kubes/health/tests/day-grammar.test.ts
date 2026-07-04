@@ -11,13 +11,13 @@ function st(mode: DayStateMode, extra: Partial<DayState> = {}): DayState {
 
 describe("parseStationPair", () => {
 	it("parses a board → alight · line label", () => {
-		expect(parseStationPair("Euston Square → Wembley Park · Metropolitan Line")).toEqual({
-			board: "Euston Square",
-			alight: "Wembley Park",
+		expect(parseStationPair("Deepwell → Ashvale · Metropolitan Line")).toEqual({
+			board: "Deepwell",
+			alight: "Ashvale",
 		});
 	});
 	it("returns null for a road name or absent label", () => {
-		expect(parseStationPair("Euston Underpass")).toBeNull();
+		expect(parseStationPair("Deepwell Underpass")).toBeNull();
 		expect(parseStationPair(undefined)).toBeNull();
 	});
 });
@@ -28,11 +28,11 @@ describe("checkDayConstraints", () => {
 		const day = [
 			st("sleeping", { place: "Home" }),
 			st("walking"),
-			st("train", { wayName: "Wembley Park → Euston Square · Metropolitan Line" }),
+			st("train", { wayName: "Ashvale → Deepwell · Metropolitan Line" }),
 			st("walking"),
 			st("stationary", { place: "UCLH" }),
 			st("walking"),
-			st("train", { wayName: "Euston Square → Wembley Park · Metropolitan Line" }),
+			st("train", { wayName: "Deepwell → Ashvale · Metropolitan Line" }),
 			st("walking"),
 			st("stationary", { place: "Home" }),
 		];
@@ -43,8 +43,8 @@ describe("checkDayConstraints", () => {
 		t = 0;
 		const day = [
 			st("walking"),
-			st("driving", { wayName: "Euston Underpass" }),
-			st("train", { wayName: "Euston Square → Wembley Park · Metropolitan Line" }),
+			st("driving", { wayName: "Deepwell Underpass" }),
+			st("train", { wayName: "Deepwell → Ashvale · Metropolitan Line" }),
 			st("walking"),
 		];
 		const v = checkDayConstraints(day);
@@ -72,7 +72,7 @@ describe("checkDayConstraints", () => {
 
 	it("flags a transit leg that boards and alights at the same station", () => {
 		t = 0;
-		const day = [st("train", { wayName: "Baker Street → Baker Street · Circle Line" })];
+		const day = [st("train", { wayName: "Carfax → Carfax · Circle Line" })];
 		const v = checkDayConstraints(day);
 		expect(v).toHaveLength(1);
 		expect(v[0].constraint).toBe("transit-same-endpoint");

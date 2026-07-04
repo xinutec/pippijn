@@ -21,11 +21,11 @@ import type { State } from "../src/hmm/state-space.js";
 import type { TrainCandidate } from "../src/hmm/train-candidate-generator.js";
 import { assembleTubeJourneys } from "../src/hmm/tube-journey-assembler.js";
 
-const WEMBLEY = { lat: 51.5635, lon: -0.2796 };
-const FINCHLEY = { lat: 51.5474, lon: -0.1809 };
-const BAKER = { lat: 51.5226, lon: -0.1571 };
-const GREEN_PARK = { lat: 51.5067, lon: -0.1428 };
-const OUTSIDE = { lat: 51.5067, lon: -0.15 }; // ~500m from Green Park
+const ASHVALE = { lat: 51.5635, lon: -0.2796 };
+const BROOKDEN = { lat: 51.5474, lon: -0.1809 };
+const CARFAX = { lat: 51.5226, lon: -0.1571 };
+const FARVALE = { lat: 51.5067, lon: -0.1428 };
+const OUTSIDE = { lat: 51.5067, lon: -0.15 }; // ~500m from Farvale
 
 function makeLine(over: Partial<RawOsmLine>): RawOsmLine {
 	return {
@@ -58,15 +58,15 @@ function wkt(...pts: { lat: number; lon: number }[]): string {
 function buildScenarioGraph(): RouteGraph {
 	return buildRouteGraph(
 		[
-			makeLine({ osm_id: 1n, name: "Metropolitan and Jubilee Lines", geom: wkt(WEMBLEY, FINCHLEY) }),
-			makeLine({ osm_id: 2n, name: "Metropolitan and Jubilee Lines", geom: wkt(FINCHLEY, BAKER) }),
-			makeLine({ osm_id: 3n, name: "Jubilee Line", geom: wkt(BAKER, GREEN_PARK) }),
+			makeLine({ osm_id: 1n, name: "Metropolitan and Jubilee Lines", geom: wkt(ASHVALE, BROOKDEN) }),
+			makeLine({ osm_id: 2n, name: "Metropolitan and Jubilee Lines", geom: wkt(BROOKDEN, CARFAX) }),
+			makeLine({ osm_id: 3n, name: "Jubilee Line", geom: wkt(CARFAX, FARVALE) }),
 		],
 		[
-			makeStation(101n, "Wembley Park", WEMBLEY),
-			makeStation(102n, "Finchley Road", FINCHLEY),
-			makeStation(103n, "Baker Street", BAKER),
-			makeStation(104n, "Green Park", GREEN_PARK),
+			makeStation(101n, "Ashvale", ASHVALE),
+			makeStation(102n, "Brookden", BROOKDEN),
+			makeStation(103n, "Carfax", CARFAX),
+			makeStation(104n, "Farvale", FARVALE),
 		],
 	);
 }
@@ -114,33 +114,33 @@ describe("assembleTubeJourneys", () => {
 		const t0 = 1_700_000_000;
 		const observations: Observation[] = [];
 		const states: State[] = [];
-		// 0-2: walking outside Wembley
+		// 0-2: walking outside Ashvale
 		for (let i = 0; i < 3; i++) {
 			observations.push(
 				obs({ ts: t0 + i * 60, gps: { lat: OUTSIDE.lat, lon: OUTSIDE.lon, speedKmh: 5 }, cadence: 100 }),
 			);
 			states.push(state("walking"));
 		}
-		// 3-4: walking near Wembley station entrance
+		// 3-4: walking near Ashvale station entrance
 		for (let i = 3; i < 5; i++) {
 			observations.push(
-				obs({ ts: t0 + i * 60, gps: { lat: WEMBLEY.lat, lon: WEMBLEY.lon, speedKmh: 3 }, cadence: 80 }),
+				obs({ ts: t0 + i * 60, gps: { lat: ASHVALE.lat, lon: ASHVALE.lon, speedKmh: 3 }, cadence: 80 }),
 			);
 			states.push(state("walking"));
 		}
-		// 5-14: train Wembley → Green Park (Jubilee)
+		// 5-14: train Ashvale → Farvale (Jubilee)
 		for (let i = 5; i < 15; i++) {
 			observations.push(obs({ ts: t0 + i * 60, gps: null }));
 			states.push(state("train", "Jubilee Line"));
 		}
-		// 15-17: walking near Green Park
+		// 15-17: walking near Farvale
 		for (let i = 15; i < 18; i++) {
 			observations.push(
-				obs({ ts: t0 + i * 60, gps: { lat: GREEN_PARK.lat, lon: GREEN_PARK.lon, speedKmh: 4 }, cadence: 90 }),
+				obs({ ts: t0 + i * 60, gps: { lat: FARVALE.lat, lon: FARVALE.lon, speedKmh: 4 }, cadence: 90 }),
 			);
 			states.push(state("walking"));
 		}
-		// 18-20: walking outside Green Park (exit)
+		// 18-20: walking outside Farvale (exit)
 		for (let i = 18; i < 21; i++) {
 			observations.push(
 				obs({ ts: t0 + i * 60, gps: { lat: OUTSIDE.lat, lon: OUTSIDE.lon, speedKmh: 5 }, cadence: 100 }),
@@ -152,24 +152,24 @@ describe("assembleTubeJourneys", () => {
 				startMin: 5,
 				endMin: 14,
 				line: "Jubilee Line",
-				boardStationId: "wembley",
+				boardStationId: "ashvale",
 				alightStationId: "green",
-				boardStationName: "Wembley Park",
-				alightStationName: "Green Park",
+				boardStationName: "Ashvale",
+				alightStationName: "Farvale",
 			},
 		];
 		const journeys = assembleTubeJourneys({ observations, states, routeGraph: graph, trainCandidates });
 		expect(journeys).toHaveLength(1);
 		const j = journeys[0];
-		expect(j.boardStationName).toBe("Wembley Park");
-		expect(j.alightStationName).toBe("Green Park");
+		expect(j.boardStationName).toBe("Ashvale");
+		expect(j.alightStationName).toBe("Farvale");
 		expect(j.lines).toEqual(["Jubilee Line"]);
 		expect(j.legs).toHaveLength(1);
 		expect(j.legs[0]).toMatchObject({
 			kind: "train",
 			line: "Jubilee Line",
-			boardStationName: "Wembley Park",
-			alightStationName: "Green Park",
+			boardStationName: "Ashvale",
+			alightStationName: "Farvale",
 		});
 	});
 
@@ -178,29 +178,29 @@ describe("assembleTubeJourneys", () => {
 		const t0 = 1_700_000_000;
 		const observations: Observation[] = [];
 		const states: State[] = [];
-		// 0-2: walking outside Wembley
+		// 0-2: walking outside Ashvale
 		for (let i = 0; i < 3; i++) {
 			observations.push(
 				obs({ ts: t0 + i * 60, gps: { lat: OUTSIDE.lat, lon: OUTSIDE.lon, speedKmh: 5 }, cadence: 100 }),
 			);
 			states.push(state("walking"));
 		}
-		// 3-12: train Wembley → Baker (Met)
+		// 3-12: train Ashvale → Carfax (Met)
 		for (let i = 3; i < 13; i++) {
 			observations.push(obs({ ts: t0 + i * 60, gps: null }));
 			states.push(state("train", "Metropolitan Line"));
 		}
-		// 13-15: walking AT Baker St station (cadence > 0, GPS at station)
+		// 13-15: walking AT Carfax station (cadence > 0, GPS at station)
 		for (let i = 13; i < 16; i++) {
-			observations.push(obs({ ts: t0 + i * 60, gps: { lat: BAKER.lat, lon: BAKER.lon, speedKmh: 3 }, cadence: 80 }));
+			observations.push(obs({ ts: t0 + i * 60, gps: { lat: CARFAX.lat, lon: CARFAX.lon, speedKmh: 3 }, cadence: 80 }));
 			states.push(state("walking"));
 		}
-		// 16-22: train Baker → Green (Jubilee)
+		// 16-22: train Carfax → Green (Jubilee)
 		for (let i = 16; i < 23; i++) {
 			observations.push(obs({ ts: t0 + i * 60, gps: null }));
 			states.push(state("train", "Jubilee Line"));
 		}
-		// 23-25: walking outside Green Park
+		// 23-25: walking outside Farvale
 		for (let i = 23; i < 26; i++) {
 			observations.push(
 				obs({ ts: t0 + i * 60, gps: { lat: OUTSIDE.lat, lon: OUTSIDE.lon, speedKmh: 5 }, cadence: 100 }),
@@ -212,33 +212,33 @@ describe("assembleTubeJourneys", () => {
 				startMin: 3,
 				endMin: 12,
 				line: "Metropolitan Line",
-				boardStationId: "wembley",
-				alightStationId: "baker",
-				boardStationName: "Wembley Park",
-				alightStationName: "Baker Street",
+				boardStationId: "ashvale",
+				alightStationId: "carfax",
+				boardStationName: "Ashvale",
+				alightStationName: "Carfax",
 			},
 			{
 				startMin: 16,
 				endMin: 22,
 				line: "Jubilee Line",
-				boardStationId: "baker",
+				boardStationId: "carfax",
 				alightStationId: "green",
-				boardStationName: "Baker Street",
-				alightStationName: "Green Park",
+				boardStationName: "Carfax",
+				alightStationName: "Farvale",
 			},
 		];
 		const journeys = assembleTubeJourneys({ observations, states, routeGraph: graph, trainCandidates });
 		expect(journeys).toHaveLength(1);
 		const j = journeys[0];
-		expect(j.boardStationName).toBe("Wembley Park");
-		expect(j.alightStationName).toBe("Green Park");
+		expect(j.boardStationName).toBe("Ashvale");
+		expect(j.alightStationName).toBe("Farvale");
 		expect(j.lines).toEqual(["Metropolitan Line", "Jubilee Line"]);
 		// Three legs: train, interchange walk, train.
 		expect(j.legs).toHaveLength(3);
 		expect(j.legs[0].kind).toBe("train");
 		expect((j.legs[0] as { line: string }).line).toBe("Metropolitan Line");
 		expect(j.legs[1].kind).toBe("interchangeWalk");
-		expect((j.legs[1] as { stationName?: string }).stationName).toBe("Baker Street");
+		expect((j.legs[1] as { stationName?: string }).stationName).toBe("Carfax");
 		expect(j.legs[2].kind).toBe("train");
 		expect((j.legs[2] as { line: string }).line).toBe("Jubilee Line");
 	});
@@ -277,19 +277,19 @@ describe("assembleTubeJourneys", () => {
 				startMin: 3,
 				endMin: 12,
 				line: "Jubilee Line",
-				boardStationId: "wembley",
-				alightStationId: "baker",
-				boardStationName: "Wembley Park",
-				alightStationName: "Baker Street",
+				boardStationId: "ashvale",
+				alightStationId: "carfax",
+				boardStationName: "Ashvale",
+				alightStationName: "Carfax",
 			},
 			{
 				startMin: 26,
 				endMin: 35,
 				line: "Jubilee Line",
-				boardStationId: "baker",
+				boardStationId: "carfax",
 				alightStationId: "green",
-				boardStationName: "Baker Street",
-				alightStationName: "Green Park",
+				boardStationName: "Carfax",
+				alightStationName: "Farvale",
 			},
 		];
 		const journeys = assembleTubeJourneys({ observations, states, routeGraph: graph, trainCandidates });
@@ -308,7 +308,7 @@ describe("assembleTubeJourneys", () => {
 		}
 		// 10-12: walking AT station (3 minutes, cadence 80 spm = 240 steps)
 		for (let i = 10; i < 13; i++) {
-			observations.push(obs({ ts: t0 + i * 60, gps: { lat: BAKER.lat, lon: BAKER.lon, speedKmh: 3 }, cadence: 80 }));
+			observations.push(obs({ ts: t0 + i * 60, gps: { lat: CARFAX.lat, lon: CARFAX.lon, speedKmh: 3 }, cadence: 80 }));
 			states.push(state("walking"));
 		}
 		// 13-19: another train ride
@@ -321,19 +321,19 @@ describe("assembleTubeJourneys", () => {
 				startMin: 0,
 				endMin: 9,
 				line: "Metropolitan Line",
-				boardStationId: "wembley",
-				alightStationId: "baker",
-				boardStationName: "Wembley Park",
-				alightStationName: "Baker Street",
+				boardStationId: "ashvale",
+				alightStationId: "carfax",
+				boardStationName: "Ashvale",
+				alightStationName: "Carfax",
 			},
 			{
 				startMin: 13,
 				endMin: 19,
 				line: "Jubilee Line",
-				boardStationId: "baker",
+				boardStationId: "carfax",
 				alightStationId: "green",
-				boardStationName: "Baker Street",
-				alightStationName: "Green Park",
+				boardStationName: "Carfax",
+				alightStationName: "Farvale",
 			},
 		];
 		const journeys = assembleTubeJourneys({ observations, states, routeGraph: graph, trainCandidates });

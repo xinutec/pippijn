@@ -2,8 +2,8 @@
  * Tests for the rail-corridor factor — discriminates train from
  * driving via the per-segment mean fix-distance to rails vs roads.
  *
- * The motivating real case is 2026-05-22 13:16-13:26 (Wembley Park →
- * Baker Street on the Jubilee Line), where every fix sits 0-6 m from
+ * The motivating real case is 2026-05-22 13:16-13:26 (Ashvale →
+ * Carfax on the Jubilee Line), where every fix sits 0-6 m from
  * a rail-only OSM way and 25-90 m from the nearest drivable road.
  * Without this factor, the cascade picked "Driving on Middlefield"
  * for the first half of the journey.

@@ -28,20 +28,20 @@ describe("mergeAdjacentSameRouteTrains", () => {
 
 	it("merges two adjacent same-route trains, keeping the line-named label", () => {
 		const segs = [
-			train(0, 540, "Victoria → King's Cross St Pancras · Victoria Line"),
-			train(540, 1320, "Victoria → King's Cross St Pancras"),
+			train(0, 540, "Victoria → Elmford Central · Victoria Line"),
+			train(540, 1320, "Victoria → Elmford Central"),
 		];
 		const out = mergeAdjacentSameRouteTrains(segs);
 		expect(out).toHaveLength(1);
 		expect(out[0].startTs).toBe(0);
 		expect(out[0].endTs).toBe(1320);
-		expect(out[0].wayName).toBe("Victoria → King's Cross St Pancras · Victoria Line");
+		expect(out[0].wayName).toBe("Victoria → Elmford Central · Victoria Line");
 	});
 
 	it("does NOT merge two different routes", () => {
 		const segs = [
-			train(0, 540, "Victoria → King's Cross St Pancras · Victoria Line"),
-			train(540, 1320, "King's Cross St Pancras → Wembley Park · Metropolitan Line"),
+			train(0, 540, "Victoria → Elmford Central · Victoria Line"),
+			train(540, 1320, "Elmford Central → Ashvale · Metropolitan Line"),
 		];
 		expect(mergeAdjacentSameRouteTrains(segs)).toHaveLength(2);
 	});
@@ -49,9 +49,9 @@ describe("mergeAdjacentSameRouteTrains", () => {
 	it("does not merge across a non-train segment between two same-route trains", () => {
 		const walk = { ...train(540, 600, ""), mode: "walking", wayName: undefined } as EnrichedSegment;
 		const segs = [
-			train(0, 540, "Victoria → King's Cross St Pancras · Victoria Line"),
+			train(0, 540, "Victoria → Elmford Central · Victoria Line"),
 			walk,
-			train(600, 1320, "Victoria → King's Cross St Pancras"),
+			train(600, 1320, "Victoria → Elmford Central"),
 		];
 		expect(mergeAdjacentSameRouteTrains(segs)).toHaveLength(3);
 	});
@@ -78,19 +78,19 @@ describe("expandTubeLineNames", () => {
 	});
 
 	it("resolves the Jubilee across direction-tagged stations (06-12 morning)", () => {
-		const wembley = new Set(
+		const ashvale = new Set(
 			["Metropolitan Line", "Jubilee Line", "London–Aylesbury Line"].flatMap(expandTubeLineNames),
 		);
-		const greenPark = new Set(
+		const farvale = new Set(
 			["Jubilee Line Eastbound", "Victoria Line", "Piccadilly Line"].flatMap(expandTubeLineNames),
 		);
-		expect([...wembley].filter((l) => greenPark.has(l))).toEqual(["Jubilee Line"]);
+		expect([...ashvale].filter((l) => farvale.has(l))).toEqual(["Jubilee Line"]);
 	});
 
 	it("resolves the Metropolitan across a combined-name station (06-12 return)", () => {
-		// King's Cross tags the Met inside a combined relation; Wembley Park
+		// Elmford tags the Met inside a combined relation; Ashvale
 		// tags it plain. Expansion makes the single common line surface.
-		const kingsCross = new Set(
+		const elmford = new Set(
 			[
 				"Circle, Hammersmith & City and Metropolitan Lines",
 				"Victoria Line",
@@ -99,10 +99,10 @@ describe("expandTubeLineNames", () => {
 				"Thameslink",
 			].flatMap(expandTubeLineNames),
 		);
-		const wembley = new Set(
+		const ashvale = new Set(
 			["Metropolitan Line", "Jubilee Line", "London–Aylesbury Line"].flatMap(expandTubeLineNames),
 		);
-		expect([...kingsCross].filter((l) => wembley.has(l))).toEqual(["Metropolitan Line"]);
+		expect([...elmford].filter((l) => ashvale.has(l))).toEqual(["Metropolitan Line"]);
 	});
 });
 

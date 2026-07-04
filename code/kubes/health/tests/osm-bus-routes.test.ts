@@ -48,7 +48,7 @@ describe("extractBusRoutes", () => {
 	it("parses a route's stops in member order with names joined from nodes", () => {
 		const data = {
 			elements: [
-				node(101, 51.5, -0.14, "Green Park"),
+				node(101, 51.5, -0.14, "Farvale"),
 				node(102, 51.5, -0.13, "Hyde Park Corner"),
 				node(103, 51.5, -0.12, "Victoria"),
 				busRelation(9, "38", "Clapton Pond – Victoria", [{ ref: 101 }, { ref: 102 }, { ref: 103 }]),
@@ -59,7 +59,7 @@ describe("extractBusRoutes", () => {
 		expect(routes[0].routeRef).toBe("38");
 		expect(routes[0].routeName).toBe("Clapton Pond – Victoria");
 		expect(routes[0].osmRelationId).toBe(9);
-		expect(routes[0].stops.map((s) => s.name)).toEqual(["Green Park", "Hyde Park Corner", "Victoria"]);
+		expect(routes[0].stops.map((s) => s.name)).toEqual(["Farvale", "Hyde Park Corner", "Victoria"]);
 		expect(routes[0].stops.map((s) => s.seq)).toEqual([0, 1, 2]);
 	});
 

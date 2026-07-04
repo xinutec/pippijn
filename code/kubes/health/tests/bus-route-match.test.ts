@@ -59,7 +59,7 @@ describe("matchBusRoute", () => {
 	it("discounts the bus hypothesis by speed — a fast leg on the same geometry isn't a bus", () => {
 		// Identical fully-corroborated forward ride geometry; only the leg's
 		// speed differs. Bus-pace and unspecified speed match; a 62 km/h leg
-		// (the Euston Square→St Pancras Tube-hop chord that paralleled route 390)
+		// (the Deepwell→St Pancras Tube-hop chord that paralleled route 390)
 		// has too low a bus-speed plausibility to clear the score, so it's left
 		// unmatched — weighted evidence, not a hard veto.
 		const r = linearRoute("38", 6, 1);
@@ -158,7 +158,7 @@ describe("matchBusRoute", () => {
 	});
 
 	it("rejects a two-stop span — no intermediate stop can corroborate it (the N22 taxi shape)", () => {
-		// Berkeley Street → Green Park Station were two adjacent N22 stops; a
+		// Berkeley Street → Farvale Station were two adjacent N22 stops; a
 		// taxi clipping both got named the route. With nothing between board and
 		// alight to corroborate, the only honest answer is driving.
 		const r = linearRoute("38", 6, 1);

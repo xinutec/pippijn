@@ -18,11 +18,11 @@ const MINIMAL_FOUR_COL = `# 2026-05-22 — ground truth
 | -------------- | ----------------------------------------------------------- | ---------- | ----------------------------------------------------------- |
 | 00:05 – 08:58  | sleeping @ Home                                             | correct    |                                                             |
 | 09:08 – 13:02  | stationary @ Home                                           | correct    |                                                             |
-| 13:02 – 13:16  | walking                                                     | correct    | walking to Wembley Park tube                                |
-| 13:16 – 13:26  | train Wembley Park → Baker Street                           | partial    | Should be labelled "Metropolitan Line"                      |
-| 13:26 – 13:35  | train Baker Street → Green Park · Jubilee Line              | correct    | Two-leg shape was right                                     |
+| 13:02 – 13:16  | walking                                                     | correct    | walking to Ashvale tube                                |
+| 13:16 – 13:26  | train Ashvale → Carfax                           | partial    | Should be labelled "Metropolitan Line"                      |
+| 13:26 – 13:35  | train Carfax → Farvale · Jubilee Line              | correct    | Two-leg shape was right                                     |
 | 19:55 – 20:04  | walking on Pentonville Road                                 | correct    |                                                             |
-| 20:05 – 20:12  | driving on Euston Underpass                                 | **wrong**  | This is the Met Line tube to Finchley Road, not driving     |
+| 20:05 – 20:12  | driving on Deepwell Underpass                                 | **wrong**  | This is the Met Line tube to Brookden, not driving     |
 | 20:46 – 23:59  | stationary @ Royal Free Hospital                            | correct    |                                                             |
 `;
 
@@ -59,7 +59,7 @@ describe("parseGroundTruth", () => {
 
 	it("normalises **wrong** to wrong", () => {
 		const out = parseGroundTruth(MINIMAL_FOUR_COL, "2026-05-22", "Europe/London");
-		const wrongRow = out.rows.find((r) => r.blessedText.includes("Euston Underpass"));
+		const wrongRow = out.rows.find((r) => r.blessedText.includes("Deepwell Underpass"));
 		expect(wrongRow?.status).toBe("wrong");
 		expect(wrongRow?.correctVersionText).toContain("Met Line");
 	});
@@ -128,16 +128,16 @@ describe("parseGroundTruth", () => {
 		expect(byWindow.get("13:02 – 13:16")?.place).toBeNull();
 
 		expect(byWindow.get("20:05 – 20:12")?.mode).toBe("driving");
-		expect(byWindow.get("20:05 – 20:12")?.wayName).toBe("Euston Underpass");
+		expect(byWindow.get("20:05 – 20:12")?.wayName).toBe("Deepwell Underpass");
 
 		const trainNoLine = byWindow.get("13:16 – 13:26");
 		expect(trainNoLine?.mode).toBe("train");
-		expect(trainNoLine?.trainFromTo).toEqual({ from: "Wembley Park", to: "Baker Street" });
+		expect(trainNoLine?.trainFromTo).toEqual({ from: "Ashvale", to: "Carfax" });
 		expect(trainNoLine?.lineName).toBeNull();
 
 		const trainWithLine = byWindow.get("13:26 – 13:35");
 		expect(trainWithLine?.mode).toBe("train");
-		expect(trainWithLine?.trainFromTo).toEqual({ from: "Baker Street", to: "Green Park" });
+		expect(trainWithLine?.trainFromTo).toEqual({ from: "Carfax", to: "Farvale" });
 		expect(trainWithLine?.lineName).toBe("Jubilee Line");
 	});
 

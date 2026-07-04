@@ -28,11 +28,11 @@ describe("RecordingOsmAdapter", () => {
 
 	it("records all five primitives", async () => {
 		const inner = mockOsmAdapter({
-			nearbyStations: () => [{ name: "King's Cross", subtype: "rail", distanceM: 8 }],
+			nearbyStations: () => [{ name: "Elmford", subtype: "rail", distanceM: 8 }],
 			nearbyLandmarks: () => [{ name: "British Library", type: "amenity", subtype: "library", distanceM: 15 }],
 			linesAtPoint: () => new Set(["Northern Line", "Victoria Line"]),
 			reverseGeocode: () => ({
-				displayName: "King's Cross, London",
+				displayName: "Elmford, London",
 				type: "station",
 				category: "railway",
 				address: { city: "Greater London" },
@@ -95,7 +95,7 @@ describe("FixtureOsmAdapter — exact-key replay", () => {
 	});
 
 	it("rebuilds the Set<string> on linesAtPoint replay", async () => {
-		const inner = mockOsmAdapter({ linesAtPoint: () => new Set(["Jubilee Line", "Bakerloo Line"]) });
+		const inner = mockOsmAdapter({ linesAtPoint: () => new Set(["Jubilee Line", "Carfaxloo Line"]) });
 		const rec = new RecordingOsmAdapter(inner);
 		await rec.linesAtPoint(51.51, -0.14, 100);
 
@@ -103,7 +103,7 @@ describe("FixtureOsmAdapter — exact-key replay", () => {
 		const replayed = await fixture.linesAtPoint(51.51, -0.14, 100);
 
 		expect(replayed).toBeInstanceOf(Set);
-		expect([...replayed].sort()).toEqual(["Bakerloo Line", "Jubilee Line"]);
+		expect([...replayed].sort()).toEqual(["Carfaxloo Line", "Jubilee Line"]);
 	});
 
 	it("replays a captured null reverseGeocode result (over open water, etc.)", async () => {

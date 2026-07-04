@@ -46,12 +46,12 @@ function obs(over: Partial<Observation> = {}): Observation {
 
 const KX_LAT = 51.5308;
 const KX_LON = -0.1238;
-const FINCHLEY_LAT = 51.5474;
-const FINCHLEY_LON = -0.1809;
+const BROOKDEN_LAT = 51.5474;
+const BROOKDEN_LON = -0.1809;
 
 const MET_KX = "LINESTRING(-0.124 51.530, -0.1238 51.5308, -0.123 51.531)";
-const MET_FINCHLEY = "LINESTRING(-0.181 51.547, -0.1809 51.5474, -0.180 51.548)";
-const MET_SURFACE = "LINESTRING(-0.28 51.56, -0.2796 51.5638, -0.279 51.564)"; // Wembley Park surface section
+const MET_BROOKDEN = "LINESTRING(-0.181 51.547, -0.1809 51.5474, -0.180 51.548)";
+const MET_SURFACE = "LINESTRING(-0.28 51.56, -0.2796 51.5638, -0.279 51.564)"; // Ashvale surface section
 
 describe("buildRouteRailEvidence", () => {
 	it("returns 0 for non-train states", () => {
@@ -71,7 +71,7 @@ describe("buildRouteRailEvidence", () => {
 		const graph = buildRouteGraph(
 			[
 				line({ osm_id: 1n, name: "Metropolitan Line", subtype: "subway", geom: MET_KX }),
-				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "subway", geom: MET_FINCHLEY }),
+				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "subway", geom: MET_BROOKDEN }),
 			],
 			[],
 		);
@@ -81,13 +81,13 @@ describe("buildRouteRailEvidence", () => {
 			ts,
 			gps: { lat: KX_LAT, lon: KX_LON, speedKmh: 0 },
 			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
-			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+			nextGpsFix: { ts: ts + 600, lat: BROOKDEN_LAT, lon: BROOKDEN_LON },
 		});
 		expect(fn(train("Metropolitan Line"), o)).toBe(0);
 	});
 
 	it("boosts train @ L when underground edges of L bookend both fixes AND a path connects them on L (Met Line tube case)", () => {
-		// Connected chain of Met edges KX → mid → Finchley. Each edge
+		// Connected chain of Met edges KX → mid → Brookden. Each edge
 		// shares an endpoint node with the next, so the route graph's
 		// per-line connectivity check passes.
 		const graph = buildRouteGraph(
@@ -118,7 +118,7 @@ describe("buildRouteRailEvidence", () => {
 		const o = obs({
 			ts,
 			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
-			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+			nextGpsFix: { ts: ts + 600, lat: BROOKDEN_LAT, lon: BROOKDEN_LON },
 		});
 		expect(fn(train("Metropolitan Line"), o)).toBeGreaterThan(2);
 	});
@@ -128,7 +128,7 @@ describe("buildRouteRailEvidence", () => {
 			[
 				// Same Met Line geometry but on the surface (no subway subtype, no tunnel).
 				line({ osm_id: 1n, name: "Metropolitan Line", subtype: "rail", geom: MET_KX }),
-				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "rail", geom: MET_FINCHLEY }),
+				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "rail", geom: MET_BROOKDEN }),
 			],
 			[],
 		);
@@ -137,7 +137,7 @@ describe("buildRouteRailEvidence", () => {
 		const o = obs({
 			ts,
 			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
-			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+			nextGpsFix: { ts: ts + 600, lat: BROOKDEN_LAT, lon: BROOKDEN_LON },
 		});
 		expect(fn(train("Metropolitan Line"), o)).toBe(0);
 	});
@@ -173,7 +173,7 @@ describe("buildRouteRailEvidence", () => {
 		const o = obs({
 			ts,
 			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
-			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+			nextGpsFix: { ts: ts + 600, lat: BROOKDEN_LAT, lon: BROOKDEN_LON },
 		});
 		expect(fn(train("Metropolitan Line"), o)).toBeGreaterThan(0);
 		expect(fn(train("Victoria Line"), o)).toBe(0); // no Victoria edges in graph
@@ -182,7 +182,7 @@ describe("buildRouteRailEvidence", () => {
 	it("does NOT boost when only ONE bookend is near underground L (one-sided evidence)", () => {
 		const graph = buildRouteGraph(
 			[
-				// Only KX side has Met Line underground; Finchley side has no Met edges.
+				// Only KX side has Met Line underground; Brookden side has no Met edges.
 				line({ osm_id: 1n, name: "Metropolitan Line", subtype: "subway", geom: MET_KX }),
 			],
 			[],
@@ -192,7 +192,7 @@ describe("buildRouteRailEvidence", () => {
 		const o = obs({
 			ts,
 			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
-			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+			nextGpsFix: { ts: ts + 600, lat: BROOKDEN_LAT, lon: BROOKDEN_LON },
 		});
 		expect(fn(train("Metropolitan Line"), o)).toBe(0);
 	});
@@ -201,7 +201,7 @@ describe("buildRouteRailEvidence", () => {
 		const graph = buildRouteGraph(
 			[
 				line({ osm_id: 1n, name: "Metropolitan Line", subtype: "subway", geom: MET_KX }),
-				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "subway", geom: MET_FINCHLEY }),
+				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "subway", geom: MET_BROOKDEN }),
 			],
 			[],
 		);
@@ -214,7 +214,7 @@ describe("buildRouteRailEvidence", () => {
 		const o = obs({
 			ts,
 			prevGpsFix: { ts: ts - 5400, lat: KX_LAT, lon: KX_LON }, // 90 min ago
-			nextGpsFix: { ts: ts + 5400, lat: FINCHLEY_LAT, lon: FINCHLEY_LON }, // 90 min ahead
+			nextGpsFix: { ts: ts + 5400, lat: BROOKDEN_LAT, lon: BROOKDEN_LON }, // 90 min ahead
 		});
 		expect(fn(train("Metropolitan Line"), o)).toBe(0);
 	});
@@ -223,7 +223,7 @@ describe("buildRouteRailEvidence", () => {
 		const graph = buildRouteGraph(
 			[
 				line({ osm_id: 1n, name: "Metropolitan Line", subtype: "subway", geom: MET_KX }),
-				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "subway", geom: MET_FINCHLEY }),
+				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "subway", geom: MET_BROOKDEN }),
 			],
 			[],
 		);
@@ -242,7 +242,7 @@ describe("buildRouteRailEvidence", () => {
 		const graph = buildRouteGraph(
 			[
 				line({ osm_id: 1n, name: "East Coast Main Line", subtype: "rail", geom: MET_KX }),
-				line({ osm_id: 2n, name: "East Coast Main Line", subtype: "rail", geom: MET_FINCHLEY }),
+				line({ osm_id: 2n, name: "East Coast Main Line", subtype: "rail", geom: MET_BROOKDEN }),
 			],
 			[],
 		);
@@ -251,7 +251,7 @@ describe("buildRouteRailEvidence", () => {
 		const o = obs({
 			ts,
 			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
-			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+			nextGpsFix: { ts: ts + 600, lat: BROOKDEN_LAT, lon: BROOKDEN_LON },
 		});
 		// Surface-only evidence does not boost — train @ surface needs
 		// GPS-observed speed / direction evidence to win, not gap-based.
@@ -259,7 +259,7 @@ describe("buildRouteRailEvidence", () => {
 	});
 
 	it("does NOT boost when the bookend underground edges of L are NOT graph-connected on L's subgraph", () => {
-		// KX and Finchley sides BOTH have Met edges underground, but
+		// KX and Brookden sides BOTH have Met edges underground, but
 		// the two are not in the same Met-subgraph connected component
 		// in this synthetic graph (no edge endpoints align). The boost
 		// should NOT fire — without connectivity, Met has no path
@@ -287,13 +287,13 @@ describe("buildRouteRailEvidence", () => {
 		const o = obs({
 			ts,
 			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
-			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+			nextGpsFix: { ts: ts + 600, lat: BROOKDEN_LAT, lon: BROOKDEN_LON },
 		});
 		expect(fn(train("Metropolitan Line"), o)).toBe(0);
 	});
 
 	it("DOES boost when the bookend underground edges of L are graph-connected via a chain", () => {
-		// Chain of Met Line edges KX → mid → Finchley, each sharing an
+		// Chain of Met Line edges KX → mid → Brookden, each sharing an
 		// endpoint node with the next. Connectivity check passes.
 		const graph = buildRouteGraph(
 			[
@@ -323,7 +323,7 @@ describe("buildRouteRailEvidence", () => {
 		const o = obs({
 			ts,
 			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
-			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+			nextGpsFix: { ts: ts + 600, lat: BROOKDEN_LAT, lon: BROOKDEN_LON },
 		});
 		expect(fn(train("Metropolitan Line"), o)).toBeGreaterThan(2);
 	});
@@ -335,7 +335,7 @@ describe("buildRouteRailEvidence", () => {
 		const graph = buildRouteGraph(
 			[
 				line({ osm_id: 1n, name: "Metropolitan Line", subtype: "subway", geom: MET_KX }),
-				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "subway", geom: MET_FINCHLEY }),
+				line({ osm_id: 2n, name: "Metropolitan Line", subtype: "subway", geom: MET_BROOKDEN }),
 			],
 			[],
 		);
@@ -344,7 +344,7 @@ describe("buildRouteRailEvidence", () => {
 		const o = obs({
 			ts,
 			prevGpsFix: { ts: ts - 180, lat: KX_LAT, lon: KX_LON },
-			nextGpsFix: { ts: ts + 600, lat: FINCHLEY_LAT, lon: FINCHLEY_LON },
+			nextGpsFix: { ts: ts + 600, lat: BROOKDEN_LAT, lon: BROOKDEN_LON },
 		});
 		const a = fn(train("Metropolitan Line"), o);
 		const b = fn(train("Metropolitan Line"), o);

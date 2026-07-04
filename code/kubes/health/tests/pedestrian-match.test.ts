@@ -68,7 +68,7 @@ describe("matchWalkSegment", () => {
 		// Two footways with different names sharing the junction node at (0,200):
 		// the road matcher's turn-prior would resist the name change; the walker
 		// changes freely.
-		const a = way(1, "Bridge Road", [
+		const a = way(1, "Mill Road", [
 			[0, 0],
 			[0, 200],
 		]);

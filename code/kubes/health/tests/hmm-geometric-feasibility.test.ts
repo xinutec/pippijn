@@ -13,8 +13,8 @@ import type { State } from "../src/hmm/state-space.js";
  */
 
 const PLACE_COORDS = new Map<number, { lat: number; lon: number }>([
-	[1, { lat: 51.557, lon: -0.281 }], // "Home" — Wembley
-	[2, { lat: 51.531, lon: -0.119 }], // "Pizza Union" — King's Cross area
+	[1, { lat: 51.557, lon: -0.281 }], // "Home" — Ashvale
+	[2, { lat: 51.531, lon: -0.119 }], // "Pizza Union" — Elmford area
 ]);
 
 function stationary(placeId: number | null): State {
@@ -67,8 +67,8 @@ describe("buildGeometricFeasibility", () => {
 
 	it("penalises implied teleport that exceeds plausible bridging speed", () => {
 		const fn = buildGeometricFeasibility({ placeCoords: PLACE_COORDS });
-		// User at Pizza Union (King's Cross) 6 min ago; now claiming
-		// stat@Home (Wembley, ~10 km away). Implied ~100 km/h.
+		// User at Pizza Union (Elmford) 6 min ago; now claiming
+		// stat@Home (Ashvale, ~10 km away). Implied ~100 km/h.
 		const ts = 1_700_000_000;
 		const o = obs({
 			ts,

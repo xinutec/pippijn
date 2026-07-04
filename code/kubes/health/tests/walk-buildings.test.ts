@@ -7,12 +7,12 @@ import type { BuildingFootprint } from "../src/geo/osm-local.js";
 /**
  * `buildingCrossingM` — the headline referee metric the off-walkable proxy is
  * blind to. It measures how much of the DRAWN line's length lies inside a
- * building footprint. Yesterday's snapped Wembley line cut a diagonal chord
+ * building footprint. Yesterday's snapped Ashvale line cut a diagonal chord
  * across a building block and still scored well on off-walkable-p90 (a chord on a
  * way centreline is "near a way"); this metric is what makes that defect visible.
  */
 
-// A ~40 m square building near Wembley (metres → degrees at this latitude).
+// A ~40 m square building near Ashvale (metres → degrees at this latitude).
 const LAT = 51.563;
 const LON = -0.281;
 const dLat = (m: number) => m / 111_320;
@@ -81,7 +81,7 @@ describe("offPathBuildingCrossingM", () => {
 
 	it("does not count a crossing that follows a mapped through-building way (arcade/concourse)", () => {
 		// A footway runs straight through the building along the chord — OSM says
-		// this is walkable (the Bridge Road arcade / King's Cross concourse case).
+		// this is walkable (the Mill Road arcade / Elmford concourse case).
 		const passage: RoadGeometry = {
 			ways: [
 				{

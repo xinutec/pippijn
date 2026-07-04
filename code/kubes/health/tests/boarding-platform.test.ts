@@ -204,7 +204,7 @@ describe("anchorTrainBoardingToWalkedStation", () => {
 	});
 
 	it("leaves a train→sliver-walk→train ride untouched (reconstruction artifact, not a walk-to-station)", async () => {
-		// 2026-06-24 Wembley Park → Euston Square: one Metropolitan-line ride the
+		// 2026-06-24 Ashvale → Deepwell: one Metropolitan-line ride the
 		// underground reconstruction shattered into two train legs with a sliver
 		// "walk" between. The walk is bracketed by trains, so its boarding hop is
 		// the SAME ride continuing. Re-anchoring leg 2 to a station scanned from the

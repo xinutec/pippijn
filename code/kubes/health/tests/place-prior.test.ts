@@ -210,9 +210,9 @@ describe("pickBestPlace", () => {
 		expect(pickBestPlace([oneOff()], seg200mEast.lat, seg200mEast.lon, { stayHourProfile: daytimeStay })).toBeNull();
 	});
 
-	it("a one-off place does not capture a stay ~115 m away (2026-06-18 Wembley Park)", () => {
+	it("a one-off place does not capture a stay ~115 m away (2026-06-18 Ashvale)", () => {
 		// A place seen on a single day (15 Feb) claimed a stop 118 m away and
-		// stamped its mined "Selekt Chicken" label on it. A one-off's reach
+		// stamped its mined "Corner Cafe" label on it. A one-off's reach
 		// must stay well under ~100 m — the scale at which a distinct
 		// neighbouring place begins — so the stop falls through to a fresh OSM
 		// lookup at its own centroid.

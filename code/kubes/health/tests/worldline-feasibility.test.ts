@@ -31,41 +31,38 @@ function train(board: string, alight: string, line?: string, ts = 0): Feasibilit
 
 describe("checkWorldlineFeasibility", () => {
 	it("passes a clean interchange — alight == next board", () => {
-		const legs = [
-			train("Wembley Park", "Baker Street", "Metropolitan Line", 0),
-			train("Baker Street", "Green Park", "Jubilee Line", 600),
-		];
+		const legs = [train("Ashvale", "Carfax", "Metropolitan Line", 0), train("Carfax", "Farvale", "Jubilee Line", 600)];
 		expect(checkWorldlineFeasibility(legs)).toEqual([]);
 	});
 
 	it("flags the 2026-06-22 bug: adjacent train legs that do NOT share a station", () => {
-		// One Met ride mis-cut into two legs both alighting at Euston Square,
-		// the second spuriously boarding mid-route at Baker Street.
+		// One Met ride mis-cut into two legs both alighting at Deepwell,
+		// the second spuriously boarding mid-route at Carfax.
 		const legs = [
-			train("Wembley Park", "Euston Square", "Metropolitan Line", 0),
-			train("Baker Street", "Euston Square", "Circle, Hammersmith & City and Metropolitan Lines", 600),
+			train("Ashvale", "Deepwell", "Metropolitan Line", 0),
+			train("Carfax", "Deepwell", "Circle, Hammersmith & City and Metropolitan Lines", 600),
 		];
 		const v = checkWorldlineFeasibility(legs);
 		expect(v).toHaveLength(1);
 		expect(v[0].kind).toBe("rail-discontinuity");
-		expect(v[0].detail).toContain("Baker Street");
-		expect(v[0].detail).toContain("Euston Square");
+		expect(v[0].detail).toContain("Carfax");
+		expect(v[0].detail).toContain("Deepwell");
 	});
 
 	it("allows a different boarding station when a walking leg relocates the user between trains", () => {
 		const legs = [
-			train("Wembley Park", "Euston Square", "Metropolitan Line", 0),
-			leg({ mode: "walking", wayName: "Euston Road", startTs: 600, endTs: 900 }),
-			train("King's Cross", "Finsbury Park", "Victoria Line", 900),
+			train("Ashvale", "Deepwell", "Metropolitan Line", 0),
+			leg({ mode: "walking", wayName: "Deepwell Road", startTs: 600, endTs: 900 }),
+			train("Elmford", "Finsbury Park", "Victoria Line", 900),
 		];
 		expect(checkWorldlineFeasibility(legs)).toEqual([]);
 	});
 
 	it("flags trains separated only by a stationary leg (a sit does not relocate you between stations)", () => {
 		const legs = [
-			train("Wembley Park", "Euston Square", "Metropolitan Line", 0),
+			train("Ashvale", "Deepwell", "Metropolitan Line", 0),
 			leg({ mode: "stationary", startTs: 600, endTs: 780 }),
-			train("Baker Street", "Green Park", "Jubilee Line", 780),
+			train("Carfax", "Farvale", "Jubilee Line", 780),
 		];
 		const v = checkWorldlineFeasibility(legs);
 		expect(v).toHaveLength(1);
@@ -74,15 +71,15 @@ describe("checkWorldlineFeasibility", () => {
 
 	it("allows trains separated by a stationary leg when they DO share the station (platform wait)", () => {
 		const legs = [
-			train("Wembley Park", "Baker Street", "Metropolitan Line", 0),
+			train("Ashvale", "Carfax", "Metropolitan Line", 0),
 			leg({ mode: "stationary", startTs: 600, endTs: 780 }),
-			train("Baker Street", "Green Park", "Jubilee Line", 780),
+			train("Carfax", "Farvale", "Jubilee Line", 780),
 		];
 		expect(checkWorldlineFeasibility(legs)).toEqual([]);
 	});
 
 	it("flags a degenerate train leg that boards and alights at the same station", () => {
-		const legs = [train("Euston Square", "Euston Square", "Metropolitan Line", 0)];
+		const legs = [train("Deepwell", "Deepwell", "Metropolitan Line", 0)];
 		const v = checkWorldlineFeasibility(legs);
 		expect(v).toHaveLength(1);
 		expect(v[0].kind).toBe("degenerate-train-leg");
@@ -93,9 +90,9 @@ describe("checkWorldlineFeasibility", () => {
 		// station pair to chain on — we cannot assert, so we must not fabricate a
 		// violation.
 		const legs = [
-			train("Wembley Park", "Euston Square", "Metropolitan Line", 0),
+			train("Ashvale", "Deepwell", "Metropolitan Line", 0),
 			leg({ mode: "train", wayName: "Hammersmith & City Line", startTs: 600, endTs: 660 }),
-			train("Baker Street", "Green Park", "Jubilee Line", 660),
+			train("Carfax", "Farvale", "Jubilee Line", 660),
 		];
 		expect(checkWorldlineFeasibility(legs)).toEqual([]);
 	});

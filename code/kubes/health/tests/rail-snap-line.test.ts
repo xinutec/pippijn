@@ -8,11 +8,11 @@ import { type RailGeometry, snapTrainSegmentOnLine } from "../src/geo/rail-snap.
  * disambiguator against parallel routes.
  */
 
-// A synthetic two-line network sharing endpoints A (Baker St) and C (Wembley
+// A synthetic two-line network sharing endpoints A (Carfax) and C (Ashvale
 // Park): the Metropolitan line runs A→B→C, a parallel Jubilee line A→D→C.
-const A: [number, number] = [51.5226, -0.1571]; // Baker Street
+const A: [number, number] = [51.5226, -0.1571]; // Carfax
 const B: [number, number] = [51.55, -0.2]; // Met intermediate
-const C: [number, number] = [51.563, -0.279]; // Wembley Park
+const C: [number, number] = [51.563, -0.279]; // Ashvale
 const D: [number, number] = [51.53, -0.2]; // Jubilee intermediate (parallel)
 
 const geo: RailGeometry = {
@@ -22,15 +22,15 @@ const geo: RailGeometry = {
 	],
 	wayRoutes: [],
 	stations: [
-		{ name: "Baker Street", subtype: "station", lat: A[0], lon: A[1] },
-		{ name: "Wembley Park", subtype: "station", lat: C[0], lon: C[1] },
+		{ name: "Carfax", subtype: "station", lat: A[0], lon: A[1] },
+		{ name: "Ashvale", subtype: "station", lat: C[0], lon: C[1] },
 	],
 };
 
 describe("snapTrainSegmentOnLine", () => {
 	it("routes a known-line leg over ONLY that line — no fix cloud, disambiguates parallel routes", () => {
 		const r = snapTrainSegmentOnLine(
-			{ startTs: 1000, endTs: 1600, wayName: "Baker Street → Wembley Park · Metropolitan Line" },
+			{ startTs: 1000, endTs: 1600, wayName: "Carfax → Ashvale · Metropolitan Line" },
 			geo,
 		);
 		expect(r).not.toBeNull();
@@ -42,12 +42,12 @@ describe("snapTrainSegmentOnLine", () => {
 	});
 
 	it("returns null when the label carries no line (can't line-restrict)", () => {
-		expect(snapTrainSegmentOnLine({ startTs: 0, endTs: 1, wayName: "Baker Street → Wembley Park" }, geo)).toBeNull();
+		expect(snapTrainSegmentOnLine({ startTs: 0, endTs: 1, wayName: "Carfax → Ashvale" }, geo)).toBeNull();
 	});
 
 	it("returns null when a station name is unknown to the geometry", () => {
 		expect(
-			snapTrainSegmentOnLine({ startTs: 0, endTs: 1, wayName: "Nowhere → Wembley Park · Metropolitan Line" }, geo),
+			snapTrainSegmentOnLine({ startTs: 0, endTs: 1, wayName: "Nowhere → Ashvale · Metropolitan Line" }, geo),
 		).toBeNull();
 	});
 
@@ -58,7 +58,7 @@ describe("snapTrainSegmentOnLine", () => {
 			stations: geo.stations,
 		};
 		const r = snapTrainSegmentOnLine(
-			{ startTs: 0, endTs: 60, wayName: "Baker Street → Wembley Park · Metropolitan Line" },
+			{ startTs: 0, endTs: 60, wayName: "Carfax → Ashvale · Metropolitan Line" },
 			shared,
 		);
 		expect(r).not.toBeNull(); // directional suffix still resolves to the Met line

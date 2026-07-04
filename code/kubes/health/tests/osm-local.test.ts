@@ -219,12 +219,12 @@ describe("parseOverpassElement", () => {
 			id: 12345,
 			lat: 51.5331,
 			lon: -0.1259,
-			tags: { railway: "station", name: "King's Cross St Pancras" },
+			tags: { railway: "station", name: "Elmford Central" },
 		});
 		expect(f).not.toBeNull();
 		expect(f?.feature_type).toBe("railway");
 		expect(f?.subtype).toBe("station");
-		expect(f?.name).toBe("King's Cross St Pancras");
+		expect(f?.name).toBe("Elmford Central");
 		expect(f?.geom_wkt).toBe("POINT(-0.1259 51.5331)");
 	});
 
@@ -386,7 +386,7 @@ describe("streamOverpassElements", () => {
 		id: 100,
 		lat: 51.5,
 		lon: -0.1,
-		tags: { railway: "station", name: "King's Cross" },
+		tags: { railway: "station", name: "Elmford" },
 	};
 
 	const railWay = {

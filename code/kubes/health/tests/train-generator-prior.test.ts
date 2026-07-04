@@ -128,12 +128,12 @@ describe("buildTrainEntryFromCandidates", () => {
 		const { entry } = buildTrainEntryFromCandidates(
 			[
 				candidate({ startMin: 2, endMin: 5, line: "Jubilee Line" }),
-				candidate({ startMin: 2, endMin: 5, line: "Bakerloo Line" }),
+				candidate({ startMin: 2, endMin: 5, line: "Carfaxloo Line" }),
 			],
 			obsv,
 		);
 		expect(entry(train("Jubilee Line"), at(obsv, 3))).toBeGreaterThan(0);
-		expect(entry(train("Bakerloo Line"), at(obsv, 3))).toBeGreaterThan(0);
+		expect(entry(train("Carfaxloo Line"), at(obsv, 3))).toBeGreaterThan(0);
 		// A third line not offered for the window is still penalised.
 		expect(entry(train("Victoria Line"), at(obsv, 3))).toBeLessThan(0);
 	});

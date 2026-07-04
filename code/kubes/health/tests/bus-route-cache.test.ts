@@ -14,7 +14,7 @@ const route: BusRoute = {
 	routeName: "Clapton Pond – Victoria",
 	osmRelationId: 17_413,
 	stops: [
-		{ name: "Green Park", lat: 51.5, lon: -0.14, seq: 0 },
+		{ name: "Farvale", lat: 51.5, lon: -0.14, seq: 0 },
 		{ name: null, lat: 51.5, lon: -0.13, seq: 1 },
 		{ name: "Victoria", lat: 51.5, lon: -0.12, seq: 2 },
 	],
@@ -30,7 +30,7 @@ describe("bus_route_cache (de)serialization", () => {
 	it("preserves stop order (route direction) across the round-trip", () => {
 		const back = parseBusRouteRow(serializeBusRoute(route));
 		expect(back?.stops.map((s) => s.seq)).toEqual([0, 1, 2]);
-		expect(back?.stops.map((s) => s.name)).toEqual(["Green Park", null, "Victoria"]);
+		expect(back?.stops.map((s) => s.name)).toEqual(["Farvale", null, "Victoria"]);
 	});
 
 	it("narrows a BIGINT relation id (bigint) to number", () => {

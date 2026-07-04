@@ -25,15 +25,15 @@ function seg(mode: TransportMode, opts: { wayName?: string; durS?: number; gapS?
 describe("repairVehicleHandoff", () => {
 	it("absorbs a driving leg flush against an identified tube into the train (2026-06-18)", () => {
 		t = 0;
-		const driving = seg("driving", { wayName: "Euston Underpass", durS: 600 });
-		const train = seg("train", { wayName: "Euston Square → Wembley Park · Metropolitan Line", durS: 300 });
+		const driving = seg("driving", { wayName: "Deepwell Underpass", durS: 600 });
+		const train = seg("train", { wayName: "Deepwell → Ashvale · Metropolitan Line", durS: 300 });
 		const out = repairVehicleHandoff([seg("walking"), driving, train, seg("walking", { gapS: 1 })]);
 		// driving + train collapse to one train spanning both.
 		const trains = out.filter((s) => s.mode === "train");
 		expect(trains).toHaveLength(1);
 		expect(trains[0].startTs).toBe(driving.startTs);
 		expect(trains[0].endTs).toBe(train.endTs);
-		expect(trains[0].wayName).toContain("Euston Square → Wembley Park");
+		expect(trains[0].wayName).toContain("Deepwell → Ashvale");
 		expect(out.filter((s) => s.mode === "driving")).toHaveLength(0);
 	});
 
@@ -49,15 +49,15 @@ describe("repairVehicleHandoff", () => {
 
 	it("absorbs a bare-line train fragment into the identified journey (2026-06-18 Jubilee→Met)", () => {
 		// The underground half was line-attributed "Jubilee Line" on local
-		// proximity (Met and Jubilee share Baker St → Finchley Rd), but the ride
-		// boards at Euston Square, which only the Met serves. The bare-line
+		// proximity (Met and Jubilee share Carfax → Brookden), but the ride
+		// boards at Deepwell, which only the Met serves. The bare-line
 		// fragment is part of the identified Met journey.
 		t = 0;
 		const jubileeFrag = seg("train", { wayName: "Jubilee Line", durS: 600 });
-		const metJourney = seg("train", { wayName: "Euston Square → Wembley Park · Metropolitan Line", durS: 300 });
+		const metJourney = seg("train", { wayName: "Deepwell → Ashvale · Metropolitan Line", durS: 300 });
 		const out = repairVehicleHandoff([jubileeFrag, metJourney]);
 		expect(out).toHaveLength(1);
-		expect(out[0].wayName).toContain("Euston Square → Wembley Park");
+		expect(out[0].wayName).toContain("Deepwell → Ashvale");
 		expect(out[0].startTs).toBe(jubileeFrag.startTs);
 		expect(out[0].endTs).toBe(metJourney.endTs);
 	});

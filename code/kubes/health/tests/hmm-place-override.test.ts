@@ -180,7 +180,7 @@ describe("applyHsmmPlaceOverride", () => {
 
 	it("overrides driving → train when HSMM has a confident train pick on a movement segment", () => {
 		// Pipeline mislabels a tube ride as driving (the 2026-05-22
-		// 20:05 Euston Underpass case). HSMM picked `train @ Met`.
+		// 20:05 Deepwell Underpass case). HSMM picked `train @ Met`.
 		// The override rewrites mode to train and wayName to the
 		// HSMM line.
 		const segments = [moving(0, 13, "driving")];
@@ -208,10 +208,10 @@ describe("applyHsmmPlaceOverride", () => {
 		// line, right mode). Trust pipeline's line — it has finer-
 		// grained station knowledge than the route graph yet.
 		const segments = [moving(0, 9, "train")];
-		segments[0].wayName = "Baker Street → Green Park · Jubilee Line";
+		segments[0].wayName = "Carfax → Farvale · Jubilee Line";
 		const hmm = [hsmmTrain(0, 9, "Metropolitan Line")];
 		const out = applyHsmmPlaceOverride(segments, hmm, PLACES);
-		expect(out[0].wayName).toBe("Baker Street → Green Park · Jubilee Line");
+		expect(out[0].wayName).toBe("Carfax → Farvale · Jubilee Line");
 	});
 
 	it("does NOT override walking → train without explicit train evidence (HSMM unknown_rail does not fire)", () => {
@@ -231,12 +231,12 @@ describe("applyHsmmPlaceOverride", () => {
 	});
 });
 
-// King's Cross office vs Home (Wembley) — ~13 km apart. The British
+// Elmford office vs Home (Ashvale) — ~13 km apart. The British
 // Library café sits ~400 m from the office: a legitimate nearby refinement.
 const KX = { lat: 51.533, lon: -0.126 };
-const HOME_WEMBLEY = { lat: 51.5628, lon: -0.278 };
+const HOME_ASHVALE = { lat: 51.5628, lon: -0.278 };
 const PLACES_GEO = new Map<number, { displayName: string | null; lat?: number | null; lon?: number | null }>([
-	[1, { displayName: "Home", lat: HOME_WEMBLEY.lat, lon: HOME_WEMBLEY.lon }],
+	[1, { displayName: "Home", lat: HOME_ASHVALE.lat, lon: HOME_ASHVALE.lon }],
 	[10, { displayName: "Work", lat: KX.lat, lon: KX.lon }],
 	[11, { displayName: "British Library Café", lat: 51.5298, lon: -0.1276 }],
 ]);
@@ -256,13 +256,13 @@ function stationaryGeo(
 
 describe("applyHsmmPlaceOverride — doorstep-consistency gate (#244)", () => {
 	it("refuses an override whose place is geographically inconsistent with the stay's own GPS", () => {
-		// 2026-06-22: a 6.8h office stay at King's Cross, GPS-present at both
+		// 2026-06-22: a 6.8h office stay at Elmford, GPS-present at both
 		// ends but dark for ~4.5h in the middle. The decoder fills the dark
 		// interior with the Home prior; the majority-overlap override would
 		// teleport the whole stay ~13 km to Home. The stay's own GPS centroid
-		// pins it to King's Cross — refuse, keep the pipeline's place.
+		// pins it to Elmford — refuse, keep the pipeline's place.
 		const seg = stationaryGeo(0, 408, "Work", KX.lat, KX.lon);
-		const hmm = [hsmm(0, 408, "stationary", 1)]; // dominant = Home (Wembley)
+		const hmm = [hsmm(0, 408, "stationary", 1)]; // dominant = Home (Ashvale)
 		const out = applyHsmmPlaceOverride([seg], hmm, PLACES_GEO);
 		expect(out[0].place).toBe("Work");
 	});

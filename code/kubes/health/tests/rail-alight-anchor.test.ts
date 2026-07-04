@@ -10,30 +10,30 @@ import { anchorTrainAlightToWalkedStation } from "../src/geo/passes/rail-absorbe
  * train segment closes where the last clean fix was (the surfaced station),
  * and the rider's continued ride to the true disembark — two stops further on
  * the same line — gets stranded as the FAST leading fixes of the following
- * "walk". The 2026-06-29 outbound: Wembley Park → Baker Street (alight pinned
+ * "walk". The 2026-06-29 outbound: Ashvale → Carfax (alight pinned
  * where GPS surfaced) then a "15-min walk" whose first hop is the Met still
- * doing ~50 km/h on to Euston Square. The fix: extend the train forward to the
+ * doing ~50 km/h on to Deepwell. The fix: extend the train forward to the
  * station the walk's leading hop reaches, re-anchor the alight, trim the walk.
  *
  * Synthetic London-ish coords; all OSM access via injected lookups, no DB.
  */
 
-// Stations (~real positions). Baker St → Euston Sq is ~1.5 km east on the
+// Stations (~real positions). Carfax → Deepwell Sq is ~1.5 km east on the
 // shared sub-surface corridor (Circle/H&C/Metropolitan).
-const WEMBLEY = { lat: 51.5635, lon: -0.2795, name: "Wembley Park", lines: ["Metropolitan Line", "Jubilee Line"] };
-const BAKER = {
+const ASHVALE = { lat: 51.5635, lon: -0.2795, name: "Ashvale", lines: ["Metropolitan Line", "Jubilee Line"] };
+const CARFAX = {
 	lat: 51.5226,
 	lon: -0.1571,
-	name: "Baker Street",
+	name: "Carfax",
 	lines: ["Circle Line", "Hammersmith & City Line", "Metropolitan Line"],
 };
-const EUSTON_SQ = {
+const DEEPWELL = {
 	lat: 51.5258,
 	lon: -0.1359,
-	name: "Euston Square",
+	name: "Deepwell",
 	lines: ["Circle Line", "Hammersmith & City Line", "Metropolitan Line"],
 };
-const OFFLINE = { lat: 51.5074, lon: -0.1278, name: "Charing Cross", lines: ["Bakerloo Line", "Northern Line"] };
+const OFFLINE = { lat: 51.5074, lon: -0.1278, name: "Charing Cross", lines: ["Carfaxloo Line", "Northern Line"] };
 
 type Station = { lat: number; lon: number; name: string; lines: string[] };
 
@@ -74,28 +74,28 @@ function seg(startTs: number, endTs: number, mode: EnrichedSegment["mode"], wayN
 /** A train (board→surfacedAlight) then a walk whose leading hop rides on to
  *  the true alight before settling toward a destination. */
 function trainThenWalk(opts?: { wayName?: string; interchangeTail?: boolean; offlineHop?: boolean }) {
-	const wayName = opts?.wayName ?? "Wembley Park → Baker Street";
+	const wayName = opts?.wayName ?? "Ashvale → Carfax";
 	const trainEnd = T0;
-	const hopTarget = opts?.offlineHop ? OFFLINE : EUSTON_SQ;
-	// walk fixes: Baker St (surfaced) → fast hop → settle near target → walk to dest
-	const w0 = fix(T0, BAKER.lat, BAKER.lon); // surfaced alight
+	const hopTarget = opts?.offlineHop ? OFFLINE : DEEPWELL;
+	// walk fixes: Carfax (surfaced) → fast hop → settle near target → walk to dest
+	const w0 = fix(T0, CARFAX.lat, CARFAX.lon); // surfaced alight
 	const w1 = fix(T0 + 120, hopTarget.lat, hopTarget.lon); // 1.5 km in 2 min = fast hop
 	const w2 = fix(T0 + 180, hopTarget.lat - 0.0015, hopTarget.lon - 0.0008); // slow drift
 	const w3 = fix(T0 + 300, hopTarget.lat - 0.003, hopTarget.lon - 0.0015); // dest, slow
-	const points = [fix(trainEnd - 300, WEMBLEY.lat, WEMBLEY.lon), fix(trainEnd - 100, 51.55, -0.25), w0, w1, w2, w3];
+	const points = [fix(trainEnd - 300, ASHVALE.lat, ASHVALE.lon), fix(trainEnd - 100, 51.55, -0.25), w0, w1, w2, w3];
 	const segs: EnrichedSegment[] = [seg(trainEnd - 300, trainEnd, "train", wayName), seg(T0, T0 + 300, "walking")];
-	if (opts?.interchangeTail) segs.push(seg(T0 + 300, T0 + 600, "train", "Euston Square → King's Cross"));
+	if (opts?.interchangeTail) segs.push(seg(T0 + 300, T0 + 600, "train", "Deepwell → Elmford"));
 	return { segs, points };
 }
 
 describe("anchorTrainAlightToWalkedStation", () => {
-	const lk = lookups([WEMBLEY, BAKER, EUSTON_SQ, OFFLINE]);
+	const lk = lookups([ASHVALE, CARFAX, DEEPWELL, OFFLINE]);
 
 	it("extends the train to the downline station the walk's leading hop reached (the 06-29 case)", async () => {
 		const { segs, points } = trainThenWalk();
 		const out = await anchorTrainAlightToWalkedStation(segs, points, lk.stationsLookup, lk.linesLookup);
 		expect(out[0].mode).toBe("train");
-		expect(out[0].wayName).toBe("Wembley Park → Euston Square");
+		expect(out[0].wayName).toBe("Ashvale → Deepwell");
 		// the train now ends where it settled (the hop's end), and the walk starts there
 		expect(out[0].endTs).toBe(T0 + 120);
 		expect(out[1].startTs).toBe(T0 + 120);
@@ -103,32 +103,32 @@ describe("anchorTrainAlightToWalkedStation", () => {
 	});
 
 	it("preserves the line suffix when the run had one", async () => {
-		const { segs, points } = trainThenWalk({ wayName: "Wembley Park → Baker Street · Metropolitan Line" });
+		const { segs, points } = trainThenWalk({ wayName: "Ashvale → Carfax · Metropolitan Line" });
 		const out = await anchorTrainAlightToWalkedStation(segs, points, lk.stationsLookup, lk.linesLookup);
-		expect(out[0].wayName).toBe("Wembley Park → Euston Square · Metropolitan Line");
+		expect(out[0].wayName).toBe("Ashvale → Deepwell · Metropolitan Line");
 	});
 
 	it("does NOT fire on a train→walk→train interchange (owned by the journey passes)", async () => {
 		const { segs, points } = trainThenWalk({ interchangeTail: true });
 		const out = await anchorTrainAlightToWalkedStation(segs, points, lk.stationsLookup, lk.linesLookup);
-		expect(out[0].wayName).toBe("Wembley Park → Baker Street");
+		expect(out[0].wayName).toBe("Ashvale → Carfax");
 		expect(out[1].startTs).toBe(T0);
 	});
 
 	it("does NOT extend to a station off the run's line (line-continuity guard)", async () => {
 		const { segs, points } = trainThenWalk({ offlineHop: true });
 		const out = await anchorTrainAlightToWalkedStation(segs, points, lk.stationsLookup, lk.linesLookup);
-		expect(out[0].wayName).toBe("Wembley Park → Baker Street");
+		expect(out[0].wayName).toBe("Ashvale → Carfax");
 	});
 
 	it("leaves a plain walk (no fast leading hop) untouched", async () => {
 		const { segs, points } = trainThenWalk();
 		// rewrite the walk's leading hop to walking pace (small steps)
-		points[3] = fix(T0 + 120, BAKER.lat + 0.0003, BAKER.lon + 0.0003);
-		points[4] = fix(T0 + 240, BAKER.lat + 0.0006, BAKER.lon + 0.0006);
-		points[5] = fix(T0 + 300, BAKER.lat + 0.0009, BAKER.lon + 0.0009);
+		points[3] = fix(T0 + 120, CARFAX.lat + 0.0003, CARFAX.lon + 0.0003);
+		points[4] = fix(T0 + 240, CARFAX.lat + 0.0006, CARFAX.lon + 0.0006);
+		points[5] = fix(T0 + 300, CARFAX.lat + 0.0009, CARFAX.lon + 0.0009);
 		const out = await anchorTrainAlightToWalkedStation(segs, points, lk.stationsLookup, lk.linesLookup);
-		expect(out[0].wayName).toBe("Wembley Park → Baker Street");
+		expect(out[0].wayName).toBe("Ashvale → Carfax");
 		expect(out[1].startTs).toBe(T0);
 	});
 });

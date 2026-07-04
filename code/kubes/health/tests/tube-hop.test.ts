@@ -8,7 +8,7 @@ import type { TransportMode } from "../src/geo/segments.js";
  * past the underground-reconstruction gates (which need ≥180 s and *coarse*
  * cell-tower fixes) and got carved out as a `driving` leg by vehicleSplit —
  * leaving the bus matcher as the only thing that can label it. The real case
- * (2026-06-29): Euston Square → Baker Street on the sub-surface line, ~35 km/h,
+ * (2026-06-29): Deepwell → Carfax on the sub-surface line, ~35 km/h,
  * mislabelled "bus 18" because route 18 shares the Marylebone Road corridor.
  *
  * The rule: a *motorised* leg whose board + alight fixes both resolve to
@@ -24,14 +24,14 @@ const LAT = 51.52;
 const STATION_A = {
 	lat: LAT,
 	lon: -0.14,
-	name: "Euston Square",
+	name: "Deepwell",
 	lines: ["Circle Line", "Hammersmith & City Line", "Metropolitan Line"],
 };
 const STATION_B = {
 	lat: LAT,
 	lon: -0.12,
-	name: "Baker Street",
-	lines: ["Circle Line", "Hammersmith & City Line", "Metropolitan Line", "Bakerloo Line", "Jubilee Line"],
+	name: "Carfax",
+	lines: ["Circle Line", "Hammersmith & City Line", "Metropolitan Line", "Carfaxloo Line", "Jubilee Line"],
 };
 const STATION_C = { lat: LAT, lon: -0.1, name: "Liverpool Street", lines: ["Central Line"] };
 
@@ -91,13 +91,13 @@ function leg(
 describe("upgradeTubeHops", () => {
 	const lk = lookups([STATION_A, STATION_B, STATION_C]);
 
-	it("upgrades a fast station-to-station driving leg to train (the Euston Sq → Baker St case)", async () => {
+	it("upgrades a fast station-to-station driving leg to train (the Deepwell Sq → Carfax case)", async () => {
 		const { seg, points } = leg(STATION_A, STATION_B, "driving", 35);
 		const [out] = await upgradeTubeHops([seg], points, lk.stationsLookup, lk.linesLookup);
 		expect(out.mode).toBe("train");
 		expect(out.refinedMode).toBe("train");
 		// Multiple shared lines (Circle/H&C/Met) → bare station-pair label, no `· Line`.
-		expect(out.wayName).toBe("Euston Square → Baker Street");
+		expect(out.wayName).toBe("Deepwell → Carfax");
 		expect(out.refinedReason).toMatch(/tube hop/);
 	});
 
@@ -109,7 +109,7 @@ describe("upgradeTubeHops", () => {
 		const { seg, points } = leg(a, b, "driving", 35);
 		const [out] = await upgradeTubeHops([seg], points, lk2.stationsLookup, lk2.linesLookup);
 		expect(out.mode).toBe("train");
-		expect(out.wayName).toBe("Euston Square → Baker Street · Victoria Line");
+		expect(out.wayName).toBe("Deepwell → Carfax · Victoria Line");
 	});
 
 	it("leaves a SLOW station-to-station leg as driving (bus pace — let the bus matcher decide)", async () => {
@@ -135,7 +135,7 @@ describe("upgradeTubeHops", () => {
 
 	it("does NOT upgrade a fast driving leg adjacent to a train (a fragment of an existing ride)", async () => {
 		// The 2026-06-17 regression: a 2-min sliver off the tail of one continuous
-		// Wembley Park → King's Cross Met ride. Its endpoints happen to anchor to
+		// Ashvale → Elmford Met ride. Its endpoints happen to anchor to
 		// sub-surface stations, but it's part of the ride that just ended, not a
 		// separate hop. A real isolated hop is bracketed by walks, never a train.
 		const train: Seg = { startTs: T0 - 600, endTs: T0, mode: "train", avgSpeed: 40 };

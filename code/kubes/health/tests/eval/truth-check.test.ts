@@ -68,10 +68,10 @@ describe("parsePipelineState — render a live state for comparison", () => {
 		).toBe(true);
 	});
 	it("parses a train route wayName into board/alight + line", () => {
-		const r = parsePipelineState({ mode: "train", wayName: "Wembley Park → Baker Street · Metropolitan Line" });
-		expect(r?.trainFromTo).toEqual({ from: "Wembley Park", to: "Baker Street" });
+		const r = parsePipelineState({ mode: "train", wayName: "Ashvale → Carfax · Metropolitan Line" });
+		expect(r?.trainFromTo).toEqual({ from: "Ashvale", to: "Carfax" });
 		expect(r?.lineName).toBe("Metropolitan Line");
-		expect(blessedEquivalent(r, train("Wembley Park", "Baker Street", "Metropolitan Line"))).toBe(true);
+		expect(blessedEquivalent(r, train("Ashvale", "Carfax", "Metropolitan Line"))).toBe(true);
 	});
 	it("handles a bare line-name train wayName as line-only", () => {
 		const r = parsePipelineState({ mode: "train", wayName: "Circle Line" });

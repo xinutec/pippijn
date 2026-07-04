@@ -129,13 +129,13 @@ describe("buildRouteGraph", () => {
 					osm_id: 100n,
 					lat: 51.5001,
 					lon: -0.10005,
-					name: "King's Cross",
+					name: "Elmford",
 					tags_json: JSON.stringify({ railway: "station" }),
 				}),
 			],
 		);
 		const startNode = [...g.nodes.values()].find((n) => Math.abs(n.point.lat - 51.5) < 0.01);
-		expect(startNode?.stationName).toBe("King's Cross");
+		expect(startNode?.stationName).toBe("Elmford");
 	});
 
 	it("edgesNear returns edges whose geometry passes within radius of a query point", () => {

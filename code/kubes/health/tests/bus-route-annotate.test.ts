@@ -44,10 +44,10 @@ describe("busRouteLabel", () => {
 	it("formats a named match as 'From → To · Ref'", () => {
 		const match = {
 			routeRef: "38",
-			boardStop: { name: "Green Park", lat: 0, lon: 0, seq: 0 },
+			boardStop: { name: "Farvale", lat: 0, lon: 0, seq: 0 },
 			alightStop: { name: "Victoria", lat: 0, lon: 0, seq: 3 },
 		} as BusRouteMatch;
-		expect(busRouteLabel(match)).toBe("Green Park → Victoria · 38");
+		expect(busRouteLabel(match)).toBe("Farvale → Victoria · 38");
 	});
 
 	it("falls back to the bare ref when a stop is unnamed", () => {

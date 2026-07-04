@@ -69,7 +69,7 @@ describe("modePrior", () => {
 		// `cycling-signature` factor with explicit joint evidence
 		// should be allowed to override the prior.
 		//
-		// The 2026-05-23 backtest exposed multiple Wembley-Park-tube-
+		// The 2026-05-23 backtest exposed multiple Ashvale-Park-tube-
 		// labelled-as-cycling cases at the original `-1.5` because
 		// classifier-prior + biometric-ll out-scored the penalty.
 		const score = modePrior(cand("cycling"), NO_CTX);

@@ -118,7 +118,7 @@ describe("buildLineProximityFactor", () => {
 	});
 
 	it("on shared track, both lines get the BOOST (composite tag membership)", () => {
-		// Single way carrying both Met and Jubilee — Wembley Park → Finchley Road.
+		// Single way carrying both Met and Jubilee — Ashvale → Brookden.
 		const graph = buildRouteGraph(
 			[
 				line({

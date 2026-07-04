@@ -279,7 +279,7 @@ describe("scoreJourneys — trip structure", () => {
 		const decoder = [
 			...dec(0, 5, "walking"),
 			...dec(5, 12, "train", "Metropolitan Line"),
-			...dec(12, 14, "walking"), // interchange at Baker St
+			...dec(12, 14, "walking"), // interchange at Carfax
 			...dec(14, 20, "train", "Jubilee Line"),
 			...dec(20, 25, "walking"),
 		];

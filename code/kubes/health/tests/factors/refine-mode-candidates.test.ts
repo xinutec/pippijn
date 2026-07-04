@@ -130,13 +130,13 @@ describe("generateRefineModeCandidates", () => {
 		// The OSM-data-duplication case: pavement (footway, no name) and
 		// the road it parallels (residential, named). Both produce a
 		// walking candidate; only the named one survives so the rendered
-		// timeline reads "walking on Barn Rise" rather than empty.
-		const ways = [way("highway", "footway", undefined, 1), way("highway", "residential", "Barn Rise", 15)];
+		// timeline reads "walking on Larch Rise" rather than empty.
+		const ways = [way("highway", "footway", undefined, 1), way("highway", "residential", "Larch Rise", 15)];
 		const result = generateRefineModeCandidates("walking", ways);
 		const walking = result.filter((c) => c.mode === "walking" && c.wayName);
 		const walkingUnnamed = result.filter((c) => c.mode === "walking" && !c.wayName);
 		expect(walking).toHaveLength(1);
-		expect(walking[0].wayName).toBe("Barn Rise");
+		expect(walking[0].wayName).toBe("Larch Rise");
 		// The fallback (walking with no way info) is the only unnamed walking
 		// entry that remains — and it's deliberately the fallback, not a
 		// way-attached candidate.
@@ -161,22 +161,22 @@ describe("generateRefineModeCandidates", () => {
 	it("dedup is per-mode: drops unnamed walking when named walking exists, leaves cycling unnamed candidate alone", () => {
 		const ways = [
 			way("highway", "footway", undefined, 2), // walking-only, unnamed
-			way("highway", "residential", "Barn Rise", 12), // walking + driving + cycling, named
+			way("highway", "residential", "Larch Rise", 12), // walking + driving + cycling, named
 			way("highway", "cycleway", undefined, 5), // cycling-only, unnamed
 		];
 		const result = generateRefineModeCandidates("walking", ways);
-		// Walking: footway-unnamed dropped (Barn Rise is named); only Barn Rise survives.
+		// Walking: footway-unnamed dropped (Larch Rise is named); only Larch Rise survives.
 		// Cycling: cycleway-unnamed survives because no named cycling-only
-		// alternative exists — but wait, Barn Rise (residential) also emits a
+		// alternative exists — but wait, Larch Rise (residential) also emits a
 		// cycling candidate which IS named, so the unnamed cycleway is also dropped.
-		expect(result.some((c) => c.mode === "walking" && c.wayName === "Barn Rise")).toBe(true);
+		expect(result.some((c) => c.mode === "walking" && c.wayName === "Larch Rise")).toBe(true);
 		expect(result.some((c) => c.mode === "walking" && c.wayName === undefined && c.wayDistanceM !== undefined)).toBe(
 			false,
 		);
 		// Both cycling candidates exist post-dedup IFF the named-cycling test
 		// applies to cycling: residential emits a named cycling, cycleway
 		// emits unnamed. Unnamed cycling dropped.
-		expect(result.some((c) => c.mode === "cycling" && c.wayName === "Barn Rise")).toBe(true);
+		expect(result.some((c) => c.mode === "cycling" && c.wayName === "Larch Rise")).toBe(true);
 		expect(result.some((c) => c.mode === "cycling" && c.wayName === undefined && c.waySubtype === "cycleway")).toBe(
 			false,
 		);
@@ -256,13 +256,13 @@ describe("generateRefineModeCandidates — biometric filtering", () => {
 		// The cadence filter stays — it's scoped by speed (only fires
 		// below the walking-plausible ceiling) so it doesn't over-fire
 		// on sitting modes the way HR-veto did.
-		const ways = [way("highway", "residential", "Barn Rise", 15)];
+		const ways = [way("highway", "residential", "Larch Rise", 15)];
 		const result = generateRefineModeCandidates("walking", ways, {
 			obs: { hr: 140, cadence: 80, speed: 10 },
 			stats: STATS,
 		});
 		expect(result.some((c) => c.mode === "cycling")).toBe(false);
-		expect(result.some((c) => c.mode === "walking" && c.wayName === "Barn Rise")).toBe(true);
+		expect(result.some((c) => c.mode === "walking" && c.wayName === "Larch Rise")).toBe(true);
 	});
 
 	it("keeps the fallback candidate even if its mode is biometrically implausible", () => {
@@ -273,7 +273,7 @@ describe("generateRefineModeCandidates — biometric filtering", () => {
 		// way-attached cycling candidates are filtered, the fallback
 		// is the honest 'we don't know what else this could be'
 		// answer that other factors can still discriminate against).
-		const ways = [way("highway", "residential", "Barn Rise", 15)];
+		const ways = [way("highway", "residential", "Larch Rise", 15)];
 		const result = generateRefineModeCandidates("cycling", ways, {
 			obs: { hr: 140, cadence: 80, speed: 10 },
 			stats: STATS,
@@ -290,7 +290,7 @@ describe("generateRefineModeCandidates — biometric filtering", () => {
 		// trip cadence-veto for any low-cadence mode, speed 5 is within
 		// walking-plausible range so the veto premise is checkable but
 		// the cadence reading is fine.
-		const ways = [way("highway", "residential", "Barn Rise", 15)];
+		const ways = [way("highway", "residential", "Larch Rise", 15)];
 		const withoutBiometric = generateRefineModeCandidates("walking", ways);
 		const withPlausibleBiometric = generateRefineModeCandidates("walking", ways, {
 			obs: { hr: 110, cadence: 0, speed: 5 },
@@ -303,7 +303,7 @@ describe("generateRefineModeCandidates — biometric filtering", () => {
 		// Cadence 80 + walking speed normally trips the cycling cadence-
 		// veto; without per-user stats the filter has no distribution to
 		// check against and must let everything through.
-		const ways = [way("highway", "residential", "Barn Rise", 15), way("highway", "cycleway", "Some Lane", 5)];
+		const ways = [way("highway", "residential", "Larch Rise", 15), way("highway", "cycleway", "Some Lane", 5)];
 		const result = generateRefineModeCandidates("walking", ways, {
 			obs: { hr: 140, cadence: 80, speed: 10 },
 			stats: [],

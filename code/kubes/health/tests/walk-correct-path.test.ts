@@ -18,7 +18,7 @@ const dLat = (m: number) => m / 111_320;
 const dLon = (m: number) => m / (111_320 * Math.cos((LAT * Math.PI) / 180));
 
 // A ~60m × 36m building block with a street ring around it (10 m off each wall):
-// the Bridge Road shape — a chord across the block must go around on the ring.
+// the Mill Road shape — a chord across the block must go around on the ring.
 const bN = LAT + dLat(18);
 const bS = LAT - dLat(18);
 const bW = LON - dLon(30);
@@ -99,7 +99,7 @@ describe("correctWalkPath — case 2 (chord through a block routes around it)", 
 
 	it("leaves a line riding a mapped through-building footway alone (arcade/concourse)", () => {
 		// OSM maps a footway straight through the block — a covered arcade (the
-		// Bridge Road parade) or a station concourse. Walking it is correct;
+		// Mill Road parade) or a station concourse. Walking it is correct;
 		// the corrector must not reroute a line that follows a mapped passage.
 		const arcade: RoadGeometry = {
 			ways: [
@@ -231,7 +231,7 @@ describe("correctWalkPath — off-network chord in built surroundings (urban blo
 	// between them: a chord across the block threads BETWEEN them (zero
 	// building-crossing — the class the containment rule is blind to) but is far
 	// off every street, in clearly built surroundings. The 2026-07-01 10:18
-	// Bridge Road diagonal, distilled.
+	// Mill Road diagonal, distilled.
 	const north = { c: LAT + dLat(9) };
 	const south = { c: LAT - dLat(9) };
 	const flankNorth: BuildingFootprint = [

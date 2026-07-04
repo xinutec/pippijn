@@ -46,16 +46,16 @@ describe("parseGroundTruth day-anchor", () => {
 
 describe("parseGroundTruth cell parsing", () => {
 	it("parses a bus leg's stops + route number symmetrically to a train", () => {
-		const md = table("| 10:25 – 10:29 | bus Green Park → Cleveland Clinic London · 38 | correct | {user} |");
+		const md = table("| 10:25 – 10:29 | bus Farvale → Cleveland Clinic London · 38 | correct | {user} |");
 		const gt = parseGroundTruth(md, "2026-06-12", "Europe/London");
 		const b = gt.rows[0].blessed;
 		expect(b?.mode).toBe("bus");
-		expect(b?.trainFromTo).toEqual({ from: "Green Park", to: "Cleveland Clinic London" });
+		expect(b?.trainFromTo).toEqual({ from: "Farvale", to: "Cleveland Clinic London" });
 		expect(b?.lineName).toBe("38");
 	});
 
 	it("accepts a provenance tag inside the status cell (not just notes)", () => {
-		const md = table("| 10:01 – 10:18 | train Wembley Park → Green Park · Jubilee Line | correct {user} | |");
+		const md = table("| 10:01 – 10:18 | train Ashvale → Farvale · Jubilee Line | correct {user} | |");
 		const gt = parseGroundTruth(md, "2026-06-12", "Europe/London");
 		expect(gt.rows[0].status).toBe("correct");
 		expect(gt.rows[0].provenance).toBe("user");

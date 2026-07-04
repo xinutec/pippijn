@@ -114,7 +114,7 @@ describe("computeModeClassLocks", () => {
 	});
 
 	it("locks a sustained train window (GPS moving fast, cadence 0) as 'vehicle'", () => {
-		// Wembley to a point ~5km south, at train speed.
+		// Ashvale to a point ~5km south, at train speed.
 		const seq = buildTrainSequence(1_700_000_000, 10, 51.55, 51.5);
 		const locks = computeModeClassLocks({ observations: seq });
 		for (let i = 2; i < 8; i++) expect(locks[i], `lock at index ${i}`).toBe("vehicle");
@@ -171,12 +171,12 @@ describe("computeModeClassLocks", () => {
 		// speed. prev/nextGpsFix is set on every interior minute
 		// (the observation tensor builder does this automatically).
 		const t0 = 1_700_000_000;
-		const wembleyFix = { ts: t0, lat: 51.56, lon: HOME.lon };
+		const ashvaleFix = { ts: t0, lat: 51.56, lon: HOME.lon };
 		const bakerFix = { ts: t0 + 9 * 60, lat: 51.52, lon: HOME.lon };
 		const seq: Observation[] = [];
 		seq.push(obs({ ts: t0, gps: { lat: 51.56, lon: HOME.lon, speedKmh: 0 }, cadence: 0 }));
 		for (let i = 1; i < 9; i++) {
-			seq.push(obs({ ts: t0 + i * 60, prevGpsFix: wembleyFix, nextGpsFix: bakerFix }));
+			seq.push(obs({ ts: t0 + i * 60, prevGpsFix: ashvaleFix, nextGpsFix: bakerFix }));
 		}
 		seq.push(obs({ ts: t0 + 9 * 60, gps: { lat: 51.52, lon: HOME.lon, speedKmh: 0 }, cadence: 0 }));
 		const locks = computeModeClassLocks({ observations: seq });

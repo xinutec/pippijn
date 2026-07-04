@@ -23,7 +23,7 @@ const ROAD: RoadGeometry = {
 	ways: [
 		{
 			osmId: 1,
-			name: "Barn Rise",
+			name: "Larch Rise",
 			subtype: "residential",
 			coords: [
 				[51.56, -0.29],

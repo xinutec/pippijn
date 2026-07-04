@@ -386,7 +386,7 @@ describe("isEnclosingInstitution", () => {
 describe("isLabelWorthyVenue", () => {
 	it("accepts a close amenity / shop / tourism venue", () => {
 		expect(isLabelWorthyVenue({ name: "Cafe", type: "amenity", subtype: "cafe", distanceM: 12 })).toBe(true);
-		expect(isLabelWorthyVenue({ name: "Bakery", type: "shop", subtype: "bakery", distanceM: 40 })).toBe(true);
+		expect(isLabelWorthyVenue({ name: "Carfaxy", type: "shop", subtype: "bakery", distanceM: 40 })).toBe(true);
 		expect(isLabelWorthyVenue({ name: "Museum", type: "tourism", subtype: "museum", distanceM: 8 })).toBe(true);
 	});
 
@@ -810,10 +810,10 @@ describe("extractLineNames", () => {
 		const data = {
 			elements: [
 				{ type: "relation", tags: { type: "route", route: "subway" } },
-				{ type: "relation", tags: { type: "route", route: "subway", name: "Bakerloo Line" } },
+				{ type: "relation", tags: { type: "route", route: "subway", name: "Carfaxloo Line" } },
 			],
 		};
-		expect(extractLineNames(data)).toEqual(new Set(["Bakerloo Line"]));
+		expect(extractLineNames(data)).toEqual(new Set(["Carfaxloo Line"]));
 	});
 
 	it("deduplicates lines that appear in multiple route directions", () => {

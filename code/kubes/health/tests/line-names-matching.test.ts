@@ -35,7 +35,7 @@ describe("lineNamesMatching", () => {
 	});
 
 	it("strips a multi-word ' Lines' suffix to the base token", () => {
-		const all = ["Circle and District Lines", "Bakerloo Line"];
+		const all = ["Circle and District Lines", "Carfaxloo Line"];
 		expect(lineNamesMatching("Circle and District Lines", all)).toEqual(["Circle and District Lines"]);
 	});
 

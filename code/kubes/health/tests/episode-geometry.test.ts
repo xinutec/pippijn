@@ -61,7 +61,7 @@ describe("buildEpisodes — per-mode speed-plausibility filter", () => {
 	// underground teleport run (good self-reported accuracy, 28–54 km/h) was drawn
 	// as a real walk (2026-06-16 15:48). The kinematic HOLD collapses it.
 	it("holds an underground teleport run in the raw-fixes walk fallback", () => {
-		// Slow real cluster near Euston, then jumps west — each > 12 km/h from the
+		// Slow real cluster near Deepwell, then jumps west — each > 12 km/h from the
 		// last kept fix, all reporting good accuracy (the phone lies underground).
 		const rawFixes = [
 			raw(0, 51.53, -0.124, 26),
@@ -78,13 +78,13 @@ describe("buildEpisodes — per-mode speed-plausibility filter", () => {
 		expect(ep.points.every((p) => p.lon > -0.125)).toBe(true);
 	});
 
-	it("drops a LEADING straggler and keeps the real cluster (today's Baker St green-jump)", () => {
-		// First fix is a stray underground tube-tail fix at Baker St; the rest are
-		// the real walk at Euston (~1.4 km east). The hold must not anchor on the
+	it("drops a LEADING straggler and keeps the real cluster (today's Carfax green-jump)", () => {
+		// First fix is a stray underground tube-tail fix at Carfax; the rest are
+		// the real walk at Deepwell (~1.4 km east). The hold must not anchor on the
 		// straggler and hold away every good fix — it must drop the straggler.
 		const rawFixes = [
-			raw(0, 51.5235, -0.1573, 26), // Baker St straggler
-			raw(103, 51.525, -0.1369, 19), // real walk at Euston (+1.4 km = 49 km/h)
+			raw(0, 51.5235, -0.1573, 26), // Carfax straggler
+			raw(103, 51.525, -0.1369, 19), // real walk at Deepwell (+1.4 km = 49 km/h)
 			raw(118, 51.5248, -0.1371, 17),
 			raw(178, 51.5247, -0.1374, 7),
 			raw(300, 51.5247, -0.1374, 13),
@@ -92,7 +92,7 @@ describe("buildEpisodes — per-mode speed-plausibility filter", () => {
 		const [ep] = buildEpisodes([state(0, 700, "walking")], [], [], rawFixes);
 		expect(ep.kind).toBe("raw");
 		expect(ep.points.length).toBeGreaterThanOrEqual(2);
-		expect(ep.points.every((p) => p.lon > -0.14)).toBe(true); // no Baker St point drawn
+		expect(ep.points.every((p) => p.lon > -0.14)).toBe(true); // no Carfax point drawn
 	});
 
 	it("keeps a genuine brisk walk with mild GPS jitter in the raw-fixes fallback", () => {
@@ -145,36 +145,36 @@ describe("buildEpisodes — per-mode geometry resolution", () => {
 		// across the gap. Instead it must connect boarding → alighting.
 		const segs = [seg({ startTs: 100, endTs: 300, mode: "train", pointCount: 0 })];
 		const fixes = [
-			fix(50, 51.523, -0.157, 4), // boarding walk @ Baker Street
+			fix(50, 51.523, -0.157, 4), // boarding walk @ Carfax
 			fix(150, 51.515, -0.149, 200), // teleport garbage mid-tube (Bond St jump)
-			fix(200, 51.523, -0.157, 0), // garbage snapped back to Baker St
-			fix(350, 51.507, -0.143, 4), // alighting walk @ Green Park
+			fix(200, 51.523, -0.157, 0), // garbage snapped back to Carfax
+			fix(350, 51.507, -0.143, 4), // alighting walk @ Farvale
 		];
 		const states = [state(0, 100, "walking"), state(100, 300, "train"), state(300, 400, "walking")];
 		const train = buildEpisodes(states, segs, fixes)[1];
 		expect(train.kind).toBe("tentative");
 		expect(train.points).toHaveLength(2);
-		expect(train.points[0].lat).toBeCloseTo(51.523, 2); // boards Baker Street
-		expect(train.points[1].lat).toBeCloseTo(51.507, 2); // alights Green Park
+		expect(train.points[0].lat).toBeCloseTo(51.523, 2); // boards Carfax
+		expect(train.points[1].lat).toBeCloseTo(51.507, 2); // alights Farvale
 	});
 
 	it("anchors a raw train leg to its station join points so a neighbour walk does not bridge green", () => {
 		// Real Met-leg shape: the train's GPS starts well after boarding and
 		// stops well before alighting, so without stitching the next walk would
 		// bridge green across the missing tail. The surrounding walks supply the
-		// station ends (Wembley Park boarding, Baker Street alighting).
+		// station ends (Ashvale boarding, Carfax alighting).
 		const segs = [seg({ startTs: 100, endTs: 300, mode: "train", pointCount: 1 })];
 		const fixes = [
-			fix(50, 51.563, -0.279, 4), // boarding walk @ Wembley Park
+			fix(50, 51.563, -0.279, 4), // boarding walk @ Ashvale
 			fix(200, 51.545, -0.21, 80), // one mid-route train fix
-			fix(350, 51.523, -0.157, 4), // alighting walk @ Baker Street
+			fix(350, 51.523, -0.157, 4), // alighting walk @ Carfax
 		];
 		const states = [state(0, 100, "walking"), state(100, 300, "train"), state(300, 400, "walking")];
 		const train = buildEpisodes(states, segs, fixes)[1];
 		expect(train.kind).toBe("raw");
 		expect(train.points).toHaveLength(3); // boarding + the fix + alighting
-		expect(train.points[0].lat).toBeCloseTo(51.563, 2); // stitched to Wembley Park
-		expect(train.points.at(-1)?.lat).toBeCloseTo(51.523, 2); // stitched to Baker Street
+		expect(train.points[0].lat).toBeCloseTo(51.563, 2); // stitched to Ashvale
+		expect(train.points.at(-1)?.lat).toBeCloseTo(51.523, 2); // stitched to Carfax
 	});
 
 	it("collapses a stay to a single anchor at the segment centroid", () => {

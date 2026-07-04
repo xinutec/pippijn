@@ -1,26 +1,26 @@
 /**
  * Phase 1 acceptance — real data. Replays the 2026-05-22 morning
- * (Wembley → Baker St → Green Park: a Met leg + a Jubilee leg
- * connected by an interchange dwell at Baker Street) and asserts
+ * (Ashvale → Carfax → Farvale: a Met leg + a Jubilee leg
+ * connected by an interchange dwell at Carfax) and asserts
  * the generator emits the correct (board, line, alight) triples.
  *
  * Per ground truth (`tests/golden/ground-truth/2026-05-22.md`):
  *
- *   13:16 – 13:32   train Wembley Park → Baker Street · Met Line
- *   13:32 – 13:35   train Baker Street → Green Park · Jubilee Line
+ *   13:16 – 13:32   train Ashvale → Carfax · Met Line
+ *   13:32 – 13:35   train Carfax → Farvale · Jubilee Line
  *
- * The user dwells at Baker St around 13:29-13:32 (4 GPS fixes
- * clustered at the Baker St station coords). That dwell is what
+ * The user dwells at Carfax around 13:29-13:32 (4 GPS fixes
+ * clustered at the Carfax station coords). That dwell is what
  * the generator uses to split the underground gap into TWO train
  * windows.
  *
  * Generator acceptance:
- *   - For the first window: emit candidates with board ≈ Wembley
- *     Park, alight ≈ Baker Street. Met and Jubilee are both valid
- *     (shared track + Baker is on both lines).
- *   - For the second window: emit candidates with board ≈ Baker
- *     Street, alight in the Green Park / Bond St area. Jubilee
- *     must be in the set; Met must NOT (Met has no Green Park
+ *   - For the first window: emit candidates with board ≈ Ashvale
+ *     Park, alight ≈ Carfax. Met and Jubilee are both valid
+ *     (shared track + Carfax is on both lines).
+ *   - For the second window: emit candidates with board ≈ Carfax
+ *     Street, alight in the Farvale / Bond St area. Jubilee
+ *     must be in the set; Met must NOT (Met has no Farvale
  *     station — that's the structural fact the per-minute factor
  *     stack couldn't enforce).
  *
@@ -150,7 +150,7 @@ describeWithFixture(
 					"Jubilee Line",
 					"Victoria Line",
 					"Piccadilly Line",
-					"Bakerloo Line",
+					"Carfaxloo Line",
 					"Northern Line",
 					"Circle Line",
 					"Hammersmith & City Line",
@@ -189,17 +189,17 @@ describeWithFixture(
 			}
 
 			// The generator must detect at least two distinct windows
-			// (Wembley → Baker, Baker → ~Green Park) because the user
-			// dwells at Baker St for ~3 minutes.
+			// (Ashvale → Carfax, Carfax → ~Farvale) because the user
+			// dwells at Carfax for ~3 minutes.
 			const windows = new Set(candidates.map((c) => `${c.startMin}-${c.endMin}`));
 			expect(
 				windows.size,
-				"generator should detect at least two train windows split by the Baker St dwell",
+				"generator should detect at least two train windows split by the Carfax dwell",
 			).toBeGreaterThanOrEqual(2);
 
-			// The Baker St → Green Park window must produce a valid Jubilee
+			// The Carfax → Farvale window must produce a valid Jubilee
 			// candidate, and must NOT produce a Metropolitan Line candidate
-			// (no Met station at Green Park).
+			// (no Met station at Farvale).
 			const secondWindowCandidates = candidates.filter((c) => {
 				const startTs = observations[c.startMin].ts;
 				return startTs >= localTs("13:26");
@@ -208,13 +208,12 @@ describeWithFixture(
 
 			const secondLines = new Set(secondWindowCandidates.map((c) => c.line));
 			expect(secondLines, "second window must include Jubilee").toContain("Jubilee Line");
-			expect(
-				secondLines,
-				"second window must NOT include Metropolitan Line (no Met station at Green Park)",
-			).not.toContain("Metropolitan Line");
+			expect(secondLines, "second window must NOT include Metropolitan Line (no Met station at Farvale)").not.toContain(
+				"Metropolitan Line",
+			);
 
 			// The first window's candidate set must include Metropolitan
-			// Line (Wembley → Baker is a valid Met ride).
+			// Line (Ashvale → Carfax is a valid Met ride).
 			const firstWindowCandidates = candidates.filter((c) => {
 				const endTs = observations[c.endMin].ts;
 				return endTs <= localTs("13:32");

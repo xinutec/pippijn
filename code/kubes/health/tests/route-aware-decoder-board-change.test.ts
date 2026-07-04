@@ -10,8 +10,8 @@
  * (`tests/golden/ground-truth/2026-05-22.md`) is the source of the
  * expected segmentation:
  *
- *   13:16 → 13:32   train · Metropolitan Line · Wembley Park → Baker Street
- *   13:32 → 13:35   train · Jubilee Line · Baker Street → Green Park
+ *   13:16 → 13:32   train · Metropolitan Line · Ashvale → Carfax
+ *   13:32 → 13:35   train · Jubilee Line · Carfax → Farvale
  *
  * The boundary at 13:32 is entirely underground — no GPS in the
  * interchange minutes. Today's HSMM produces a single Met (or
@@ -168,7 +168,7 @@ describeWithFixture("route-aware decoder — 2026-05-22 Met/Jubilee board change
 	// 5-day live eval (`compare-vs-ground-truth --source
 	// route-aware`); this test will be rewritten once the inner
 	// Viterbi's path-finding is hardened against tag fragmentation.
-	it.skip("splits the morning train run at Baker St and attributes Met to Wembley→Baker, Jubilee to Baker→Green", {
+	it.skip("splits the morning train run at Carfax and attributes Met to Ashvale→Carfax, Jubilee to Carfax→Green", {
 		timeout: 60_000,
 	}, () => {
 		const tensor = buildMinuteTensor(fx.points, TRAIN_WINDOW_START, TRAIN_WINDOW_END);
@@ -181,7 +181,7 @@ describeWithFixture("route-aware decoder — 2026-05-22 Met/Jubilee board change
 				"Jubilee Line",
 				"Victoria Line",
 				"Piccadilly Line",
-				"Bakerloo Line",
+				"Carfaxloo Line",
 				"Northern Line",
 				"Circle Line",
 				"Hammersmith & City Line",
@@ -218,23 +218,23 @@ describeWithFixture("route-aware decoder — 2026-05-22 Met/Jubilee board change
 		}
 
 		// Per ground truth: 13:16-13:32 = Met, 13:32-13:35 = Jubilee.
-		// Boundary at 13:32 ±1 min (interchange walk inside Baker St
+		// Boundary at 13:32 ±1 min (interchange walk inside Carfax
 		// station). Asserting the right LINE for every minute is
 		// fragile because Met and Jubilee fast/slow tracks between
-		// Wembley Park and Finchley Road run 1-5 m apart in OSM —
+		// Ashvale and Brookden run 1-5 m apart in OSM —
 		// GPS noise alone can't reliably discriminate them. What the
 		// decoder MUST get right:
 		//
 		//   1. Mode = train for the whole 13:16-13:35 ride.
-		//   2. The line for any minute past Baker St (Jubilee-only
-		//      track south of Baker) is Jubilee — there is no Met
-		//      track south of Baker St.
+		//   2. The line for any minute past Carfax (Jubilee-only
+		//      track south of Carfax) is Jubilee — there is no Met
+		//      track south of Carfax.
 		//   3. The decoded edges must traverse at least one
 		//      Jubilee-only edge (the Met-only-cannot-reach-Green
 		//      check).
-		//   4. Some minute in the Wembley→Baker leg picks Met
+		//   4. Some minute in the Ashvale→Carfax leg picks Met
 		//      (the decoder MUST see Met as the closer line where
-		//      they diverge between Finchley Rd and Baker St) — the
+		//      they diverge between Brookden and Carfax) — the
 		//      decoder is allowed to use Jubilee elsewhere on the
 		//      shared track.
 		const wholeRide = ["13:18", "13:22", "13:26", "13:30", "13:33", "13:34"];
@@ -243,14 +243,14 @@ describeWithFixture("route-aware decoder — 2026-05-22 Met/Jubilee board change
 			expect(stateAt(t).trainEdgeId, `trainEdgeId at ${t}`).not.toBeNull();
 		}
 
-		// Jubilee leg: Baker → Bond → Green Park is Jubilee-only.
+		// Jubilee leg: Carfax → Bond → Farvale is Jubilee-only.
 		const jubLeg = ["13:33", "13:34"];
 		for (const t of jubLeg) {
 			expect(stateAt(t).lineName, `line at ${t}`).toBe("Jubilee Line");
 		}
 
 		// The decoder must commit to Met for AT LEAST one minute in
-		// the Wembley→Baker leg — `13:21-13:23` is the clearest
+		// the Ashvale→Carfax leg — `13:21-13:23` is the clearest
 		// signal in the data, with Met track 1m off the GPS and
 		// Jubilee track 4-5m off (Met fast tracks vs Jubilee
 		// stopping tracks diverging). If the decoder doesn't find
@@ -260,10 +260,10 @@ describeWithFixture("route-aware decoder — 2026-05-22 Met/Jubilee board change
 		expect(metPicked, "decoder must pick Met for at least one of 13:21-13:23 (clearest Met-only evidence)").toBe(true);
 
 		// The decoded Jubilee leg must traverse at least one Jubilee-
-		// only edge (BAKER→BOND or BOND→GREEN) — otherwise the decoder
+		// only edge (CARFAX→BOND or BOND→GREEN) — otherwise the decoder
 		// didn't actually commit to Jubilee; it just rode shared track
-		// the whole way (which is impossible from Baker St south to
-		// Green Park).
+		// the whole way (which is impossible from Carfax south to
+		// Farvale).
 		const jubileeOnlyEdgeIds = new Set<string>();
 		for (const [id, edge] of g.edges) {
 			const m = edge.attrs.lineMemberships;
