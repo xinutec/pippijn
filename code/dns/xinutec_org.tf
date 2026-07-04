@@ -47,6 +47,7 @@ resource "cloudflare_dns_record" "org_fleetwatch" {
   content = local.hosts.vpn_isis
   ttl     = 3600
   proxied = false
+  comment = "fleetwatch monitoring (VPN-only) — mirrors vantage"
 }
 
 resource "cloudflare_dns_record" "org_apex" {
