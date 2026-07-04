@@ -12,7 +12,8 @@
     "watch": "ng build --watch --configuration development",
     "pretest": "node scripts/stamp-version.mjs",
     "test": "ng test --watch=false",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "ui-check": "ng build && playwright test"
   },
   "dependencies": {
     "@angular/cdk": "^22.0.3",
@@ -33,6 +34,7 @@
     "@angular/build": "^22.0.5",
     "@angular/cli": "^22.0.5",
     "@angular/compiler-cli": "^22.0.4",
+    "@playwright/test": "^1.61.1",
     "angular-eslint": "^22.0.0",
     "eslint": "^10.6.0",
     "jsdom": "^29.1.1",

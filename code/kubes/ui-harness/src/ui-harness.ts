@@ -227,6 +227,23 @@ export function findHorizontalOverflow(args: [string | null, number, string[]]):
 	for (const el of Array.from(root.querySelectorAll("*"))) {
 		const style = getComputedStyle(el);
 		if (style.visibility === "hidden" || style.display === "none") continue;
+		// position:fixed/sticky elements — AND their descendants — are out of normal
+		// flow: they never add to the document's scrollWidth, so they can't cause the
+		// horizontal PAGE scroll this check targets. And a viewport-width fixed bar
+		// (a bottom nav pinned `inset: auto 0 0 0`) spans the full innerWidth, so once
+		// a vertical scrollbar shrinks clientWidth the bar — and every child laid out
+		// inside it — appears to "spill" by exactly the scrollbar width, a phantom
+		// every scrolling page would trip. A fixed element with genuinely off-screen
+		// content is the occlusion check's concern, not page-scroll overflow.
+		let inFixed = false;
+		for (let p: Element | null = el; p; p = p.parentElement) {
+			const pos = getComputedStyle(p).position;
+			if (pos === "fixed" || pos === "sticky") {
+				inFixed = true;
+				break;
+			}
+		}
+		if (inFixed) continue;
 		if (inAllowedScroller(el)) continue;
 		const r = el.getBoundingClientRect();
 		if (r.width < 1 || r.height < 1) continue;
@@ -276,6 +293,90 @@ export async function expectNoHorizontalOverflow(
 		.map((o) => `  ${o.sel} — spills ${o.spill.toFixed(1)}px${o.text ? ` — "${o.text}"` : ""}`)
 		.join("\n");
 	throw new LayoutError(`Horizontal overflow at phone width (${offenders.length}):\n${detail}`);
+}
+
+/** An interactive control hidden behind another painted element at its centre. */
+export interface Occlusion {
+	sel: string;
+	text: string;
+	/** What sits on top at the control's centre point. */
+	by: string;
+}
+
+/**
+ * Runs in the browser. The third layout failure class, and the one neither
+ * text-overlap nor horizontal-overflow can see: an interactive control drawn
+ * UNDER a fixed bar. Text-overlap can't catch it (a button's label isn't
+ * colliding with anything — it's occluded, painted behind); overflow can't
+ * (the element fits the viewport fine — it's just hidden). Found live in coach:
+ * the log-a-set FAB sank behind the bottom nav in wide mode when a media query
+ * dropped its nav-clearance.
+ *
+ * For each visible control matching `selector`, hit-test its own centre with
+ * `document.elementFromPoint`: a reachable control returns itself (or a
+ * descendant — the ripple/icon inside a mat-fab); anything else on top means
+ * it's occluded and can't be tapped. Controls whose centre is off-screen are
+ * skipped (that's a scroll concern, not occlusion). `elementFromPoint` honours
+ * `pointer-events`, so a `pointer-events:none` overlay wrapper is transparent
+ * and doesn't false-positive. `args` is [selector, allow] — `allow` names
+ * containers whose controls are intentionally covered (an open modal's backdrop).
+ */
+export function findOccludedControls(args: [string, string[]]): Occlusion[] {
+	const [selector, allow] = args;
+	const describe = (el: Element): string => {
+		const cls =
+			typeof el.className === "string" && el.className.trim()
+				? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".")
+				: "";
+		return el.tagName.toLowerCase() + cls;
+	};
+	const vw = document.documentElement.clientWidth;
+	const vh = document.documentElement.clientHeight;
+	const seen = new Set<string>();
+	const out: Occlusion[] = [];
+	for (const el of Array.from(document.querySelectorAll(selector))) {
+		const style = getComputedStyle(el);
+		if (style.visibility === "hidden" || style.display === "none" || style.opacity === "0") continue;
+		if (allow.some((s) => el.closest(s) !== null)) continue;
+		const r = el.getBoundingClientRect();
+		if (r.width < 4 || r.height < 4) continue;
+		const cx = r.left + r.width / 2;
+		const cy = r.top + r.height / 2;
+		// Centre off-screen → below the fold / scrolled away, not occluded.
+		if (cx < 0 || cy < 0 || cx > vw || cy > vh) continue;
+		const hit = document.elementFromPoint(cx, cy);
+		// Reachable when the topmost element at the centre IS the control or one
+		// of its descendants; anything else painting there occludes it.
+		if (!hit || el.contains(hit)) continue;
+		const sel = describe(el);
+		const key = `${sel}→${describe(hit)}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push({ sel, text: (el.textContent ?? "").trim().slice(0, 40), by: describe(hit) });
+	}
+	return out;
+}
+
+/**
+ * Assert no interactive control is hidden behind another painted element (a
+ * fixed nav/bar drawn on top). `selector` names the controls to check (default:
+ * buttons + links + role=button); `allow` names containers whose controls are
+ * intentionally covered. Leaves the same screenshot artifact as the others.
+ */
+export async function expectNoOccludedControls(
+	page: Page,
+	testInfo: TestInfo,
+	selector = 'button, a[href], [role="button"]',
+	allow: string[] = [],
+): Promise<void> {
+	await leaveSnapshot(page, testInfo);
+
+	const occluded = await page.evaluate(findOccludedControls, [selector, allow] as [string, string[]]);
+	if (occluded.length === 0) return;
+	const detail = occluded
+		.map((o) => `  ${o.sel}${o.text ? ` "${o.text}"` : ""} — hidden behind ${o.by}`)
+		.join("\n");
+	throw new LayoutError(`Occluded interactive controls (${occluded.length}):\n${detail}`);
 }
 
 /**

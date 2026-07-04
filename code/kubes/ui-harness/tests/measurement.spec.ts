@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   findTextOverlaps,
   findHorizontalOverflow,
+  findOccludedControls,
   expectViewportIsPhone,
   swipeUp,
 } from '../src/ui-harness';
@@ -119,6 +120,25 @@ test('the explicit allow-list exempts an intended horizontal scroller', async ({
   expect(allowed.offenders).toEqual([]); // with it: exempt
 });
 
+test('a position:fixed bar and its children are not flagged for overflow', async ({ page }) => {
+  // Fixed/sticky elements are out of flow — they never cause horizontal PAGE
+  // scroll, and a viewport-wide fixed bar (plus everything laid out inside it, like
+  // a nav's tab links) spuriously "spills" by the scrollbar width on a scrolling
+  // page. Both the fixed bar AND its wide child must stay silent — a flow div of
+  // the same width (above) IS flagged, so this proves the fixed-skip, not a width
+  // bug.
+  await page.setContent(phonePage(`
+    <div style="position: fixed; top: 0; left: 0; height: 40px;">
+      <span style="display: inline-block; width: 700px;">wide child of a fixed bar</span>
+    </div>`));
+  const res = await page.evaluate(findHorizontalOverflow, [null, 1, []] as [
+    string | null,
+    number,
+    string[],
+  ]);
+  expect(res.offenders).toEqual([]);
+});
+
 test('viewport guard passes under the Pixel preset and reports geometry', async ({ page }) => {
   await page.setContent(phonePage('<p>hi</p>'));
   await expectViewportIsPhone(page);
@@ -133,4 +153,37 @@ test('swipeUp really scrolls a page taller than the viewport', async ({ page }) 
   await swipeUp(page);
   // Momentum needs a beat; poll until movement (or fail on timeout).
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before);
+});
+
+// coach's real bug, reduced: a FAB in a bottom-anchored bar whose nav-clearance
+// was dropped, so it sits UNDER a fixed nav painted on top (higher z-index).
+const fabOverNav = (fabBottomPad: string): string => `
+  <div style="position: fixed; inset: auto 0 0 0; display: flex; justify-content: flex-end;
+              padding: 0 1rem ${fabBottomPad}; z-index: 5; pointer-events: none;">
+    <button class="add-fab" style="width: 56px; height: 56px; pointer-events: auto;">+</button>
+  </div>
+  <nav style="position: fixed; inset: auto 0 0 0; height: 60px; z-index: 10; background: #333;">nav</nav>`;
+
+test('detects a FAB occluded by a fixed bottom nav', async ({ page }) => {
+  // 8px bottom padding: the FAB overlaps the 60px nav painted on top of it.
+  await page.setContent(phonePage(fabOverNav('8px')));
+  const occ = await page.evaluate(findOccludedControls, ['button', []] as [string, string[]]);
+  expect(occ.map((o) => o.sel)).toEqual(['button.add-fab']);
+});
+
+test('a FAB with nav-clearance is NOT occluded', async ({ page }) => {
+  // 68px bottom padding (60px nav + 8px): the FAB clears the nav — reachable.
+  await page.setContent(phonePage(fabOverNav('68px')));
+  const occ = await page.evaluate(findOccludedControls, ['button', []] as [string, string[]]);
+  expect(occ).toEqual([]);
+});
+
+test('a pointer-events:none overlay does not count as occluding', async ({ page }) => {
+  // A full-screen scrim with pointer-events:none must not read as covering the
+  // button beneath it — elementFromPoint sees through it.
+  await page.setContent(phonePage(`
+    <button style="position: fixed; top: 40px; left: 40px; width: 56px; height: 56px;">ok</button>
+    <div style="position: fixed; inset: 0; z-index: 99; pointer-events: none;"></div>`));
+  const occ = await page.evaluate(findOccludedControls, ['button', []] as [string, string[]]);
+  expect(occ).toEqual([]);
 });
