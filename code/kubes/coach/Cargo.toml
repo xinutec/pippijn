@@ -1,0 +1,48 @@
+[package]
+name = "coach"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+tower-http = { version = "0.7", features = ["fs", "trace"] }
+axum-extra = { version = "0.12", features = ["cookie"] }
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring",
+    "mysql",
+    "chrono",
+    "derive",
+    "macros",
+    "migrate",
+] }
+reqwest = { version = "0.13", default-features = false, features = [
+    "json",
+    "form",
+    "rustls",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+# Convert Utc::now() → the user's local tz for the pacing window/weekday logic.
+chrono-tz = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
+hex = "0.4"
+rand = "0.10"
+url = "2"
+time = "0.3"
+ulid = "1"
+anyhow = "1"
+thiserror = "2"
+# Generates the frontend TS interfaces from these Rust types (see scripts/
+# gen-types.sh + frontend/src/app/generated/) so the wire shapes can't drift.
+ts-rs = { version = "12", features = ["serde-compat", "chrono-impl", "serde-json-impl"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# Router-level tests drive the app via ServiceExt::oneshot (no live socket).
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
