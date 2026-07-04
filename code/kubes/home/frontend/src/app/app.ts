@@ -12,6 +12,7 @@ import { ApiService } from './api.service';
 import {
 	type DeviceLatest,
 	RANGE_OPTIONS,
+	ROOM_COLORS,
 	type RangeKey,
 	aqiBand,
 	cleanVoc,
@@ -194,5 +195,14 @@ export class App implements OnInit, OnDestroy {
 
 	protected calHum(d: DeviceLatest): number | null {
 		return d.humidity != null ? d.humidity + this.off(d, 'humidity') : null;
+	}
+
+	/**
+	 * Chart line colour for the device at index `i`. The room cards iterate the
+	 * same `devices()` array in the same order as the climate charts, which colour
+	 * series `i` with `ROOM_COLORS[i]` — so a card's name matches its chart line.
+	 */
+	protected roomColor(i: number): string {
+		return ROOM_COLORS[i % ROOM_COLORS.length];
 	}
 }

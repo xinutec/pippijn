@@ -141,10 +141,10 @@
 		<section class="rooms">
 			<h3 class="section-title">Rooms</h3>
 			<div class="room-grid">
-				@for (d of devices(); track d.device) {
+				@for (d of devices(); track d.device; let i = $index) {
 					<mat-card class="room-card" appearance="outlined">
 						<div class="room-name">
-							<span>{{ d.label.room ?? d.label.name }}</span>
+							<span [style.color]="roomColor(i)">{{ d.label.room ?? d.label.name }}</span>
 							@if (d.label.airQuality) {
 								<mat-icon class="room-air" matTooltip="Air-quality sensor">air</mat-icon>
 							}
