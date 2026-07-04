@@ -2,9 +2,9 @@
 //! FLEETWATCH_TEST_DATABASE_URL like the other DB tests.
 
 use chrono::{Duration, Utc};
-use ulid::Ulid;
 use fleetwatch::report::repo;
 use fleetwatch::report::types::{CheckUpload, ReportUpload, Verdict};
+use ulid::Ulid;
 
 mod common;
 

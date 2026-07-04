@@ -3,8 +3,8 @@
 //! in the `fleetwatch` library crate.
 
 use anyhow::Result;
-use tracing_subscriber::EnvFilter;
 use fleetwatch::{config::Config, db, report::retention, routes, state::AppState};
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {

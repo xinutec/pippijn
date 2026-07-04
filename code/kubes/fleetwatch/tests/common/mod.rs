@@ -11,9 +11,9 @@
 //! Returns `None` when FLEETWATCH_TEST_DATABASE_URL is unset, so DB tests skip cleanly
 //! and the default `cargo test` needs no database.
 
+use fleetwatch::db;
 use sqlx::MySqlPool;
 use tokio::sync::{Mutex, MutexGuard};
-use fleetwatch::db;
 
 static LOCK: Mutex<()> = Mutex::const_new(());
 

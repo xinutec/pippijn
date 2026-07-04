@@ -5,10 +5,10 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use tower::ServiceExt;
 use fleetwatch::config::Config;
 use fleetwatch::routes;
 use fleetwatch::state::AppState;
+use tower::ServiceExt;
 
 fn app() -> axum::Router {
     let pool = sqlx::mysql::MySqlPoolOptions::new()
