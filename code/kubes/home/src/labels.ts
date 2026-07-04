@@ -48,14 +48,14 @@ const LABELS: Record<string, DeviceLabel> = {
 	},
 	"govee-B7AC": {
 		name: "govee-B7AC",
-		room: "Hobby Room",
+		room: "Guest Room",
 		airQuality: false,
 		order: 3,
 		type: "Govee H5075",
 	},
 	"govee-267F": {
 		name: "govee-267F",
-		room: "Guest Room",
+		room: "Hobby Room",
 		airQuality: false,
 		order: 4,
 		type: "Govee H5103",
