@@ -21,12 +21,12 @@ references:
 
 ## The failure this fixes (2026-07-02, observed)
 
-Yesterday's walk around the Bridge Road / Wembley Park junction had **near-perfect
+Yesterday's walk around a residential junction near home had **near-perfect
 raw GPS** — the track sat in the road corridor the whole length, the out-and-back
 showing as two near-parallel traces a few metres apart, nothing across a building.
 
 With "snap walks to paths" **on**, the drawn line was *worse*: it cut a **diagonal
-chord across a building block** between Bridge Road and Barn Hill, and shortcut the
+chord across a building block** between two parallel residential streets, and shortcut the
 corner by the station. The Viterbi matcher routed between two graph vertices, and
 the only on-graph way to connect them sliced the block. The confidence gate
 (off-walkable p90) then *rewarded* that diagonal, because a chord that lies along a

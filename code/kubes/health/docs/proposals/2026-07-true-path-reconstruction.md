@@ -71,7 +71,7 @@ and the length/spur bails as special cases of one model.
 
 A solo user walks the same routes over and over (home ↔ station, home ↔ shops).
 Mine the location history into a weighted graph of habitual corridors. A learned
-prior makes the real route (59 Barn Rise → Bridge Road → Wembley Park station)
+prior makes the real route (home → the main road → the station)
 far more probable than any invented triangle, because it is the route he takes
 almost every time. For a single user with a small set of repeated journeys this
 is the highest-ROI signal available, and the data already exists.
@@ -95,8 +95,8 @@ The day is a story: home → walk → board → ride → alight → walk → hos
 walk leg runs **between confident anchors** — his doorstep, the station entrance,
 the hospital entrance (real POI coordinates), not free-floating GPS. Anchoring a
 leg to its true endpoints (#244) and letting the decoder own the journey
-structure (#257) turns "some jitter near Bridge Road" into "doorstep of 59 Barn
-Rise → Wembley Park station entrance along his usual corridor" — a true path with
+structure (#257) turns "some jitter near the main road" into "his doorstep → the
+station entrance along his usual corridor" — a true path with
 correct ends.
 
 ### 5. Evidence-proportional output + a truth loop
