@@ -1,5 +1,5 @@
 import { test, type Page } from "@playwright/test";
-import { expectNoTextOverlaps } from "./ui-overlap";
+import { expectNoTextOverlaps } from "../../../ui-harness/src/ui-harness";
 
 /**
  * Render /settings at a phone viewport with the backend mocked, and assert
@@ -40,7 +40,7 @@ async function mockApi(page: Page, share: unknown): Promise<void> {
 	await page.route("**/api/share", (r) => r.fulfill({ json: share }));
 }
 
-test("settings — share active: no text overlaps @ 390px", async ({ page }, testInfo) => {
+test("settings — share active: no text overlaps @ phone width", async ({ page }, testInfo) => {
 	await mockApi(page, SHARE_ACTIVE);
 	await page.goto("/settings");
 	await page.getByText("Share your timeline").waitFor();
@@ -48,7 +48,7 @@ test("settings — share active: no text overlaps @ 390px", async ({ page }, tes
 	await expectNoTextOverlaps(page, testInfo);
 });
 
-test("settings — no share yet: no text overlaps @ 390px", async ({ page }, testInfo) => {
+test("settings — no share yet: no text overlaps @ phone width", async ({ page }, testInfo) => {
 	await mockApi(page, SHARE_NONE);
 	await page.goto("/settings");
 	await page.getByText("Share your timeline").waitFor();
