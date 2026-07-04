@@ -49,6 +49,15 @@ const PROBLEMS = {
       subject: 'xinutec/fleetwatch', verdict: 'fail', observed: 'sha 9dc8fec', expected: 'sha f335fb2',
       ref: null, collected_at: ago(90000),
     },
+    // Hostile content (see the REPORT note): a long unbreakable path in observed.
+    // Synthetic path — no real home dir / username.
+    {
+      source: 'mac-mini', collector: 'code-health', report_id: 'r4',
+      section: 'lint', label: 'example-repo', subject: null, verdict: 'fail',
+      observed:
+        '/build/example/frontend/src/app/features/controllers/controller-list.component.scss:42',
+      expected: null, ref: null, collected_at: ago(660),
+    },
   ],
   stale: [OVERVIEW[2]],
 };
@@ -65,6 +74,22 @@ const REPORT = {
     {
       section: 'memory', label: 'swap in use', subject: null, verdict: 'pass',
       observed: '0 MB', expected: '0 MB', value: 0, unit: 'MB', ref: null, detail: null,
+    },
+    // Hostile content: long UNBREAKABLE tokens (a deep file path, a store hash)
+    // with no spaces — the exact SHAPE that overflowed the phone in production.
+    // Normal word-wrap can't break these, so without an overflow-wrap rule they
+    // spill past the viewport. Keep this so the overflow assertion exercises the
+    // worst case, not just tidy data. Paths are DELIBERATELY SYNTHETIC — never
+    // put a real home dir / username / machine path in a committed fixture.
+    {
+      section: 'lint', label: 'example-repo',
+      subject: '/build/example/frontend/src/app/features/controllers/controller-list.component.scss',
+      verdict: 'fail',
+      observed:
+        "error (ignored): SQLite database '/build/cache/eval-cache/00000000aaaaaaaabbbbbbbbccccccccdddddddd11112222333344445555.sqlite' is busy",
+      expected: null, value: 5, unit: 'violations', ref: null,
+      detail:
+        '/build/example/frontend/src/app/features/controllers/controller-list.component.scss:42 DL-SCSS-ADHOC-FONT-SIZE',
     },
   ],
 };

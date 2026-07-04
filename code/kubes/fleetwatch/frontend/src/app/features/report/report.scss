@@ -53,6 +53,11 @@
     display: flex;
     flex-direction: column;
     gap: 0.1rem;
+    // observed/detail carry free-form values — file paths, nix store hashes,
+    // URLs — which are single unbreakable tokens. min-width:0 lets the flex
+    // child shrink; `anywhere` lets the token itself break so it wraps instead
+    // of spilling past the viewport. (Enforced by the phone-width e2e harness.)
+    overflow-wrap: anywhere;
 
     .label {
       font: var(--mat-sys-body-medium);
