@@ -1,0 +1,51 @@
+{
+  "name": "fleetwatch-web",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "ng": "ng",
+    "stamp": "node scripts/stamp-version.mjs",
+    "prestart": "node scripts/stamp-version.mjs",
+    "start": "ng serve",
+    "prebuild": "node scripts/stamp-version.mjs",
+    "build": "ng build",
+    "watch": "ng build --watch --configuration development",
+    "pretest": "node scripts/stamp-version.mjs",
+    "test": "ng test --watch=false",
+    "prelint": "node scripts/stamp-version.mjs",
+    "lint": "eslint src",
+    "ui-check": "playwright test e2e/ui-pages.spec.ts"
+  },
+  "dependencies": {
+    "@angular/cdk": "^22.0.3",
+    "@angular/common": "^22.0.4",
+    "@angular/compiler": "^22.0.4",
+    "@angular/core": "^22.0.4",
+    "@angular/forms": "^22.0.4",
+    "@angular/material": "^22.0.3",
+    "@angular/platform-browser": "^22.0.4",
+    "@angular/router": "^22.0.4",
+    "@angular/service-worker": "^22.0.4",
+    "@fontsource/roboto": "^5.2.10",
+    "material-icons": "^1.13.14",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@angular/build": "^22.0.5",
+    "@angular/cli": "^22.0.5",
+    "@angular/compiler-cli": "^22.0.4",
+    "@playwright/test": "^1.61.1",
+    "angular-eslint": "^22.0.0",
+    "eslint": "^10.6.0",
+    "jsdom": "^29.1.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.62.1",
+    "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "ws": "^8.21.0",
+    "@babel/core": "^7.29.6",
+    "esbuild": "^0.28.1"
+  }
+}

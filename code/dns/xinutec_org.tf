@@ -36,14 +36,14 @@ resource "cloudflare_dns_record" "org_messages" {
   proxied = false
 }
 
-# vantage.xinutec.org — fleet monitoring dashboard on isis, VPN-only. Resolves to
+# fleetwatch.xinutec.org — fleet monitoring dashboard on isis, VPN-only. Resolves to
 # isis's WireGuard IP so it's unlisted publicly; the ingress also enforces a
 # 10.100.0.0/24 source-range whitelist (no login — the VPN is the gate). See
-# code/kubes/vantage.
-resource "cloudflare_dns_record" "org_vantage" {
+# code/kubes/fleetwatch.
+resource "cloudflare_dns_record" "org_fleetwatch" {
   zone_id = local.xinutec_org_id
   type    = "A"
-  name    = "vantage"
+  name    = "fleetwatch"
   content = local.hosts.vpn_isis
   ttl     = 3600
   proxied = false
