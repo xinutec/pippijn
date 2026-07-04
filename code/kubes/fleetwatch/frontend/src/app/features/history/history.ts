@@ -39,11 +39,13 @@ interface Chart {
   styleUrl: './history.scss',
 })
 export class History {
-  // Bound from query params (withComponentInputBinding).
-  readonly source = input('');
-  readonly collector = input('');
-  readonly section = input('');
-  readonly label = input('');
+  // Bound from query params (withComponentInputBinding). The router passes
+  // undefined for an absent param (overriding the default) — normalize it,
+  // so the declared string type is honest.
+  readonly source = input('', { transform: (v: string | undefined) => v ?? '' });
+  readonly collector = input('', { transform: (v: string | undefined) => v ?? '' });
+  readonly section = input('', { transform: (v: string | undefined) => v ?? '' });
+  readonly label = input('', { transform: (v: string | undefined) => v ?? '' });
 
   // Idle (no request) until all four params are present; otherwise fetches and
   // re-fetches whenever any of them changes.
