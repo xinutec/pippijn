@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Material "dashboard" glyph (four panels — the home-OS app), scaled and
+         centred within the 108x108 adaptive-icon safe zone. -->
+    <group
+        android:scaleX="2.7"
+        android:scaleY="2.7"
+        android:translateX="21.6"
+        android:translateY="21.6">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M3,13h8V3H3V13zM3,21h8v-6H3V21zM13,21h8V11h-8V21zM13,3v6h8V3H13z" />
+    </group>
+</vector>

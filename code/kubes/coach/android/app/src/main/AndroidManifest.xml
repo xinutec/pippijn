@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Not the canonical WebView manifest: coach is a hybrid — a WebView onto
+     coach.xinutec.org PLUS a native home-geofence that fires pacing reminders. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Home geofence. Background location is what lets the geofence fire while the
+         app isn't open; it must be requested separately, after foreground location. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- API 33+: post the "time to train" reminder. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Geofences are cleared on reboot; re-register them. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.CoachWeb">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Fired by the OS when the home geofence is crossed; queries the pacing
+             endpoint and posts a reminder if it's a good moment. Not exported —
+             only the Play Services geofence PendingIntent triggers it. -->
+        <receiver
+            android:name=".GeofenceBroadcastReceiver"
+            android:exported="false" />
+
+        <!-- Re-arm the geofence after a reboot (geofences don't survive it). -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

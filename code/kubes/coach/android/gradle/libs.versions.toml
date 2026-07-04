@@ -1,0 +1,15 @@
+# Version catalog for the coach Android app (WebView wrapper + native geofence).
+[versions]
+agp = "8.13.0"
+kotlin = "2.4.0"
+coreKtx = "1.16.0"
+playServicesLocation = "21.3.0"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+# FusedLocationProviderClient (set-home) + GeofencingClient (the home geofence).
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
