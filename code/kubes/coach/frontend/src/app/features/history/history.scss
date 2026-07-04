@@ -1,0 +1,38 @@
+:host {
+  display: block;
+}
+
+.empty {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.day {
+  margin: 1rem 0 0.4rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+
+  .set-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+  .set-name {
+    font: var(--mat-sys-body-large);
+  }
+  .set-detail {
+    font: var(--mat-sys-label-medium);
+    color: var(--mat-sys-on-surface-variant);
+  }
+  .set-time {
+    font-variant-numeric: tabular-nums;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}

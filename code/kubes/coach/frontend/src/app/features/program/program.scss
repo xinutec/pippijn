@@ -1,0 +1,99 @@
+:host {
+  display: block;
+}
+
+.prog-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  h2 {
+    margin-right: auto;
+  }
+}
+
+.weeks {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.25rem 0 0.75rem;
+
+  .week-btn {
+    flex: 1;
+    padding: 0.5rem 0;
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: 8px;
+    background: var(--mat-sys-surface);
+    color: var(--mat-sys-on-surface);
+    font: var(--mat-sys-label-large);
+    cursor: pointer;
+
+    .dl {
+      color: var(--mat-sys-tertiary);
+    }
+    &.sel {
+      background: var(--mat-sys-primary);
+      color: var(--mat-sys-on-primary);
+      border-color: var(--mat-sys-primary);
+      .dl {
+        color: inherit;
+      }
+    }
+  }
+}
+
+.pat {
+  margin: 1rem 0 0.4rem;
+}
+
+.target {
+  padding: 0.3rem 0 0.1rem;
+
+  .t-name {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font: var(--mat-sys-body-large);
+    .ok {
+      color: var(--mat-sys-primary);
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+    }
+  }
+  .t-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+}
+
+.mini {
+  width: 5.5rem;
+}
+
+.hint {
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-medium);
+  margin: 0 0 0.5rem;
+}
+
+.pin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.add-pin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.cta {
+  padding-top: 1.5rem;
+  button {
+    margin-top: 0.5rem;
+  }
+}

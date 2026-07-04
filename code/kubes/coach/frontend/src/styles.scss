@@ -1,0 +1,124 @@
+// Angular Material 3 theme. Orange palette distinguishes coach from life
+// (green), home (teal), health (violet) and recall (azure).
+@use '@angular/material' as mat;
+
+html {
+  height: 100%;
+  color-scheme: light dark;
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$orange-palette,
+        tertiary: mat.$blue-palette,
+      ),
+      typography: Roboto,
+      density: 0,
+    )
+  );
+}
+
+// Universal border-box reset (fleet convention, DL-ANGULAR-BOX-SIZING-RESET):
+// without it `width: 100%` + side padding renders wider than the viewport and
+// the page scrolls sideways on a phone.
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100%;
+  background-color: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font: var(--mat-sys-body-medium);
+}
+
+// Page + section headings on the M3 type scale — one definition, no per-screen
+// font-size improvisation.
+h2 {
+  font: var(--mat-sys-title-large);
+  margin: 0.5rem 0 0.75rem;
+}
+h3 {
+  font: var(--mat-sys-title-medium);
+  margin: 0 0 0.4rem;
+}
+
+// Compact tinted label — one badge grammar (pattern chips, deload marker, etc.).
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font: var(--mat-sys-label-medium);
+  background: color-mix(in srgb, var(--mat-sys-on-surface) 10%, transparent);
+
+  &.accent {
+    background: color-mix(in srgb, var(--mat-sys-primary) 20%, transparent);
+    color: var(--mat-sys-on-surface);
+  }
+  &.deload {
+    background: color-mix(in srgb, var(--mat-sys-tertiary) 24%, transparent);
+    color: var(--mat-sys-on-tertiary-container);
+  }
+}
+
+// The add/edit bottom-sheet grammar: a column of outline fields + a
+// right-aligned action row. Shared by every sheet.
+.sheet-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.25rem 0.25rem 1rem;
+
+  .pair {
+    display: flex;
+    gap: 0.6rem;
+
+    > * {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.5rem;
+  }
+}
+
+// A destructive text button. M3 themes ignore the old color="warn" input, so
+// tint via the button's own tokens.
+button.danger {
+  --mat-button-text-label-text-color: var(--mat-sys-error);
+  --mat-button-text-state-layer-color: var(--mat-sys-error);
+  color: var(--mat-sys-error);
+}
+
+// The per-screen "add" FAB, parked bottom-right above the bottom tab bar so the
+// primary capture action is thumb-reachable. It lives inside a full-width fixed
+// BAR (Android WebView mis-positions a `fixed` element anchored only by
+// right/bottom; it honours one anchored to BOTH horizontal edges).
+.fab-anchor {
+  position: fixed;
+  inset: auto 0 0 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 1rem calc(60px + env(safe-area-inset-bottom) + 1rem);
+  pointer-events: none;
+  z-index: 5;
+
+  .add-fab {
+    pointer-events: auto;
+  }
+}
+
+@media (min-width: 768px) {
+  .fab-anchor {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
+  }
+}

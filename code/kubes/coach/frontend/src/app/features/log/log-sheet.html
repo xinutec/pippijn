@@ -1,0 +1,55 @@
+<div class="sheet-form">
+  <h3>Log a set</h3>
+
+  <mat-form-field appearance="outline">
+    <mat-label>Exercise</mat-label>
+    <mat-select [ngModel]="exerciseId()" (ngModelChange)="exerciseId.set($event)">
+      @for (e of exercises; track e.id) {
+        <mat-option [value]="e.id">{{ e.name }}</mat-option>
+      }
+    </mat-select>
+  </mat-form-field>
+
+  @if (selected(); as ex) {
+    <div class="pair">
+      @if (ex.metric !== "hold") {
+        <mat-form-field appearance="outline">
+          <mat-label>Reps</mat-label>
+          <input matInput type="number" inputmode="numeric" [(ngModel)]="reps" />
+        </mat-form-field>
+      }
+      @if (ex.metric === "weighted_reps") {
+        <mat-form-field appearance="outline">
+          <mat-label>Load (kg)</mat-label>
+          <input matInput type="number" inputmode="decimal" [(ngModel)]="loadKg" />
+        </mat-form-field>
+      }
+      @if (ex.metric === "hold") {
+        <mat-form-field appearance="outline">
+          <mat-label>Hold (s)</mat-label>
+          <input matInput type="number" inputmode="numeric" [(ngModel)]="holdS" />
+        </mat-form-field>
+      }
+      <mat-form-field appearance="outline">
+        <mat-label>Effort (RPE)</mat-label>
+        <input matInput type="number" inputmode="numeric" min="1" max="10" [(ngModel)]="rpe" />
+      </mat-form-field>
+    </div>
+  }
+
+  <mat-form-field appearance="outline">
+    <mat-label>Note (optional)</mat-label>
+    <input matInput [(ngModel)]="note" />
+  </mat-form-field>
+
+  <div class="actions">
+    <button mat-button (click)="cancel()">Cancel</button>
+    <button
+      mat-flat-button
+      [disabled]="saving() || exerciseId() === null"
+      (click)="save()"
+    >
+      Log set
+    </button>
+  </div>
+</div>

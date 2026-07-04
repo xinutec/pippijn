@@ -28,6 +28,7 @@ pub struct WorkoutSet {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct NewSet {
+    #[ts(type = "number")]
     pub exercise_id: i64,
     pub reps: Option<i32>,
     pub load_kg: Option<f64>,

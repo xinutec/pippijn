@@ -1,0 +1,96 @@
+@if (pacing(); as p) {
+  @switch (p.state) {
+    @case ("no_program") {
+      <mat-card class="cta">
+        <mat-card-content>
+          <h2>No active program</h2>
+          <p>Start the seeded 4-week block (3 build weeks + a deload) to get going.</p>
+          <button mat-flat-button [disabled]="starting()" (click)="startStarter()">
+            Start starter block
+          </button>
+        </mat-card-content>
+      </mat-card>
+    }
+    @case ("not_started") {
+      <mat-card>
+        <mat-card-content>
+          <h2>Not started yet</h2>
+          <p>{{ p.reason }}</p>
+        </mat-card-content>
+      </mat-card>
+    }
+    @case ("complete") {
+      <mat-card class="cta">
+        <mat-card-content>
+          <h2>Program complete</h2>
+          <p>Nice block. Time for a fresh one.</p>
+          <button mat-flat-button [disabled]="starting()" (click)="startStarter()">
+            Start a fresh block
+          </button>
+        </mat-card-content>
+      </mat-card>
+    }
+    @default {
+      <div class="week-head">
+        <h2>Today</h2>
+        <span class="pill accent">Week {{ p.weekIndex }}</span>
+        @if (p.isDeload) {
+          <span class="pill deload">Deload</span>
+        }
+      </div>
+
+      <mat-card class="reason" [class.is-nudge]="p.nudge">
+        <mat-card-content>
+          <mat-icon>{{ p.nudge ? "notifications_active" : "self_improvement" }}</mat-icon>
+          <span>{{ p.reason }}</span>
+        </mat-card-content>
+      </mat-card>
+
+      @if (p.suggestion; as s) {
+        <mat-card class="suggestion">
+          <mat-card-content>
+            <div class="s-head">
+              <span class="pill accent">{{ patternLabel(s.pattern) }}</span>
+              <h3>{{ s.exerciseName }}</h3>
+            </div>
+            <p class="s-detail">
+              {{ s.sets }} set{{ s.sets === 1 ? "" : "s" }}
+              @if (s.repLow !== null) {
+                · {{ s.repLow }}–{{ s.repHigh }} reps
+              }
+              @if (s.loadKg !== null) {
+                · {{ s.loadKg }} kg
+              }
+              @if (s.holdS !== null) {
+                · {{ s.holdS }}s hold
+              }
+            </p>
+            <button mat-flat-button (click)="openLog(true)">
+              <mat-icon>add</mat-icon> Log this set
+            </button>
+          </mat-card-content>
+        </mat-card>
+      }
+
+      <h3 class="pat-title">
+        {{ p.dayRemainingSets }} set{{ p.dayRemainingSets === 1 ? "" : "s" }} left today
+      </h3>
+      @for (pat of p.patterns; track pat.pattern) {
+        <div class="pat-row">
+          <div class="pat-line">
+            <span>{{ patternLabel(pat.pattern) }}</span>
+            <span class="pat-count">{{ pat.todayDone }}/{{ pat.todayTarget }}</span>
+          </div>
+          <mat-progress-bar mode="determinate" [value]="pct(pat.todayDone, pat.todayTarget)" />
+          <div class="pat-week">week {{ pat.weekDone }}/{{ pat.weekTarget }}</div>
+        </div>
+      }
+    }
+  }
+}
+
+<div class="fab-anchor">
+  <button mat-fab class="add-fab" aria-label="Log a set" (click)="openLog()">
+    <mat-icon>add</mat-icon>
+  </button>
+</div>

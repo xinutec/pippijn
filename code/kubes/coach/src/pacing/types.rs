@@ -121,6 +121,7 @@ pub struct PacingNow {
     pub within_window: bool,
     pub after_cutoff: bool,
     pub spacing_ok: bool,
+    #[ts(type = "number | null")]
     pub minutes_since_last_set: Option<i64>,
     pub day_remaining_sets: i32,
     pub week_remaining_sets: i32,

@@ -1,0 +1,32 @@
+<mat-toolbar class="topbar">
+  <span class="title">Coach</span>
+  <span class="spacer"></span>
+  @if (me(); as m) {
+    <button mat-icon-button [matMenuTriggerFor]="menu" aria-label="Account">
+      @if (m.avatarUrl && !avatarError()) {
+        <img class="avatar" [src]="m.avatarUrl" alt="" (error)="avatarError.set(true)" />
+      } @else {
+        <mat-icon>account_circle</mat-icon>
+      }
+    </button>
+    <mat-menu #menu="matMenu">
+      <div class="menu-name">{{ m.displayName }}</div>
+      <button mat-menu-item (click)="signOut()">
+        <mat-icon>logout</mat-icon><span>Sign out</span>
+      </button>
+    </mat-menu>
+  }
+</mat-toolbar>
+
+<main class="content">
+  <router-outlet />
+</main>
+
+<nav class="bottom-nav">
+  @for (item of nav; track item.path) {
+    <a [routerLink]="item.path" routerLinkActive="active" class="nav-item">
+      <mat-icon>{{ item.icon }}</mat-icon>
+      <span>{{ item.label }}</span>
+    </a>
+  }
+</nav>

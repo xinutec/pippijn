@@ -1,0 +1,13 @@
+/node_modules
+/dist
+/.angular
+/out-tsc
+
+# Playwright e2e output
+/test-results/
+/playwright-report/
+/.playwright/
+
+# Generated at build time by scripts/stamp-version.mjs
+/src/app/build-info.ts
+/ui-snapshots/

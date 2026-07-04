@@ -1,0 +1,82 @@
+:host {
+  display: block;
+}
+
+.week-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  h2 {
+    margin-right: auto;
+  }
+}
+
+mat-card {
+  margin-bottom: 0.75rem;
+}
+
+.cta mat-card-content {
+  padding-top: 1rem;
+  button {
+    margin-top: 0.5rem;
+  }
+}
+
+.reason mat-card-content {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  font: var(--mat-sys-body-large);
+
+  mat-icon {
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+.reason.is-nudge {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+  mat-icon {
+    color: var(--mat-sys-on-primary-container);
+  }
+}
+
+.suggestion {
+  .s-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    h3 {
+      margin: 0;
+    }
+  }
+  .s-detail {
+    color: var(--mat-sys-on-surface-variant);
+    margin: 0.35rem 0 0.75rem;
+  }
+}
+
+.pat-title {
+  margin-top: 1rem;
+}
+
+.pat-row {
+  margin-bottom: 0.9rem;
+
+  .pat-line {
+    display: flex;
+    justify-content: space-between;
+    font: var(--mat-sys-label-large);
+    margin-bottom: 0.25rem;
+  }
+  .pat-count {
+    font-variant-numeric: tabular-nums;
+    color: var(--mat-sys-on-surface-variant);
+  }
+  .pat-week {
+    font: var(--mat-sys-label-small);
+    color: var(--mat-sys-on-surface-variant);
+    margin-top: 0.15rem;
+  }
+}

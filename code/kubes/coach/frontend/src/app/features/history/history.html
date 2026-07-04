@@ -1,0 +1,21 @@
+<h2>History</h2>
+
+@if (!loading() && sets().length === 0) {
+  <p class="empty">No sets logged yet. Log one from the Today tab.</p>
+}
+
+@for (g of groups(); track g.key) {
+  <h3 class="day">{{ g.label }}</h3>
+  @for (s of g.sets; track s.id) {
+    <div class="set-row">
+      <div class="set-main">
+        <span class="set-name">{{ name(s.exerciseId) }}</span>
+        <span class="set-detail">{{ detail(s) }}</span>
+      </div>
+      <span class="set-time">{{ time(s) }}</span>
+      <button mat-icon-button aria-label="Delete set" (click)="del(s)">
+        <mat-icon>delete_outline</mat-icon>
+      </button>
+    </div>
+  }
+}

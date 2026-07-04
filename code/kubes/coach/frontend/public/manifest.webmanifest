@@ -1,0 +1,12 @@
+{
+  "name": "Life",
+  "short_name": "Life",
+  "description": "Personal home organiser — inventory, recipes, and where everything is.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#2e7d32",
+  "theme_color": "#2e7d32",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{Datelike, NaiveDateTime, Timelike};
+use chrono::{NaiveDateTime, Timelike};
 
 use crate::exercise::types::Pattern;
 

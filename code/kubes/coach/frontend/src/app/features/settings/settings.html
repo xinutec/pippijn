@@ -1,0 +1,52 @@
+<h2>Settings</h2>
+
+@if (form; as f) {
+  <p class="hint">
+    The pacing coach only nudges inside your active window, and stops after the
+    night cutoff (remaining volume rolls to tomorrow). Home detection lives on
+    the phone, not here.
+  </p>
+
+  <div class="sheet-form">
+    <mat-form-field appearance="outline">
+      <mat-label>Timezone</mat-label>
+      <input matInput [(ngModel)]="f.timezone" />
+    </mat-form-field>
+
+    <div class="pair">
+      <mat-form-field appearance="outline">
+        <mat-label>Window start (hour)</mat-label>
+        <input matInput type="number" min="0" max="23" [(ngModel)]="f.windowStartHour" />
+      </mat-form-field>
+      <mat-form-field appearance="outline">
+        <mat-label>Window end (hour)</mat-label>
+        <input matInput type="number" min="0" max="24" [(ngModel)]="f.windowEndHour" />
+      </mat-form-field>
+    </div>
+
+    <div class="pair">
+      <mat-form-field appearance="outline">
+        <mat-label>Night cutoff (hour)</mat-label>
+        <input matInput type="number" min="0" max="24" [(ngModel)]="f.nightCutoffHour" />
+      </mat-form-field>
+      <mat-form-field appearance="outline">
+        <mat-label>Min rest between nudges (min)</mat-label>
+        <input matInput type="number" min="0" [(ngModel)]="f.minRestMin" />
+      </mat-form-field>
+    </div>
+
+    <div class="actions">
+      @if (saved()) {
+        <span class="saved"><mat-icon>check</mat-icon> Saved</span>
+      }
+      <button mat-flat-button [disabled]="saving()" (click)="save()">Save</button>
+    </div>
+  </div>
+}
+
+<div class="updates">
+  <button mat-stroked-button (click)="checkUpdates()">Check for updates</button>
+  @if (updateMsg()) {
+    <span class="update-msg">{{ updateMsg() }}</span>
+  }
+</div>
