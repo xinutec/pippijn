@@ -3,7 +3,6 @@ package org.xinutec.coach
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -12,14 +11,13 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.Gravity
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -28,18 +26,19 @@ import androidx.core.view.WindowInsetsCompat
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import org.json.JSONObject
 
 /**
  * A full-screen [WebView] onto coach (the Angular app at [Config.BASE_URL]),
  * presented as a native app — no address bar, a home-screen icon, session cookie
  * kept for one-time Nextcloud sign-in.
  *
- * Plus a small "Reminders" button that sets up the native home geofence: it
- * records your home location on-device (never sent anywhere) and arms the
- * geofence so [GeofenceBroadcastReceiver] can nudge you to train when you're home.
- *
- * A plain Activity holding one WebView — no Compose/AppCompat. `configChanges`
- * keeps the WebView (route + scroll) across rotation.
+ * The home-geofence reminders are configured from the web app's own Settings page
+ * (there's no native chrome overlaying the web UI): the page calls the
+ * [CoachBridge] `@JavascriptInterface`, which drives the native permission →
+ * set-home → arm flow. The geofence itself + notifications are native (see
+ * [Geofencing], [GeofenceBroadcastReceiver]); the home location is stored
+ * on-device only ([Prefs]).
  */
 class MainActivity : Activity() {
     private lateinit var web: WebView
@@ -65,6 +64,8 @@ class MainActivity : Activity() {
                 settings.domStorageEnabled = true // localStorage / sessionStorage
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
+                // The web Settings page calls this to configure home reminders.
+                addJavascriptInterface(CoachBridge(), "CoachAndroid")
                 // Keep coach (and its Nextcloud login hop) in this WebView; hand
                 // every other origin to the real browser. Remember the current SPA
                 // route so a cold reopen returns to it.
@@ -126,24 +127,6 @@ class MainActivity : Activity() {
                 setBackgroundColor(Color.BLACK)
             }
 
-        // A subtle "Reminders" button over the WebView, bottom-left (the web app's
-        // own FAB lives bottom-right), opening the native geofence setup.
-        val reminders =
-            Button(this).apply {
-                text = getString(R.string.reminders)
-                alpha = 0.85f
-                setOnClickListener { showRemindersDialog() }
-                layoutParams =
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.WRAP_CONTENT,
-                        FrameLayout.LayoutParams.WRAP_CONTENT,
-                    ).apply {
-                        gravity = Gravity.BOTTOM or Gravity.START
-                        setMargins(dp(12), 0, 0, dp(12))
-                    }
-            }
-        root.addView(reminders)
-
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
@@ -169,35 +152,44 @@ class MainActivity : Activity() {
         if (web.canGoBack()) web.goBack() else super.onBackPressed()
     }
 
-    // ---- reminders / geofence setup ----
+    // ---- bridge for the web Settings page ----
 
-    private fun showRemindersDialog() {
-        val prefs = Prefs(this)
-        val status =
-            (if (prefs.hasHome) "Home is set." else "Home not set yet.") +
-                "\n" +
-                (if (prefs.armed) "Reminders are ON." else "Reminders are OFF.")
-        val builder =
-            AlertDialog.Builder(this)
-                .setTitle("Home reminders")
-                .setMessage(
-                    "$status\n\nYou'll get a nudge to train when you settle at home — but " +
-                        "only when coach says it's a good moment (inside your window, not " +
-                        "too soon after your last set).",
-                )
-                .setPositiveButton(
-                    if (prefs.hasHome) "Update home & turn on" else "Use current location & turn on",
-                ) { _, _ -> beginSetup() }
-                .setNegativeButton("Close", null)
-        if (prefs.armed) {
-            builder.setNeutralButton("Turn off") { _, _ ->
-                prefs.armed = false
-                Geofencing.disarm(this)
+    /** Exposed to the web app as `window.CoachAndroid`. Its presence is how the
+     *  Settings page knows it's running inside the native app and can offer the
+     *  home-reminders controls. */
+    inner class CoachBridge {
+        /** JSON `{hasHome, armed}` so the page can reflect current state. Reads
+         *  only local flags — safe on the binder thread. */
+        @JavascriptInterface
+        fun remindersStatus(): String {
+            val p = Prefs(this@MainActivity)
+            return JSONObject().put("hasHome", p.hasHome).put("armed", p.armed).toString()
+        }
+
+        /** Set home to the current location and arm reminders (permission flow). */
+        @JavascriptInterface
+        fun setupReminders() {
+            runOnUiThread { if (fromCoach()) beginSetup() }
+        }
+
+        /** Turn reminders off and remove the geofence. */
+        @JavascriptInterface
+        fun disableReminders() {
+            runOnUiThread {
+                if (!fromCoach()) return@runOnUiThread
+                Prefs(this@MainActivity).armed = false
+                Geofencing.disarm(this@MainActivity)
                 toast("Reminders off.")
             }
         }
-        builder.show()
     }
+
+    // Only act on bridge calls from the coach app itself, not the NC login hop or
+    // any page that slips past navigation confinement. Reads web.url, so callers
+    // must be on the UI thread.
+    private fun fromCoach(): Boolean = web.url?.startsWith(Config.BASE_URL) == true
+
+    // ---- geofence setup flow ----
 
     private fun beginSetup() {
         setupInProgress = true
@@ -213,6 +205,7 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQ_FINE)
             return
         }
+        // Always re-capture home on setup (the user may be setting it fresh).
         if (!Prefs(this).hasHome) {
             captureHome()
             return
@@ -295,8 +288,6 @@ class MainActivity : Activity() {
         ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
 
     private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_SHORT).show()
-
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     // evaluateJavascript hands back the JSON-encoded result, e.g. "rgb(18, 18, 18)".
     // Pull out the RGB triple; alpha is ignored (the surface is opaque).

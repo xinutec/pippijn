@@ -15,6 +15,38 @@
   margin-right: auto;
 }
 
+.reminders-card {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+
+  h3 {
+    margin: 0 0 0.4rem;
+  }
+
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+}
+
+.rem-status {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font: var(--mat-sys-label-large);
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+}
+
 .updates {
   margin-top: 1.5rem;
   display: flex;
