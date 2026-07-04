@@ -102,6 +102,11 @@ export class App implements OnInit, OnDestroy {
 	// remembered across reloads. The DB and API are raw.
 	protected readonly calibrated = signal(readLocal('calibrated') !== 'off');
 
+	// Reveal each device's stable id on its room card. Off by default so daily
+	// viewing stays uncluttered; flipped on when correlating a moved physical
+	// sensor to the id you edit in labels.ts. Remembered across reloads.
+	protected readonly showIds = signal(readLocal('showIds') === 'on');
+
 	// Temperature & humidity: one coloured line per device, for room comparison.
 	protected readonly tempSeries = computed(() =>
 		climateSeries(
@@ -180,6 +185,12 @@ export class App implements OnInit, OnDestroy {
 		const v = !this.calibrated();
 		this.calibrated.set(v);
 		writeLocal('calibrated', v ? 'on' : 'off');
+	}
+
+	protected toggleShowIds(): void {
+		const v = !this.showIds();
+		this.showIds.set(v);
+		writeLocal('showIds', v ? 'on' : 'off');
 	}
 
 	/** Offset to add to a device's reading for `key`; 0 when calibration is off/absent. */

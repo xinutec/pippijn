@@ -15,6 +15,14 @@
 	>
 		Calibrated
 	</mat-slide-toggle>
+	<mat-slide-toggle
+		class="cal-toggle"
+		[checked]="showIds()"
+		(change)="toggleShowIds()"
+		matTooltip="Show each sensor's device id (for relabelling a moved sensor)"
+	>
+		Show IDs
+	</mat-slide-toggle>
 	<button
 		matIconButton
 		type="button"
@@ -149,7 +157,12 @@
 								<mat-icon class="room-air" matTooltip="Air-quality sensor">air</mat-icon>
 							}
 						</div>
-						<div class="room-type">{{ d.label.type }}</div>
+						<div class="room-type">
+							{{ d.label.type }}
+							@if (showIds()) {
+								<span class="room-id">{{ d.device }}</span>
+							}
+						</div>
 						<div class="room-readings">
 							<span class="room-temp">
 								{{ calTemp(d) != null ? (calTemp(d)! | number: '1.1-1') : '—' }}°

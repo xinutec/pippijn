@@ -334,6 +334,18 @@
 	margin-top: -0.2rem;
 }
 
+.room-id {
+	margin-left: 0.4rem;
+	padding: 0.05rem 0.3rem;
+	border-radius: 0.25rem;
+	background: var(--mat-sys-surface-container-highest);
+	color: var(--mat-sys-on-surface);
+	font: var(--mat-sys-label-small);
+	font-family: ui-monospace, monospace;
+	letter-spacing: 0.02em;
+	user-select: all;
+}
+
 .room-readings {
 	display: flex;
 	align-items: baseline;

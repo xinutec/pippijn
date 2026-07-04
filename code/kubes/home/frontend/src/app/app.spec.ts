@@ -28,4 +28,14 @@ describe('App', () => {
 		const compiled = fixture.nativeElement as HTMLElement;
 		expect(compiled.querySelector('.brand-title')?.textContent).toContain('Home');
 	});
+
+	it('offers a "Show IDs" toggle, off by default', async () => {
+		const fixture = TestBed.createComponent(App);
+		fixture.detectChanges();
+		await fixture.whenStable();
+		const compiled = fixture.nativeElement as HTMLElement;
+		const labels = [...compiled.querySelectorAll('mat-slide-toggle')].map((t) => t.textContent);
+		expect(labels.some((l) => l?.includes('Show IDs'))).toBe(true);
+		expect(fixture.componentInstance['showIds']()).toBe(false);
+	});
 });
