@@ -53,7 +53,13 @@ const LABELS: Record<string, DeviceLabel> = {
 		order: 3,
 		type: "Govee H5075",
 	},
-	"govee-267F": { name: "govee-267F", airQuality: false, order: 4, type: "Govee H5103" },
+	"govee-267F": {
+		name: "govee-267F",
+		room: "Hobby Room",
+		airQuality: false,
+		order: 4,
+		type: "Govee H5103",
+	},
 };
 
 /** Label for a device id, falling back to the raw id for unmapped sensors. */

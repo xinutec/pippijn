@@ -10,8 +10,8 @@ describe("labelFor", () => {
 		expect(l.room).toBe("Bedroom");
 	});
 
-	it("leaves an unsited sensor without a room", () => {
-		expect(labelFor("govee-267F").room).toBeUndefined();
+	it("leaves an unmapped device without a room", () => {
+		expect(labelFor("govee-FFFF").room).toBeUndefined();
 	});
 
 	it("treats Govee sensors as climate-only", () => {
