@@ -16,6 +16,16 @@ SOURCES="${FLEETWATCH_SOURCES:-mac-mini}"
 # Strip URL-significant chars from the DB password so the DSN needs no escaping.
 DB_PASSWORD="$(head -c 18 /dev/urandom | base64 | tr -d '/+=')"
 DB_ROOT_PASSWORD="$(head -c 18 /dev/urandom | base64 | tr -d '/+=')"
+# HMAC key for the human login-session cookies (see src/session.rs).
+SESSION_SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '/+=')"
+
+# Nextcloud OAuth2 client (the human login gate) — created by hand in
+# dash.xinutec.org → Admin → Security → OAuth 2.0 clients, redirect URI
+# https://fleetwatch.xinutec.org/auth/callback. Supplied via the environment,
+# not generated (rotating it means re-registering in Nextcloud):
+#   NC_CLIENT_ID=… NC_CLIENT_SECRET=… ./secret.sh
+: "${NC_CLIENT_ID:?set NC_CLIENT_ID (Nextcloud OAuth2 client identifier)}"
+: "${NC_CLIENT_SECRET:?set NC_CLIENT_SECRET (Nextcloud OAuth2 client secret)}"
 
 # One token per producer source; assemble the source:token pairs for FLEETWATCH_TOKENS.
 PAIRS=""
@@ -33,4 +43,7 @@ kubectl create secret -n fleetwatch generic fleetwatch-secret \
   --from-literal=DB_ROOT_PASSWORD="$DB_ROOT_PASSWORD" \
   --from-literal=DATABASE_URL="mysql://fleetwatch:${DB_PASSWORD}@fleetwatch-db/fleetwatch" \
   --from-literal=FLEETWATCH_TOKENS="$PAIRS" \
+  --from-literal=SESSION_SECRET="$SESSION_SECRET" \
+  --from-literal=NC_CLIENT_ID="$NC_CLIENT_ID" \
+  --from-literal=NC_CLIENT_SECRET="$NC_CLIENT_SECRET" \
   --dry-run=client -o yaml | kubectl apply -f -

@@ -1,6 +1,6 @@
-//! The read side: unauthenticated GET endpoints backing every UI view. The VPN
-//! plus the ingress source-range whitelist is the access gate. Each handler is
-//! thin and delegates to `report::repo`.
+//! The read side: GET endpoints backing every UI view. Each requires a valid
+//! Nextcloud-login session (the `AuthUser` extractor 401s otherwise) — the VPN
+//! is no longer the gate. Each handler is thin and delegates to `report::repo`.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -11,15 +11,22 @@ use serde::Deserialize;
 use crate::error::AppError;
 use crate::report::repo;
 use crate::report::types::{History, OverviewEntry, Problems, ReportDetail, ReportSummary};
+use crate::session::AuthUser;
 use crate::state::AppState;
 
 /// GET /api/overview — one tile per (source, collector) with its latest rollup.
-pub async fn overview(State(app): State<AppState>) -> Result<Json<Vec<OverviewEntry>>, AppError> {
+pub async fn overview(
+    _user: AuthUser,
+    State(app): State<AppState>,
+) -> Result<Json<Vec<OverviewEntry>>, AppError> {
     Ok(Json(repo::overview(&app.pool).await?))
 }
 
 /// GET /api/problems — failing/warning checks + overdue/silent collectors.
-pub async fn problems(State(app): State<AppState>) -> Result<Json<Problems>, AppError> {
+pub async fn problems(
+    _user: AuthUser,
+    State(app): State<AppState>,
+) -> Result<Json<Problems>, AppError> {
     Ok(Json(repo::problems(&app.pool).await?))
 }
 
@@ -32,6 +39,7 @@ pub struct ReportsQuery {
 
 /// GET /api/reports — report history (runs), newest first, optional filters.
 pub async fn reports(
+    _user: AuthUser,
     State(app): State<AppState>,
     Query(q): Query<ReportsQuery>,
 ) -> Result<Json<Vec<ReportSummary>>, AppError> {
@@ -50,6 +58,7 @@ pub async fn reports(
 
 /// GET /api/reports/:id — one report with all its checks.
 pub async fn report(
+    _user: AuthUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<ReportDetail>, AppError> {
@@ -71,6 +80,7 @@ pub struct HistoryQuery {
 
 /// GET /api/history — time series for one check. Defaults to the last 30 days.
 pub async fn history(
+    _user: AuthUser,
     State(app): State<AppState>,
     Query(q): Query<HistoryQuery>,
 ) -> Result<Json<History>, AppError> {

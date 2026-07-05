@@ -23,8 +23,14 @@ fn app() -> axum::Router {
         tokens: vec![("mac-mini".into(), "secret-token".into())],
         raw_retention_days: 30,
         check_retention_days: 400,
+        session_secret: "test-session-secret".into(),
+        nc_base_url: "https://nc.example".into(),
+        nc_client_id: "test-client".into(),
+        nc_client_secret: "test-secret".into(),
+        nc_redirect_uri: "https://fleetwatch.example/auth/callback".into(),
+        dev_login_user: None,
     };
-    routes::router(AppState::new(pool, cfg))
+    routes::router(AppState::new(pool, cfg, reqwest::Client::new()))
 }
 
 #[tokio::test]
@@ -59,6 +65,17 @@ async fn ingest_with_wrong_token_is_401() {
                 .body(Body::from(r#"{"schema":1}"#))
                 .unwrap(),
         )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn read_endpoint_without_session_is_401() {
+    // The human read side is gated by the NC-login session (AuthUser). The
+    // extractor rejects before touching the pool, so no DB is needed here.
+    let res = app()
+        .oneshot(Request::get("/api/overview").body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);

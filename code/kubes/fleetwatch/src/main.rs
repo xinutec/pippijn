@@ -3,7 +3,7 @@
 //! in the `fleetwatch` library crate.
 
 use anyhow::Result;
-use fleetwatch::{config::Config, db, report::retention, routes, state::AppState};
+use fleetwatch::{config::Config, db, report::retention, routes, session, state::AppState};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -36,8 +36,24 @@ async fn main() -> Result<()> {
         }
     });
 
+    // Hourly sweep of expired login sessions (lazily-expired otherwise, so
+    // abandoned sessions would accumulate). Auth artifacts, not user data.
+    let session_pool = pool.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            tick.tick().await;
+            match session::sweep_expired(&session_pool).await {
+                Ok(n) if n > 0 => tracing::info!("sessions: swept {n} expired"),
+                Ok(_) => {}
+                Err(e) => tracing::warn!("session sweep failed: {e:#}"),
+            }
+        }
+    });
+
+    let http = reqwest::Client::new();
     let bind_addr = cfg.bind_addr.clone();
-    let app = routes::router(AppState::new(pool, cfg));
+    let app = routes::router(AppState::new(pool, cfg, http));
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     tracing::info!("fleetwatch listening on {bind_addr}");

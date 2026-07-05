@@ -11,6 +11,8 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod nextcloud;
 pub mod report;
 pub mod routes;
+pub mod session;
 pub mod state;

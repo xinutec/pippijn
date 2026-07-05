@@ -28,6 +28,22 @@ pub struct Config {
     pub raw_retention_days: i64,
     /// Per-check rows are pruned after this many days (a year of trends + margin).
     pub check_retention_days: i64,
+
+    // --- Human auth (Nextcloud identity → cookie session). Distinct from the
+    // ingest tokens above: producers write with bearer tokens, humans read the
+    // dashboard behind an NC login. ---
+    /// HMAC key for signing session cookies.
+    pub session_secret: String,
+    /// Nextcloud base URL, e.g. `https://dash.xinutec.org` (no trailing slash).
+    pub nc_base_url: String,
+    /// OAuth2 client id + secret registered in Nextcloud for this app.
+    pub nc_client_id: String,
+    pub nc_client_secret: String,
+    /// Must match the redirect URI registered for the OAuth2 client.
+    pub nc_redirect_uri: String,
+    /// DEV ONLY. When set, `/dev-login` mints a session for this user id with no
+    /// Nextcloud round-trip. Unset in production, so the route stays unmounted.
+    pub dev_login_user: Option<String>,
 }
 
 fn env(key: &str) -> Result<String> {
@@ -77,6 +93,14 @@ impl Config {
         if tokens.is_empty() {
             anyhow::bail!("FLEETWATCH_TOKENS is empty — no producer could ever authenticate");
         }
+        // Fail fast at boot if the NC base URL is malformed, rather than
+        // panicking inside the /login handler at first request.
+        let nc_base_url = env("NC_BASE_URL")?.trim_end_matches('/').to_string();
+        let parsed = url::Url::parse(&nc_base_url)
+            .with_context(|| format!("NC_BASE_URL is not a valid URL: {nc_base_url:?}"))?;
+        if !matches!(parsed.scheme(), "http" | "https") || parsed.host().is_none() {
+            anyhow::bail!("NC_BASE_URL must be an http(s) URL with a host: {nc_base_url:?}");
+        }
         Ok(Self {
             database_url: env("DATABASE_URL")?,
             bind_addr: env_or("BIND_ADDR", "0.0.0.0:8080"),
@@ -84,6 +108,12 @@ impl Config {
             tokens,
             raw_retention_days: env_i64("FLEETWATCH_RAW_RETENTION_DAYS", 30)?,
             check_retention_days: env_i64("FLEETWATCH_CHECK_RETENTION_DAYS", 400)?,
+            session_secret: env("SESSION_SECRET")?,
+            nc_base_url,
+            nc_client_id: env("NC_CLIENT_ID")?,
+            nc_client_secret: env("NC_CLIENT_SECRET")?,
+            nc_redirect_uri: env("NC_REDIRECT_URI")?,
+            dev_login_user: std::env::var("DEV_LOGIN_USER").ok(),
         })
     }
 }

@@ -45,6 +45,29 @@ spec:
                 secretKeyRef:
                   name: fleetwatch-secret
                   key: FLEETWATCH_TOKENS
+            # Human auth: Nextcloud-login sessions gate the read API (the ingest
+            # path above stays token-only). Session cookies are HMAC-signed with
+            # SESSION_SECRET; NC_CLIENT_* is this app's OAuth2 client on dash.
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: fleetwatch-secret
+                  key: SESSION_SECRET
+            - name: NC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: fleetwatch-secret
+                  key: NC_CLIENT_ID
+            - name: NC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: fleetwatch-secret
+                  key: NC_CLIENT_SECRET
+            # Non-secret: which Nextcloud, and the OAuth redirect back to here.
+            - name: NC_BASE_URL
+              value: https://dash.xinutec.org
+            - name: NC_REDIRECT_URI
+              value: https://fleetwatch.xinutec.org/auth/callback
             # info = one line per /api request (TraceLayer); fleetwatch=debug adds our
             # own ingest detail. Third-party crates stay at info (quiet).
             - name: RUST_LOG

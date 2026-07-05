@@ -1,7 +1,8 @@
-//! HTTP routing table. One authenticated write (POST /api/reports) and a set of
-//! unauthenticated reads; the built Angular bundle is served single-origin with
-//! an index.html SPA fallback.
+//! HTTP routing table. One token-authed write (POST /api/reports); the read
+//! endpoints require a Nextcloud-login session; the built Angular bundle is
+//! served single-origin with an index.html SPA fallback.
 
+pub mod auth;
 pub mod ingest;
 pub mod views;
 
@@ -30,7 +31,15 @@ pub fn router(state: AppState) -> Router {
 
     let mut app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
+        .route("/login", get(auth::login))
+        .route("/auth/callback", get(auth::callback))
+        .route("/logout", post(auth::logout))
         .nest("/api", api);
+
+    // DEV ONLY: mount /dev-login only when DEV_LOGIN_USER is set.
+    if state.cfg.dev_login_user.is_some() {
+        app = app.route("/dev-login", get(auth::dev_login));
+    }
 
     // Serve the built Angular bundle (single origin), falling back to index.html
     // so client-side routes resolve. API-only when STATIC_DIR is unset (dev,
