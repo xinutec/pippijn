@@ -1,4 +1,5 @@
-#!/bin/sh
+#!/usr/bin/env bash
+set -euo pipefail
 
 sudo helm upgrade --install \
   cert-manager jetstack/cert-manager \
