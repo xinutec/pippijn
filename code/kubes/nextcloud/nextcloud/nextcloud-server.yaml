@@ -24,6 +24,9 @@ spec:
       - name: nginx-config-volume
         configMap:
           name: nginx-config
+      # dev-lint: allow-unhardened — both containers need root: the nextcloud
+      # fpm image's entrypoint chowns /var/www/html to www-data on boot, and the
+      # nginx sidecar binds :80. Forcing runAsNonRoot breaks them.
       containers:
       - name: nextcloud
         image: nextcloud:33.0.2-fpm-alpine
@@ -59,6 +62,12 @@ spec:
         - name: server-storage
           mountPath: /var/www/html
           subPath: server-data
+        # php-fpm listens on :9000; readiness gates the rollout on it being up.
+        readinessProbe:
+          tcpSocket:
+            port: 9000
+          initialDelaySeconds: 10
+          periodSeconds: 10
       # Our nginx container, which uses the configuration declared in
       # nginx-config.yaml, along with the files shared with the PHP-FPM app.
       - name: nginx
@@ -70,6 +79,11 @@ spec:
         - name: nginx-config-volume
           mountPath: /etc/nginx/nginx.conf
           subPath: nginx.conf
+        readinessProbe:
+          tcpSocket:
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service

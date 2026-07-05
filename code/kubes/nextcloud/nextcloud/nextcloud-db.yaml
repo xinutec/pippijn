@@ -18,6 +18,9 @@ spec:
         pod-label: nextcloud-db-pod
     spec:
       containers:
+      # dev-lint: allow-unhardened — the mariadb entrypoint starts as root to
+      # fix datadir ownership/permissions, then drops to the mysql user itself;
+      # forcing runAsNonRoot breaks first-boot init on the PVC.
       - name: mariadb
         image: mariadb:11.8
         env:
