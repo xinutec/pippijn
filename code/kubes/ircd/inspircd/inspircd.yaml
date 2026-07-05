@@ -21,6 +21,10 @@ spec:
   selector:
     matchLabels:
       run: inspircd
+  # hostPort binds the node interface, so two pods can't coexist during a rollout —
+  # recreate (brief blip) instead of a RollingUpdate that would deadlock on the port.
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
