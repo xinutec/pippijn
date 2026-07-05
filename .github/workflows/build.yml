@@ -29,62 +29,9 @@ jobs:
       username: ${{ secrets.DOCKERHUB_USERNAME }}
       password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-  # Gate the health-sync image on the full analysis suite — typecheck,
-  # schema-drift, Biome + angular-eslint, and the backend + frontend
-  # unit tests. Same `npm run verify` deploy.sh runs locally, so a
-  # direct push to main is held to the same bar as a scripted deploy.
-  # (The golden harness is not here: it needs DB access and runs from a
-  # tunnel / cron, not plain CI.)
-  health-verify:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: code/kubes/health
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      - run: npm ci
-      - run: npm ci --prefix frontend
-      - run: npm run verify
+  # health-sync builds in its own repo (github.com/xinutec/health → xinutec/health-sync:latest); only k8s stays here.
 
-  health-sync:
-    needs: health-verify
-    uses: xinutec/pippijn/.github/workflows/docker.yml@main
-    with:
-      path: code/kubes/health
-      image: health-sync
-    secrets:
-      username: ${{ secrets.DOCKERHUB_USERNAME }}
-      password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-  # Home environment dashboard (IQAir AirVisual Pro). Same gate as health:
-  # the image only builds if typecheck + Biome/eslint + backend/frontend
-  # tests pass. Node 24 (newer than health's 22).
-  home-verify:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: code/kubes/home
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      - run: npm ci
-      - run: npm ci --prefix frontend
-      - run: npm run verify
-
-  home:
-    needs: home-verify
-    uses: xinutec/pippijn/.github/workflows/docker.yml@main
-    with:
-      path: code/kubes/home
-      image: home
-    secrets:
-      username: ${{ secrets.DOCKERHUB_USERNAME }}
-      password: ${{ secrets.DOCKERHUB_PASSWORD }}
+  # home builds in its own repo (github.com/xinutec/home → xinutec/home:latest); only k8s stays here.
 
   # Signal message archive (Rust). Gate the image on `cargo test` — the pure
   # parsing logic in src/parse.rs is unit-tested in tests/parse.rs.
@@ -110,104 +57,8 @@ jobs:
 
   # life builds in its own repo (github.com/xinutec/life → xinutec/life:latest); only k8s stays here.
 
-  # coach — training tracker + adaptive pacing coach (Rust backend + Angular
-  # frontend). The pacing engine tests are pure (no DB), so no MariaDB service.
-  coach-verify:
-    runs-on: ubuntu-latest
-    container: rust:1-bookworm
-    defaults:
-      run:
-        working-directory: code/kubes/coach
-    steps:
-      - uses: actions/checkout@v6
-      - run: rustup component add clippy
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+  # coach builds in its own repo (github.com/xinutec/coach → xinutec/coach:latest); only k8s stays here.
 
-  coach-fe-verify:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: code/kubes/coach/frontend
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      - run: npm ci
-      - run: npm run lint
-      # ui-check builds (prod) then runs the shared layout harness (text overlap,
-      # horizontal overflow, occluded controls) at phone + wide viewports.
-      - run: npx playwright install --with-deps chromium
-      - run: npm run ui-check
-
-  coach:
-    needs: [coach-verify, coach-fe-verify]
-    uses: xinutec/pippijn/.github/workflows/docker.yml@main
-    with:
-      path: code/kubes/coach
-      image: coach
-    secrets:
-      username: ${{ secrets.DOCKERHUB_USERNAME }}
-      password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-  # Message-archive viewer (Rust backend + Angular frontend) over the Signal +
-  # Google Chat data in the signal DB. Gate on clippy + cargo test (no DB needed).
-  messages-verify:
-    runs-on: ubuntu-latest
-    container: rust:1-bookworm
-    # A throwaway MariaDB so the archive integration tests actually run in CI
-    # (they seed + assert real queries; they skip when the env var is unset).
-    services:
-      mariadb:
-        image: mariadb:11.8
-        env:
-          MARIADB_ROOT_PASSWORD: root
-          MARIADB_DATABASE: messages_test
-        options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=5s --health-timeout=5s --health-retries=10
-    env:
-      MESSAGES_TEST_DATABASE_URL: mysql://root:root@mariadb:3306/messages_test
-    defaults:
-      run:
-        working-directory: code/kubes/messages
-    steps:
-      - uses: actions/checkout@v6
-      - run: rustup component add clippy
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test -- --test-threads=1
-
-  # Frontend static analysis: angular-eslint (incl. forbidding inline templates)
-  # + a production build, same convention as health/home.
-  messages-fe-verify:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: code/kubes/messages/frontend
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npx ng build --configuration production
-      # Real-browser render check: icon fonts actually load, no text overlaps.
-      # Catches render bugs jsdom unit tests can't see (e.g. an icon font that
-      # falls back to its ligature word). Serves the app via `ng serve`.
-      - run: npx playwright install --with-deps chromium
-      - run: npm run ui-check
-
-  messages:
-    needs: [messages-verify, messages-fe-verify]
-    uses: xinutec/pippijn/.github/workflows/docker.yml@main
-    with:
-      path: code/kubes/messages
-      image: messages
-    secrets:
-      username: ${{ secrets.DOCKERHUB_USERNAME }}
-      password: ${{ secrets.DOCKERHUB_PASSWORD }}
+  # messages builds in its own repo (github.com/xinutec/messages → xinutec/messages:latest); only k8s stays here.
 
   # fleetwatch builds in its own repo (github.com/xinutec/fleetwatch → xinutec/fleetwatch:latest); only k8s stays here.
