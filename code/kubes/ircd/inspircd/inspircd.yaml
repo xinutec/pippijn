@@ -26,6 +26,16 @@ spec:
       labels:
         run: inspircd
     spec:
+      # The image already runs as the unprivileged `irc` user (uid 39, see the
+      # Dockerfile's `USER irc`); the IRC ports are all >1024 so no root is
+      # needed. Declare it so a rollout can't silently regress to root.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 39
+        runAsGroup: 39
+        fsGroup: 39
+        seccompProfile:
+          type: RuntimeDefault
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -34,13 +44,24 @@ spec:
         - name: ircd
           image: xinutec/ircd:latest
           imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
+            # hostPort so inspircd sees the real client IP (spam/ban tracking,
+            # WHOIS) rather than the load-balancer's — a Service would NAT it.
             - containerPort: 6697
-              hostPort: 6697
+              hostPort: 6697  # dev-lint: allow-host-port
             - containerPort: 7005
-              hostPort: 7005
+              hostPort: 7005  # dev-lint: allow-host-port
             - containerPort: 7776
-              hostPort: 7776
+              hostPort: 7776  # dev-lint: allow-host-port
+          readinessProbe:
+            tcpSocket:
+              port: 6697
+            initialDelaySeconds: 5
+            periodSeconds: 10
           volumeMounts:
             - mountPath: /etc/inspircd/conf/secret
               name: data
