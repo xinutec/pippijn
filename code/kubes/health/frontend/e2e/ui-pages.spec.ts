@@ -1,12 +1,12 @@
 import { test, type Page } from "@playwright/test";
-// The fleet-shared harness (code/kubes/ui-harness) — relative import, since
-// Playwright transpiles TS outside node_modules but not inside it.
+// The fleet-shared harness, published as @xinutec/ui-harness (source repo
+// ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
 	expectNoTextOverlaps,
 	expectNoHorizontalOverflow,
 	expectViewportIsPhone,
 	expectIconFontLoaded,
-} from "../../../ui-harness/src/ui-harness";
+} from "@xinutec/ui-harness";
 
 /**
  * L2 phone-width layout harness for the health dashboard. Render the Day and

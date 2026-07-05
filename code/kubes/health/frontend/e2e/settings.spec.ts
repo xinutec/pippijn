@@ -1,5 +1,5 @@
 import { test, type Page } from "@playwright/test";
-import { expectNoTextOverlaps } from "../../../ui-harness/src/ui-harness";
+import { expectNoTextOverlaps } from "@xinutec/ui-harness";
 
 /**
  * Render /settings at a phone viewport with the backend mocked, and assert

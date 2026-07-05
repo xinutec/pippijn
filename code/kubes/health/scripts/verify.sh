@@ -26,7 +26,7 @@ nix develop -c npm run verify "$@"
 # L2 phone-width layout harness (ui-check): build the frontend, then serve the
 # dist via e2e/serve.mjs and assert no overlap/overflow at Pixel width. The
 # `npm run verify` above is tsc/lint/vitest only (no ng build), so build here.
-# See code/kubes/ui-harness + dev-lint/docs/layout-quality-architecture.md.
+# See @xinutec/ui-harness + dev-lint/docs/layout-quality-architecture.md.
 nix develop -c bash -c '
   set -euo pipefail
   # NG_BUILD_MAX_WORKERS=1 lowers (does not cure) the macOS @angular/build
