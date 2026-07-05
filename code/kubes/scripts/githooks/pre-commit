@@ -15,7 +15,7 @@ set -euo pipefail
 
 DEVLINT="${DEVLINT_DIR:-$HOME/Code/dev-lint}"
 root="$(git rev-parse --show-toplevel)"
-APPS="code/kubes/health code/kubes/home code/kubes/life code/kubes/messages"
+APPS="code/kubes/health code/kubes/home code/kubes/messages"
 
 # dev-lint target dirs for an app path (empty if unknown). The Android manifest is
 # passed as the FILE (not the android/ tree) so the WebView-manifest and
@@ -25,7 +25,6 @@ targets_for() {
 	case "$1" in
 		code/kubes/health) echo "code/kubes/health/frontend/src code/kubes/health/src code/kubes/health/$m" ;;
 		code/kubes/home) echo "code/kubes/home/frontend/src code/kubes/home/src code/kubes/home/$m" ;;
-		code/kubes/life) echo "code/kubes/life/frontend/src code/kubes/life/src code/kubes/life/$m" ;;
 		code/kubes/messages) echo "code/kubes/messages/frontend/src code/kubes/messages/src code/kubes/messages/$m" ;;
 		*) echo "" ;;
 	esac
