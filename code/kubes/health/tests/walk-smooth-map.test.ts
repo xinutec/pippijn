@@ -19,7 +19,6 @@ import {
 
 const LAT = 51.56;
 const dLat = (m: number) => m / 111_320;
-const dLon = (m: number) => m / (111_320 * Math.cos((LAT * Math.PI) / 180));
 
 /** A single east–west way "Straight Street" along latitude LAT. */
 const straightGeo: RoadGeometry = {

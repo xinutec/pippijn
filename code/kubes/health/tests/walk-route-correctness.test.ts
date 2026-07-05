@@ -18,9 +18,7 @@ import type { RoadGeometry } from "../src/geo/road-match.js";
 // north (far enough that a point on it is nearer Wrong Street than Larch Rise).
 const LAT = 51.56;
 const dLatFor = (m: number) => m / 111_320;
-const dLonFor = (m: number) => m / (111_320 * Math.cos((LAT * Math.PI) / 180));
 
-const larchRise = { lat: LAT, dLon: dLonFor };
 const NORTH_40 = LAT + dLatFor(40);
 
 const geo: RoadGeometry = {

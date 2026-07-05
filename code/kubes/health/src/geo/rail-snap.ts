@@ -532,7 +532,7 @@ function wayOnLine(osmName: string | null, line: string): boolean {
  */
 export function snapTrainSegmentOnLine(seg: TrainSegment, geo: RailGeometry): SnapResult | null {
 	const parsed = parseRailWayName(seg.wayName);
-	if (!parsed || !parsed.line) return null;
+	if (!parsed?.line) return null;
 	const line = parsed.line;
 
 	const board = resolveStation(parsed.board, geo.stations);
