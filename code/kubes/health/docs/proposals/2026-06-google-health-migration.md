@@ -43,11 +43,19 @@ that path switched, while the real weigh-ins only existed on the Google side.
   `https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly`
   (sleep / activity / ecg have their own `googlehealth.*.readonly` scopes).
 - Google Cloud project **"Xinutec Health"**; Desktop OAuth client
-  `553831388950-3cf4rqrg01fh62u34rslas43tj6ek2t9.apps.googleusercontent.com`.
-- Client **secret** and **refresh token** live only in env / a secret — never
-  in the repo.
+  `553831388950-nb9umruv42dqlpnk1986t46h2j9bjv98.apps.googleusercontent.com`.
+- Client **secret** and **refresh token** live in **k8s secret
+  `health/health-google`** (keys `GH_CLIENT_ID` / `GH_CLIENT_SECRET` /
+  `GH_REFRESH_TOKEN`), never in the repo. Store only — not wired to the
+  deployment; sync is the manual CLI.
+- A Desktop client's secret cannot be re-viewed after creation; if lost, create
+  a new Desktop client rather than trying to recover it.
 - Restricted-scope verification is **not** needed for personal use (≤100 test
-  users); the spike confirmed the scope authorizes in Testing mode.
+  users).
+- **Propagation lag:** a fresh weigh-in reaches Health Connect and the app
+  immediately but takes time to surface on the Google *cloud* API this backend
+  polls, so a sync run right after weighing can miss it — re-run
+  `sync-google-weight --apply` a little later.
 
 ## Durability — DEFERRED (use the 7-day token until it breaks)
 
@@ -76,19 +84,31 @@ for removing the warning / going multi-user public — irrelevant here.
 
 ### How to re-auth manually (when the 7-day token expires)
 
+The Mac is **headless**, so the loopback redirect can't reach it; use the
+copy-the-`code` path:
+
 ```
 cd ~/Code/pippijn/code/kubes/health
-GH_CLIENT_ID=<id> GH_CLIENT_SECRET=<secret> \
-  nix-shell -p nodejs_22 --run 'node scripts/ghealth-spike.mjs'
-# approve in a browser ON THIS MACHINE (loopback 127.0.0.1:8765); copy the
-# printed refresh token, then:
-GH_CLIENT_ID=<id> GH_CLIENT_SECRET=<secret> GH_REFRESH_TOKEN=<token> \
-  ./scripts/prod-db.sh node dist/cli/sync-google-weight.js pippijn --apply
+nix develop -c npm run build                 # dist/ for the sync CLI
+
+# Creds from the k8s secret into the env (GH_CLIENT_ID / GH_CLIENT_SECRET /
+# GH_REFRESH_TOKEN). Inspect with:
+#   kubectl -n health get secret health-google -o jsonpath='{.data}'
+nix-shell -p nodejs_24 --run 'node scripts/ghealth-spike.mjs'   # prints a consent URL
+
+# Approve the URL in ANY browser. The redirect to http://127.0.0.1:8765/?...code=...
+# will fail to load — copy the `code` param out of the address bar, then feed it
+# to the still-running spike (it holds the PKCE verifier in memory):
+curl -sS -G http://127.0.0.1:8765/ --data-urlencode 'code=<CODE>'
+# the spike prints the new [refresh_token] and a weight sample.
+
+# With GH_CLIENT_ID/SECRET/REFRESH_TOKEN in the env, write the real weigh-ins:
+./scripts/prod-db.sh node dist/cli/sync-google-weight.js pippijn --apply
 ```
 
-(If consent happens on a different device, the loopback redirect won't reach
-this machine — paste the redirect URL's `code` and curl it to the still-running
-listener on `127.0.0.1:8765`.)
+Then update the stored token so the next run starts from a live one:
+`kubectl -n health create secret generic health-google --from-env-file=<file> --dry-run=client -o yaml | kubectl apply -f -`
+(the token is still 7-day until the app is Published — see the permanent fix above).
 
 ## Remaining (before Sep 2026)
 
