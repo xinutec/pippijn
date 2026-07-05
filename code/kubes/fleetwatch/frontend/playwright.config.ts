@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Phone-width layout harness (shared code/kubes/ui-harness). Runs against the
+ * Phone-width layout harness (shared @xinutec/ui-harness). Runs against the
  * real production build served by e2e/serve.mjs. `npm run ui-check`.
  *
  * The viewport lives in the PROJECT `use`, not the global one: a device spread

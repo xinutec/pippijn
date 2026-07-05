@@ -3,7 +3,7 @@ import {
   expectNoTextOverlaps,
   expectNoHorizontalOverflow,
   expectViewportIsPhone,
-} from '../../../ui-harness/src/ui-harness';
+} from '@xinutec/ui-harness';
 
 /**
  * Phone-width layout checks for fleetwatch (Pixel 7, 412px). Every screen: no text

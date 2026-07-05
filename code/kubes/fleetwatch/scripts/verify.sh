@@ -27,7 +27,7 @@ nix develop -c bash -c '
   fi
   # ui-check (L2 phone-width layout harness) runs after the build — it serves
   # the freshly-built dist via e2e/serve.mjs and asserts no overlap/overflow at
-  # Pixel width. See code/kubes/ui-harness + dev-lint/docs/layout-quality-architecture.md.
+  # Pixel width. See @xinutec/ui-harness + dev-lint/docs/layout-quality-architecture.md.
   ( cd frontend && npm run lint && npx ng build && npm test && npm run ui-check )
 '
 nix run "$HOME/Code/dev-lint" -- .
