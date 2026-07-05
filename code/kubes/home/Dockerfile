@@ -11,7 +11,9 @@ RUN npx tsc
 FROM node:24-alpine AS frontend-build
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+# git: the shared layout harness is a git dependency (github:xinutec/ui-harness),
+# so npm ci clones it — node:alpine ships no git.
+RUN apk add --no-cache git ca-certificates && npm ci
 COPY frontend/ ./
 RUN npm run build
 

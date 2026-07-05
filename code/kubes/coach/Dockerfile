@@ -6,7 +6,9 @@
 FROM node:24-alpine AS frontend
 WORKDIR /fe
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+# git: the shared layout harness is a git dependency (github:xinutec/ui-harness),
+# so npm ci clones it — node:alpine ships no git.
+RUN apk add --no-cache git ca-certificates && npm ci
 COPY frontend/ .
 # Stamp the build version into the bundle (see scripts/stamp-version.mjs). The
 # build context has no .git, so the commit comes from GIT_SHA (passed by CI —
