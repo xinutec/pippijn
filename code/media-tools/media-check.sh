@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# dev-lint: allow-no-strict-mode — rclone check exits non-zero when it finds
+# differences (the result this script greps out and reports), so errexit is wrong.
 # Exhaustive byte-level verification: every amun Media file vs NC (downloads NC copy, compares content).
 cd /home/pippijn
 rclone check /home/pippijn/Media dash:Media --download \

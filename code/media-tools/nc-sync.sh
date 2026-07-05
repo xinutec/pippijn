@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# dev-lint: allow-no-strict-mode — rclone's non-zero (e.g. the --max-delete guard)
+# is logged as rc=$? per dir and must not abort the loop before every dir is synced.
 set -u
 L=/home/pippijn/nc-sync.log; : > "$L"
 for d in Music media; do

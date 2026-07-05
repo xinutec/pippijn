@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# dev-lint: allow-no-strict-mode — rclone check exits non-zero when it finds
+# differences (the result this script records per dir), so errexit is wrong here.
 set -u
 R=/home/pippijn/verify-media.out
 : > "$R"

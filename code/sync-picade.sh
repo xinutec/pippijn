@@ -1,6 +1,6 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
-set -eux
+set -euxo pipefail
 
 #for i in 0 1 2 3 4; do
 #  rsync -avrP --delete "root@10.100.0.10$i:/etc/wireguard/" "$HOME/code/picade/picade$i/etc/wireguard"

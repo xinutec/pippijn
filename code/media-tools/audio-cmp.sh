@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# dev-lint: allow-no-strict-mode — dup analysis: per-item probes (ffmpeg audio-md5)
+# may exit non-zero and are handled inline; errexit would abort mid-report.
 set -u
 export LC_ALL=C
 audiomd5() { ffmpeg -v error -i "$1" -map 0:a -c copy -f md5 - 2>/dev/null | sed "s/MD5=//"; }

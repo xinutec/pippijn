@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# dev-lint: allow-no-strict-mode — dup analysis: per-item probes (grep/sha256sum) and
+# `cd … || continue` may exit non-zero and are handled inline; errexit would abort mid-report.
 set -u
 export LC_ALL=C
 for dir in Music media Videos Documents; do

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# dev-lint: allow-no-strict-mode — rclone's non-zero is logged as rc=$? per dir and
+# must not abort the loop before every dir is copied.
 set -u
 LOG=/home/pippijn/rclone-media-to-nc.log
 : > "$LOG"

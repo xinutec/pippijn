@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# dev-lint: allow-no-strict-mode — dup analysis: per-item probes (stat/ffprobe) may
+# exit non-zero and are handled inline; errexit would abort mid-report.
 set -u
 export LC_ALL=C
 meta() { ffprobe -v error -show_entries format=duration,bit_rate -of default=noprint_wrappers=1:nokey=1 "$1" 2>/dev/null | tr "\n" " "; }
