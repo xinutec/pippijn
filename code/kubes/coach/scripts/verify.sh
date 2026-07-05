@@ -17,6 +17,9 @@ nix develop -c bash -c '
   export NG_BUILD_MAX_WORKERS=1
   cargo fmt --all --check
   cargo clippy --all-targets -- -D warnings
-  ( cd frontend && npm run lint && npx ng build && npm test )
+  # ui-check (L2 phone-width layout harness) runs after the build — it serves
+  # the freshly-built dist via e2e/serve.mjs and asserts no overlap/overflow at
+  # Pixel width. See @xinutec/ui-harness + dev-lint/docs/layout-quality-architecture.md.
+  ( cd frontend && npm run lint && npx ng build && npm test && npm run ui-check )
 '
 nix run "$HOME/Code/dev-lint" -- .
