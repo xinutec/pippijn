@@ -14,19 +14,37 @@ spec:
       labels:
         run: httpd-amun
     spec:
+      # nginx-unprivileged runs as uid 101 and listens on :8080, so no root and
+      # no privileged-port bind — the whole pod can drop to non-root.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       volumes:
       - name: assetlinks-config-volume
         configMap:
           name: assetlinks-config
       containers:
       - name: httpd-amun
-        image: nginx
+        image: nginxinc/nginx-unprivileged:alpine
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         ports:
-        - containerPort: 80
+        - containerPort: 8080
         volumeMounts:
         - name: assetlinks-config-volume
           mountPath: /usr/share/nginx/html/.well-known/assetlinks.json
           subPath: assetlinks.json
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -38,6 +56,7 @@ metadata:
 spec:
   ports:
   - port: 80
+    targetPort: 8080
     protocol: TCP
   selector:
     run: httpd-amun

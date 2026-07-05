@@ -14,14 +14,32 @@ spec:
       labels:
         run: httpd-sinterklaas
     spec:
+      # nginx-unprivileged runs as uid 101 and listens on :8080 — no root, no
+      # privileged-port bind, so the whole pod drops to non-root.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: httpd-sinterklaas
-        image: nginx
+        image: nginxinc/nginx-unprivileged:alpine
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
         ports:
-        - containerPort: 80
+        - containerPort: 8080
         volumeMounts:
         - name: html-volume
           mountPath: /usr/share/nginx/html
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
       volumes:
       - name: html-volume
         configMap:
@@ -37,6 +55,7 @@ metadata:
 spec:
   ports:
   - port: 80
+    targetPort: 8080
     protocol: TCP
   selector:
     run: httpd-sinterklaas

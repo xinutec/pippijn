@@ -326,7 +326,7 @@ def create_configmap(secret_data: dict[str, dict[str, str]]) -> str:
             html += '</ul>';
             
             // Cleanup empty lists if any
-            return html.replace(/<ul><\/ul>/g, '');
+            return html.replace(/<ul><\\/ul>/g, '');
         }
     </script>
 </body>
