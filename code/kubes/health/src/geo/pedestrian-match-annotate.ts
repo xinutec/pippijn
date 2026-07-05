@@ -24,7 +24,7 @@ import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import { matchWalkSegment } from "./pedestrian-match.js";
 import { effectiveMode } from "./segment-util.js";
-import { correctWalkPath, type CorrectRunDiag } from "./walk-building-escape.js";
+import { type CorrectRunDiag, correctWalkPath } from "./walk-building-escape.js";
 import { countSharpTurns, refineMatchedPath, type WalkFix } from "./walk-smooth-map.js";
 
 /** A raw GPS fix as drawn — the same set the raw renderer uses. */

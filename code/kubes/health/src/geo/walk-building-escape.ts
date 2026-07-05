@@ -555,7 +555,17 @@ export function correctWalkPath(
 				dRouteBadM = routeBadM;
 				dRouteAddedM = addedM;
 				if (routeBadM < runBadM && addedM <= budgetM) {
-					diag?.({ outcome: "routed", straightM, runBadM, routeFound: true, routeBadM, addedM, budgetM, anchorASnapM: dAnchorASnapM, anchorBSnapM: dAnchorBSnapM });
+					diag?.({
+						outcome: "routed",
+						straightM,
+						runBadM,
+						routeFound: true,
+						routeBadM,
+						addedM,
+						budgetM,
+						anchorASnapM: dAnchorASnapM,
+						anchorBSnapM: dAnchorBSnapM,
+					});
 					budgetM -= Math.max(0, addedM);
 					// Timestamps: interpolate along the route by cumulative distance
 					// between the anchors' real times. The route's (street-snapped)
@@ -589,9 +599,29 @@ export function correctWalkPath(
 			if (pathBadnessM(escaped, ctx) < runBadM && addedM <= budgetM) {
 				budgetM -= Math.max(0, addedM);
 				kept = escaped;
-				diag?.({ outcome: "escaped", straightM: dStraightM, runBadM, routeFound: dRouteFound, routeBadM: dRouteBadM, addedM: dRouteAddedM, budgetM, anchorASnapM: dAnchorASnapM, anchorBSnapM: dAnchorBSnapM });
+				diag?.({
+					outcome: "escaped",
+					straightM: dStraightM,
+					runBadM,
+					routeFound: dRouteFound,
+					routeBadM: dRouteBadM,
+					addedM: dRouteAddedM,
+					budgetM,
+					anchorASnapM: dAnchorASnapM,
+					anchorBSnapM: dAnchorBSnapM,
+				});
 			} else {
-				diag?.({ outcome: "trustGPS", straightM: dStraightM, runBadM, routeFound: dRouteFound, routeBadM: dRouteBadM, addedM: dRouteAddedM, budgetM, anchorASnapM: dAnchorASnapM, anchorBSnapM: dAnchorBSnapM });
+				diag?.({
+					outcome: "trustGPS",
+					straightM: dStraightM,
+					runBadM,
+					routeFound: dRouteFound,
+					routeBadM: dRouteBadM,
+					addedM: dRouteAddedM,
+					budgetM,
+					anchorASnapM: dAnchorASnapM,
+					anchorBSnapM: dAnchorBSnapM,
+				});
 			}
 			for (let k = 1; k <= b - a; k++) out.push(kept[k]);
 		}
@@ -602,7 +632,17 @@ export function correctWalkPath(
 	// Whole-line honesty invariant: never return a line more implausible than
 	// the input.
 	if (pathBadnessM(out, ctx) > originalBadM) {
-		diag?.({ outcome: "invariant-revert", straightM: 0, runBadM: 0, routeFound: false, routeBadM: null, addedM: null, budgetM, anchorASnapM: null, anchorBSnapM: null });
+		diag?.({
+			outcome: "invariant-revert",
+			straightM: 0,
+			runBadM: 0,
+			routeFound: false,
+			routeBadM: null,
+			addedM: null,
+			budgetM,
+			anchorASnapM: null,
+			anchorBSnapM: null,
+		});
 		return drawn.map((p) => ({ ...p }));
 	}
 	return out;

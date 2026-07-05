@@ -19,8 +19,8 @@
  *   node dist/cli/diag-walk-crossings.js 2026-04-29 # one day
  */
 import { readdirSync, readFileSync } from "node:fs";
-import { drainWalkCorrectDiag } from "../geo/pedestrian-match-annotate.js";
 import { FixtureOsmAdapter } from "../geo/osm-adapter-fixture.js";
+import { drainWalkCorrectDiag } from "../geo/pedestrian-match-annotate.js";
 import { computeVelocityFromInputs } from "../geo/velocity.js";
 import { inputsFromFixture, parseCapturedDay } from "./fixture-day.js";
 
@@ -64,10 +64,18 @@ async function main(): Promise<void> {
 		"trustGPS/budget": 0,
 		"invariant-revert": 0,
 	};
-	const survivors: Array<{ date: string; startTs: number; cause: string; runBadM: number; straightM: number; snapA: number | null; snapB: number | null }> = [];
+	const survivors: Array<{
+		date: string;
+		startTs: number;
+		cause: string;
+		runBadM: number;
+		straightM: number;
+		snapA: number | null;
+		snapB: number | null;
+	}> = [];
 
 	for (const date of days) {
-		let captured;
+		let captured: ReturnType<typeof parseCapturedDay>;
 		try {
 			captured = parseCapturedDay(readFileSync(`tests/golden/days/${date}-${USER}.json`, "utf8"));
 		} catch {
@@ -75,7 +83,10 @@ async function main(): Promise<void> {
 		}
 		const base = inputsFromFixture(captured);
 		drainWalkCorrectDiag(); // clear any residue
-		await computeVelocityFromInputs({ ...base, osm: new FixtureOsmAdapter(captured.inputs.osmTrace) }, { walkMatch: true });
+		await computeVelocityFromInputs(
+			{ ...base, osm: new FixtureOsmAdapter(captured.inputs.osmTrace) },
+			{ walkMatch: true },
+		);
 		for (const r of drainWalkCorrectDiag()) {
 			if (r.outcome === "routed") tally.routed++;
 			else if (r.outcome === "escaped") tally.escaped++;
@@ -83,7 +94,15 @@ async function main(): Promise<void> {
 			else {
 				const cause = subCause(r);
 				tally[`trustGPS/${cause}`]++;
-				survivors.push({ date, startTs: r.startTs, cause, runBadM: r.runBadM, straightM: r.straightM, snapA: r.anchorASnapM, snapB: r.anchorBSnapM });
+				survivors.push({
+					date,
+					startTs: r.startTs,
+					cause,
+					runBadM: r.runBadM,
+					straightM: r.straightM,
+					snapA: r.anchorASnapM,
+					snapB: r.anchorBSnapM,
+				});
 			}
 		}
 	}
