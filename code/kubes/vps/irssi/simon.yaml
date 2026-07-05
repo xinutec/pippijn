@@ -39,12 +39,22 @@ spec:
         - name: irssi
           image: xinutec/irssi:latest
           imagePullPolicy: Always
+          # dev-lint: allow-unhardened — the entrypoint must run as root (starts
+          # sshd, manages /etc/ssh host keys, chowns the mounted volumes) before
+          # dropping to the unprivileged irssi user; see the Dockerfile.
           env:
           - name: IRSSI_USER
             value: simon
           ports:
+            # SSH terminal server: users ssh directly to this per-user hostPort,
+            # so it must bind the node interface and see the real client IP.
             - containerPort: 22
-              hostPort: 2231
+              hostPort: 2231  # dev-lint: allow-host-port
+          readinessProbe:
+            tcpSocket:
+              port: 22
+            initialDelaySeconds: 5
+            periodSeconds: 10
           resources:
             requests:
               memory: "64Mi"
