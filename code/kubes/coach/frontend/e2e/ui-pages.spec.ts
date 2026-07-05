@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-// The fleet-shared harness (code/kubes/ui-harness) — relative import, since
-// Playwright transpiles TS outside node_modules but not inside it.
+// The fleet-shared harness, published as @xinutec/ui-harness (source repo
+// ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
   expectNoTextOverlaps,
   expectNoHorizontalOverflow,
   expectNoOccludedControls,
   expectViewportIsPhone,
-} from "../../../ui-harness/src/ui-harness";
+} from "@xinutec/ui-harness";
 
 /**
  * Layout-measurement checks: render coach's screens against the built bundle with

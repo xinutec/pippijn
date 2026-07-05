@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectIconFontLoaded, expectNoTextOverlaps } from "../../../ui-harness/src/ui-harness";
+import { expectIconFontLoaded, expectNoTextOverlaps } from "@xinutec/ui-harness";
 
 /**
  * Render the authenticated app shell at a phone viewport with the backend

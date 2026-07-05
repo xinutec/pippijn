@@ -10,7 +10,7 @@ nix develop -c npm run verify
 # dist via e2e/serve.mjs and assert no overlap/overflow at Pixel width. The
 # `npm run verify` above is tsc/lint/vitest only (no ng build) — and per
 # home/CLAUDE.md a real ng build is what actually runs Angular strictTemplates —
-# so build here. See code/kubes/ui-harness + dev-lint/docs/layout-quality-architecture.md.
+# so build here. See @xinutec/ui-harness + dev-lint/docs/layout-quality-architecture.md.
 nix develop -c bash -c '
   set -euo pipefail
   # NG_BUILD_MAX_WORKERS=1 lowers (does not cure) the macOS @angular/build

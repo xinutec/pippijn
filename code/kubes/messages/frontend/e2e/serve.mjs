@@ -1,6 +1,6 @@
 // Minimal static server for the production bundle, used by the Playwright e2e
 // run (the L2 phone-width layout harness — see
-// code/kubes/ui-harness + dev-lint/docs/layout-quality-architecture.md). Serves
+// @xinutec/ui-harness (repo ~/Code/ui-harness) + dev-lint/docs/layout-quality-architecture.md). Serves
 // dist/messages-web/browser with SPA fallback to index.html and correct content
 // types. No deps; Node stdlib only. The specs mock every /api/ call via
 // page.route, so the tiny API stub below is only a fallback for anything they

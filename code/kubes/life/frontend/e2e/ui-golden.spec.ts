@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { swipeUp } from '../../../ui-harness/src/ui-harness';
+import { swipeUp } from '@xinutec/ui-harness';
 
 /**
  * Golden-image check — the pixel-diff safety net the layout assertions in

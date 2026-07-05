@@ -43,6 +43,7 @@
     "@angular/compiler-cli": "^22.0.4",
     "@playwright/test": "^1.61.1",
     "@types/three": "^0.185.0",
+    "@xinutec/ui-harness": "^0.1.0",
     "angular-eslint": "^22.0.0",
     "eslint": "^10.6.0",
     "jsdom": "^29.1.1",

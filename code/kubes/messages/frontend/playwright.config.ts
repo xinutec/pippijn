@@ -6,7 +6,7 @@ import { defineConfig, devices } from '@playwright/test';
  * the pixels (icon fonts actually load; no text overlaps; nothing overflows the
  * width). jsdom has no fonts or layout, so a mat-icon that silently falls back
  * to its ligature word ("search") reads green in vitest and only the render
- * disagrees. Shared checkers live in code/kubes/ui-harness; see
+ * disagrees. Shared checkers live in @xinutec/ui-harness (repo ~/Code/ui-harness); see
  * dev-lint/docs/layout-quality-architecture.md.
  *
  * Runs against the PRODUCTION build served statically by e2e/serve.mjs — one

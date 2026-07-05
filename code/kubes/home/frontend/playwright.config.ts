@@ -5,7 +5,7 @@ import { defineConfig, devices } from '@playwright/test';
  * a real browser at true phone geometry and assert measurable facts about the
  * pixels (no text overlaps, nothing overflows the width). jsdom has no fonts or
  * layout, so a collision that reads fine in source only shows in the render.
- * Shared checkers live in code/kubes/ui-harness; see
+ * Shared checkers live in @xinutec/ui-harness (repo ~/Code/ui-harness); see
  * dev-lint/docs/layout-quality-architecture.md.
  *
  * Runs against the PRODUCTION build served statically by e2e/serve.mjs — one
