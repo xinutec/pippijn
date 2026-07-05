@@ -24,7 +24,7 @@ import { MAX_SPEED_FOR_MODE } from "./mode-biometrics.js";
 import type { OsmAdapter } from "./osm-adapter.js";
 import { matchWalkSegment } from "./pedestrian-match.js";
 import { effectiveMode } from "./segment-util.js";
-import { correctWalkPath } from "./walk-building-escape.js";
+import { correctWalkPath, type CorrectRunDiag } from "./walk-building-escape.js";
 import { countSharpTurns, refineMatchedPath, type WalkFix } from "./walk-smooth-map.js";
 
 /** A raw GPS fix as drawn — the same set the raw renderer uses. */
@@ -37,6 +37,15 @@ interface PedFix {
 
 const MIN_LEG_FIXES = 4;
 const WALK_SPEED_CAP_KMH = MAX_SPEED_FOR_MODE.walking ?? 12;
+
+/** Diagnostics sink for `correctWalkPath`: populated only when
+ *  `WALK_CORRECT_DIAG=1`. Each record is tagged with the walk leg's start ts so
+ *  a referee can attribute a residual crossing to its cause. Drain + reset with
+ *  `drainWalkCorrectDiag()`. Off the hot path when the flag is unset. */
+const walkCorrectDiag: Array<CorrectRunDiag & { startTs: number }> = [];
+export function drainWalkCorrectDiag(): Array<CorrectRunDiag & { startTs: number }> {
+	return walkCorrectDiag.splice(0, walkCorrectDiag.length);
+}
 /** Slack added to the leg's centroid→farthest-fix radius for the walkable-network
  *  read, so the disc comfortably covers the matcher's reach. Same shape as the
  *  smoother's query (one disc around the centroid) — walks are short, so a single
@@ -191,7 +200,11 @@ export async function annotateWalkMatches(
 		// emergency off-switch.
 		let corrected = false;
 		if (process.env.WALK_BUILDING_ESCAPE !== "0" && buildings.length > 0) {
-			const fixed = correctWalkPath(drawn, { ways }, buildings);
+			const diag =
+				process.env.WALK_CORRECT_DIAG === "1"
+					? (rec: CorrectRunDiag) => walkCorrectDiag.push({ ...rec, startTs: seg.startTs })
+					: undefined;
+			const fixed = correctWalkPath(drawn, { ways }, buildings, undefined, diag);
 			corrected =
 				fixed.length !== drawn.length || fixed.some((p, k) => p.lat !== drawn[k].lat || p.lon !== drawn[k].lon);
 			if (corrected) drawn = fixed;

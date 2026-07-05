@@ -414,6 +414,30 @@ function densify(drawn: readonly CorrectedPoint[], stepM: number): CorrectedPoin
 	return out;
 }
 
+/** One crossing-run decision record, emitted by `correctWalkPath` when a `diag`
+ *  sink is supplied. Diagnostic only — lets the referee tally WHY a residual
+ *  building crossing survives (graph gap vs budget vs dense-area vs the
+ *  whole-line invariant), which forks the fix entirely. `outcome`:
+ *  `routed` = case 2 accepted; `escaped` = case 1 accepted; `trustGPS` = both
+ *  refused (the crossing stands); `invariant-revert` = the whole leg was
+ *  discarded because corrections made it worse overall. */
+export interface CorrectRunDiag {
+	outcome: "routed" | "escaped" | "trustGPS" | "invariant-revert";
+	straightM: number;
+	runBadM: number;
+	routeFound: boolean;
+	routeBadM: number | null;
+	addedM: number | null;
+	budgetM: number;
+	/** Nearest-walkable-way distance (m) at each routing anchor. Splits a
+	 *  `no-route` survivor: both anchors within `routeSnapRadiusM` ⇒ the ways
+	 *  exist but the graph is FRAGMENTED between them (fixable connectivity); an
+	 *  anchor beyond it ⇒ snap failed / genuinely UNMAPPED nearby (accept, trust
+	 *  GPS). Null on the `invariant-revert` record (no single run). */
+	anchorASnapM: number | null;
+	anchorBSnapM: number | null;
+}
+
 /**
  * The full case-based corrector for a drawn walk line:
  *
@@ -438,6 +462,7 @@ export function correctWalkPath(
 	walkable: RoadGeometry,
 	buildings: readonly BuildingFootprint[],
 	opts: CorrectOptions = DEFAULT_CORRECT_OPTIONS,
+	diag?: (rec: CorrectRunDiag) => void,
 ): CorrectedPoint[] {
 	if (drawn.length < 2 || buildings.length === 0) return drawn.map((p) => ({ ...p }));
 	const ctx = makeBadnessCtx(walkable, buildings, opts);
@@ -495,8 +520,17 @@ export function correctWalkPath(
 		// one route; this is what avoids the zigzag a per-vertex escape produces
 		// when mid-block vertices are equidistant from opposite walls.
 		let replaced = false;
+		// Diagnostics carried into the fallback emit (case 2's route outcome
+		// explains a fallback: no route → graph gap, routeBad → dense area).
+		let dStraightM = metersBetween(anchorA.lat, anchorA.lon, anchorB.lat, anchorB.lon);
+		let dRouteFound = false;
+		let dRouteBadM: number | null = null;
+		let dRouteAddedM: number | null = null;
+		const dAnchorASnapM = diag ? (nearestWalkable(anchorA, walkable)?.distM ?? null) : null;
+		const dAnchorBSnapM = diag ? (nearestWalkable(anchorB, walkable)?.distM ?? null) : null;
 		if (runBadM >= opts.minCrossingM) {
 			const straightM = metersBetween(anchorA.lat, anchorA.lon, anchorB.lat, anchorB.lon);
+			dStraightM = straightM;
 			// The route bound is floored like the budget: going around a block is
 			// legitimately SEVERAL times a narrow gap's straight line (a 30 m gap
 			// mid-block detours ~130 m around it); the plain ratio would refuse
@@ -517,7 +551,11 @@ export function correctWalkPath(
 					cum.push(total);
 				}
 				const addedM = total - straightM;
+				dRouteFound = true;
+				dRouteBadM = routeBadM;
+				dRouteAddedM = addedM;
 				if (routeBadM < runBadM && addedM <= budgetM) {
+					diag?.({ outcome: "routed", straightM, runBadM, routeFound: true, routeBadM, addedM, budgetM, anchorASnapM: dAnchorASnapM, anchorBSnapM: dAnchorBSnapM });
 					budgetM -= Math.max(0, addedM);
 					// Timestamps: interpolate along the route by cumulative distance
 					// between the anchors' real times. The route's (street-snapped)
@@ -551,6 +589,9 @@ export function correctWalkPath(
 			if (pathBadnessM(escaped, ctx) < runBadM && addedM <= budgetM) {
 				budgetM -= Math.max(0, addedM);
 				kept = escaped;
+				diag?.({ outcome: "escaped", straightM: dStraightM, runBadM, routeFound: dRouteFound, routeBadM: dRouteBadM, addedM: dRouteAddedM, budgetM, anchorASnapM: dAnchorASnapM, anchorBSnapM: dAnchorBSnapM });
+			} else {
+				diag?.({ outcome: "trustGPS", straightM: dStraightM, runBadM, routeFound: dRouteFound, routeBadM: dRouteBadM, addedM: dRouteAddedM, budgetM, anchorASnapM: dAnchorASnapM, anchorBSnapM: dAnchorBSnapM });
 			}
 			for (let k = 1; k <= b - a; k++) out.push(kept[k]);
 		}
@@ -560,7 +601,10 @@ export function correctWalkPath(
 
 	// Whole-line honesty invariant: never return a line more implausible than
 	// the input.
-	if (pathBadnessM(out, ctx) > originalBadM) return drawn.map((p) => ({ ...p }));
+	if (pathBadnessM(out, ctx) > originalBadM) {
+		diag?.({ outcome: "invariant-revert", straightM: 0, runBadM: 0, routeFound: false, routeBadM: null, addedM: null, budgetM, anchorASnapM: null, anchorBSnapM: null });
+		return drawn.map((p) => ({ ...p }));
+	}
 	return out;
 }
 
