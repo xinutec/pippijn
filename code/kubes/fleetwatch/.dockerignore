@@ -1,9 +1,0 @@
-target
-.dev
-.env
-.git
-frontend/node_modules
-frontend/dist
-frontend/.angular
-android
-docs
