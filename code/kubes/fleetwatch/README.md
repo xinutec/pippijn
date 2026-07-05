@@ -3,7 +3,8 @@
 The central place to see all system and code health/status for the fleet, from
 any VPN device. Producers (the Mac mini tools first) POST verdict-shaped reports;
 fleetwatch stores their history and serves a mobile UI. Adding a producer needs zero
-code here. VPN-only on isis (`fleetwatch.xinutec.org` → `10.100.0.2`), no login.
+code here. On isis (`fleetwatch.xinutec.org`); the read UI is gated by
+Nextcloud login (ingest stays token-authed).
 
 Design: [`docs/design.md`](docs/design.md).
 

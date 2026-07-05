@@ -36,10 +36,10 @@ resource "cloudflare_dns_record" "org_messages" {
   proxied = false
 }
 
-# fleetwatch.xinutec.org — fleet monitoring dashboard on isis, VPN-only. Resolves to
-# isis's WireGuard IP so it's unlisted publicly; the ingress also enforces a
-# 10.100.0.0/24 source-range whitelist (no login — the VPN is the gate). See
-# code/kubes/fleetwatch.
+# fleetwatch.xinutec.org — fleet monitoring dashboard on isis. Points at isis's
+# WireGuard IP so it's unlisted publicly, but the real gate is a Nextcloud login
+# on the read UI (the ingress answers on the public IP too — DNS is not a gate;
+# see the 2026-07 auth work). Ingest stays token-authed. See code/kubes/fleetwatch.
 resource "cloudflare_dns_record" "org_fleetwatch" {
   zone_id = local.xinutec_org_id
   type    = "A"
