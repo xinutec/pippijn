@@ -21,6 +21,9 @@ spec:
       - name: server-storage
         persistentVolumeClaim:
           claimName: nocodb-storage
+      # dev-lint: allow-unhardened — the nocodb image ships no non-root user and
+      # runs as root writing to a root-owned /usr/app/data (verified on the live
+      # pod); forcing runAsNonRoot breaks its data directory.
       containers:
       - name: nocodb
         image: nocodb/nocodb:0.257.2
@@ -29,6 +32,11 @@ spec:
         - name: server-storage
           mountPath: /usr/app/data
           subPath: server-data
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
