@@ -43,6 +43,11 @@ spec:
         - name: irssi
           image: xinutec/irssi:latest
           imagePullPolicy: Always
+          # Run the entrypoint under bash explicitly: the baked image's /init.sh
+          # still carries a #!/bin/sh shebang while using `set -o pipefail` (a bash
+          # builtin), so dash crashloops it. Overriding here fixes it without a
+          # rebuild; the source shebang is also corrected to #!/bin/bash.
+          command: ["/bin/bash", "/init.sh"]
           # dev-lint: allow-unhardened — the entrypoint must run as root (starts
           # sshd, manages /etc/ssh host keys, chowns the mounted volumes) before
           # dropping to the unprivileged irssi user; see the Dockerfile.

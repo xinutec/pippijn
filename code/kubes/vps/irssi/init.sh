@@ -1,4 +1,6 @@
-#!/bin/sh
+#!/bin/bash
+# bash, not sh: `set -o pipefail` is a bash builtin — dash rejects it with
+# "Illegal option -o pipefail" and the container crashloops. (ubuntu base has bash.)
 
 set -euxo pipefail
 
