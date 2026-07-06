@@ -24,6 +24,9 @@ spec:
       # dev-lint: allow-unhardened — the nocodb image ships no non-root user and
       # runs as root writing to a root-owned /usr/app/data (verified on the live
       # pod); forcing runAsNonRoot breaks its data directory.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: nocodb
         image: nocodb/nocodb:0.257.2

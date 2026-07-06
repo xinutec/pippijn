@@ -22,6 +22,8 @@ spec:
       # the PVC writable by the dropped-to user; that's as far as we can harden it.
       securityContext:
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: rest-api
           # Pinned: 0.100 (2026-06-11) bundles signal-cli >=0.14.x, which fixes

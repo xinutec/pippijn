@@ -39,6 +39,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: irssi-storage
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: irssi
           image: xinutec/irssi:latest

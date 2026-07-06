@@ -17,6 +17,9 @@ spec:
       labels:
         pod-label: nextcloud-db-pod
     spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       # dev-lint: allow-unhardened — the mariadb entrypoint starts as root to
       # fix datadir ownership/permissions, then drops to the mysql user itself;

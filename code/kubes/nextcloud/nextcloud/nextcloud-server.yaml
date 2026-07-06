@@ -27,6 +27,9 @@ spec:
       # dev-lint: allow-unhardened — both containers need root: the nextcloud
       # fpm image's entrypoint chowns /var/www/html to www-data on boot, and the
       # nginx sidecar binds :80. Forcing runAsNonRoot breaks them.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: nextcloud
         image: nextcloud:33.0.2-fpm-alpine
