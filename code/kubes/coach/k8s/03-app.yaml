@@ -61,6 +61,17 @@ spec:
             # low-volume sync/product detail. Third-party crates stay at info (quiet).
             - name: RUST_LOG
               value: info,coach=debug
+            # health-sync integration: in-cluster URL of health's internal API +
+            # the shared service token. Both optional — absent → location
+            # auto-detect is off and manual selection still works.
+            - name: HEALTH_INTERNAL_URL
+              value: http://health-auth.health.svc.cluster.local
+            - name: HEALTH_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: coach-secret
+                  key: HEALTH_SERVICE_TOKEN
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthz

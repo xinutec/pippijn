@@ -86,6 +86,16 @@ spec:
                 secretKeyRef:
                   name: health-secret
                   key: OWNTRACKS_ALLOWED_TOKENS
+            # Shared secret gating the /internal service API — the coach app
+            # reads the user's places to auto-select a training location.
+            # Provisioned into health-secret out-of-band; optional so the pod
+            # still starts if absent (then /internal rejects every request).
+            - name: SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: SERVICE_TOKEN
+                  optional: true
             # Factor scorer pipeline gate. DISABLED in prod (2026-05-23
             # late) after discovering golden harness was silently testing
             # the legacy cascade while production ran the factor scorer
