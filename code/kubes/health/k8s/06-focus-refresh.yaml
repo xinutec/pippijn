@@ -23,6 +23,7 @@ spec:
               type: RuntimeDefault
           restartPolicy: OnFailure
           containers:
+            # dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths)
             - name: refresh
               image: xinutec/health-sync:latest
               securityContext:

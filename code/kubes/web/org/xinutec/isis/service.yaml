@@ -56,6 +56,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
+      # dev-lint: allow-no-mem-limit / dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths); pre-existing (fix: size from kubectl top)
       - name: httpd-isis
         image: nginxinc/nginx-unprivileged:alpine
         securityContext:

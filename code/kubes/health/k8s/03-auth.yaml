@@ -21,6 +21,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
+        # dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths)
         - name: auth
           image: xinutec/health-sync:latest
           command: ["node", "dist/server.js"]

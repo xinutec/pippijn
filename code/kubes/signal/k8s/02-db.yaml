@@ -25,6 +25,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
+        # dev-lint: allow-no-mem-limit — pre-existing (fix: size from kubectl top)
         - name: mariadb
           image: mariadb:11.8
           # No readOnlyRootFilesystem: mariadb writes /run/mysqld and its data dir.

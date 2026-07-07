@@ -1,4 +1,5 @@
 ---
+# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -43,6 +44,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
+        # dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths)
         - name: irssi
           image: xinutec/irssi:latest
           imagePullPolicy: Always
