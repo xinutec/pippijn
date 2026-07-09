@@ -13,7 +13,10 @@
 # Installed by code/kubes/scripts/setup-hooks.sh (symlinked into .git/hooks).
 set -euo pipefail
 
-DEVLINT="${DEVLINT_DIR:-$HOME/Code/dev-lint}"
+dev_lint_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)/dev-lint"
+[ -d "$dev_lint_dir" ] || dev_lint_dir="$HOME/Code/dev-lint"
+[ -d "$dev_lint_dir" ] || dev_lint_dir="$HOME/code/dev-lint"
+DEVLINT="${DEVLINT_DIR:-$dev_lint_dir}"
 root="$(git rev-parse --show-toplevel)"
 # Empty: every kubes app (coach/home/life/messages/health/fleetwatch) now lives
 # in its own repo and runs dev-lint from its own verify.sh. Only k8s manifests
