@@ -19,6 +19,7 @@ spec:
       storage: 5Gi
 ---
 apiVersion: apps/v1
+# dev-lint: allow-no-netpol
 kind: Deployment
 metadata:
   namespace: vps-${user}

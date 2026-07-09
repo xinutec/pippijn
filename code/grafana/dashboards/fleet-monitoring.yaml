@@ -1,7 +1,6 @@
 apiVersion: grizzly.grafana.com/v1alpha1
 kind: Dashboard
 metadata:
-    folder: integration---linux-node
     name: QIA3UR57z
 spec:
     annotations:

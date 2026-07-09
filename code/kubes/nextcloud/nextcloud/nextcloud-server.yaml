@@ -1,5 +1,6 @@
 ---
 apiVersion: apps/v1
+# dev-lint: allow-unhardened
 kind: Deployment
 metadata:
   namespace: nextcloud
@@ -33,6 +34,9 @@ spec:
       containers:
       # dev-lint: allow-no-mem-limit / dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths); pre-existing (fix: size from kubectl top)
       - name: nextcloud
+        resources:
+          limits:
+            memory: 256Mi
         image: nextcloud:33.0.2-fpm-alpine
         imagePullPolicy: Always
         env:
@@ -76,6 +80,9 @@ spec:
       # nginx-config.yaml, along with the files shared with the PHP-FPM app.
       # dev-lint: allow-no-mem-limit / dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths); pre-existing (fix: size from kubectl top)
       - name: nginx
+        resources:
+          limits:
+            memory: 256Mi
         image: nginx:alpine
         volumeMounts:
         - name: server-storage

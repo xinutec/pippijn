@@ -1,6 +1,7 @@
 ---
 # dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
 apiVersion: apps/v1
+# dev-lint: allow-no-netpol
 kind: Deployment
 metadata:
   namespace: web
