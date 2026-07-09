@@ -36,6 +36,21 @@ resource "cloudflare_dns_record" "org_messages" {
   proxied = false
 }
 
+# recall.xinutec.org — household speech-recall app (runs on the Mac mini;
+# published here via a reverse SSH tunnel), gated by a Nextcloud login restricted
+# to the `recall` NC group. Unlike messages/fleetwatch, oauth2-proxy on isis binds
+# the WireGuard IP directly (a systemd service, not the shared k3s ingress), so
+# this is a real network-layer VPN-only gate, not just DNS obscurity. See
+# nixos-config machines/isis/configuration.nix + code/recall/scripts/recall-tunnel.sh.
+resource "cloudflare_dns_record" "org_recall" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "recall"
+  content = local.hosts.vpn_isis
+  ttl     = 3600
+  proxied = false
+}
+
 # fleetwatch.xinutec.org — fleet monitoring dashboard on isis. Points at isis's
 # WireGuard IP so it's unlisted publicly, but the real gate is a Nextcloud login
 # on the read UI (the ingress answers on the public IP too — DNS is not a gate;
