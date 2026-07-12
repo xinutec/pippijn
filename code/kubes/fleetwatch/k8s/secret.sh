@@ -19,6 +19,12 @@ DB_ROOT_PASSWORD="$(head -c 18 /dev/urandom | base64 | tr -d '/+=')"
 # HMAC key for the human login-session cookies (see src/session.rs).
 SESSION_SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '/+=')"
 
+# The READ token: opens GET /api/problems and nothing else (see src/auth.rs). It exists
+# for the Android app's background poller, which asks "is anything wrong?" every 30 min
+# and can't complete an interactive Nextcloud login from a WorkManager job. Read-only and
+# single-endpoint, so a lost phone leaks neither write access nor the report history.
+READ_TOKEN="$(head -c 32 /dev/urandom | base64 | tr -d '/+=')"
+
 # Nextcloud OAuth2 client (the human login gate) — created by hand in
 # dash.xinutec.org → Admin → Security → OAuth 2.0 clients, redirect URI
 # https://fleetwatch.xinutec.org/auth/callback. Supplied via the environment,
@@ -36,8 +42,13 @@ for src in $SOURCES; do
   PAIRS="${PAIRS:+$PAIRS,}${src}:${tok}"
 done
 echo "==============================================================================="
+echo "== read token (Mac Keychain: security add-generic-password -a fleetwatch \\"
+echo "==   -s fleetwatch-read-token -w '<token>' -U   — then android/deploy.sh injects it) =="
+echo "  read : $READ_TOKEN"
+echo "==============================================================================="
 
 kubectl create secret -n fleetwatch generic fleetwatch-secret \
+  --from-literal=FLEETWATCH_READ_TOKENS="$READ_TOKEN" \
   --from-literal=DB_USER=fleetwatch \
   --from-literal=DB_PASSWORD="$DB_PASSWORD" \
   --from-literal=DB_ROOT_PASSWORD="$DB_ROOT_PASSWORD" \

@@ -45,6 +45,17 @@ spec:
                 secretKeyRef:
                   name: fleetwatch-secret
                   key: FLEETWATCH_TOKENS
+            # Read token(s) for unattended readers: the Android app's background poller,
+            # which asks GET /api/problems every 30 min and raises a notification when
+            # the answer changes. It opens that ONE endpoint (src/auth.rs) — every other
+            # read stays behind the Nextcloud login. Optional: unset simply means no
+            # poller, and the service boots with no unattended reader at all.
+            - name: FLEETWATCH_READ_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: fleetwatch-secret
+                  key: FLEETWATCH_READ_TOKENS
+                  optional: true
             # Human auth: Nextcloud-login sessions gate the read API (the ingest
             # path above stays token-only). Session cookies are HMAC-signed with
             # SESSION_SECRET; NC_CLIENT_* is this app's OAuth2 client on dash.
