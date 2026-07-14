@@ -70,6 +70,12 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 30
           env:
+            # This node is the system of record, not a capture node: /api/capture records
+            # pause/resume as *intent* the Mac mirrors onto the real mic (it runs no
+            # capture agent here). RECALL_SYNC_TOKEN can't signal this — the Mac sets it
+            # too — so the role is explicit.
+            - name: RECALL_ROLE
+              value: fleet
             - name: RECALL_SYNC_TOKEN
               valueFrom:
                 secretKeyRef:
