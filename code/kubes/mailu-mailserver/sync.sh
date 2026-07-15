@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+# Chart-created storage (invisible to any manifest scan — declared here so the
+# backup-coverage model is complete; see dev-lint DL-DEPLOY-BACKUP-COVERAGE):
+# dev-lint: pvc mailu-mailserver/mailu-storage
+# dev-lint: pvc mailu-mailserver/redis-data-mailu-redis-master-0
+# dev-lint: pvc mailu-mailserver/data-mailu-clamav-0 allow-backup-coverage clamav signature DB, re-downloaded on start
 sudo helm upgrade --install mailu mailu/mailu --version 2.1.1 -n mailu-mailserver --create-namespace --values values.yaml --values secrets.yaml
 
 # Workaround: chart 2.1.1's clamav probes check /tmp/clamd.pid which

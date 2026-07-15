@@ -1,5 +1,6 @@
 ---
 # dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
+# dev-lint: allow-backup-coverage contents are in git (conf secret/) or cheaply regenerated (TLS certs, permchannels)
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

@@ -5,6 +5,7 @@ kind: Namespace
 metadata:
   name: vps-${user}
 ---
+# dev-lint: allow-backup-coverage template — the vps-<user> instantiations (pippijn.yaml, simon.yaml) are the checked claims
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

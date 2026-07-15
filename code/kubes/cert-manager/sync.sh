@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# dev-lint: pvc none
 sudo helm upgrade --install \
   cert-manager jetstack/cert-manager \
   --namespace cert-manager \
