@@ -86,6 +86,42 @@ spec:
                 # the 05-22 time-shift bug, separate).
                 - name: USE_CONTINUITY_CONTINUATION
                   value: "1"
+                # C4 cross-segment continuity (task #224,
+                # docs/proposals/2026-07-continuity-c4.md). Enabled
+                # 2026-07-17 after the decoder scoreboard
+                # (npm run score-decoder, 10 audited days vs ground
+                # truth) improved on five days with one adjudicated
+                # loss: legs-mode 65->70, legs-line 8->10, phantom
+                # rides 5->4, and 06-12 + 06-16 each gaining journeys.
+                #
+                # USE_CADENCE_IMPUTATION: steps_intraday only writes
+                # non-zero minutes, so a truly-still minute arrives as
+                # null and the zero-inflated cadence emission SKIPS —
+                # walking pays no step penalty exactly where steps
+                # would refute it. Impute 0 only when the watch is
+                # demonstrably alive around the minute.
+                # USE_SEGMENT_EVIDENCE: segment-level displacement
+                # physics, softened by bracket slop.
+                # USE_CHAIN_CONTEXT: exit->entry place reachability +
+                # line boarding feasibility at the transition.
+                # USE_REACQUIRE_ROBUST_SPEED: widen the stationary
+                # speed emission right after a GPS reacquisition,
+                # scaled by rail proximity — post-occlusion Kalman
+                # speed is dominated by position-jump artefacts.
+                #
+                # KNOWN OPEN DEFECT (task #366): the per-minute mode
+                # prior scales with duration, so a slow vehicle leg can
+                # still read as a stay (2026-05-25 12:40-12:49 is the
+                # recorded case). Flipping these flags does not cause
+                # it — it exposes it.
+                - name: USE_CADENCE_IMPUTATION
+                  value: "1"
+                - name: USE_SEGMENT_EVIDENCE
+                  value: "1"
+                - name: USE_CHAIN_CONTEXT
+                  value: "1"
+                - name: USE_REACQUIRE_ROBUST_SPEED
+                  value: "1"
               resources:
                 requests:
                   cpu: 100m

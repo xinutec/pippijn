@@ -119,6 +119,23 @@ spec:
             # for the golden harness. See feedback_parity_tools_must_mirror_env.
             - name: USE_CONTINUITY_CONTINUATION
               value: "1"
+            # C4 continuity flags (task #224) — same flags the decode
+            # cron uses, and for the same reason as the line above: the
+            # auth pod does not read them, but scripts/prod-db.sh
+            # mirrors the pod env via printenv so a Mac replay decodes
+            # the same day the cron wrote. These gate the HSMM decode
+            # itself, so a missing mirror is the exact
+            # feedback_parity_tools_must_mirror_env failure. Rationale
+            # and the open defect (#366) are documented at the cron —
+            # kubes/health/k8s/08-decode-recent.yaml.
+            - name: USE_CADENCE_IMPUTATION
+              value: "1"
+            - name: USE_SEGMENT_EVIDENCE
+              value: "1"
+            - name: USE_CHAIN_CONTEXT
+              value: "1"
+            - name: USE_REACQUIRE_ROBUST_SPEED
+              value: "1"
             # Building-escape walk corrector (case-based: route a drawn walk
             # around building blocks it falsely crosses; leave genuine visits —
             # doorsteps, hospitals, concourses — alone). Display-geometry only;
