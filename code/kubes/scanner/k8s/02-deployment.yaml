@@ -1,0 +1,84 @@
+# scanner's fleet tier: the Rust preview server (axum + resvg) that turns the
+# phone's per-photo OCR posts into the progressive styled SVG. Stateless bar
+# the session recordings on the PVC. The engine's dev loop stays on the Mac
+# (replay + scoreboard against the recorded sessions); this is the stable
+# deployment the phone talks to by default — reachable from anywhere via the
+# VPN, which the Mac's LAN server never was.
+#
+# Image: docker.io/xinutec/scanner:local is NOT on Docker Hub — the scanner
+# repo is local-only (its eval golden embeds a private letter), so there is no
+# CI and no registry. scanner/server/deploy/deploy-isis.sh builds the image on
+# isis with nix and imports it into containerd; imagePullPolicy Never makes
+# any pull attempt (which would hit a squatter's repo) a loud error instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scanner
+  namespace: scanner
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # single RWO PVC — never two pods writing sessions at once
+  selector:
+    matchLabels:
+      app: scanner
+  template:
+    metadata:
+      labels:
+        app: scanner
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000 # so uid 1000 can write the session PVC
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: scanner
+          image: docker.io/xinutec/scanner:local
+          imagePullPolicy: Never # hand-imported image; a pull would reach a stranger's repo
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            # THE network gate, same as recall: a bare hostPort would DNAT on
+            # every address isis has, including the public one — and a k8s
+            # hostPort rule bypasses the NixOS firewall entirely. Pinned to the
+            # WireGuard address, the DNAT rule can only match a packet that
+            # arrived on wg0. Scans are private documents; the public IP must
+            # never answer on 8090. No Ingress, no DNS record, deliberately —
+            # the shared nginx ingress answers on isis's PUBLIC IP whatever
+            # DNS says (obscurity, not a gate).
+            - containerPort: 8090
+              hostPort: 8090 # dev-lint: allow-host-port — bound to wg0 only, see hostIP
+              hostIP: 10.100.0.2
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "2" # fusion is CPU-bound per post; keep 2 of isis's 4 cores free
+              memory: 1Gi
+          volumeMounts:
+            # The server reads/writes cwd-relative data/ with WorkingDir /srv.
+            - name: data
+              mountPath: /srv/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: scanner-data-pvc

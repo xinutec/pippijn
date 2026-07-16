@@ -1,0 +1,16 @@
+# In-cluster address only. External reach is the WireGuard hostPort on the
+# deployment (10.100.0.2:8090) — deliberately NO nginx Ingress and NO DNS
+# record: the shared ingress answers on isis's *public* IP regardless of DNS,
+# and scans are private documents. Same stance as recall (see its 03-service).
+apiVersion: v1
+kind: Service
+metadata:
+  name: scanner
+  namespace: scanner
+spec:
+  type: ClusterIP
+  selector:
+    app: scanner
+  ports:
+    - port: 8090
+      targetPort: 8090

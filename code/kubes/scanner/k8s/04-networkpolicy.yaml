@@ -1,0 +1,16 @@
+# Default-deny egress: the scanner pod serves the phone's posts and writes its
+# session files — it makes no outbound calls at all (not even DNS), so a
+# compromised pod can exfiltrate nothing. Egress-only for the same reason as
+# recall: kubelet probes are node-sourced *ingress*, which default-deny-ingress
+# drops under k3s' kube-router and takes the pod NotReady. Ingress is gated at
+# the network layer instead (wg0-pinned hostPort, no public ingress).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: scanner
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress: []

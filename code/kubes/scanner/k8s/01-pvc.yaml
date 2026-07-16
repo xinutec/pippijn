@@ -1,0 +1,18 @@
+# Scan session recordings: every accepted photo post persists under
+# /srv/data/<session>/NNNN.json so a scan replays through the identical engine
+# offline (the record→replay discipline the whole project runs on). The Mac
+# PULLS new sessions from this PVC for the eval loop (Mac-initiated rsync — the
+# Mac is a one-way WireGuard peer, isis can never dial it). Scans of private
+# documents land here, so this PVC is backed up by odin's restic like the other
+# isis app data (see nixos-config machines/odin/backup-prepare.sh).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scanner-data-pvc
+  namespace: scanner
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
