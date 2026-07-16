@@ -1,10 +1,11 @@
 # Scan session recordings: every accepted photo post persists under
 # /srv/data/<session>/NNNN.json so a scan replays through the identical engine
-# offline (the record→replay discipline the whole project runs on). The Mac
-# PULLS new sessions from this PVC for the eval loop (Mac-initiated rsync — the
-# Mac is a one-way WireGuard peer, isis can never dial it). Scans of private
-# documents land here, so this PVC is backed up by odin's restic like the other
-# isis app data (see nixos-config machines/odin/backup-prepare.sh).
+# offline. DELIBERATELY NOT BACKED UP (Pippijn, 2026-07-16): this service is
+# not important state — the paper original exists until a scan worked, the Mac
+# pulls sessions for the eval loop (scripts/pull-sessions.sh), and finished
+# scans are moved to their long-term homes by hand once the app received them.
+# Losing this PVC costs at most an in-flight session that can be re-scanned.
+# dev-lint: allow-backup-coverage scanner sessions are transient; Pippijn files scans into long-term storage himself
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
