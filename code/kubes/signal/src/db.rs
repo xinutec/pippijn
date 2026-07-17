@@ -105,6 +105,9 @@ impl Db {
                 tracing::info!("applying migration v{v}");
                 // MIGRATIONS holds &'static str literals; sqlx 0.9's SqlSafeStr
                 // accepts those directly (deref the &&str from the iterator).
+                // Each MIGRATIONS literal is judged as DDL by dev-lint's schema
+                // replay; the checker just can't resolve a module-static loop.
+                // dev-lint: allow-sqlx migration runner over const literals
                 sqlx::query(*sql).execute(&self.pool).await?;
                 sqlx::query("INSERT INTO schema_version (version) VALUES (?)")
                     .bind(v)
