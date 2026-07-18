@@ -59,6 +59,27 @@ spec:
                     secretKeyRef:
                       name: health-secret
                       key: FITBIT_CLIENT_SECRET
+                # Google Health weight sync (#260). The refresh token is
+                # long-lived (OAuth app published 2026-07-18); creds managed
+                # out-of-band in the health-google secret. GH_USER_ID names
+                # the health-sync user the Google account belongs to.
+                - name: GH_USER_ID
+                  value: pippijn
+                - name: GH_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-google
+                      key: GH_CLIENT_ID
+                - name: GH_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-google
+                      key: GH_CLIENT_SECRET
+                - name: GH_REFRESH_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-google
+                      key: GH_REFRESH_TOKEN
               resources:
                 requests:
                   cpu: 50m
