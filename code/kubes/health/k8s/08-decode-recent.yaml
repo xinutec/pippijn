@@ -18,7 +18,13 @@ spec:
       # the first run after a code/area change pays cold-cache Overpass
       # fetches at the 300 m radius. Steady state is well under this;
       # the margin absorbs that cold first run.
-      activeDeadlineSeconds: 900
+      #
+      # 1800 (was 900) since the Lean shadow: when the image carries the
+      # verified decoder (LEAN_CLI, set by the Dockerfile), decode-day
+      # A/Bs each decoded day against it — ~30 s/day on top of the decode
+      # (quantise + export + both decodes), ~3.5 min for the 7-day window.
+      # Purely observational; grep pod logs for `lean-shadow`.
+      activeDeadlineSeconds: 1800
       template:
         spec:
           # Matches the nonroot "node" user in the image (uid 1000).
@@ -128,4 +134,7 @@ spec:
                   memory: 256Mi
                 limits:
                   cpu: 1000m
-                  memory: 768Mi
+                  # 1536Mi (was 768Mi): the Lean shadow holds the exported
+                  # integer tensors (~60 MB JSON with the C4 flags on) in
+                  # node while the spawned verified_cli peaks ~300 MB.
+                  memory: 1536Mi
