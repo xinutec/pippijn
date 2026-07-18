@@ -422,7 +422,7 @@ spec:
                 uid: grafanacloud-prom
               editorMode: code
               exemplar: false
-              expr: irate(node_network_receive_bytes_total{device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*"}[$__rate_interval])
+              expr: irate(node_network_receive_bytes_total{device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*|wg.*"}[$__rate_interval])
               instant: false
               interval: ""
               intervalFactor: 3
@@ -434,7 +434,7 @@ spec:
                 uid: grafanacloud-prom
               editorMode: code
               exemplar: false
-              expr: irate(node_network_transmit_bytes_total{device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*"}[$__rate_interval])
+              expr: irate(node_network_transmit_bytes_total{device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*|wg.*"}[$__rate_interval])
               hide: false
               instant: false
               interval: ""
@@ -510,11 +510,11 @@ spec:
                 uid: grafanacloud-prom
               editorMode: code
               exemplar: false
-              expr: topk(25,100 - node_filesystem_avail_bytes{fstype!~"(nfs4|tmpfs|)", mountpoint!~"(.*/kubelet/.*|/nix/store|/run/keys|/home|)"}/node_filesystem_size_bytes{fstype!~"(nfs4|tmpfs|)", mountpoint!=""}*100)
+              expr: 100 - node_filesystem_avail_bytes{mountpoint="/"}/node_filesystem_size_bytes{mountpoint="/"}*100
               instant: false
               interval: ""
               intervalFactor: 3
-              legendFormat: '{{agent_hostname}}: {{mountpoint}}'
+              legendFormat: '{{agent_hostname}}'
               range: true
               refId: A
           title: Disk Usage
