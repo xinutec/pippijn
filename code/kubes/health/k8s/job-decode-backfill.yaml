@@ -1,0 +1,89 @@
+# One-shot 90-day HSMM re-decode — run after a CLASSIFIER_VERSION bump so
+# historical decoded_days rows pick up the new decode instead of waiting
+# for lazy recompute. Mirrors 08-decode-recent.yaml's pod spec with
+# --days 90 and a wider deadline. NOT part of the standing apply set:
+# apply by hand, bump the name's version suffix to match the classifier
+# version being backfilled (a completed Job's spec is immutable).
+#
+#   kubectl apply -f job-decode-backfill.yaml
+#   kubectl -n health logs -f job/health-decode-backfill-v6
+#
+# History: v5 2026-07-18 (C4.3 v1), v6 2026-07-18 (C4.3 v2 trajectory
+# coherence).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: health-decode-backfill-v6
+  namespace: health
+spec:
+  # ~30 s/day decode + ~30 s/day Lean shadow A/B over 90 days lands
+  # around 1.5–2 h; 4 h absorbs cold caches.
+  activeDeadlineSeconds: 14400
+  backoffLimit: 1
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      restartPolicy: OnFailure
+      containers:
+        # dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths)
+        - name: decode
+          image: xinutec/health-sync:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -c
+            - >-
+              node dist/cli/decode-day.js --user pippijn --tz Europe/London --days 90 &&
+              node dist/cli/refresh-presence-log.js 90
+          env:
+            - name: DB_HOST
+              value: health-db
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: DB_PASSWORD
+            - name: NC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: NC_CLIENT_ID
+            - name: NC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: NC_CLIENT_SECRET
+            # Same flag set as 08-decode-recent.yaml — the backfill must
+            # decode exactly what the nightly cron decodes.
+            - name: USE_CONTINUITY_CONTINUATION
+              value: "1"
+            - name: USE_CADENCE_IMPUTATION
+              value: "1"
+            - name: USE_SEGMENT_EVIDENCE
+              value: "1"
+            - name: USE_CHAIN_CONTEXT
+              value: "1"
+            - name: USE_REACQUIRE_ROBUST_SPEED
+              value: "1"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1536Mi
