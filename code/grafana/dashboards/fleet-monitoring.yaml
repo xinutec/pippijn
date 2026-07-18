@@ -1,6 +1,7 @@
 apiVersion: grizzly.grafana.com/v1alpha1
 kind: Dashboard
 metadata:
+    folder: general
     name: QIA3UR57z
 spec:
     annotations:
@@ -313,7 +314,7 @@ spec:
                     steps:
                         - color: green
                           value: null
-                unit: percent
+                unit: percentunit
             overrides: []
           gridPos:
             h: 8
