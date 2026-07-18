@@ -422,11 +422,11 @@ spec:
                 uid: grafanacloud-prom
               editorMode: code
               exemplar: false
-              expr: irate(node_network_receive_bytes_total{device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*|wg.*"}[$__rate_interval])
+              expr: sum by (agent_hostname) (irate(node_network_receive_bytes_total{device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*|wg.*"}[$__rate_interval]))
               instant: false
               interval: ""
               intervalFactor: 3
-              legendFormat: '{{agent_hostname}} {{device}}: recv'
+              legendFormat: '{{agent_hostname}}: recv'
               range: true
               refId: A
             - datasource:
@@ -434,12 +434,12 @@ spec:
                 uid: grafanacloud-prom
               editorMode: code
               exemplar: false
-              expr: irate(node_network_transmit_bytes_total{device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*|wg.*"}[$__rate_interval])
+              expr: sum by (agent_hostname) (irate(node_network_transmit_bytes_total{device!~"lo|docker.*|cni.*|br-.*|veth.*|flannel.*|kube.*|cilium.*|wg.*"}[$__rate_interval]))
               hide: false
               instant: false
               interval: ""
               intervalFactor: 3
-              legendFormat: '{{agent_hostname}} {{device}}: send'
+              legendFormat: '{{agent_hostname}}: send'
               range: true
               refId: B
           title: Network Traffic
