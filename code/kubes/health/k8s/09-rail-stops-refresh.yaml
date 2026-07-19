@@ -1,0 +1,60 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: health-rail-stops-refresh
+  namespace: health
+spec:
+  # Daily at 06:00 UTC — 30 min after the bus refresh (05:30), which is
+  # itself 30 min after the rail-route refresh (05:00), so the Overpass
+  # mirror jobs never run concurrently (one heavy mirror at a time).
+  # Rebuilds rail_stops_cache: OSM rail route relations with their
+  # ordered stop-role members — the served-station data foundation
+  # (health #364). Pure cache, rebuilt transactionally each run.
+  schedule: "0 6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 5400
+      template:
+        spec:
+          # Matches the nonroot "node" user in the image (uid 1000).
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          restartPolicy: OnFailure
+          containers:
+            # dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths)
+            - name: refresh
+              image: xinutec/health-sync:latest
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              command: ["node", "dist/cli/refresh-rail-stops.js"]
+              env:
+                - name: DB_HOST
+                  value: health-db
+                - name: DB_NAME
+                  value: health
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_USER
+                - name: DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: health-secret
+                      key: DB_PASSWORD
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
