@@ -6,14 +6,14 @@
 # version being backfilled (a completed Job's spec is immutable).
 #
 #   kubectl apply -f job-decode-backfill.yaml
-#   kubectl -n health logs -f job/health-decode-backfill-v6
+#   kubectl -n health logs -f job/health-decode-backfill-v7
 #
 # History: v5 2026-07-18 (C4.3 v1), v6 2026-07-18 (C4.3 v2 trajectory
-# coherence).
+# coherence), v7 2026-07-19 (#364 served-station membership).
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: health-decode-backfill-v6
+  name: health-decode-backfill-v7
   namespace: health
 spec:
   # ~30 s/day decode + ~30 s/day Lean shadow A/B over 90 days lands
