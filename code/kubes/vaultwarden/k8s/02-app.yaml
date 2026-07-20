@@ -1,0 +1,80 @@
+# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # single PVC, RWO — never run two instances against the same data
+  selector:
+    matchLabels:
+      app: vaultwarden
+  template:
+    metadata:
+      labels:
+        app: vaultwarden
+    spec:
+      # dev-lint: allow-unhardened
+      # Vaultwarden runs as root here only because the alpine image binds :80.
+      # It does NOT need root — non-root is a real, deferred fix, not a "can't":
+      # it requires ROCKET_PORT=8080 + a matching Service targetPort AND an
+      # fsGroup ownership migration of the live /data sqlite DB (currently
+      # 0777 root:root). Do that as a deliberate, watched deploy with rollback
+      # ready, not as a drive-by — this is the password vault.
+      containers:
+        # dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix: emptyDir for writable paths)
+        # dev-lint: allow-seccomp — pre-existing (fix: add seccompProfile RuntimeDefault)
+        - name: vaultwarden
+          image: vaultwarden/server:1.36.0-alpine
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            # /alive returns 200 with the current server time; a rollout that
+            # brings up a crashing build is caught instead of marked Ready.
+            httpGet:
+              path: /alive
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          env:
+            - name: DOMAIN
+              value: "https://vault.xinutec.org"
+            # Single-user instance: pippijn registered 2026-06-10; signups closed.
+            - name: SIGNUPS_ALLOWED
+              value: "false"
+            - name: INVITATIONS_ALLOWED
+              value: "false"
+            - name: SHOW_PASSWORD_HINT
+              value: "false"
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: vaultwarden-admin
+                  key: admin-token
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: vaultwarden-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+spec:
+  selector:
+    app: vaultwarden
+  ports:
+    - port: 80
+      targetPort: 80
