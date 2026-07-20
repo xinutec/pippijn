@@ -128,6 +128,16 @@ spec:
                   value: "1"
                 - name: USE_REACQUIRE_ROBUST_SPEED
                   value: "1"
+                # Serve the verified Lean geometry passes when re-decoding days
+                # (docs/proposals/2026-07-verified-core-lean.md) — kept identical
+                # to the health-auth server so a cached (cron-persisted) day and a
+                # fresh server compute draw the same geometry. `on` also logs the
+                # per-day `lean-passes[on] <date> …` ledger (calls/failures/
+                # divergences) so the flip stays continuously observable; a run of
+                # `EXACT` days is the live evidence it holds. TS fallback on any
+                # bridge failure.
+                - name: LEAN_PASSES
+                  value: "on"
               resources:
                 requests:
                   cpu: 100m

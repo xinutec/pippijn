@@ -145,6 +145,17 @@ spec:
             # explicit "1" here is documentation, not activation.
             - name: WALK_BUILDING_ESCAPE
               value: "1"
+            # Serve the verified Lean geometry passes on the request path
+            # (docs/proposals/2026-07-verified-core-lean.md). `on` routes five
+            # proved display passes — simplify, removeSpurs, trim, despike,
+            # rejectSpikes — through the in-process bridge to verified_cli
+            # (LEAN_CLI is set by the Dockerfile), serving the theorem-backed
+            # output. Golden is 31/31 byte-identical to the pure-TS pipeline
+            # under `on` (the only divergences are 2 accepted Douglas-Peucker
+            # near-ties that wash out downstream), and any bridge failure falls
+            # back to TS (swallow-over-wrong). "off"/unset reverts instantly.
+            - name: LEAN_PASSES
+              value: "on"
           resources:
             requests:
               # Idle most of the time; a /api/velocity compute is a short CPU
