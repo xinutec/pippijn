@@ -138,14 +138,13 @@ spec:
                 # bridge failure.
                 - name: LEAN_PASSES
                   value: "on"
-                # Verified Lean walk-matcher — OFF (perf, not correctness). A
-                # 2026-07-21 flip to `on` made this job exceed its 1800s deadline:
-                # the matcher adds a synchronous per-leg bridge call whose compute
-                # (corridor-graph Viterbi) is far heavier than the geometry
-                # passes. `shadow` is no cheaper. Needs a batch/precompute perf fix
-                # first. See 03-auth.yaml.
+                # Verified Lean walk-matcher — ON since 2026-07-21. An earlier
+                # flip the same day blew this job's 1800s deadline on cost, not
+                # correctness; the matcher's hot path has since moved off Lean
+                # `Int` (a GMP bignum past 2^31) onto `Nat`, and now measures
+                # ~0.36 s/leg over the 173 gated golden legs. See 03-auth.yaml.
                 - name: LEAN_MATCH
-                  value: "off"
+                  value: "on"
               resources:
                 requests:
                   cpu: 100m
