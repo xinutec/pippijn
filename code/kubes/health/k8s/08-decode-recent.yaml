@@ -145,6 +145,14 @@ spec:
                 # ~0.36 s/leg over the 173 gated golden legs. See 03-auth.yaml.
                 - name: LEAN_MATCH
                   value: "on"
+                # Raise the warm bridge-call ceiling (default 5s) for the batch
+                # path: this job has no user waiting, and the heaviest real legs
+                # take several seconds on the throttled pod, so the tight ceiling
+                # dropped ~4/80 of the biggest legs to the TS fallback. 30s keeps
+                # them on the verified path; the interactive /api/velocity server
+                # keeps the 5s default so a slow leg never stalls a request.
+                - name: LEAN_CALL_TIMEOUT_MS
+                  value: "30000"
               resources:
                 requests:
                   cpu: 100m
