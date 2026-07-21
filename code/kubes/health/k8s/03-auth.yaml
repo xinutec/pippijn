@@ -156,6 +156,19 @@ spec:
             # back to TS (swallow-over-wrong). "off"/unset reverts instantly.
             - name: LEAN_PASSES
               value: "on"
+            # Serve the verified Lean walk-matcher (qMatchWalkSegment) on the
+            # request path. `on` routes each matched leg through the in-process
+            # bridge to verified_cli's proved matcher, serving the theorem-backed
+            # route (routing-optimality + oracleDist bridge). SAFETY: the
+            # matcher's output (walkMatchedPath) is DISPLAY-ONLY — no decision
+            # (HSMM decode / place attribution / mode) reads it, so a Lean/TS
+            # divergence changes only a drawn pavement polyline, never what a day
+            # means. Gate green on golden (compare-match: 173/173 quant↔Lean
+            # bit-exact, 21 float↔quant deltas all blessed). Any bridge failure
+            # falls back to TS (swallow-over-wrong); "off"/unset reverts
+            # instantly, as does the /settings verified-core toggle.
+            - name: LEAN_MATCH
+              value: "on"
           resources:
             requests:
               # Idle most of the time; a /api/velocity compute is a short CPU

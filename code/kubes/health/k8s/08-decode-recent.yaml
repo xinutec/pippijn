@@ -138,6 +138,16 @@ spec:
                 # bridge failure.
                 - name: LEAN_PASSES
                   value: "on"
+                # Serve the verified Lean walk-matcher when re-decoding days,
+                # kept identical to the health-auth server so a cron-persisted
+                # day and a fresh compute draw the same route. `on` also logs the
+                # per-day `lean-match[on] <date> …` ledger (calls/failures/
+                # coarse+path+null divergences) so the flip stays observable. The
+                # matcher output is display-only; gate green on golden
+                # (compare-match 173/173 quant↔Lean bit-exact); TS fallback on any
+                # bridge failure. See 03-auth.yaml for the full rationale.
+                - name: LEAN_MATCH
+                  value: "on"
               resources:
                 requests:
                   cpu: 100m
