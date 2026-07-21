@@ -61,16 +61,15 @@ spec:
             # low-volume sync/product detail. Third-party crates stay at info (quiet).
             - name: RUST_LOG
               value: info,life=debug
-            # Emotion suggestions (POST /api/wellbeing/suggest-emotions). optional:
-            # the feature is best-effort — with the key absent the endpoint returns
-            # no suggestions and the picker uses the plain wheel, so the pod starts
-            # fine before the key is added to life-secret.
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: life-secret
-                  key: ANTHROPIC_API_KEY
-                  optional: true
+            # Emotion suggestions (POST /api/wellbeing/suggest-emotions) run against a
+            # self-hosted, Ollama-compatible model — the note never leaves your kit.
+            # Best-effort: with EMOTION_MODEL_URL unset (or the server down) the
+            # picker just uses the plain wheel. Point it at a model server (e.g. an
+            # Ollama on the Mac) to switch it on; EMOTION_MODEL picks the model.
+            - name: EMOTION_MODEL
+              value: qwen2.5:3b
+            # - name: EMOTION_MODEL_URL
+            #   value: http://<mac-ip>:11434
           readinessProbe:
             httpGet:
               path: /healthz
