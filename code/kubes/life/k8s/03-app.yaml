@@ -61,15 +61,18 @@ spec:
             # low-volume sync/product detail. Third-party crates stay at info (quiet).
             - name: RUST_LOG
               value: info,life=debug
-            # Emotion suggestions (POST /api/wellbeing/suggest-emotions) run against a
-            # self-hosted, OpenAI-compatible model — the note never leaves your kit.
-            # Best-effort: with EMOTION_MODEL_URL unset (or the server down) the
-            # picker just uses the plain wheel. Point it at the Mac's mlx_lm.server
-            # (which reuses recall's cached Qwen) to switch it on.
-            - name: EMOTION_MODEL
-              value: mlx-community/Qwen2.5-7B-Instruct-4bit
-            # - name: EMOTION_MODEL_URL
-            #   value: http://<mac-ip>:11435
+            # Emotion suggestions (POST /api/wellbeing/suggest-emotions). The model
+            # is MLX on the Mac and the note never leaves your kit — but this pod
+            # may not dial the Mac (one-way WireGuard peer), so the Mac's worker
+            # dials IN and this is the shared secret it authenticates with. Unset
+            # → no worker channel, and the picker is just the plain wheel.
+            # Optional so the pod still starts before the key exists.
+            - name: EMOTION_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: life-secret
+                  key: EMOTION_WORKER_TOKEN
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthz
