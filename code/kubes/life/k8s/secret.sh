@@ -26,3 +26,15 @@ kubectl create secret -n life generic life-secret \
   --from-literal=NC_CLIENT_ID="$NC_CLIENT_ID" \
   --from-literal=NC_CLIENT_SECRET="$NC_CLIENT_SECRET" \
   --dry-run=client -o yaml | kubectl apply -f -
+
+# ANTHROPIC_API_KEY (optional; powers /api/wellbeing/suggest-emotions) is NOT set
+# here — this script regenerates the DB/session secrets on every run, so it must
+# not be re-run just to add a key. Merge it in-place instead, without disturbing
+# the other values:
+#
+#   kubectl patch secret life-secret -n life --type merge \
+#     -p '{"stringData":{"ANTHROPIC_API_KEY":"sk-ant-..."}}'
+#   kubectl rollout restart deploy/life-app -n life
+#
+# The Deployment reads it via an `optional: true` secretKeyRef (03-app.yaml), so
+# the app runs with or without it; absent → the picker just skips suggestions.

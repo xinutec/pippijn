@@ -61,6 +61,16 @@ spec:
             # low-volume sync/product detail. Third-party crates stay at info (quiet).
             - name: RUST_LOG
               value: info,life=debug
+            # Emotion suggestions (POST /api/wellbeing/suggest-emotions). optional:
+            # the feature is best-effort — with the key absent the endpoint returns
+            # no suggestions and the picker uses the plain wheel, so the pod starts
+            # fine before the key is added to life-secret.
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: life-secret
+                  key: ANTHROPIC_API_KEY
+                  optional: true
           readinessProbe:
             httpGet:
               path: /healthz
