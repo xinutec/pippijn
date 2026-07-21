@@ -62,14 +62,14 @@ spec:
             - name: RUST_LOG
               value: info,life=debug
             # Emotion suggestions (POST /api/wellbeing/suggest-emotions) run against a
-            # self-hosted, Ollama-compatible model — the note never leaves your kit.
+            # self-hosted, OpenAI-compatible model — the note never leaves your kit.
             # Best-effort: with EMOTION_MODEL_URL unset (or the server down) the
-            # picker just uses the plain wheel. Point it at a model server (e.g. an
-            # Ollama on the Mac) to switch it on; EMOTION_MODEL picks the model.
+            # picker just uses the plain wheel. Point it at the Mac's mlx_lm.server
+            # (which reuses recall's cached Qwen) to switch it on.
             - name: EMOTION_MODEL
-              value: qwen2.5:3b
+              value: mlx-community/Qwen2.5-7B-Instruct-4bit
             # - name: EMOTION_MODEL_URL
-            #   value: http://<mac-ip>:11434
+            #   value: http://<mac-ip>:11435
           readinessProbe:
             httpGet:
               path: /healthz
