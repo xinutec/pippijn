@@ -57,7 +57,9 @@ async fn main() -> Result<()> {
     let attach_dir = env_or("ATTACHMENTS_DIR", "/attachments");
     let ws_url = format!("{}/v1/receive/{}", api_ws.trim_end_matches('/'), number);
 
-    tokio::fs::create_dir_all(&attach_dir).await.ok();
+    tokio::fs::create_dir_all(&attach_dir)
+        .await
+        .with_context(|| format!("creating attachments dir {attach_dir}"))?;
 
     let db = Db::connect(&database_url()?).await.context("connecting to MariaDB")?;
     let ctx = Ctx { db, http: reqwest::Client::new(), http_base, number, attach_dir };
@@ -109,7 +111,11 @@ async fn run_ws(ws_url: &str, ctx: &Ctx) -> Result<()> {
             break;
         }
         if msg.is_ping() {
-            ws.send(WsMessage::Pong(msg.into_data())).await.ok();
+            // A failed pong means the socket is gone; surface it so the caller
+            // reconnects instead of looping blind on a dead connection.
+            ws.send(WsMessage::Pong(msg.into_data()))
+                .await
+                .context("sending websocket pong")?;
             continue;
         }
         let text = match msg.to_text() {
@@ -135,10 +141,12 @@ async fn dispatch(ctx: &Ctx, frame: &Value) -> Result<()> {
     let parsed = parse_frame(frame);
 
     if let Some(c) = &parsed.contact {
-        ctx.db.upsert_contact(&c.uuid, c.phone.as_deref(), c.name.as_deref()).await.ok();
+        ctx.db
+            .upsert_contact(&c.uuid, c.phone.as_deref(), c.name.as_deref())
+            .await?;
     }
     if let Some((thread, name)) = &parsed.dm_name {
-        ctx.db.set_conversation_name(thread, name).await.ok();
+        ctx.db.set_conversation_name(thread, name).await?;
     }
 
     match parsed.action {
@@ -221,11 +229,18 @@ async fn refresh_group_names(ctx: Ctx) {
             && let Ok(bytes) = resp.bytes().await
                 && let Ok(Value::Array(groups)) = serde_json::from_slice::<Value>(&bytes) {
                     for g in &groups {
-                        if let (Some(iid), Some(name)) = (
+                        let (Some(iid), Some(name)) = (
                             g.get("internal_id").and_then(Value::as_str),
                             g.get("name").and_then(Value::as_str),
-                        ) {
-                            ctx.db.set_conversation_name(&format!("group:{iid}"), name).await.ok();
+                        ) else {
+                            continue;
+                        };
+                        if let Err(e) = ctx
+                            .db
+                            .set_conversation_name(&format!("group:{iid}"), name)
+                            .await
+                        {
+                            tracing::warn!("failed to store group name for {iid}: {e}");
                         }
                     }
                     tracing::debug!("refreshed {} group name(s)", groups.len());
