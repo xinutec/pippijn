@@ -39,6 +39,16 @@ targets_for() {
 
 # Apps with staged changes in this commit.
 staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+# signal-archiver is the one app whose source still lives in-tree (the others
+# each have their own repo). It's Rust, so its gate is a FULL verify — fmt +
+# clippy + tests + dev-lint — not the dev-lint-only pass the APPS loop runs.
+# Its verify.sh brings its own flake toolchain. Run it when signal/ is staged.
+if printf '%s\n' "$staged" | grep -q '^code/kubes/signal/'; then
+	echo "pre-commit: verify signal-archiver…" >&2
+	"$(git rev-parse --show-toplevel)/code/kubes/signal/scripts/verify.sh"
+fi
+
 changed=""
 for app in $APPS; do
 	if printf '%s\n' "$staged" | grep -q "^$app/"; then

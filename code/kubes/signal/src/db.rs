@@ -85,7 +85,10 @@ pub struct Db {
 
 impl Db {
     pub async fn connect(url: &str) -> Result<Self> {
-        let pool = MySqlPoolOptions::new().max_connections(5).connect(url).await?;
+        let pool = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(url)
+            .await?;
         let db = Self { pool };
         db.migrate().await?;
         Ok(db)
@@ -96,9 +99,12 @@ impl Db {
             .execute(&self.pool)
             .await?;
         // Serialise migrations across restarts/replicas with an advisory lock.
-        sqlx::query("SELECT GET_LOCK('signal_migrate', 30)").execute(&self.pool).await?;
-        let applied: Vec<i32> =
-            sqlx::query_scalar("SELECT version FROM schema_version").fetch_all(&self.pool).await?;
+        sqlx::query("SELECT GET_LOCK('signal_migrate', 30)")
+            .execute(&self.pool)
+            .await?;
+        let applied: Vec<i32> = sqlx::query_scalar("SELECT version FROM schema_version")
+            .fetch_all(&self.pool)
+            .await?;
         for (i, sql) in MIGRATIONS.iter().enumerate() {
             let v = i as i32;
             if !applied.contains(&v) {
@@ -115,7 +121,9 @@ impl Db {
                     .await?;
             }
         }
-        sqlx::query("SELECT RELEASE_LOCK('signal_migrate')").execute(&self.pool).await?;
+        sqlx::query("SELECT RELEASE_LOCK('signal_migrate')")
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

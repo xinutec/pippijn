@@ -28,7 +28,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(90);
 const MAX_IDLE_PROBES: u32 = 3;
 
 use signal_archiver::db::Db;
-use signal_archiver::parse::{parse_frame, Action};
+use signal_archiver::parse::{Action, parse_frame};
 
 /// Shared state for the per-frame dispatcher.
 #[derive(Clone)]
@@ -61,8 +61,16 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("creating attachments dir {attach_dir}"))?;
 
-    let db = Db::connect(&database_url()?).await.context("connecting to MariaDB")?;
-    let ctx = Ctx { db, http: reqwest::Client::new(), http_base, number, attach_dir };
+    let db = Db::connect(&database_url()?)
+        .await
+        .context("connecting to MariaDB")?;
+    let ctx = Ctx {
+        db,
+        http: reqwest::Client::new(),
+        http_base,
+        number,
+        attach_dir,
+    };
     tracing::info!("DB connected + migrated; ingesting from {ws_url}");
 
     tokio::spawn(refresh_group_names(ctx.clone()));
@@ -99,7 +107,9 @@ async fn run_ws(ws_url: &str, ctx: &Ctx) -> Result<()> {
                 );
                 // A broken pipe surfaces here on write even before a read would.
                 // tungstenite 0.29 payloads are `Bytes`; empty ping body.
-                ws.send(WsMessage::Ping(Default::default())).await.context("keepalive ping")?;
+                ws.send(WsMessage::Ping(Default::default()))
+                    .await
+                    .context("keepalive ping")?;
                 continue;
             }
         };
@@ -153,23 +163,40 @@ async fn dispatch(ctx: &Ctx, frame: &Value) -> Result<()> {
         Action::Skip => {}
         Action::Delete { sender, target_ts } => {
             let n = ctx.db.mark_deleted(&sender, target_ts).await?;
-            tracing::info!("remote-delete flagged {n} message(s) (sender={sender}, ts={target_ts})");
+            tracing::info!(
+                "remote-delete flagged {n} message(s) (sender={sender}, ts={target_ts})"
+            );
         }
         Action::Edit(e) => {
             ctx.db.upsert_conversation(&e.thread_id).await?;
             let n = ctx.db.mark_edited(&e.sender, e.target_ts).await?;
             ctx.db
-                .insert_edit(&e.thread_id, &e.sender, e.edit_ts, e.body.as_deref(), e.target_ts, e.is_outgoing)
+                .insert_edit(
+                    &e.thread_id,
+                    &e.sender,
+                    e.edit_ts,
+                    e.body.as_deref(),
+                    e.target_ts,
+                    e.is_outgoing,
+                )
                 .await?;
             tracing::info!(
                 "edit flagged {n} original(s) + stored new version (sender={}, target={})",
-                e.sender, e.target_ts
+                e.sender,
+                e.target_ts
             );
         }
         Action::Reaction(r) => {
             ctx.db.upsert_conversation(&r.thread_id).await?;
             ctx.db
-                .insert_reaction(&r.thread_id, r.target_ts, &r.author, r.emoji.as_deref(), r.reaction_ts, r.removed)
+                .insert_reaction(
+                    &r.thread_id,
+                    r.target_ts,
+                    &r.author,
+                    r.emoji.as_deref(),
+                    r.reaction_ts,
+                    r.removed,
+                )
                 .await?;
         }
         Action::Message(m) => {
@@ -177,7 +204,14 @@ async fn dispatch(ctx: &Ctx, frame: &Value) -> Result<()> {
             // `None` = a duplicate INSERT IGNORE dropped; skip its children.
             if let Some(msg_id) = ctx
                 .db
-                .insert_message(&m.thread_id, &m.sender, m.server_ts, m.body.as_deref(), m.quote_target_ts, m.is_outgoing)
+                .insert_message(
+                    &m.thread_id,
+                    &m.sender,
+                    m.server_ts,
+                    m.body.as_deref(),
+                    m.quote_target_ts,
+                    m.is_outgoing,
+                )
                 .await?
             {
                 for att in &m.attachments {
@@ -204,13 +238,22 @@ async fn dispatch(ctx: &Ctx, frame: &Value) -> Result<()> {
 /// Best-effort: fetch the attachment blob from the rest-api and store it.
 async fn download_attachment(ctx: &Ctx, id: &str) -> Option<String> {
     let url = format!("{}/v1/attachments/{}", ctx.http_base, id);
-    let resp = ctx.http.get(&url).timeout(Duration::from_secs(30)).send().await.ok()?;
+    let resp = ctx
+        .http
+        .get(&url)
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .ok()?;
     if !resp.status().is_success() {
         tracing::warn!("attachment {id} fetch returned {}", resp.status());
         return None;
     }
     let bytes = resp.bytes().await.ok()?;
-    let safe: String = id.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    let safe: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
     let path = format!("{}/{}", ctx.attach_dir, safe);
     match tokio::fs::write(&path, &bytes).await {
         Ok(()) => Some(path),
@@ -225,26 +268,32 @@ async fn download_attachment(ctx: &Ctx, id: &str) -> Option<String> {
 async fn refresh_group_names(ctx: Ctx) {
     let url = format!("{}/v1/groups/{}", ctx.http_base, ctx.number);
     loop {
-        if let Ok(resp) = ctx.http.get(&url).timeout(Duration::from_secs(20)).send().await
+        if let Ok(resp) = ctx
+            .http
+            .get(&url)
+            .timeout(Duration::from_secs(20))
+            .send()
+            .await
             && let Ok(bytes) = resp.bytes().await
-                && let Ok(Value::Array(groups)) = serde_json::from_slice::<Value>(&bytes) {
-                    for g in &groups {
-                        let (Some(iid), Some(name)) = (
-                            g.get("internal_id").and_then(Value::as_str),
-                            g.get("name").and_then(Value::as_str),
-                        ) else {
-                            continue;
-                        };
-                        if let Err(e) = ctx
-                            .db
-                            .set_conversation_name(&format!("group:{iid}"), name)
-                            .await
-                        {
-                            tracing::warn!("failed to store group name for {iid}: {e}");
-                        }
-                    }
-                    tracing::debug!("refreshed {} group name(s)", groups.len());
+            && let Ok(Value::Array(groups)) = serde_json::from_slice::<Value>(&bytes)
+        {
+            for g in &groups {
+                let (Some(iid), Some(name)) = (
+                    g.get("internal_id").and_then(Value::as_str),
+                    g.get("name").and_then(Value::as_str),
+                ) else {
+                    continue;
+                };
+                if let Err(e) = ctx
+                    .db
+                    .set_conversation_name(&format!("group:{iid}"), name)
+                    .await
+                {
+                    tracing::warn!("failed to store group name for {iid}: {e}");
                 }
+            }
+            tracing::debug!("refreshed {} group name(s)", groups.len());
+        }
         tokio::time::sleep(Duration::from_secs(600)).await;
     }
 }

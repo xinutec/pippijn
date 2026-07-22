@@ -121,7 +121,11 @@ pub struct Parsed {
 
 impl Parsed {
     fn skip() -> Self {
-        Parsed { action: Action::Skip, contact: None, dm_name: None }
+        Parsed {
+            action: Action::Skip,
+            contact: None,
+            dm_name: None,
+        }
     }
 }
 
@@ -136,7 +140,11 @@ pub fn id_of(uuid: Option<&Value>, fallback: Option<&Value>) -> String {
 /// A message belongs to its `groupInfo.groupId` group if present, else the DM
 /// with `dm_peer` (the other party for incoming, the destination for outgoing).
 fn thread_of(msg: &Value, dm_peer: &str) -> ThreadId {
-    match msg.get("groupInfo").and_then(|g| g.get("groupId")).and_then(Value::as_str) {
+    match msg
+        .get("groupInfo")
+        .and_then(|g| g.get("groupId"))
+        .and_then(Value::as_str)
+    {
         Some(gid) => ThreadId::Group(gid.to_string()),
         None => ThreadId::Dm(dm_peer.to_string()),
     }
@@ -153,7 +161,10 @@ fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_peer
             .or_else(|| rd.get("timestamp"))
             .and_then(Value::as_i64)
         {
-            return Action::Delete { sender: sender.to_string(), target_ts: target };
+            return Action::Delete {
+                sender: sender.to_string(),
+                target_ts: target,
+            };
         }
         return Action::Skip;
     }
@@ -164,9 +175,15 @@ fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_peer
                 thread_id,
                 target_ts: target,
                 author: sender.to_string(),
-                emoji: reaction.get("emoji").and_then(Value::as_str).map(str::to_string),
+                emoji: reaction
+                    .get("emoji")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 reaction_ts: ts,
-                removed: reaction.get("isRemove").and_then(Value::as_bool).unwrap_or(false),
+                removed: reaction
+                    .get("isRemove")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             });
         }
         return Action::Skip;
@@ -184,7 +201,10 @@ fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_peer
         }
         None => None,
     };
-    let quote = msg.get("quote").and_then(|q| q.get("id")).and_then(Value::as_i64);
+    let quote = msg
+        .get("quote")
+        .and_then(|q| q.get("id"))
+        .and_then(Value::as_i64);
     let attachments = msg
         .get("attachments")
         .and_then(Value::as_array)
@@ -192,8 +212,14 @@ fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_peer
             atts.iter()
                 .map(|a| Attachment {
                     id: a.get("id").and_then(Value::as_str).map(str::to_string),
-                    content_type: a.get("contentType").and_then(Value::as_str).map(str::to_string),
-                    file_name: a.get("filename").and_then(Value::as_str).map(str::to_string),
+                    content_type: a
+                        .get("contentType")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    file_name: a
+                        .get("filename")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
                     size: a.get("size").and_then(Value::as_i64),
                 })
                 .collect()
@@ -213,14 +239,24 @@ fn payload_action(msg: &Value, sender: &str, ts: i64, is_outgoing: bool, dm_peer
 
 /// Build an Edit action from an edit's inner dataMessage (same shape as a
 /// normal message payload — has `message`, `groupInfo`, …).
-fn edit_action(inner: &Value, sender: &str, edit_ts: i64, target_ts: i64, is_outgoing: bool, dm_peer: &str) -> Action {
+fn edit_action(
+    inner: &Value,
+    sender: &str,
+    edit_ts: i64,
+    target_ts: i64,
+    is_outgoing: bool,
+    dm_peer: &str,
+) -> Action {
     let thread_id = thread_of(inner, dm_peer);
     Action::Edit(Edit {
         thread_id,
         sender: sender.to_string(),
         edit_ts,
         target_ts,
-        body: inner.get("message").and_then(Value::as_str).map(str::to_string),
+        body: inner
+            .get("message")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         is_outgoing,
     })
 }
@@ -237,7 +273,9 @@ pub fn parse_frame(frame: &Value) -> Parsed {
 
     // Incoming edit ("edit for everyone"): editMessage wraps the new content.
     if let Some(edit) = env.get("editMessage") {
-        let Some(inner) = edit.get("dataMessage") else { return Parsed::skip() };
+        let Some(inner) = edit.get("dataMessage") else {
+            return Parsed::skip();
+        };
         let sender = id_of(env.get("sourceUuid"), env.get("source"));
         let Some(edit_ts) = env
             .get("timestamp")
@@ -252,7 +290,10 @@ pub fn parse_frame(frame: &Value) -> Parsed {
         let name = env.get("sourceName").and_then(Value::as_str);
         let contact = Some(Contact {
             uuid: sender.clone(),
-            phone: env.get("sourceNumber").and_then(Value::as_str).map(str::to_string),
+            phone: env
+                .get("sourceNumber")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             name: name.map(str::to_string),
         });
         let action = edit_action(inner, &sender, edit_ts, target, false, &sender);
@@ -260,13 +301,20 @@ pub fn parse_frame(frame: &Value) -> Parsed {
             (true, Some(n)) => Some((ThreadId::Dm(sender.clone()).to_string(), n.to_string())),
             _ => None,
         };
-        return Parsed { action, contact, dm_name };
+        return Parsed {
+            action,
+            contact,
+            dm_name,
+        };
     }
 
     // Outgoing edit, synced from another of our devices.
     if let Some(sync) = env.get("syncMessage") {
         let sent = sync.get("sentMessage");
-        if let Some(edit) = sync.get("editMessage").or_else(|| sent.and_then(|s| s.get("editMessage"))) {
+        if let Some(edit) = sync
+            .get("editMessage")
+            .or_else(|| sent.and_then(|s| s.get("editMessage")))
+        {
             if let Some(inner) = edit.get("dataMessage") {
                 let sender = id_of(env.get("sourceUuid"), env.get("source"));
                 let Some(edit_ts) = sent
@@ -284,7 +332,11 @@ pub fn parse_frame(frame: &Value) -> Parsed {
                     sent.and_then(|s| s.get("destination")),
                 );
                 let action = edit_action(inner, &sender, edit_ts, target, true, &dest);
-                return Parsed { action, contact: None, dm_name: None };
+                return Parsed {
+                    action,
+                    contact: None,
+                    dm_name: None,
+                };
             }
             return Parsed::skip();
         }
@@ -302,7 +354,10 @@ pub fn parse_frame(frame: &Value) -> Parsed {
         let name = env.get("sourceName").and_then(Value::as_str);
         let contact = Some(Contact {
             uuid: sender.clone(),
-            phone: env.get("sourceNumber").and_then(Value::as_str).map(str::to_string),
+            phone: env
+                .get("sourceNumber")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             name: name.map(str::to_string),
         });
         let action = payload_action(dm, &sender, ts, false, &sender);
@@ -313,7 +368,11 @@ pub fn parse_frame(frame: &Value) -> Parsed {
             }
             _ => None,
         };
-        return Parsed { action, contact, dm_name };
+        return Parsed {
+            action,
+            contact,
+            dm_name,
+        };
     }
 
     if let Some(sent) = env.get("syncMessage").and_then(|s| s.get("sentMessage")) {
@@ -323,7 +382,11 @@ pub fn parse_frame(frame: &Value) -> Parsed {
         };
         let dest = id_of(sent.get("destinationUuid"), sent.get("destination"));
         let action = payload_action(sent, &sender, ts, true, &dest);
-        return Parsed { action, contact: None, dm_name: None };
+        return Parsed {
+            action,
+            contact: None,
+            dm_name: None,
+        };
     }
 
     Parsed::skip()
