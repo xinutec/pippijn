@@ -54,7 +54,17 @@ record_counts() {
               WHERE table_schema='$DB' AND table_type='BASE TABLE' ORDER BY table_name" \
   | tr -d '\r' | while read -r t; do
       [ -n "$t" ] || continue
-      printf '%s\t%s\n' "$t" "$(q "-N -B $DB" "SELECT COUNT(*) FROM \`$t\`" | tr -d '\r')"
+      n=$(q "-N -B $DB" "SELECT COUNT(*) FROM \`$t\`" | tr -d '\r')
+      # An unreachable server returns an EMPTY string, not a number. Left unchecked
+      # that reads downstream as 0 and every table looks emptied -- which is exactly
+      # what happened when health's liveness probe killed the container mid-verify:
+      # a 30-million-row table was reported as "SHRANK to 0" while the data was fine.
+      # A missing count is an unknown, and an unknown must stop the run, not be
+      # silently rendered as the most alarming possible number.
+      case "$n" in
+        ''|*[!0-9]*) echo "FATAL: no row count for \`$t\` -- is the server up?" >&2; return 1 ;;
+      esac
+      printf '%s\t%s\n' "$t" "$n"
     done
 }
 

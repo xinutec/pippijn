@@ -74,11 +74,28 @@ spec:
             - name: data
               mountPath: /var/lib/mysql
               subPath: mariadb-data
+          # This DB is ~4 GB with a 2 GB pool, so a cold start is slow and a
+          # major-version start is slower still: MARIADB_AUTO_UPGRADE starts the server,
+          # runs mariadb-upgrade, then shuts down and restarts it. On 2026-07-22 that
+          # window blew past the old 30s+3x10s liveness grace and kubelet SIGKILLed the
+          # container mid-upgrade (exit 137). It recovered on the retry and no data was
+          # lost, but killing a server *while it rewrites system tables* is not a risk
+          # worth keeping. A startupProbe holds liveness off until the server actually
+          # answers, giving startup up to 10 minutes while steady-state stays strict.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\""]
+            periodSeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 5
           livenessProbe:
             exec:
               command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\""]
-            initialDelaySeconds: 30
             periodSeconds: 10
+            # Was unset, i.e. 1s: a busy 4 GB server can miss that under load and get
+            # itself killed for being slow rather than for being dead.
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
             exec:
               command: ["sh", "-c", "mariadb -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\" -e 'SELECT 1'"]
