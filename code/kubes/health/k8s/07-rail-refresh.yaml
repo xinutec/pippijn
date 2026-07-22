@@ -35,6 +35,22 @@ spec:
                   drop: ["ALL"]
               command: ["node", "dist/cli/refresh-rail-routes.js"]
               env:
+                # Verified Lean rail shortest path (Verified.Rail.dijkstraC).
+                # SHADOW: the proved search runs on every route this job
+                # resolves and is compared against TS, but the TS path is what
+                # gets cached. This job is where the search runs in BULK — the
+                # decode's railSnap pass is only an indexed lookup into the
+                # cache this fills — so this is where the soak evidence comes
+                # from. Grep pod logs for `lean-rail`.
+                #
+                # Batch path, no user waiting: raise the warm bridge-call
+                # ceiling like 08-decode-recent does, because a rail graph is
+                # large (the fixture measures V=22310 / E=110764) and the
+                # adjacency crosses the bridge as JSON.
+                - name: LEAN_RAIL
+                  value: "shadow"
+                - name: LEAN_CALL_TIMEOUT_MS
+                  value: "30000"
                 - name: DB_HOST
                   value: health-db
                 - name: DB_NAME

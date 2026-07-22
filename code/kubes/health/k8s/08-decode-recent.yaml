@@ -146,7 +146,8 @@ spec:
                 # flip the same day blew this job's 1800s deadline on cost, not
                 # correctness; the matcher's hot path has since moved off Lean
                 # `Int` (a GMP bignum past 2^31) onto `Nat`, and now measures
-                # ~0.36 s/leg over the 173 gated golden legs. See 03-auth.yaml.
+                # ~0.36 s/leg over the gated golden legs (185/185 since the gate's
+                # leg population was corrected). See 03-auth.yaml.
                 - name: LEAN_MATCH
                   value: "on"
                 # Raise the warm bridge-call ceiling (default 5s) for the batch

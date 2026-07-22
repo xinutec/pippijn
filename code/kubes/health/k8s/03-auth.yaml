@@ -160,18 +160,32 @@ spec:
               value: "on"
             # Verified Lean walk-matcher (qMatchWalkSegment). ON since
             # 2026-07-21. Correctness has been gated all along (compare-match
-            # 173/173 bit-exact against the BigInt twin); what blocked the flip
+            # 185/185 bit-exact against the BigInt twin); what blocked the flip
             # was cost — an earlier attempt the same day made the decode-recent
             # job exceed its 1800s deadline, because the matcher adds a
             # synchronous bridge call per leg and its corridor-graph Viterbi
             # dwarfs the geometry passes. Fixed at the source: the hot path ran
             # on Lean `Int`, which is a GMP bignum past 2^31, and now runs on
             # `Nat` (scalar to 2^63) with spatial indices for the footprints and
-            # candidate segments. Measured over the same 173 legs: ~0.36 s/leg,
+            # candidate segments. Measured over the same legs: ~0.36 s/leg,
             # ~70x cheaper than at the failed flip and ~3x the TS float matcher.
             # `off`/unset reverts instantly; any bridge failure falls back to TS.
             - name: LEAN_MATCH
               value: "on"
+            # Verified Lean rail shortest path (Verified.Rail.dijkstraC, proved
+            # correct AND complete). SHADOW, not on: the search runs and is
+            # compared, but the TS path is what gets drawn. The gate is 6/6
+            # EXACT and the tenant was exercised identical end-to-end, but that
+            # is one fixture day — thin next to the matcher's 185 legs, and a
+            # rail divergence redraws a whole route rather than shifting it by
+            # millimetres, so it earns a soak before `on`.
+            #
+            # On the server this fires only on the miss-driven route-cache fill
+            # for a first-seen route (rail-route-fill.ts, #363) — the railSnap
+            # pass itself is an indexed cache lookup. Bulk volume is in
+            # 07-rail-refresh.yaml, which prints the ledger.
+            - name: LEAN_RAIL
+              value: "shadow"
           resources:
             requests:
               # Idle most of the time; a /api/velocity compute is a short CPU
