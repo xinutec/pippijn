@@ -28,7 +28,12 @@ spec:
       containers:
         # dev-lint: allow-no-mem-limit — pre-existing (fix: size from kubectl top)
         - name: mariadb
-          image: mariadb:11.8
+          # 12.3 is the current LTS (GA 2026-05-28, supported to Jun 2029). MariaDB has
+          # no downgrade path, so dump before bumping this:
+          #   scripts/mariadb-major-upgrade.sh before health health   (then after)
+          # This is the big one (~4 GB, heart_rate_intraday alone ~2.6 GB): the dump
+          # takes minutes, not seconds, and so does the post-upgrade COUNT(*) pass.
+          image: mariadb:12.3
           # No readOnlyRootFilesystem: mariadb writes /run/mysqld and its data dir.
           securityContext:
             allowPrivilegeEscalation: false
@@ -45,6 +50,9 @@ spec:
           ports:
             - containerPort: 3306
           env:
+            # Migrate the system tables on first start after a major bump.
+            - name: MARIADB_AUTO_UPGRADE
+              value: "1"
             - name: MARIADB_DATABASE
               value: health
             - name: MARIADB_USER
