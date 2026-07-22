@@ -133,9 +133,13 @@ spec:
                 # to the health-auth server so a cached (cron-persisted) day and a
                 # fresh server compute draw the same geometry. `on` also logs the
                 # per-day `lean-passes[on] <date> …` ledger (calls/failures/
-                # divergences) so the flip stays continuously observable; a run of
-                # `EXACT` days is the live evidence it holds. TS fallback on any
-                # bridge failure.
+                # divergences) so the flip stays continuously observable. The
+                # line adjudicates each divergence against the accepted near-tie
+                # manifest and splits the tally by run, so what to look for is
+                # `EXACT` or `all accepted`; `UNEXPLAINED` means a divergence
+                # nobody has signed off, and `IN SERVED OUTPUT` means it came
+                # from the persisted decode rather than the observational
+                # shadow run. TS fallback on any bridge failure.
                 - name: LEAN_PASSES
                   value: "on"
                 # Verified Lean walk-matcher — ON since 2026-07-21. An earlier

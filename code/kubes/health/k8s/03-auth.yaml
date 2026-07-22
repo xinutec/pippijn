@@ -151,8 +151,10 @@ spec:
             # rejectSpikes — through the in-process bridge to verified_cli
             # (LEAN_CLI is set by the Dockerfile), serving the theorem-backed
             # output. Golden is 31/31 byte-identical to the pure-TS pipeline
-            # under `on` (the only divergences are 2 accepted Douglas-Peucker
-            # near-ties that wash out downstream), and any bridge failure falls
+            # under `on` (the golden corpus measures 2 accepted Douglas-Peucker
+            # near-ties, which wash out downstream; the accepted manifest also
+            # carries entries observed in production on days the corpus does not
+            # cover), and any bridge failure falls
             # back to TS (swallow-over-wrong). "off"/unset reverts instantly.
             - name: LEAN_PASSES
               value: "on"
