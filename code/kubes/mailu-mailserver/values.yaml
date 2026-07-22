@@ -1,6 +1,21 @@
 domain: xinutec.org
 hostnames:
   - mail.xinutec.org
+# Roundcube DB password: chart 2.7.x guards it on upgrade (bitnami-common) and demands
+# the existing value. We point at the in-cluster `mailu-roundcube` secret.
+# ⚠ FOOTGUN (hit 2026-07-22): `mailu-roundcube` was originally created BY the chart. The
+# moment you set existingSecret, the chart stops templating it, so `helm upgrade` PRUNES
+# it — deleting the password. It must therefore exist as a STANDALONE (non-helm-managed)
+# secret. Recovery if lost:
+#   helm get manifest mailu --revision <last-good> -n mailu-mailserver \
+#     | awk 'BEGIN{RS="\n---\n"} /kind: Secret/&&/name: mailu-roundcube/{print}' \
+#     | kubectl apply -f -
+# (secretKey + initialAccount.password are still supplied inline via secrets.yaml.)
+global:
+  database:
+    roundcube:
+      existingSecret: mailu-roundcube
+      existingSecretPasswordKey: roundcube-db-password
 initialAccount:
   enabled: true
   username: "mailadmin"
