@@ -128,18 +128,25 @@ spec:
                   value: "1"
                 - name: USE_REACQUIRE_ROBUST_SPEED
                   value: "1"
-                # Verified Lean HSMM decoder — SHADOW. Decodes each day both ways
-                # and logs the per-day `lean-hsmm[shadow] <date> …` ledger (see
-                # src/lean/lean-hsmm.ts): a run is EXACT only when the day clears
-                # BOTH lean↔tsQuant (the verified decode equals the TS trellis on
-                # the same integer tensors) AND float↔quant 100% (the quantised
-                # decode equals the FLOAT decode still served — a day under 100%
-                # is a near-tie flip). Production keeps serving the TS decode; the
-                # `on` flip (serving the quantised decode) is held pending the
-                # decision to ship it. This flag is now required: the shadow used
-                # to run on LEAN_CLI presence alone, so without it the A/B stops.
+                # Verified Lean HSMM decoder — ON: the cron now SERVES the
+                # verified quantised decode (decodeServed in src/lean/lean-hsmm.ts
+                # → decodeHsmmViaLean), not the TS float trellis. Flipped
+                # 2026-07-23 after: (a) a 76-day float↔quant history sweep found
+                # ZERO minute-flips (the quantised decode matched the float decode
+                # on every day, back to 2026-05-08), and (b) a live on-path
+                # validation decoded 3 days on/off and got byte-identical served
+                # segments with no fallback. Safe by construction: any bridge
+                # failure (missing binary, spawn/parse error, degenerate path)
+                # falls back to the TS decode with a warn — a verified-core hiccup
+                # never corrupts or crashes the served decode. The per-day
+                # `lean-hsmm[on] <date> …` ledger stays (lean↔tsQuant + float↔quant)
+                # and fleetwatch's check_health_lean_core reds any DIVERGED, so the
+                # flip is watched daily. Reversible: set back to "shadow" to serve
+                # TS again. CRON-side only — the interactive /api/velocity path
+                # still serves TS (waits on the ~5× Lean speed gap). off disables
+                # the A/B entirely.
                 - name: LEAN_HSMM
-                  value: "shadow"
+                  value: "on"
                 # Serve the verified Lean geometry passes when re-decoding days
                 # (docs/proposals/2026-07-verified-core-lean.md) — kept identical
                 # to the health-auth server so a cached (cron-persisted) day and a
