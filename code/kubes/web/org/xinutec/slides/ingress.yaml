@@ -1,0 +1,43 @@
+# slides.xinutec.org — password-gated static host for Marp talk decks.
+#
+# Served by the shared httpd-isis nginx (namespace web) from its PVC at
+# /share/slides/<deck>/. The rewrite maps the public path /<deck>/... to the
+# internal /share/slides/<deck>/... so a deck lives at the domain root
+# (slides.xinutec.org/apps-talk/) rather than under /share/.
+#
+# TLS via letsencrypt-prod (HTTP-01). Basic auth reuses the SAME web/basic-auth
+# secret as the dicom-scan share (username: pippijn) — nothing new to store.
+#
+# Additive only: this is a new Ingress object; it does not modify the running
+# httpd-isis Deployment/ConfigMap, so it cannot affect the dicom-scan share.
+# Push content with ~/Code/slides/deploy.sh; apply this with kubectl as root on
+# isis (yaml, not ad-hoc kubectl edits).
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  namespace: web
+  name: slides-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: web/basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Authentication required"
+    nginx.ingress.kubernetes.io/rewrite-target: /share/slides/$1
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - slides.xinutec.org
+    secretName: slides-tls
+  rules:
+  - host: slides.xinutec.org
+    http:
+      paths:
+      - path: /(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: httpd-isis
+            port:
+              number: 80
