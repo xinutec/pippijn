@@ -68,11 +68,23 @@ spec:
             - name: data
               mountPath: /var/lib/mysql
               subPath: mariadb-data
+          # startupProbe holds liveness off until the server answers, so a major-version
+          # MARIADB_AUTO_UPGRADE (start->upgrade->shutdown->restart) can't be SIGKILLed
+          # mid-run the way health-db and life-db were on 2026-07-22/23. Small DB today,
+          # but this removes the timing-luck dependence before the next major bump.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\""]
+            periodSeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 5
           livenessProbe:
             exec:
               command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\""]
             initialDelaySeconds: 30
             periodSeconds: 10
+            # was implicit 1s; a busy server can miss that and get killed for being slow
+            timeoutSeconds: 5
           readinessProbe:
             exec:
               command: ["sh", "-c", "mariadb -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\" -e 'SELECT 1'"]
