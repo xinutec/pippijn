@@ -128,6 +128,18 @@ spec:
                   value: "1"
                 - name: USE_REACQUIRE_ROBUST_SPEED
                   value: "1"
+                # Verified Lean HSMM decoder — SHADOW. Decodes each day both ways
+                # and logs the per-day `lean-hsmm[shadow] <date> …` ledger (see
+                # src/lean/lean-hsmm.ts): a run is EXACT only when the day clears
+                # BOTH lean↔tsQuant (the verified decode equals the TS trellis on
+                # the same integer tensors) AND float↔quant 100% (the quantised
+                # decode equals the FLOAT decode still served — a day under 100%
+                # is a near-tie flip). Production keeps serving the TS decode; the
+                # `on` flip (serving the quantised decode) is held pending the
+                # decision to ship it. This flag is now required: the shadow used
+                # to run on LEAN_CLI presence alone, so without it the A/B stops.
+                - name: LEAN_HSMM
+                  value: "shadow"
                 # Serve the verified Lean geometry passes when re-decoding days
                 # (docs/proposals/2026-07-verified-core-lean.md) — kept identical
                 # to the health-auth server so a cached (cron-persisted) day and a
