@@ -18,10 +18,10 @@ dev_lint_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)/dev-l
 [ -d "$dev_lint_dir" ] || dev_lint_dir="$HOME/code/dev-lint"
 DEVLINT="${DEVLINT_DIR:-$dev_lint_dir}"
 root="$(git rev-parse --show-toplevel)"
-# Empty: every kubes app (coach/home/life/messages/health/fleetwatch) now lives
-# in its own repo and runs dev-lint from its own verify.sh. Only k8s manifests
-# remain here (linted by ~/Code/check, not this hook). Re-add an app here only if
-# its app code moves back in-tree.
+# Empty: every kubes app (coach/home/life/messages/health/fleetwatch/signal) now
+# lives in its own repo and runs dev-lint from its own verify.sh. Only k8s
+# manifests remain here (linted by ~/Code/check, not this hook). Re-add an app
+# here only if its app code moves back in-tree.
 APPS=""
 
 # dev-lint target dirs for an app path (empty if unknown). The Android manifest is
@@ -39,15 +39,6 @@ targets_for() {
 
 # Apps with staged changes in this commit.
 staged="$(git diff --cached --name-only --diff-filter=ACMR)"
-
-# signal-archiver is the one app whose source still lives in-tree (the others
-# each have their own repo). It's Rust, so its gate is a FULL verify — fmt +
-# clippy + tests + dev-lint — not the dev-lint-only pass the APPS loop runs.
-# Its verify.sh brings its own flake toolchain. Run it when signal/ is staged.
-if printf '%s\n' "$staged" | grep -q '^code/kubes/signal/'; then
-	echo "pre-commit: verify signal-archiver…" >&2
-	"$(git rev-parse --show-toplevel)/code/kubes/signal/scripts/verify.sh"
-fi
 
 changed=""
 for app in $APPS; do

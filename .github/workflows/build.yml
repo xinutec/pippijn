@@ -33,27 +33,7 @@ jobs:
 
   # home builds in its own repo (github.com/xinutec/home → xinutec/home:latest); only k8s stays here.
 
-  # Signal message archive (Rust). Gate the image on `cargo test` — the pure
-  # parsing logic in src/parse.rs is unit-tested in tests/parse.rs.
-  signal-verify:
-    runs-on: ubuntu-latest
-    container: rust:1-bookworm
-    defaults:
-      run:
-        working-directory: code/kubes/signal
-    steps:
-      - uses: actions/checkout@v6
-      - run: cargo test --release
-
-  signal:
-    needs: signal-verify
-    uses: xinutec/pippijn/.github/workflows/docker.yml@main
-    with:
-      path: code/kubes/signal
-      image: signal-archiver
-    secrets:
-      username: ${{ secrets.DOCKERHUB_USERNAME }}
-      password: ${{ secrets.DOCKERHUB_PASSWORD }}
+  # signal builds in its own repo (github.com/xinutec/signal → xinutec/signal-archiver:latest); only k8s stays here.
 
   # life builds in its own repo (github.com/xinutec/life → xinutec/life:latest); only k8s stays here.
 
