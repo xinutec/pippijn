@@ -1,0 +1,126 @@
+# slides.xinutec.org — dedicated nginx for the Marp talk decks.
+#
+# Standalone: its own Deployment, ConfigMap, PVC and Service. Shares nothing
+# with httpd-isis (the dicom-scan share) — a change or outage there cannot
+# affect slides, and vice versa.
+#
+# Decks live at the webroot root (/usr/share/nginx/html/<deck>/) and are served
+# at the public root (slides.xinutec.org/<deck>/) with NO path rewrite, so
+# nginx's directory trailing-slash redirect stays in public terms. Combined with
+# `absolute_redirect off`, the bare /<deck> 301 becomes a relative /<deck>/ and
+# never leaks the internal :8080 listen port or a /share/... path.
+#
+# nginx-unprivileged runs as uid 101 on :8080 — no root, no privileged bind.
+# Apply as root on isis (yaml, not ad-hoc kubectl edits). Push content with
+# ~/Code/slides/deploy.sh.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: web
+  name: slides-nginx-config
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Directory 301 (/<deck> -> /<deck>/) stays relative, so it never leaks
+        # the internal listen port or path into the Location header.
+        absolute_redirect off;
+
+        # Kubelet readiness — bypasses the ingress auth layer, so it must not
+        # require a password.
+        location = /healthz {
+            access_log off;
+            add_header Content-Type text/plain;
+            return 200 "ok\n";
+        }
+    }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: web
+  name: slides-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: web
+  name: slides
+spec:
+  selector:
+    matchLabels:
+      run: slides
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: slides
+    spec:
+      # nginx-unprivileged runs as uid 101 on :8080 — no root, no privileged
+      # bind. fsGroup lets that uid own the deck PVC; OnRootMismatch skips the
+      # recursive chown when the volume is already group-owned.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      # dev-lint: allow-no-mem-limit / dev-lint: allow-rootfs-rw — matches the
+      # sibling httpd-isis; pre-existing writable rootfs from the stock image.
+      - name: slides
+        image: nginxinc/nginx-unprivileged:alpine
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: webroot
+          mountPath: /usr/share/nginx/html
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: webroot
+        persistentVolumeClaim:
+          claimName: slides-storage
+      - name: nginx-config
+        configMap:
+          name: slides-nginx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: web
+  name: slides
+  labels:
+    run: slides
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    run: slides
