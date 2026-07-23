@@ -46,6 +46,22 @@ spec:
           requests:
             cpu: 500m
             memory: 1Gi
+        # This DB is ~1.2 GB on disk. When its image is bumped to a new major
+        # version, MARIADB_AUTO_UPGRADE starts the server, runs mariadb-upgrade,
+        # then shuts it down and restarts it. That internal restart lands after
+        # the liveness initialDelaySeconds and the server is briefly down, so
+        # liveness fails 3x and kubelet SIGKILLs the container mid-upgrade
+        # (observed on health-db, 4 GB, and life-db, 175 MB, on 2026-07-22/23 --
+        # size did not matter, timing did). A startupProbe holds liveness off
+        # until the server actually answers, giving startup up to 10 minutes
+        # while steady-state liveness stays strict. This is in place BEFORE the
+        # version bump so the eventual upgrade cannot be killed for being slow.
+        startupProbe:
+          exec:
+            command: ["mariadb-admin", "ping"]
+          periodSeconds: 10
+          failureThreshold: 60
+          timeoutSeconds: 5
         livenessProbe:
           exec:
             command: ["mariadb-admin", "ping"]
