@@ -222,3 +222,16 @@ resource "cloudflare_dns_record" "org_coach" {
   ttl     = 3600
   proxied = false
 }
+
+# --- slides.xinutec.org — password-gated static host for Marp talk decks ---
+# Grey-cloud (proxied = false) so the Let's Encrypt HTTP-01 challenge reaches
+# the isis ingress. Served by httpd-isis; see code/kubes/web/org/xinutec/slides.
+
+resource "cloudflare_dns_record" "org_slides" {
+  zone_id = local.xinutec_org_id
+  type    = "CNAME"
+  name    = "slides"
+  content = "isis.xinutec.org"
+  ttl     = 3600
+  proxied = false
+}
