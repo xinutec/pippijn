@@ -31,6 +31,10 @@ data:
       }
 
       location / {
+        # Viewer assets are tiny and change with every iteration — always
+        # revalidate (the WebView's heuristic caching showed stale pages).
+        # Meshes under /runs/ keep heuristic caching: run dirs are immutable.
+        add_header Cache-Control "no-cache";
         try_files $uri $uri/ =404;
       }
     }
