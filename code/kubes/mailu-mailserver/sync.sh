@@ -5,8 +5,9 @@ set -euo pipefail
 # Chart-created storage (invisible to any manifest scan — declared here so the
 # backup-coverage model is complete; see dev-lint DL-DEPLOY-BACKUP-COVERAGE):
 # dev-lint: pvc mailu-mailserver/mailu-storage
-# dev-lint: pvc mailu-mailserver/redis-data-mailu-redis-master-0
 # dev-lint: pvc mailu-mailserver/data-mailu-clamav-0 allow-backup-coverage clamav signature DB, re-downloaded on start
+# (redis is no longer a chart PVC: bundled Bitnami redis was replaced by our own
+# mailu-redis-ext-data PVC in redis-ext.yaml — backed up via odin backup-prepare.sh.)
 # Chart-version BUMP gotchas (learned upgrading 2.1.1 -> 2.7.3, 2026-07-22). None of
 # these apply to a same-version re-run; they bite only when --version changes:
 #   1. StatefulSet immutable fields: the chart changed a forbidden field on
