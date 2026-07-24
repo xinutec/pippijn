@@ -48,9 +48,9 @@ externalRedis:
   rspamdDbId: 0
 # ClamAV: chart 2.1.1 references tag 1.2.0-6 (doesn't exist on Docker
 # Hub) and has probes that check /tmp/clamd.pid (official image doesn't
-# create PID files). Fix: override tag to 1.5.2 + patch probes after
-# helm upgrade (see sync.sh).
+# create PID files). Fix: override tag to a real clamav-debian tag + patch probes
+# after helm upgrade (see sync.sh).
 clamav:
   image:
-    tag: "1.5.2"
+    tag: "1.5.3"
 #secretKey: ""  # XXX: add here when updating
