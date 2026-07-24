@@ -1,6 +1,13 @@
 domain: xinutec.org
 hostnames:
   - mail.xinutec.org
+# Override the Mailu core image tag for ALL components (defaults to Chart.AppVersion,
+# which chart 2.7.3 pins to 2024.06.55). Bumped to .56 for the Roundcube 1.6.17 security
+# fix (CVE-2026-54432/54433, webmail). Mailu requires all components on one version, so
+# this bumps them together rather than webmail-only. Rolling `front` (which binds the mail
+# ports via hostPort) deadlocks — delete the OLD front pod after sync.sh to hand the ports
+# over (a few seconds' front downtime); see sync.sh.
+mailuVersion: "2024.06.56"
 # Roundcube DB password: chart 2.7.x guards it on upgrade (bitnami-common) and demands
 # the existing value. We point at the in-cluster `mailu-roundcube` secret.
 # ⚠ FOOTGUN (hit 2026-07-22): `mailu-roundcube` was originally created BY the chart. The
