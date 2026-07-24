@@ -40,6 +40,8 @@ data:
         }
     }
 ---
+# dev-lint: allow-backup-coverage derived content — re-pushed from ~/Code/slides
+# via deploy.sh, so a lost PVC is recovered by one re-deploy, not a restore.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
