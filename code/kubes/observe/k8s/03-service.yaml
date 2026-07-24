@@ -1,0 +1,16 @@
+# In-cluster address only. External reach is the WireGuard hostPort on the
+# deployment (10.100.0.2:8091) — deliberately NO nginx Ingress and NO DNS
+# record: the shared ingress answers on isis's *public* IP regardless of DNS,
+# and the reconstructions are scans of the home. Same stance as recall/scanner.
+apiVersion: v1
+kind: Service
+metadata:
+  name: observe-viewer
+  namespace: observe
+spec:
+  type: ClusterIP
+  selector:
+    app: observe-viewer
+  ports:
+    - port: 8091
+      targetPort: 8091

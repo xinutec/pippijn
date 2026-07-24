@@ -1,0 +1,29 @@
+# nginx vhost for the observe runs viewer: static files only, rooted at the
+# host directory the Mac publishes into (observe repo scripts/publish_run.sh).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observe-viewer-nginx
+  namespace: observe
+data:
+  default.conf: |
+    server {
+      listen 8091;
+      root /srv/observe;
+      autoindex off;
+
+      # Meshes are ~20-55 MB of glTF JSON; gzip makes the WireGuard transfer
+      # to the phone bearable. .gltf has no entry in nginx's mime.types, so it
+      # serves as application/octet-stream — hence that type in the list.
+      gzip on;
+      gzip_min_length 1024;
+      gzip_types application/json model/gltf+json application/octet-stream;
+
+      location = /healthz {
+        return 200 "ok\n";
+      }
+
+      location / {
+        try_files $uri $uri/ =404;
+      }
+    }
