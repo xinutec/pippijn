@@ -1,0 +1,111 @@
+# dev-lint: allow-no-netpol — the mailu chart resources have none either; a
+# namespace-wide default-deny + allow-graph is a mailu-namespace task, not this pod.
+#
+# Free, maintained Redis for mailu, replacing the bundled Bitnami redis subchart.
+# That subchart is pinned to the FROZEN bitnamilegacy/redis (no security updates
+# after the Aug-2025 Bitnami paywall). Mailu supports an external Redis (values.yaml
+# externalRedis.enabled) and hardcodes NO redis auth (cluster-internal only), so a
+# plain redis works directly.
+#
+# Image: official redis:8-alpine (free; AGPLv3 only matters if you distribute a
+# MODIFIED server — this is an unmodified internal cache). Chosen over valkey because
+# valkey 8.1 cannot load a redis 8.2 RDB ("Can't handle RDB format version 12"),
+# which would block migrating the existing rspamd bayes data. Persistence is RDB
+# (appendonly no + save points): the dataset is ~5 MB and RDB bootstraps cleanly
+# from a migrated dump.rdb, whereas AOF would ignore the RDB on first load.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailu-redis-ext
+  namespace: mailu-mailserver
+  labels:
+    app: mailu-redis-ext
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mailu-redis-ext
+  template:
+    metadata:
+      labels:
+        app: mailu-redis-ext
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: redis:8-alpine
+          args:
+            - "--dir"
+            - "/data"
+            - "--appendonly"
+            - "no"
+            - "--save"
+            - "900 1 300 10 60 10000"
+            # cluster-internal, no auth (mailu can't auth to redis); protected-mode
+            # would otherwise refuse non-loopback clients when no password is set.
+            - "--protected-mode"
+            - "no"
+          ports:
+            - containerPort: 6379
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mailu-redis-ext-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mailu-redis-ext-data
+  namespace: mailu-mailserver
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailu-redis-ext
+  namespace: mailu-mailserver
+  labels:
+    app: mailu-redis-ext
+spec:
+  selector:
+    app: mailu-redis-ext
+  ports:
+    - port: 6379
+      targetPort: 6379
