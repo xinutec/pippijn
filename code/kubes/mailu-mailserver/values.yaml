@@ -30,11 +30,22 @@ ingress:
   ingressClassName: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
-# Bitnami paywall workaround (Aug 2025). The mailu chart uses
-# bitnami/redis as a subchart; point it at bitnamilegacy.
+# Redis: use our own external redis (redis-ext.yaml — official redis:8-alpine)
+# instead of the chart's bundled Bitnami subchart. That subchart is pinned to the
+# FROZEN bitnamilegacy/redis (no security updates after the Aug-2025 Bitnami
+# paywall); redis:8-alpine is free + maintained. Mailu hardcodes no redis auth
+# (cluster-internal only). The DB IDs are the chart defaults and match the bundled
+# usage: rspamd db0 (bayes), admin quota db1, admin rate-limit db2. The rspamd bayes
+# was migrated (BGSAVE→RDB) into mailu-redis-ext before this cutover.
 redis:
-  image:
-    repository: bitnamilegacy/redis
+  enabled: false
+externalRedis:
+  enabled: true
+  host: mailu-redis-ext
+  port: 6379
+  adminQuotaDbId: 1
+  adminRateLimitDbId: 2
+  rspamdDbId: 0
 # ClamAV: chart 2.1.1 references tag 1.2.0-6 (doesn't exist on Docker
 # Hub) and has probes that check /tmp/clamd.pid (official image doesn't
 # create PID files). Fix: override tag to 1.5.2 + patch probes after
