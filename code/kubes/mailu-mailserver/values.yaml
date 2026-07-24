@@ -53,4 +53,12 @@ externalRedis:
 clamav:
   image:
     tag: "1.5.3"
+# Tika (attachment text extraction for dovecot full-text search). The chart pins it
+# by tag+digest; override the tag to bump it. Tag-only (not digest) on purpose: the
+# hub "digest" field is the arm64 child, and pinning that would break amd64 amun;
+# apache/tika release tags are immutable so tag-only is safe. Keep the "-full" variant
+# (all parsers). Stateless service — a restart just briefly pauses attachment indexing.
+tika:
+  image:
+    tag: "3.3.1.0-full"
 #secretKey: ""  # XXX: add here when updating
