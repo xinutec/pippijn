@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-ssh root@isis 'mkdir -p /srv/observe/runs'
+ssh root@isis 'mkdir -p /srv/observe/runs /srv/observe/web'
 for f in ./*.yaml; do
   ssh root@isis 'kubectl apply -f -' < "$f"
 done

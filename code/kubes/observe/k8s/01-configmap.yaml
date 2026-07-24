@@ -1,5 +1,7 @@
-# nginx vhost for the observe runs viewer: static files only, rooted at the
-# host directory the Mac publishes into (observe repo scripts/publish_run.sh).
+# nginx vhost for the observe runs viewer: static files only. Two disjoint
+# trees so the Mac can mirror each with rsync --delete (observe repo,
+# scripts/publish_run.sh): /srv/observe/web (viewer assets, served at /) and
+# /srv/observe/runs (the runs ledger, served at /runs/).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,7 +11,7 @@ data:
   default.conf: |
     server {
       listen 8091;
-      root /srv/observe;
+      root /srv/observe/web;
       autoindex off;
 
       # Meshes are ~20-55 MB of glTF JSON; gzip makes the WireGuard transfer
@@ -17,10 +19,15 @@ data:
       # serves as application/octet-stream — hence that type in the list.
       gzip on;
       gzip_min_length 1024;
-      gzip_types application/json model/gltf+json application/octet-stream;
+      gzip_types application/json model/gltf+json application/octet-stream
+                 text/css application/javascript;
 
       location = /healthz {
         return 200 "ok\n";
+      }
+
+      location /runs/ {
+        alias /srv/observe/runs/;
       }
 
       location / {
