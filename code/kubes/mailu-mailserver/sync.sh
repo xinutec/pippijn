@@ -14,11 +14,24 @@ set -euo pipefail
 #      forbidden". Delete the SS first (pod stays; clamav is regenerable):
 #        kubectl -n mailu-mailserver delete statefulset mailu-clamav --cascade=orphan
 #      then re-run this script. (The release ends 'failed' until the re-run succeeds.)
-#   2. front hostPort: front binds the mail ports via hostPort on the single node, so
-#      a RollingUpdate deadlocks (new pod Pending "no free ports", old never leaves).
-#      Delete the OLD front pod to hand the ports over (a few seconds' front downtime).
 #   3. mailu-roundcube secret: see the FOOTGUN note in values.yaml — recreate it
 #      standalone if a prior upgrade pruned it.
+#
+# ANY-image-roll gotchas — these bite whenever front/postfix are rolled to a new
+# image, including a `mailuVersion` bump (values.yaml), NOT just --version changes.
+# Both are shared-single-resource RollingUpdate deadlocks; fix each with scale 0->1:
+#   2. front hostPort: front binds the mail ports via hostPort on the single node, so
+#      the new pod stays Pending "no free ports" and the old never leaves. Recover:
+#        kubectl -n mailu-mailserver scale deploy/mailu-front --replicas=0   # wait for pods gone
+#        kubectl -n mailu-mailserver scale deploy/mailu-front --replicas=1
+#      (a few seconds' front downtime — all public mail+web ports). Deleting just the
+#      old pod is NOT enough: the old ReplicaSet respawns it and both Pend, racing.
+#   4. postfix spool lock: postfix and its replacement both mount the RWO spool PVC on
+#      the one node, so the new pod CrashLoopBackOffs with "the Postfix mail system is
+#      already running" (old holds master.pid). Same fix: scale mailu-postfix 0 -> 1.
+# NB: this deployment exposes only implicit-TLS client ports (465/993/995) + 25/443;
+# the plaintext-STARTTLS ports 587/143/110 are intentionally NOT served (by design,
+# not a regression) — clients use 465/993.
 sudo helm upgrade --install mailu mailu/mailu --version 2.7.3 -n mailu-mailserver --create-namespace --values values.yaml --values secrets.yaml
 
 # Workaround: chart 2.1.1's clamav probes check /tmp/clamd.pid which
