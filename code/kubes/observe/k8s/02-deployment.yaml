@@ -77,8 +77,12 @@ spec:
             - name: tmp
               mountPath: /tmp # nginx-unprivileged keeps pid + temp files here
       volumes:
+        # dev-lint: allow-schema /srv/observe is a deliberate hostPath — a
+        # disposable mirror the Mac rsyncs to (scripts/publish_run.sh); a
+        # local-path PVC's opaque path would break that publish for no gain
+        # on a single node. See the file header.
         - name: content
-          hostPath:
+          hostPath: # dev-lint: allow-schema (same deliberate host-path mirror)
             path: /srv/observe
             type: Directory
         - name: nginx-conf
