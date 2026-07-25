@@ -1,7 +1,7 @@
 # nginx vhost for the observe runs viewer: static files only. Two disjoint
 # trees so the Mac can mirror each with rsync --delete (observe repo,
-# scripts/publish_run.sh): /srv/observe/web (viewer assets, served at /) and
-# /srv/observe/runs (the runs ledger, served at /runs/).
+# scripts/publish_run.sh): /srv/observe/web (the built Angular viewer, served
+# at /) and /srv/observe/runs (the runs ledger, served at /runs/).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -17,10 +17,15 @@ data:
       # Meshes are ~20-55 MB of glTF JSON; gzip makes the WireGuard transfer
       # to the phone bearable. .gltf has no entry in nginx's mime.types, so it
       # serves as application/octet-stream — hence that type in the list.
+      #
+      # text/javascript, not just application/javascript: nginx's own
+      # mime.types has served .js as text/javascript since 1.21.4, so the older
+      # type alone matched nothing and the viewer bundle (1.4 MB of Angular +
+      # model-viewer) went over the tunnel uncompressed.
       gzip on;
       gzip_min_length 1024;
       gzip_types application/json model/gltf+json application/octet-stream
-                 text/css application/javascript;
+                 text/css text/javascript application/javascript;
 
       location = /healthz {
         return 200 "ok\n";
@@ -31,8 +36,11 @@ data:
       }
 
       location / {
-        # Viewer assets are tiny and change with every iteration — always
-        # revalidate (the WebView's heuristic caching showed stale pages).
+        # Always revalidate: the WebView's heuristic caching showed stale
+        # pages, and a viewer that silently presents an OLD UI as current is
+        # the one failure worth paying a round trip per load to avoid. The
+        # bundle's filenames are content-hashed, so a revalidation is a cheap
+        # 304 whenever nothing was republished.
         # Meshes under /runs/ keep heuristic caching: run dirs are immutable.
         add_header Cache-Control "no-cache";
         try_files $uri $uri/ =404;
