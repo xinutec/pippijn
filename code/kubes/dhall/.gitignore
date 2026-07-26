@@ -1,0 +1,4 @@
+# Rendered output. Derived from apps/*.dhall — regenerate with ./generate.sh.
+# The live <app>/k8s/ trees are still authoritative; this is a preview until
+# an app is cut over (see README.md).
+generated/
