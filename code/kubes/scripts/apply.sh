@@ -107,22 +107,45 @@ for f in "${files[@]}"; do remote_files+=("$remote_dir/$f"); done
 kflags=$(printf -- '-f %q ' "${remote_files[@]}")
 
 # Half two: everything below is root.
-echo "== diff (live → manifest)"
-ssh "root@$host" "kubectl diff $kflags || true" 2>&1 | sed 's/^/   /'
+#
+# `kubectl diff` is the authority on what would change, NOT the apply dry-run:
+# `apply --dry-run=server` reports some resources as "configured" when nothing
+# would actually change (NetworkPolicy is a reliable false positive — the API
+# server defaults port protocol, so the merge looks like an edit). Basing the
+# verdict on that would make this dry run overstate its own effects.
+set +e
+diff_out=$(ssh "root@$host" "kubectl diff $kflags" 2>&1)
+diff_rc=$?
+set -e
 
-echo "== server dry-run"
+case $diff_rc in
+  0) verdict="no changes — the live state already matches these manifests" ;;
+  1) verdict="the diff above is what --apply would change" ;;
+  *) echo "kubectl diff failed (rc=$diff_rc):" >&2
+     printf '%s\n' "$diff_out" >&2
+     exit 1 ;;
+esac
+
+echo "== diff (live → manifest)"
+[[ -n $diff_out ]] && printf '%s\n' "$diff_out" | sed 's/^/   /'
+
+# Kept as validation only: this is what rejects a malformed or invalid manifest
+# before anything is written.
+echo "== server-side validation"
 ssh "root@$host" "kubectl apply $kflags --dry-run=server" 2>&1 | sed 's/^/   /'
 
 if [[ $apply -eq 0 ]]; then
-  cat <<'EOF'
-
-Dry run only — nothing was applied.
-Any resource above reported as "configured" will change. A Deployment whose pod
-template changed restarts its pods; a database uses strategy Recreate, so that
-is a brief outage rather than a rolling one.
-
-Re-run with --apply to execute.
+  echo
+  echo "Dry run only — nothing was applied."
+  echo "Verdict: $verdict"
+  if [[ $diff_rc -eq 1 ]]; then
+    cat <<'EOF'
+A Deployment whose pod template changed restarts its pods; a database uses
+strategy Recreate, so that is a brief outage rather than a rolling one.
 EOF
+  fi
+  echo
+  echo "Re-run with --apply to execute."
   exit 0
 fi
 
