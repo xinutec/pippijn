@@ -1,12 +1,14 @@
+# GENERATED from dhall/apps/home.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: home-db-pvc
+  name: "home-db-pvc"
   namespace: home
 spec:
-  accessModes: ["ReadWriteOnce"]
+  accessModes:
+  - ReadWriteOnce
   resources:
     requests:
-      # Environmental readings are tiny (one small row every few minutes);
-      # 5Gi is generous headroom for years of history.
       storage: 5Gi

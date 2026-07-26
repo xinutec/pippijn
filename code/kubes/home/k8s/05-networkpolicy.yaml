@@ -1,0 +1,21 @@
+# GENERATED from dhall/apps/home.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "home-db-from-app-only"
+  namespace: home
+spec:
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: home
+    ports:
+    - port: 3306
+  podSelector:
+    matchLabels:
+      app: "home-db"
+  policyTypes:
+  - Ingress

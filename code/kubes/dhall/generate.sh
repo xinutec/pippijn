@@ -58,9 +58,21 @@ render() { # app renderer -> YAML documents (nothing if the renderer opts out)
   printf '%s' "$out"
 }
 
-header() {
+header() { # app file
   printf '# GENERATED from dhall/apps/%s.dhall by dhall/generate.sh — do not edit.\n' "$1"
   printf '# Change the model and re-render; hand edits are overwritten.\n'
+  # Rendering drops the model's inline comments, which is fine for rationale
+  # (it stays in lib/render.dhall) but NOT for a warning someone needs while
+  # looking at this file on the host at 3am. Those are re-emitted here.
+  case $2 in
+    02-db.yaml)
+      printf '#\n'
+      printf '# MariaDB has NO downgrade path. Before changing the engine version\n'
+      printf '# (lib/render.dhall, one line, bumps every database at once):\n'
+      printf '#   scripts/mariadb-major-upgrade.sh before <app> <db>   (then after)\n'
+      printf '# strategy is Recreate: a single RWO PVC must never have two DB pods.\n'
+      ;;
+  esac
 }
 
 status=0
@@ -85,7 +97,7 @@ for src in "$here"/apps/*.dhall; do
     printf '%s' "$body" >> "$tmp/$app.model.yaml"
     printf '\n' >> "$tmp/$app.model.yaml"
 
-    [[ $mode == write ]] && { header "$app"; printf '%s' "$body"; } > "$outdir/$file"
+    [[ $mode == write ]] && { header "$app" "$file"; printf '%s' "$body"; } > "$outdir/$file"
   done
 
   if [[ $mode == check ]]; then
