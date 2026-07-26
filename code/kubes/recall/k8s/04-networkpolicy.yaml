@@ -1,6 +1,7 @@
 # Default-deny egress for the namespace. The recall pod serves requests and reads/writes
-# its local SQLite — it makes no outbound calls — so denying egress (bar DNS) contains a
-# compromised pod from exfiltrating. Deliberately egress-only: kubelet liveness/readiness
+# its local SQLite; its only outbound call is the SSO token exchange with Nextcloud, so
+# denying everything else contains a compromised pod from exfiltrating. Deliberately
+# egress-only: kubelet liveness/readiness
 # probes are node-sourced *ingress*, which a default-deny-ingress policy drops under k3s'
 # kube-router (the trap that keeps the app-ingress policies held elsewhere in the fleet),
 # so restricting ingress here would take the pod NotReady. Ingress is gated at the network
@@ -23,4 +24,14 @@ spec:
         - port: 53
           protocol: UDP
         - port: 53
+          protocol: TCP
+    # The web UI's SSO token exchange (NC_INTERNAL_URL in 02-deployment.yaml).
+    # Cluster-internal and plain HTTP by design: it never leaves the node, and
+    # the alternative is routing the exchange back out over the tunnel.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nextcloud
+      ports:
+        - port: 80
           protocol: TCP
