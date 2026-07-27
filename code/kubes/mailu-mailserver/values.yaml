@@ -37,7 +37,7 @@ ingress:
   ingressClassName: "nginx"
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
-# Redis: use our own external redis (redis-ext.yaml — official redis:8-alpine)
+# Redis: use our own external redis (k8s/redis-ext.yaml — official redis:8-alpine)
 # instead of the chart's bundled Bitnami subchart. That subchart is pinned to the
 # FROZEN bitnamilegacy/redis (no security updates after the Aug-2025 Bitnami
 # paywall); redis:8-alpine is free + maintained. Mailu hardcodes no redis auth
