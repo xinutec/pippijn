@@ -68,11 +68,46 @@ Fleet-wide facts live in one place: the MariaDB version is one line in
 
 ## Status
 
-Two apps are modelled (`home`, `life`) and neither has been cut over — the live
-`<app>/k8s/` trees are still authoritative and nothing here has been applied.
-`generated/` is gitignored for that reason.
+Two apps are modelled. **`home` IS cut over** — `home/k8s/` is rendered output
+(the files carry a GENERATED header) and `--check` reports `model matches the
+live tree`. `generated/` is gitignored; the cut-over tree in `home/k8s/` is what
+is committed and applied.
 
-Cutting an app over means replacing its `k8s/` contents with the rendered
-output and reviewing the diff `--check` reports as a deliberate change. See the
-findings in the commit that introduced this directory: the model does not
-currently reproduce the live tree byte for byte, and the differences are real.
+**`life` is modelled but NOT cut over**, blocked on three deliberate decisions
+that `--check` reports:
+
+| Live | Model | |
+| --- | --- | --- |
+| `initialDelaySeconds: 10`, `periodSeconds: 15` | `15` / `20` | changes restart behaviour |
+| container `name: app` | `life-app` | renames a container → pod restart |
+| Service `port: 3306` | adds `targetPort: 3306` | no-op; k8s defaults targetPort to port |
+
+**Resolution: all three accepted, `life` cut over 2026-07-27.** The first
+instinct was to bend the model back to life's values so the cutover would be a
+behavioural no-op. Looking at what those values actually are killed that idea:
+`home` — already cut over and live — runs one name throughout (Deployment
+`home`, container `home`, Service `home`) and liveness 15/20. **`life` is the
+outlier, not the model**: container `app` under Deployment `life-app`, liveness
+10/15, with no comment or commit explaining either. They are accidents.
+
+Preserving them would have meant adding per-app container-name and probe-timing
+fields — widening the model to encode an inconsistency. That is the opposite of
+what a model is for. The cost of accepting instead is one pod restart, no config
+or data change, and life ends up matching home.
+
+The rule this settles: **bend the app to the model when the app's divergence is
+an accident; bend the model to the app only when the divergence is a decision.**
+Check for a comment or a commit before assuming which.
+
+## Where this is going
+
+Six apps share the modelled skeleton (namespace + PVC + MariaDB + app + ingress
++ netpol): `coach`, `fleetwatch`, `health`, `home`, `life`, `nocodb`. Two are
+modelled; the remaining four are the expansion targets. `signal` is a partial
+fit (db + PVC, no ingress).
+
+The prerequisite — one manifest layout across the fleet — landed 2026-07-27:
+every deployable now lives under a `k8s/` directory, which is the shape the
+renderer already emits. Apps outside the skeleton (helm-based `cert-manager`,
+`ingress-nginx`, `mailu-mailserver`, `nextcloud`) are permanently out of scope:
+helm creates resources no manifest describes, so a model cannot own them.

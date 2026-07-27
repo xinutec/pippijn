@@ -1,35 +1,32 @@
-# The app is only reachable through the nginx ingress controller (Helm chart
-# in the ingress-nginx namespace — see ../../ingress-nginx/sync.sh), so no
-# other pod can hit the API directly and bypass the ingress' TLS termination.
-# Selected by the namespace's automatic kubernetes.io/metadata.name label
-# rather than chart pod labels, which could change across chart versions.
+# GENERATED from dhall/apps/life.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
 #
-# ⚠️ NOT YET APPLIED (2026-07-02). k3s enforces NetworkPolicy via kube-router,
-# which does NOT exempt node-sourced kubelet health-probe traffic — this policy
-# as written would drop the liveness/readiness probes, mark the pod NotReady,
-# and take the site down. Before applying, add an ingress rule that also admits
-# the probe source (e.g. an ipBlock for the node/pod CIDR, or the host), and
-# verify probes stay green on a live pod. The DB policy in 05 is safe and IS
-# applied; only this app-ingress one is held.
+# NOT YET APPLIED. k3s enforces NetworkPolicy via kube-router, which does NOT
+# exempt node-sourced kubelet health-probe traffic, so this policy as written
+# drops the liveness/readiness probes, marks the pod NotReady, and takes the
+# site down. Before applying: admit the probe source as well (an ipBlock for
+# the node/pod CIDR), then verify probes stay green on a live pod.
 #
-# Split out of 05-networkpolicy.yaml on 2026-07-26: it shared a file with the
-# applied DB policy, so `kubectl apply -f life/k8s/` would have applied it and
-# taken the site down. coach and fleetwatch already keep theirs separate.
+# Intent: the app is reachable only through the nginx ingress controller, so
+# no other pod can hit the API directly and bypass its TLS termination. The
+# selector uses the namespace automatic kubernetes.io/metadata.name label
+# rather than chart pod labels, which can change across chart versions.
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: life-app-from-ingress-only
+  name: "life-app-from-ingress-only"
   namespace: life
 spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: "ingress-nginx"
+    ports:
+    - port: 8080
   podSelector:
     matchLabels:
-      app: life-app
+      app: "life-app"
   policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
-      ports:
-        - port: 8080
+  - Ingress

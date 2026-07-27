@@ -1,21 +1,21 @@
-# Only the life app may reach the DB — the namespace is internet-adjacent via
-# the ingress, so anything else (compromised pod elsewhere in the cluster)
-# gets no path to MariaDB.
+# GENERATED from dhall/apps/life.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: life-db-from-app-only
+  name: "life-db-from-app-only"
   namespace: life
 spec:
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: "life-app"
+    ports:
+    - port: 3306
   podSelector:
     matchLabels:
-      app: life-db
+      app: "life-db"
   policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: life-app
-      ports:
-        - port: 3306
+  - Ingress

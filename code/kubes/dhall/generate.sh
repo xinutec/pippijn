@@ -82,6 +82,24 @@ header() { # app file
       # line has to become app-aware at that point rather than silently over-waiving.
       printf '# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
       ;;
+    *-held.yaml)
+      # The marker string below is LOAD-BEARING, not decoration: scripts/apply.sh
+      # refuses any file containing it, and fleet_health.py's drift sweep skips
+      # it so a deliberately-unapplied manifest is not reported as permanent
+      # drift. Both tools also skip on the *held* filename, so this is defence in
+      # depth — losing either would silently arm the policy below.
+      printf '#\n'
+      printf '# NOT YET APPLIED. k3s enforces NetworkPolicy via kube-router, which does NOT\n'
+      printf '# exempt node-sourced kubelet health-probe traffic, so this policy as written\n'
+      printf '# drops the liveness/readiness probes, marks the pod NotReady, and takes the\n'
+      printf '# site down. Before applying: admit the probe source as well (an ipBlock for\n'
+      printf '# the node/pod CIDR), then verify probes stay green on a live pod.\n'
+      printf '#\n'
+      printf '# Intent: the app is reachable only through the nginx ingress controller, so\n'
+      printf '# no other pod can hit the API directly and bypass its TLS termination. The\n'
+      printf '# selector uses the namespace automatic kubernetes.io/metadata.name label\n'
+      printf '# rather than chart pod labels, which can change across chart versions.\n'
+      ;;
   esac
 }
 
