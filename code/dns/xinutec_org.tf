@@ -5,8 +5,8 @@ locals {
     amun     = "94.23.247.133"
     isis     = "188.165.200.180"
     odin     = "5.196.65.240"
-    vpn      = "10.100.0.1"   # amun WireGuard LB IP — VPN-only services (vault)
-    vpn_isis = "10.100.0.2"   # isis WireGuard LB IP — VPN-only services (messages)
+    vpn      = "10.100.0.1"   # amun WireGuard LB IP — unused since vault moved to isis
+    vpn_isis = "10.100.0.2"   # isis WireGuard LB IP — VPN-only services (vault, messages, fleetwatch)
   }
 }
 
@@ -14,11 +14,13 @@ locals {
 
 # vault.xinutec.org — Vaultwarden password manager, VPN-only.
 # Points at the WireGuard LB IP, so it resolves publicly but only routes over the VPN.
+# Moved amun -> isis on 2026-07-26 (off Flux, onto the sync.sh convention); see
+# code/kubes/vaultwarden/k8s/README.md.
 resource "cloudflare_dns_record" "org_vault" {
   zone_id = local.xinutec_org_id
   type    = "A"
   name    = "vault"
-  content = local.hosts.vpn
+  content = local.hosts.vpn_isis
   ttl     = 3600
   proxied = false
 }

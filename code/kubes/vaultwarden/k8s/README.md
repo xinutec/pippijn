@@ -81,9 +81,34 @@ restic on odin + restic on Mac), so the risk is low, but do it deliberately.
    host and resolve the dir by glob rather than a pinned UUID, then verify a
    staged snapshot actually appears before considering the migration done.
 
-## Retiring Flux entirely
+## Flux retired — DONE 2026-07-27
 
-`cert-dns` (the amun `letsencrypt-dns` issuer) is already superseded on isis by
-the shared cluster issuer, so once vaultwarden is off amun, the whole
-`xinutec/fleet` repo + the four Flux controllers on amun manage nothing. At that
-point Flux can be uninstalled from amun and the repo archived.
+Carried out as predicted above. **No cluster in the fleet runs Flux any more**;
+every manifest everywhere is hand-applied from this tree via `sync.sh` /
+`scripts/apply.sh`. This makes the Flux steps in the cutover section above
+un-runnable — they are kept as the record of how the move was done.
+
+What was removed from amun: the four controllers, the `flux-system` namespace,
+ten CRDs, the cluster-scoped RBAC, the `flux@amun` deploy key (also revoked on
+GitHub) and `/root/.config/sops-age-fleet.key`. Flux's final inventory was
+exactly two objects — the `letsencrypt-dns` ClusterIssuer and its
+`cloudflare-api-token` secret — and **nothing referenced either**: all five amun
+certificates issue from `letsencrypt-prod` over HTTP-01, so both were deleted
+along with the now-orphaned `letsencrypt-dns` ACME account key.
+
+Sequenced so nothing could hang or prune by surprise: clear the finalizers on
+the three Flux CRs, delete the CRs (this deliberately skips prune), delete the
+two objects explicitly, then `kubectl delete -f gotk-components.yaml`. Deleting
+the namespace first would have stranded the CRs in `Terminating` forever, and
+letting the `flux-system` Kustomization prune itself risks the controller
+disappearing mid-prune.
+
+Verified after: 25 pods (29 minus the four controllers), pod-for-pod identical
+otherwise — including both `vps-*` irssi instances at 0 restarts — all five
+certificates still `Ready`, and xinutec.org / nocodb / sinterklaas / mail all
+still serving with valid TLS.
+
+Rollback material is at `amun:/root/flux-retirement-20260727/` (ClusterIssuer,
+both secrets, the Flux CRs, the deploy key; mode 600). The repo is archived
+read-only at `github.com/xinutec/fleet` — see its README for where each piece
+went and for the note on the Cloudflare token's three copies.
