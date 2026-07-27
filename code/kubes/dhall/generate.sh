@@ -71,6 +71,16 @@ header() { # app file
       printf '# (lib/render.dhall, one line, bumps every database at once):\n'
       printf '#   scripts/mariadb-major-upgrade.sh before <app> <db>   (then after)\n'
       printf '# strategy is Recreate: a single RWO PVC must never have two DB pods.\n'
+      # DL-K8S-NP-DEFAULT-DENY anchors on the first Deployment in the namespace,
+      # which is this file's first document — so the waiver belongs here, above
+      # the leading `---`, exactly where the hand-written life/k8s copy has it.
+      # It is deliberately NOT a model field: a waiver is a fact about dev-lint,
+      # not about the deployment, and the model should not learn linter concepts.
+      # Blanket-emitting it is safe because dev-lint FAILS an ineffective waiver
+      # ("a waiver that waives nothing is a baseline entry nobody can see"), so
+      # the first app to gain a real default-deny policy fails here and this
+      # line has to become app-aware at that point rather than silently over-waiving.
+      printf '# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
       ;;
   esac
 }

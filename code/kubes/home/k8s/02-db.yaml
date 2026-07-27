@@ -5,6 +5,7 @@
 # (lib/render.dhall, one line, bumps every database at once):
 #   scripts/mariadb-major-upgrade.sh before <app> <db>   (then after)
 # strategy is Recreate: a single RWO PVC must never have two DB pods.
+# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
 ---
 apiVersion: apps/v1
 kind: Deployment
