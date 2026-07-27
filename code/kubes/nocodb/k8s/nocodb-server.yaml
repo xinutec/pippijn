@@ -13,6 +13,15 @@ spec:
     matchLabels:
       pod-label: nocodb-server-pod
   replicas: 1
+  # Recreate, NOT the default RollingUpdate. nocodb keeps its metadata in SQLite
+  # (`server-data/noco.db`) on the ReadWriteOnce `nocodb-storage` PVC, and a
+  # rolling update surges a second pod BEFORE terminating the first. k3s backs
+  # that PVC with local-path (a hostPath), which does not enforce RWO the way a
+  # real CSI attach does — so both pods would mount it and two nocodb processes
+  # would write the same SQLite file. Recreate means old-terminates-then-new, a
+  # brief outage instead of a corruption risk. Same rule as the databases.
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
