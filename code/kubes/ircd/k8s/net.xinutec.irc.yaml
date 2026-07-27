@@ -14,7 +14,14 @@ metadata:
   namespace: ircd
   name: irc-ingress
   annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+    # MUST stay prod. This annotation is the sole definition of the `irc-tls`
+    # Certificate — cert-manager creates it owned by this Ingress
+    # (ownerReferences: Ingress/irc-ingress), so the annotation IS the issuer.
+    # It read "letsencrypt-staging" here while the live ingress had been changed
+    # to prod by hand; applying this file would have reissued IRC's cert from the
+    # staging CA, which is untrusted, breaking TLS for every connected client.
+    # Found 2026-07-27 by the drift sweep, the first run that ever compared ircd.
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
   ingressClassName: nginx
   tls:
