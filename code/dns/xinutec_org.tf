@@ -225,6 +225,18 @@ resource "cloudflare_dns_record" "org_coach" {
   proxied = false
 }
 
+# --- utterance.xinutec.org — derive music from the structure of a voice ---
+# Grey-cloud (proxied = false) like the rest: the Let's Encrypt HTTP-01
+# challenge has to reach the isis ingress, and proxying would answer it here.
+resource "cloudflare_dns_record" "org_utterance" {
+  zone_id = local.xinutec_org_id
+  type    = "CNAME"
+  name    = "utterance"
+  content = "isis.xinutec.org"
+  ttl     = 3600
+  proxied = false
+}
+
 # --- slides.xinutec.org — password-gated static host for Marp talk decks ---
 # Grey-cloud (proxied = false) so the Let's Encrypt HTTP-01 challenge reaches
 # the isis ingress. Served by httpd-isis; see code/kubes/web/org/xinutec/slides.
