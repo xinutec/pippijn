@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
-# Run once on isis (as root) to create the utterance k8s secret. Generates the
-# session secret; the Nextcloud OAuth2 client values are passed in:
+# Run on isis (as root) to create or replace the utterance k8s secret.
 #
-#   NC_CLIENT_ID=... NC_CLIENT_SECRET=... ./secret.sh
+#   ./secret.sh
 #
-# (From Nextcloud admin → Settings → Security → OAuth 2.0, client "utterance",
-#  redirect https://utterance.xinutec.org/auth/callback.)
+# Prompts for the Nextcloud OAuth2 client values and generates the session
+# secret itself. Get the client from Nextcloud admin → Settings → Security →
+# OAuth 2.0: client "utterance", redirect
+# https://utterance.xinutec.org/auth/callback.
+#
+# **Prompted, not passed in.** The obvious shape — `NC_CLIENT_ID=... ./secret.sh`
+# — writes the client secret into your shell history, into the process table
+# while it runs, and into wherever the command was composed. Reading it here
+# means the value goes from the keyboard to kubectl and lands nowhere else,
+# which is what makes rotating the client cheap rather than a thing to put off.
 #
 # Safe to re-run: the session secret is regenerated, which signs everyone out
 # and costs one sign-in. Nothing else is derived from it, so unlike life's
 # script there is no database password to destroy by running this twice.
 set -euo pipefail
 
-: "${NC_CLIENT_ID:?set NC_CLIENT_ID}"
-: "${NC_CLIENT_SECRET:?set NC_CLIENT_SECRET}"
+read -rp  'Nextcloud client id: '     NC_CLIENT_ID
+read -rsp 'Nextcloud client secret: ' NC_CLIENT_SECRET
+echo
+
+[ -n "$NC_CLIENT_ID" ]     || { echo "no client id given" >&2; exit 2; }
+[ -n "$NC_CLIENT_SECRET" ] || { echo "no client secret given" >&2; exit 2; }
 
 # /dev/urandom + base64 (coreutils) — openssl is not on the NixOS host's
 # non-interactive root PATH.
