@@ -8,13 +8,13 @@
 #
 # 2026-07-28: the "transient" premise had quietly stopped holding — an audit
 # found 20 sessions from 16-26 July still sitting here with no second copy. They
-# are now archived in the PRIVATE repo github.com/xinutec/scanner-sessions, which
+# are now archived in the PRIVATE repo github.com/pippijn/scanner-sessions, which
 # is why this stays waived rather than becoming a restic block. ⚠ That repo does
 # NOT sync itself: new sessions live only on this PVC until someone pushes them,
 # so re-check it before assuming a given session is safe. It is private on
 # purpose — each frame's `text`/`words` hold the OCR'd contents of the scanned
 # page, so publishing it would publish the documents.
-# dev-lint: allow-backup-coverage archived to the private github.com/xinutec/scanner-sessions (manual sync)
+# dev-lint: allow-backup-coverage archived to the private github.com/pippijn/scanner-sessions (manual sync)
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
