@@ -37,6 +37,7 @@ in    { name = "home"
           , rootPassword = keys.DB_ROOT_PASSWORD
           }
         }
+      , storage = None T.Storage
       , workload =
         { name = "home"
         , image = T.Image.Fleet "home"

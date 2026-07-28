@@ -38,7 +38,7 @@ esac
 # Output file -> the renderers whose documents it concatenates.
 manifests=(
   "00-namespace.yaml:namespace"
-  "01-pvc.yaml:pvc"
+  "01-pvc.yaml:pvc appPvc"
   "02-db.yaml:dbDeployment dbService"
   "03-app.yaml:appDeployment appService"
   "04-ingress.yaml:ingress"

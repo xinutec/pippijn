@@ -56,6 +56,25 @@ let Resources = { requests : Quantity, limits : Quantity }
 
 let VolumeMount = { name : Text, mountPath : Text, subPath : Text }
 
+--| A persistent volume the app's *own* container writes to.
+--
+-- Distinct from a `Database`'s storage, which the engine owns and the app never
+-- touches. Most fleet apps keep their state in a database and want none of
+-- this, which is why it is optional — but one of them (utterance) stores
+-- uploaded recordings and the voiceprints derived from them as files, and a
+-- pod with no volume loses both on every restart.
+--
+-- Size, path and subdirectory are one value rather than three, so the PVC, the
+-- pod's volume and the container's mount are all rendered from the same
+-- declaration. Stated as a `VolumeMount` on the workload instead, a mount could
+-- name a volume nobody created — which kubelet reports as a pod stuck in
+-- `ContainerCreating` with the reason several layers down in an event.
+--
+-- `subPath` for the same reason MariaDB uses one: a volume's root can come with
+-- filesystem furniture (`lost+found` on ext4), and code that lists its data
+-- directory should not have to know that.
+let Storage = { storageGi : Natural, mountPath : Text, subPath : Text }
+
 --| A long-running container plus the Service in front of it.
 let Workload =
       { name : Text
@@ -91,6 +110,7 @@ let App =
       { name : Text
       , cluster : Cluster
       , db : Optional Database
+      , storage : Optional Storage
       , workload : Workload
       , host : Optional Text
       , secrets : List SecretKey
@@ -106,6 +126,7 @@ in  { Cluster
     , Quantity
     , Resources
     , VolumeMount
+    , Storage
     , Workload
     , Database
     , SecretKey

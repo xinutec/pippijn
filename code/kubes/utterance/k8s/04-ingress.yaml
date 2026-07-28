@@ -1,0 +1,27 @@
+# GENERATED from dhall/apps/utterance.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+  name: "utterance-ingress"
+  namespace: utterance
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: utterance.xinutec.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: utterance
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - utterance.xinutec.org
+    secretName: "utterance-tls"

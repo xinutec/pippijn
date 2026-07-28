@@ -30,6 +30,12 @@ let dbName = λ(app : T.App) → "${app.name}-db"
 
 let pvcName = λ(app : T.App) → "${app.name}-db-pvc"
 
+let dataPvcName = λ(app : T.App) → "${app.name}-data-pvc"
+
+--| The pod-local name of the app's own volume. Distinct from the database's
+--  `data` volume, which lives in a different pod entirely.
+let dataVolumeName = "app-data"
+
 let meta
     : Text → Text → K.Meta
     = λ(name : Text) →
@@ -141,6 +147,31 @@ let pvc
           , None = [] : List K.PersistentVolumeClaim
           }
           app.db
+
+--| The claim behind [`T.Storage`], if the app declared one.
+--
+-- Rendered into the same file as the database's claim, so `01-pvc.yaml` is
+-- every piece of durable state a namespace owns rather than only the half that
+-- happens to be a database.
+let appPvc
+    : T.App → List K.PersistentVolumeClaim
+    = λ(app : T.App) →
+        merge
+          { Some =
+              λ(s : T.Storage) →
+                [ { apiVersion = "v1"
+                  , kind = "PersistentVolumeClaim"
+                  , metadata = meta (dataPvcName app) app.name
+                  , spec =
+                    { accessModes = [ "ReadWriteOnce" ]
+                    , resources.requests.storage
+                      = "${Natural/show s.storageGi}Gi"
+                    }
+                  }
+                ]
+          , None = [] : List K.PersistentVolumeClaim
+          }
+          app.storage
 
 let dbDeployment
     : T.App → List K.Deployment
@@ -286,6 +317,43 @@ let appDeployment
     = λ(app : T.App) →
         let w = app.workload
 
+        let dataMounts =
+              merge
+                { Some =
+                    λ(s : T.Storage) →
+                      [ { name = dataVolumeName
+                        , mountPath = s.mountPath
+                        , subPath = s.subPath
+                        }
+                      ]
+                , None = [] : List K.VolumeMount
+                }
+                app.storage
+
+        let dataVolumes =
+              merge
+                { Some =
+                    λ(_ : T.Storage) →
+                      [ { name = dataVolumeName
+                        , persistentVolumeClaim.claimName = dataPvcName app
+                        }
+                      ]
+                , None = [] : List K.Volume
+                }
+                app.storage
+
+        let fsGroup =
+            -- Only when there is a volume, and equal to the uid the container
+            -- runs as. A PVC arrives owned by root, so without this the app is
+            -- a non-root process holding a directory it cannot write — which
+            -- surfaces as a permission error at the first upload rather than at
+            -- startup, long after anyone would connect it to the manifest.
+              merge
+                { Some = λ(_ : T.Storage) → Some w.uid
+                , None = None Natural
+                }
+                app.storage
+
         in  [ { apiVersion = "apps/v1"
               , kind = "Deployment"
               , metadata = meta w.name app.name
@@ -296,7 +364,7 @@ let appDeployment
                 , template =
                   { metadata.labels.app = w.name
                   , spec =
-                    { securityContext = podSecurityContext w.uid (None Natural)
+                    { securityContext = podSecurityContext w.uid fsGroup
                     , containers =
                       [     baseContainer
                         ⫽ { name = w.name
@@ -324,10 +392,10 @@ let appDeployment
                                   }
                               )
                           , resources = w.resources
-                          , volumeMounts = w.mounts
+                          , volumeMounts = w.mounts # dataMounts
                           }
                       ]
-                    , volumes = [] : List K.Volume
+                    , volumes = dataVolumes
                     }
                   }
                 }
@@ -461,6 +529,7 @@ let netpolAppHeld
 
 in  { namespace
     , pvc
+    , appPvc
     , dbDeployment
     , dbService
     , appDeployment

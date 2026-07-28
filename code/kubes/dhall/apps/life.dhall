@@ -36,6 +36,7 @@ in    { name = "life"
           , rootPassword = keys.DB_ROOT_PASSWORD
           }
         }
+      , storage = None T.Storage
       , workload =
         { name = "life-app"
         , image = T.Image.Fleet "life"

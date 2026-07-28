@@ -1,0 +1,15 @@
+# GENERATED from dhall/apps/utterance.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: "utterance-data-pvc"
+  namespace: utterance
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

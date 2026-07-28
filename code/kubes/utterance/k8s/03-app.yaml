@@ -1,0 +1,103 @@
+# GENERATED from dhall/apps/utterance.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: utterance
+  namespace: utterance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: utterance
+  template:
+    metadata:
+      labels:
+        app: utterance
+    spec:
+      containers:
+      - env:
+        - name: DATA_DIR
+          value: /data
+        - name: UTTERANCE_SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: UTTERANCE_SESSION_SECRET
+              name: "utterance-secret"
+        - name: NC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_ID
+              name: "utterance-secret"
+        - name: NC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_SECRET
+              name: "utterance-secret"
+        - name: NC_BASE_URL
+          value: "https://dash.xinutec.org"
+        - name: NC_INTERNAL_URL
+          value: "http://nextcloud-server.nextcloud.svc.cluster.local"
+        - name: NC_REDIRECT_URI
+          value: "https://utterance.xinutec.org/auth/callback"
+        - name: UTTERANCE_ALLOWED_USERS
+          value: "pippijn,michiel"
+        - name: RUST_LOG
+          value: "info,utterance=debug"
+        image: "xinutec/utterance:latest"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: utterance
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: '2'
+            memory: 1Gi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /data
+          name: "app-data"
+          subPath: recordings
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: "app-data"
+        persistentVolumeClaim:
+          claimName: "utterance-data-pvc"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: utterance
+  namespace: utterance
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: utterance
