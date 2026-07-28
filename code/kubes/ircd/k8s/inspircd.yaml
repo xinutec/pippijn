@@ -1,6 +1,10 @@
 ---
 # dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
-# dev-lint: allow-backup-coverage contents are in git (conf secret/) or cheaply regenerated (TLS certs, permchannels)
+# Backed up since 2026-07-28 (odin backup-prepare.sh, "isis: rsync ircd-storage").
+# The waiver that used to sit here claimed permchannels.conf was "cheaply
+# regenerated" — it is not regenerable at all. InspIRCd rewrites it as permanent
+# channels/topics/modes change, and it is gitignored on purpose, so it lived
+# nowhere but this PVC.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
