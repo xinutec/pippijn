@@ -24,6 +24,21 @@ let mariadbVersion = "12.3"
 
 let Annotations = List { mapKey : Text, mapValue : Text }
 
+--| Whether the app has a database, and therefore whether the namespace's FIRST
+--  Deployment is the database's or the app's. The generator needs this to place
+--  the DL-K8S-NP-DEFAULT-DENY waiver, which dev-lint anchors on that first
+--  Deployment; it cannot come from the rendered YAML because a waiver is a
+--  comment and rendering drops comments.
+--
+--  Asked of the model rather than inferred from which manifests come back
+--  non-empty: the inference happened to work only because `manifests` in
+--  generate.sh is ordered db-before-app, so reordering that list would have
+--  silently moved the waiver onto the wrong file. Here it is a total function of
+--  the model, checked by the typechecker.
+let hasDb
+    : T.App → Bool
+    = λ(app : T.App) → merge { None = False, Some = λ(_ : T.Database) → True } app.db
+
 let secretName = λ(app : T.App) → "${app.name}-secret"
 
 let dbName = λ(app : T.App) → "${app.name}-db"
@@ -539,4 +554,5 @@ in  { namespace
     , netpolAppHeld
     , mariadbVersion
     , secretName
+    , hasDb
     }
