@@ -169,6 +169,15 @@ spec:
                 # leg population was corrected). See 03-auth.yaml.
                 - name: LEAN_MATCH
                   value: "on"
+                # Verified Lean GPS Kalman filter — SHADOW, matching
+                # 03-auth.yaml so a cron-persisted day and a fresh server
+                # compute see the same track. This is where the ledger actually
+                # gets read: decode-day prints `lean-kalman[shadow] <date> …`
+                # per day, and that line is the soak. See 03-auth.yaml for why
+                # the most upstream pass earns a soak despite three green gates,
+                # and what EXACT / ULP / DIVERGED mean.
+                - name: LEAN_KALMAN
+                  value: "shadow"
                 # Raise the warm bridge-call ceiling (default 5s) for the batch
                 # path: this job has no user waiting, and the heaviest real legs
                 # take several seconds on the throttled pod, so the tight ceiling

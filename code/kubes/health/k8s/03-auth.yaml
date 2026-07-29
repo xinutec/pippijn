@@ -186,6 +186,32 @@ spec:
             # 07-rail-refresh.yaml, which prints the ledger.
             - name: LEAN_RAIL
               value: "shadow"
+            # Verified Lean GPS Kalman filter (Verified.Geo.Kalman.filterGpsTrack).
+            # SHADOW: it runs on every velocity compute and is compared, but the
+            # TS track is what feeds segmentation.
+            #
+            # The corpus evidence for `on` is already strong — golden 32/32
+            # byte-identical, truth 295 held, walk ratchet 0/0/0/0, decoder
+            # scoreboard OK, and ~7 ms median per compute (~1% of a run). What
+            # earns the soak anyway is position, not doubt: this is the most
+            # UPSTREAM pass in the pipeline, so a divergence moves every
+            # downstream boundary rather than shifting one leg.
+            #
+            # It is also the first tenant with a genuinely non-zero divergence
+            # class. Lean's `Float.cos` and V8's `Math.cos` disagree by 1 ULP on
+            # ~7.6% of real latitudes, `metersToDegreesLon` calls `cos`, and the
+            # covariance recursion carries that into `lon` on ~0.5% of rows
+            # (femtometres — far under the 1e-7° display grid). Two libms cannot
+            # be reconciled, so the per-day `lean-kalman[...]` ledger grades
+            # EXACT / ULP / DIVERGED and reserves DIVERGED for the thing no ULP
+            # story explains: the two arms keeping DIFFERENT fixes.
+            #
+            # Shadow costs the SAME compute as `on` (both arms run either way),
+            # so the soak is free; all it buys back is that a length divergence
+            # on a day the corpus does not cover gets logged instead of served.
+            # Flip to "on" after ~a week of EXACT/ULP with zero length diffs.
+            - name: LEAN_KALMAN
+              value: "shadow"
           resources:
             requests:
               # Idle most of the time; a /api/velocity compute is a short CPU
