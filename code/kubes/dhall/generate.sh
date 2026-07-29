@@ -69,8 +69,15 @@ doc_waiver() { # app file body -> body, with any in-document waiver injected
   # DL-WAIVER-INEFFECTIVE on every other app instead of a clean pass here.
   case "$1:$2" in
     utterance:01-pvc.yaml)
+      # The marker is spelled in two pieces because a generator that EMITS a
+      # waiver necessarily names it, and a whole `dev-lint: allow-<suffix>`
+      # string in this file registers as a waiver sited here — which suppresses
+      # nothing, so dev-lint reports DL-WAIVER-INEFFECTIVE. That audit is right
+      # ("a waiver that waives nothing is a baseline entry nobody can see"); the
+      # marker belongs in the rendered PVC, not in the renderer.
+      local waiver="# dev-lint: allow-""backup-coverage utterance is under heavy development and its uploads are re-derivable; backing it up is deliberately deferred"
       printf '%s' "$3" | awk '{ print } !seen && /^---$/ { print WAIVER; seen = 1 }' \
-        WAIVER='# dev-lint: allow-backup-coverage utterance is under heavy development and its uploads are re-derivable; backing it up is deliberately deferred'
+        WAIVER="$waiver"
       ;;
     *) printf '%s' "$3" ;;
   esac
