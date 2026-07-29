@@ -1,5 +1,6 @@
 # GENERATED from dhall/apps/utterance.dhall by dhall/generate.sh — do not edit.
 # Change the model and re-render; hand edits are overwritten.
+# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
 ---
 apiVersion: apps/v1
 kind: Deployment

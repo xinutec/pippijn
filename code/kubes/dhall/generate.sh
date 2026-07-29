@@ -83,7 +83,7 @@ doc_waiver() { # app file body -> body, with any in-document waiver injected
   esac
 }
 
-header() { # app file
+header() { # app file netpol_anchor
   printf '# GENERATED from dhall/apps/%s.dhall by dhall/generate.sh — do not edit.\n' "$1"
   printf '# Change the model and re-render; hand edits are overwritten.\n'
   # Rendering drops the model's inline comments, which is fine for rationale
@@ -96,16 +96,6 @@ header() { # app file
       printf '# (lib/render.dhall, one line, bumps every database at once):\n'
       printf '#   scripts/mariadb-major-upgrade.sh before <app> <db>   (then after)\n'
       printf '# strategy is Recreate: a single RWO PVC must never have two DB pods.\n'
-      # DL-K8S-NP-DEFAULT-DENY anchors on the first Deployment in the namespace,
-      # which is this file's first document — so the waiver belongs here, above
-      # the leading `---`, exactly where the hand-written life/k8s copy has it.
-      # It is deliberately NOT a model field: a waiver is a fact about dev-lint,
-      # not about the deployment, and the model should not learn linter concepts.
-      # Blanket-emitting it is safe because dev-lint FAILS an ineffective waiver
-      # ("a waiver that waives nothing is a baseline entry nobody can see"), so
-      # the first app to gain a real default-deny policy fails here and this
-      # line has to become app-aware at that point rather than silently over-waiving.
-      printf '# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
       ;;
     *-held.yaml)
       # The marker string below is LOAD-BEARING, not decoration: scripts/apply.sh
@@ -126,6 +116,24 @@ header() { # app file
       printf '# rather than chart pod labels, which can change across chart versions.\n'
       ;;
   esac
+
+  # DL-K8S-NP-DEFAULT-DENY anchors on the FIRST Deployment in the namespace, so
+  # the waiver has to sit above that document's leading `---`. Which file that
+  # is depends on the app: 02-db.yaml for one with a database, 03-app.yaml for
+  # one without. This used to be hardcoded to 02-db.yaml, which meant utterance
+  # — the only app with `db = None` — silently got no waiver at all and failed
+  # the rule from the day it was deployed. The caller decides, because only the
+  # render loop knows which manifests an app actually produces.
+  #
+  # It is deliberately NOT a model field: a waiver is a fact about dev-lint, not
+  # about the deployment, and the model should not learn linter concepts.
+  # Emitting it for every app is safe because dev-lint FAILS an ineffective
+  # waiver ("a waiver that waives nothing is a baseline entry nobody can see"),
+  # so the first app to gain a real default-deny policy fails here and this has
+  # to become app-aware at that point rather than silently over-waiving.
+  if [[ ${3:-0} == 1 ]]; then
+    printf '# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
+  fi
 }
 
 status=0
@@ -137,6 +145,8 @@ for src in "$here"/apps/*.dhall; do
   outdir="$here/generated/$app"
   [[ $mode == write ]] && { rm -rf "$outdir"; mkdir -p "$outdir"; }
   : > "$tmp/$app.model.yaml"
+  # Set once the netpol waiver has been placed on this app's first Deployment.
+  netpol_anchored=0
 
   for entry in "${manifests[@]}"; do
     file=${entry%%:*}
@@ -150,7 +160,20 @@ for src in "$here"/apps/*.dhall; do
     printf '%s' "$body" >> "$tmp/$app.model.yaml"
     printf '\n' >> "$tmp/$app.model.yaml"
 
-    [[ $mode == write ]] && { header "$app" "$file"; doc_waiver "$app" "$file" "$body"; } > "$outdir/$file"
+    # The manifests array is ordered, and an app that renders no database skips
+    # 02-db.yaml entirely (empty body, `continue` above) — so the first of these
+    # two we reach IS the namespace's first Deployment.
+    netpol_anchor=0
+    case $file in
+      02-db.yaml | 03-app.yaml)
+        if [[ $netpol_anchored == 0 ]]; then
+          netpol_anchor=1
+          netpol_anchored=1
+        fi
+        ;;
+    esac
+
+    [[ $mode == write ]] && { header "$app" "$file" "$netpol_anchor"; doc_waiver "$app" "$file" "$body"; } > "$outdir/$file"
   done
 
   if [[ $mode == check ]]; then
