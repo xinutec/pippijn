@@ -27,7 +27,7 @@ spec:
         # dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix: emptyDir for writable paths)
         # dev-lint: allow-seccomp — pre-existing (fix: add seccompProfile RuntimeDefault)
         - name: vaultwarden
-          image: vaultwarden/server:1.36.0-alpine
+          image: vaultwarden/server:1.37.0-alpine
           ports:
             - containerPort: 80
           readinessProbe:
