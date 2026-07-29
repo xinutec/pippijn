@@ -2,6 +2,7 @@
 # Change the model and re-render; hand edits are overwritten.
 
 ---
+# dev-lint: allow-backup-coverage utterance is under heavy development and its uploads are re-derivable; backing it up is deliberately deferred
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

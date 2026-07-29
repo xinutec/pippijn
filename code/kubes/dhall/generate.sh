@@ -58,6 +58,24 @@ render() { # app renderer -> YAML documents (nothing if the renderer opts out)
   printf '%s' "$out"
 }
 
+doc_waiver() { # app file body -> body, with any in-document waiver injected
+  # Unlike header()'s waivers, this one must sit INSIDE the document:
+  # DL-DEPLOY-BACKUP-COVERAGE walks up from the document's first key and stops
+  # at the leading `---`, so a line emitted above the separator is never seen.
+  #
+  # App-aware, unlike the 02-db.yaml waiver, and deliberately so: blanket-
+  # emitting would also waive the db PVCs, which ARE backed up, and dev-lint
+  # fails a waiver that waives nothing — the over-waive would surface as
+  # DL-WAIVER-INEFFECTIVE on every other app instead of a clean pass here.
+  case "$1:$2" in
+    utterance:01-pvc.yaml)
+      printf '%s' "$3" | awk '{ print } !seen && /^---$/ { print WAIVER; seen = 1 }' \
+        WAIVER='# dev-lint: allow-backup-coverage utterance is under heavy development and its uploads are re-derivable; backing it up is deliberately deferred'
+      ;;
+    *) printf '%s' "$3" ;;
+  esac
+}
+
 header() { # app file
   printf '# GENERATED from dhall/apps/%s.dhall by dhall/generate.sh — do not edit.\n' "$1"
   printf '# Change the model and re-render; hand edits are overwritten.\n'
@@ -125,7 +143,7 @@ for src in "$here"/apps/*.dhall; do
     printf '%s' "$body" >> "$tmp/$app.model.yaml"
     printf '\n' >> "$tmp/$app.model.yaml"
 
-    [[ $mode == write ]] && { header "$app" "$file"; printf '%s' "$body"; } > "$outdir/$file"
+    [[ $mode == write ]] && { header "$app" "$file"; doc_waiver "$app" "$file" "$body"; } > "$outdir/$file"
   done
 
   if [[ $mode == check ]]; then
