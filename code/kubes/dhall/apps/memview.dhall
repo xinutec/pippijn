@@ -40,6 +40,16 @@ in    { name = "memview"
           storageGi = 1
         , mountPath = corpusPath
         , subPath = "corpus"
+        , -- Nothing here is a primary copy. The corpus is pushed wholesale from
+          -- the Mac by every sync, so a restore re-syncs it; the `state`
+          -- subPath holds only the share-token file, and a lost token is
+          -- re-issued rather than recovered. Backing this up would duplicate
+          -- the Mac's own backup of the same bytes.
+          durability =
+            T.Durability.LossAccepted
+              { why =
+                  "memview holds no primary copy: the corpus is re-pushed wholesale by every sync from the Mac, and the state subPath holds only a re-issuable share token"
+              }
         }
       , workload =
         { name = "memview"

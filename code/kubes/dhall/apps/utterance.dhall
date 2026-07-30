@@ -30,6 +30,11 @@ in    { name = "utterance"
           storageGi = 5
         , mountPath = dataPath
         , subPath = "recordings"
+        , durability =
+            T.Durability.LossAccepted
+              { why =
+                  "utterance is under heavy development and its uploads are re-derivable; backing it up is deliberately deferred"
+              }
         }
       , workload =
         { name = "utterance"

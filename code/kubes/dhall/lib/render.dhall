@@ -143,6 +143,31 @@ let namespace
           }
         ]
 
+--| The backup-coverage waiver an app's own claim should carry, or "" for none.
+--
+-- Empty means "no waiver": either the app has no volume of its own, or it
+-- declared `BackedUp` and must genuinely appear in backup-prepare.sh — dev-lint
+-- checks that join across the fleet, so the claim cannot be merely asserted.
+--
+-- The generator used to hold this as a hardcoded case for one app. Moving it
+-- into the model means a second app cannot be added without answering the
+-- question, and the answer sits beside the volume it describes rather than in a
+-- shell `case` far away from it.
+let storageWaiver
+    : T.App → Text
+    = λ(app : T.App) →
+        merge
+          { Some =
+              λ(s : T.Storage) →
+                merge
+                  { BackedUp = ""
+                  , LossAccepted = λ(r : { why : Text }) → r.why
+                  }
+                  s.durability
+          , None = ""
+          }
+          app.storage
+
 let pvc
     : T.App → List K.PersistentVolumeClaim
     = λ(app : T.App) →
@@ -542,7 +567,8 @@ let netpolAppHeld
               ]
         else  [] : List K.NetworkPolicy
 
-in  { namespace
+in  { storageWaiver
+    , namespace
     , pvc
     , appPvc
     , dbDeployment

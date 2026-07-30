@@ -73,7 +73,25 @@ let VolumeMount = { name : Text, mountPath : Text, subPath : Text }
 -- `subPath` for the same reason MariaDB uses one: a volume's root can come with
 -- filesystem furniture (`lost+found` on ext4), and code that lists its data
 -- directory should not have to know that.
-let Storage = { storageGi : Natural, mountPath : Text, subPath : Text }
+--| What happens to an app's own volume when the cluster is restored from
+--  backup. Required, so that declaring storage forces an answer: a volume whose
+--  durability nobody stated is one nobody will miss until a restore.
+let Durability =
+      < --| A backup-prepare.sh block copies it. dev-lint's PVC ⊗ backup join
+        --  checks that claim across the whole fleet, so stating it here without
+        --  writing the block is caught rather than believed.
+        BackedUp
+      | --| Losing it is acceptable, and `why` says why. Emitted as the waiver on
+        --  the rendered claim, where the finding is.
+        LossAccepted : { why : Text }
+      >
+
+let Storage =
+      { storageGi : Natural
+      , mountPath : Text
+      , subPath : Text
+      , durability : Durability
+      }
 
 --| A long-running container plus the Service in front of it.
 let Workload =
@@ -142,6 +160,7 @@ let App =
       }
 
 in  { Cluster
+    , Durability
     , Image
     , imageRef
     , EnvValue

@@ -2,6 +2,7 @@
 # Change the model and re-render; hand edits are overwritten.
 
 ---
+# dev-lint: allow-backup-coverage memview holds no primary copy: the corpus is re-pushed wholesale by every sync from the Mac, and the state subPath holds only a re-issuable share token
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

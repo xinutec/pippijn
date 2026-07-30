@@ -54,6 +54,13 @@ ask() { # app expr -> the model's normalised answer
     "$here" "$2" "$here" "$1" | dhall
 }
 
+ask_text() { # app expr -> the model's answer, as raw text
+  # `dhall` renders a Text value with its quotes and escapes; `dhall text`
+  # gives the string itself, which is what gets embedded in a comment.
+  printf 'let R = %s/lib/render.dhall in R.%s %s/apps/%s.dhall\n' \
+    "$here" "$2" "$here" "$1" | dhall text
+}
+
 netpol_anchor_file() { # app -> the manifest that carries the namespace's first Deployment
   # DL-K8S-NP-DEFAULT-DENY anchors on the first Deployment in the namespace, and
   # the waiver has to sit above that document's `---`. The MODEL decides which
@@ -83,24 +90,37 @@ doc_waiver() { # app file body -> body, with any in-document waiver injected
   # DL-DEPLOY-BACKUP-COVERAGE walks up from the document's first key and stops
   # at the leading `---`, so a line emitted above the separator is never seen.
   #
-  # App-aware, unlike the 02-db.yaml waiver, and deliberately so: blanket-
-  # emitting would also waive the db PVCs, which ARE backed up, and dev-lint
-  # fails a waiver that waives nothing — the over-waive would surface as
-  # DL-WAIVER-INEFFECTIVE on every other app instead of a clean pass here.
-  case "$1:$2" in
-    utterance:01-pvc.yaml)
-      # The marker is spelled in two pieces because a generator that EMITS a
-      # waiver necessarily names it, and a whole `dev-lint: allow-<suffix>`
-      # string in this file registers as a waiver sited here — which suppresses
-      # nothing, so dev-lint reports DL-WAIVER-INEFFECTIVE. That audit is right
-      # ("a waiver that waives nothing is a baseline entry nobody can see"); the
-      # marker belongs in the rendered PVC, not in the renderer.
-      local waiver="# dev-lint: allow-""backup-coverage utterance is under heavy development and its uploads are re-derivable; backing it up is deliberately deferred"
-      printf '%s' "$3" | awk '{ print } !seen && /^---$/ { print WAIVER; seen = 1 }' \
-        WAIVER="$waiver"
-      ;;
-    *) printf '%s' "$3" ;;
-  esac
+  # The REASON comes from the model (R.storageWaiver), not from a case here.
+  # This used to name one app and its justification inline, which meant adding a
+  # second app with a volume was a shell edit far away from the volume — and
+  # nothing forced the question to be answered at all. T.Durability is now a
+  # required field, so a claim whose fate nobody stated does not typecheck.
+  [[ $2 == 01-pvc.yaml ]] || { printf '%s' "$3"; return; }
+  local why
+  why=$(ask_text "$1" storageWaiver)
+  [[ -n $why ]] || { printf '%s' "$3"; return; }
+
+  # The marker is spelled in two pieces because a generator that EMITS a waiver
+  # necessarily names it, and a whole `dev-lint: allow-<suffix>` string in this
+  # file registers as a waiver sited here — which suppresses nothing, so
+  # dev-lint reports DL-WAIVER-INEFFECTIVE. That audit is right ("a waiver that
+  # waives nothing is a baseline entry nobody can see"); the marker belongs in
+  # the rendered claim, not in the renderer.
+  local waiver="# dev-lint: allow-""backup-coverage $why"
+
+  # The LAST separator, not the first: `01-pvc.yaml:pvc appPvc` renders the
+  # database's claim before the app's own, and only the app's is being waived.
+  # Anchoring on the first would waive a db PVC that IS backed up, and dev-lint
+  # fails a waiver that waives nothing.
+  printf '%s' "$3" | awk '
+    /^---$/ { last = NR }
+    { line[NR] = $0 }
+    END {
+      for (i = 1; i <= NR; i++) {
+        print line[i]
+        if (i == last) print WAIVER
+      }
+    }' WAIVER="$waiver"
 }
 
 header() { # app file netpol_anchor
