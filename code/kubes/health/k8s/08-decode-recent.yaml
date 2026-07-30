@@ -191,6 +191,20 @@ spec:
                 # finding to adjudicate, not noise to absorb. See 03-auth.yaml.
                 - name: LEAN_GPSQUALITY
                   value: "shadow"
+                # Verified Lean biometric label rewrites — the four
+                # step-counter-overrules-GPS passes. EXACT gate; see 03-auth.yaml
+                # for why, and for the corpus evidence.
+                #
+                # This job is where the ledger is actually READ: decode-day
+                # prints `lean-biolabels[shadow] <date> <calls>/<fails>f
+                # <verdict>` per day, so the soak is legible here in a way it is
+                # not from the request path. Expect one line per day with five
+                # calls on it — one per call site, revertIsolatedCadence twice —
+                # and EXACT. Anything else is a
+                # decision flip: adjudicate which arm is right rather than
+                # widening the verdict.
+                - name: LEAN_BIOLABELS
+                  value: "shadow"
                 # Raise the warm bridge-call ceiling (default 5s) for the batch
                 # path: this job has no user waiting, and the heaviest real legs
                 # take several seconds on the throttled pod, so the tight ceiling

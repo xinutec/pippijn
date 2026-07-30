@@ -236,6 +236,39 @@ spec:
             # soak is free.
             - name: LEAN_GPSQUALITY
               value: "shadow"
+            # Verified Lean biometric label rewrites
+            # (Verified.Geo.BiometricLabels) — the four velocity passes that let
+            # the step counter overrule what GPS decided about a segment's mode:
+            # cadenceCorrect, revertIsolatedCadence, jitterWalkToStay,
+            # walkThrough. Four passes behind one flag because they are one
+            # port of one TS module, and splitting them would mean four soaks
+            # of a surface that shares every threshold. Five CALL SITES, since
+            # revertIsolatedCadence runs twice — before and after the rail
+            # annotators — and both are served.
+            #
+            # EXACT gate, like LEAN_GPSQUALITY and for a related reason: every
+            # output is a discrete label, an index, or a `toFixed` rendering —
+            # never a fresh real. The reason strings go through
+            # Verified.JsNum.toFixed, which implements the ECMA-262 rounding
+            # rule against the double's exact binary value, so even the
+            # formatted numbers are compared exactly rather than to a
+            # tolerance.
+            #
+            # The one place a libm difference could reach a decision is the
+            # stay-extent veto in correctStationaryWalkThrough — a haversine
+            # max against an 80 m threshold — and only for a segment whose
+            # extent sits within 1 ULP of exactly 80 m.
+            #
+            # Corpus evidence before shipping: `npm run golden` under
+            # LEAN_BIOLABELS=on is 32/32 byte-identical with the ledger reading
+            # 128/0f EXACT — 32 days x 4 passes, every call served by the
+            # verified core, zero failures, zero divergences.
+            #
+            # Shadow first anyway. These passes run BEFORE the merge, so a flip
+            # here moves every downstream boundary; and both arms run either
+            # way, so the soak costs nothing but the logging.
+            - name: LEAN_BIOLABELS
+              value: "shadow"
           resources:
             requests:
               # Idle most of the time; a /api/velocity compute is a short CPU
