@@ -9,6 +9,13 @@ metadata:
   namespace: observe
 data:
   default.conf: |
+    # The client activity trace, as one line per batch. `client-event` is the
+    # string the whole fleet's traces are grepped by, so this tier answers to
+    # the same search even though its "endpoint" is a log format rather than a
+    # handler. The body is the batch, verbatim: the client caps and flattens
+    # each label before sending, because nginx cannot.
+    log_format telemetry 'client-event at=$time_iso8601 batch=$request_body';
+
     server {
       listen 8091;
       root /srv/observe/web;
@@ -29,6 +36,34 @@ data:
 
       location = /healthz {
         return 200 "ok\n";
+      }
+
+      # The client activity trace. Unlike every other frontend in the fleet
+      # this tier has no application backend at all — nginx serving a hostPath
+      # is the whole deployment — so the endpoint has to be nginx itself.
+      #
+      # The self-proxy is the load-bearing part. `$request_body` is empty
+      # unless nginx actually READS the body, and for a static location it
+      # never does; passing the request upstream (to this server's own
+      # /healthz) is what makes it buffer one. Without it the log line would
+      # arrive faithfully every five seconds saying nothing.
+      #
+      # The events land in the pod's stdout beside the request log, which is
+      # where the rest of the fleet's `client-event` lines are read from.
+      location = /api/telemetry {
+        client_body_buffer_size 64k;
+        client_max_body_size 64k; # 50 events, each a path and a capped label
+        access_log /dev/stdout telemetry;
+        proxy_pass http://127.0.0.1:8091/_telemetry_sink;
+      }
+
+      # Where that self-proxy lands. It exists to be a name: the sink could just
+      # as well be /healthz, but then every open tab would put a health-probe
+      # line in the access log every five seconds and the log would be lying
+      # about what happened. Not `internal` — proxy_pass reaches this over TCP,
+      # like any other client, so `internal` would 404 it.
+      location = /_telemetry_sink {
+        return 204;
       }
 
       location /runs/ {
