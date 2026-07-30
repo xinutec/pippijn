@@ -1,0 +1,111 @@
+# GENERATED from dhall/apps/memview.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memview
+  namespace: memview
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memview
+  template:
+    metadata:
+      labels:
+        app: memview
+    spec:
+      containers:
+      - env:
+        - name: MEMORY_DIR
+          value: /corpus
+        - name: SHARE_STATE
+          value: "/state/share-state.json"
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: SESSION_SECRET
+              name: "memview-secret"
+        - name: NC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_ID
+              name: "memview-secret"
+        - name: NC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_SECRET
+              name: "memview-secret"
+        - name: NC_BASE_URL
+          value: "https://dash.xinutec.org"
+        - name: NC_INTERNAL_URL
+          value: "http://nextcloud-server.nextcloud.svc.cluster.local"
+        - name: NC_REDIRECT_URI
+          value: "https://memview.xinutec.org/auth/callback"
+        - name: PUBLIC_BASE_URL
+          value: "https://memview.xinutec.org"
+        - name: ALLOWED_USERS
+          value: pippijn
+        - name: RUST_LOG
+          value: "info,memview=debug"
+        image: "xinutec/memview:latest"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8091
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: memview
+        ports:
+        - containerPort: 8091
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8091
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /state
+          name: "app-data"
+          subPath: state
+        - mountPath: /corpus
+          name: "app-data"
+          subPath: corpus
+      securityContext:
+        fsGroup: 65532
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: "app-data"
+        persistentVolumeClaim:
+          claimName: "memview-data-pvc"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: memview
+  namespace: memview
+spec:
+  ports:
+  - port: 80
+    targetPort: 8091
+  selector:
+    app: memview

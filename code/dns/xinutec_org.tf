@@ -38,6 +38,21 @@ resource "cloudflare_dns_record" "org_messages" {
   proxied = false
 }
 
+# memview.xinutec.org — read-only viewer for the Claude memory corpus on isis,
+# VPN-only. Resolves to isis's WireGuard IP so it isn't listed publicly; the real
+# gate is the Nextcloud login + pippijn-only allow-list, since the isis ingress
+# also answers on the public IP. The corpus holds medical, family and address
+# detail, so the cert comes from the DNS-01 issuer — HTTP-01 cannot validate a
+# name that resolves inside the tunnel. See code/kubes/memview.
+resource "cloudflare_dns_record" "org_memview" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "memview"
+  content = local.hosts.vpn_isis
+  ttl     = 3600
+  proxied = false
+}
+
 # fleetwatch.xinutec.org — fleet monitoring dashboard on isis. Points at isis's
 # WireGuard IP so it's unlisted publicly, but the real gate is a Nextcloud login
 # on the read UI (the ingress answers on the public IP too — DNS is not a gate;

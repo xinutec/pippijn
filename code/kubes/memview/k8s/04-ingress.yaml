@@ -1,0 +1,27 @@
+# GENERATED from dhall/apps/memview.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    "cert-manager.io/cluster-issuer": "letsencrypt-dns"
+  name: "memview-ingress"
+  namespace: memview
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: memview.xinutec.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: memview
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - memview.xinutec.org
+    secretName: "memview-tls"

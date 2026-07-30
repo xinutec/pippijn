@@ -444,7 +444,7 @@ let ingress
                       ⫽ { annotations = Some
                             ( toMap
                                 { `cert-manager.io/cluster-issuer` =
-                                    "letsencrypt-prod"
+                                    T.issuerFor app.exposure
                                 }
                             )
                         }

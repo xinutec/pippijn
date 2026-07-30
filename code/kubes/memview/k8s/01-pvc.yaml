@@ -1,0 +1,15 @@
+# GENERATED from dhall/apps/memview.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: "memview-data-pvc"
+  namespace: memview
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

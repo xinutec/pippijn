@@ -20,6 +20,7 @@ in  { -- Hosts (the machines themselves)
     , home = sub "home"
     , life = sub "life"
     , mail = sub "mail"
+    , memview = sub "memview"
     , messages = sub "messages"
     , nocodb = sub "nocodb"
     , sinterklaas = sub "sinterklaas"

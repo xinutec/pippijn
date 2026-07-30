@@ -102,6 +102,29 @@ let Database =
       , keys : { user : Text, password : Text, rootPassword : Text }
       }
 
+--| How the internet sees an app's hostname, and therefore how its certificate
+--  can be issued.
+--
+-- `Public` resolves to the node's public address, so Let's Encrypt can reach it
+-- and HTTP-01 works. `VpnOnly` resolves to the WireGuard address instead — the
+-- record exists, but nothing outside the tunnel can complete an HTTP challenge,
+-- so the certificate must come from DNS-01.
+--
+-- This is one field rather than two because the issuer is not an independent
+-- choice: pairing HTTP-01 with a VPN-only name yields a certificate stuck
+-- pending forever, and the failure surfaces as a browser TLS error days later.
+-- Naming the exposure makes the issuer follow from it.
+--
+-- ⚠ VpnOnly is obscurity at the DNS layer, not a firewall — the ingress still
+-- answers on the public IP for anyone who knows it. The app's own sign-in wall
+-- is the real gate.
+let Exposure = < Public | VpnOnly >
+
+let issuerFor
+    : Exposure → Text
+    = λ(e : Exposure) →
+        merge { Public = "letsencrypt-prod", VpnOnly = "letsencrypt-dns" } e
+
 --| A declared secret key. `apps/*.dhall` builds a record of these and refers to
 --  its fields, which is how a mistyped key becomes a compile error.
 let SecretKey = { mapKey : Text, mapValue : Text }
@@ -113,6 +136,7 @@ let App =
       , storage : Optional Storage
       , workload : Workload
       , host : Optional Text
+      , exposure : Exposure
       , secrets : List SecretKey
       , netpol : Bool
       }
@@ -130,5 +154,7 @@ in  { Cluster
     , Workload
     , Database
     , SecretKey
+    , Exposure
+    , issuerFor
     , App
     }

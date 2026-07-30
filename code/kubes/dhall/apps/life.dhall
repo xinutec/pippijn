@@ -84,6 +84,7 @@ in    { name = "life"
         , mounts = [] : List T.VolumeMount
         }
       , host = Some dns.life
+      , exposure = T.Exposure.Public
       , secrets = toMap keys
       , netpol = True
       }
