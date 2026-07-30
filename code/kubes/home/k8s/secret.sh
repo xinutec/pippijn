@@ -20,10 +20,21 @@ if ! kubectl -n home get secret home-secret >/dev/null 2>&1; then
     --from-literal=DB_USER=home \
     --from-literal="DB_PASSWORD=$(rnd 16)" \
     --from-literal="DB_ROOT_PASSWORD=$(rnd 16)" \
-    --from-literal="INGEST_TOKEN=$(rnd 24)"
+    --from-literal="INGEST_TOKEN=$(rnd 24)" \
+    --from-literal="SESSION_SECRET=$(rnd 32)"
   echo "home-secret created."
 else
   echo "home-secret already exists — leaving it untouched."
+fi
+
+# The Nextcloud OAuth client is registered by hand (Settings -> Security ->
+# OAuth 2.0 clients, redirect https://home.xinutec.org/auth/callback) and its
+# id/secret pasted in here — they cannot be generated. Left out of the create
+# above so a re-run never clobbers a working pair.
+if [ -n "${NC_CLIENT_ID:-}" ] && [ -n "${NC_CLIENT_SECRET:-}" ]; then
+  kubectl -n home patch secret home-secret --type=merge \
+    -p "{\"stringData\":{\"NC_CLIENT_ID\":\"$NC_CLIENT_ID\",\"NC_CLIENT_SECRET\":\"$NC_CLIENT_SECRET\"}}"
+  echo "Nextcloud OAuth client stored."
 fi
 
 echo "INGEST_TOKEN (give this to the Mac poller's Keychain):"

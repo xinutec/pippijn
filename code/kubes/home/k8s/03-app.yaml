@@ -42,6 +42,28 @@ spec:
             secretKeyRef:
               key: INGEST_TOKEN
               name: "home-secret"
+        # Sign-in. Every read on this host stays public; a session exists so a
+        # *write* can be attributed to a person, which is what makes
+        # POST /api/telemetry safe to offer on a publicly readable host.
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: SESSION_SECRET
+              name: "home-secret"
+        - name: NC_BASE_URL
+          value: "https://dash.xinutec.org"
+        - name: NC_REDIRECT_URI
+          value: "https://home.xinutec.org/auth/callback"
+        - name: NC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_ID
+              name: "home-secret"
+        - name: NC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_SECRET
+              name: "home-secret"
         image: "xinutec/home:latest"
         livenessProbe:
           httpGet:
