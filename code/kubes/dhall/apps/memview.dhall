@@ -70,6 +70,14 @@ in    { name = "memview"
               name = "SHARE_STATE"
             , value = lit "${statePath}/share-state.json"
             }
+          , { -- How much each memory is actually used, mined from the session
+              -- transcripts on the Mac and pushed by scripts/sync.sh. Optional:
+              -- absent, the graph still draws, sized by links alone. On the
+              -- state volume rather than the corpus for the same reason as the
+              -- share token — every sync replaces the corpus wholesale.
+              name = "COUSE_FILE"
+            , value = lit "${statePath}/couse.json"
+            }
           , { -- All three of these must be set or the app serves the corpus to
               -- anyone who can reach it. Required references, not optional ones:
               -- a pod that will not start is the safe failure here.

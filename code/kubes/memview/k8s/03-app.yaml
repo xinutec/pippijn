@@ -23,6 +23,8 @@ spec:
           value: /corpus
         - name: SHARE_STATE
           value: "/state/share-state.json"
+        - name: COUSE_FILE
+          value: /state/couse.json
         - name: SESSION_SECRET
           valueFrom:
             secretKeyRef:
