@@ -212,6 +212,30 @@ spec:
             # Flip to "on" after ~a week of EXACT/ULP with zero length diffs.
             - name: LEAN_KALMAN
               value: "shadow"
+            # Verified Lean GPS quality pre-filter
+            # (Verified.Geo.GpsQuality.qualityFilterGps) — the incoherent-run
+            # dropper that runs one call ABOVE the Kalman filter.
+            #
+            # Unlike every tenant above it, this one has an EXACT gate rather
+            # than a bounded-ULP one, and the reason is structural: the filter
+            # is drop-only. Every fix it emits is a copy of an input fix, never
+            # a computed value. Inputs cross the bridge as IEEE bit patterns, so
+            # both arms select from bit-identical candidates and `cos` reaches
+            # only the threshold comparisons. `npm run compare-gpsquality` is
+            # 32/32 days agreeing exactly on the keep-set.
+            #
+            # So the ledger has TWO levels, not three: there is no expected
+            # divergence class to grade, and anything other than EXACT is a
+            # DECISION flip — the two arms disagreeing about whether a run is
+            # garbage. If one appears, adjudicate which arm is right; do not
+            # widen the verdict to quiet it.
+            #
+            # Shadow anyway, for the same reason as LEAN_KALMAN: position, not
+            # doubt. This is now the most upstream pass of all, so a divergence
+            # moves every downstream boundary. Both arms run either way, so the
+            # soak is free.
+            - name: LEAN_GPSQUALITY
+              value: "shadow"
           resources:
             requests:
               # Idle most of the time; a /api/velocity compute is a short CPU

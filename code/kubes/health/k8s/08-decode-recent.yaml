@@ -178,6 +178,19 @@ spec:
                 # and what EXACT / ULP / DIVERGED mean.
                 - name: LEAN_KALMAN
                   value: "shadow"
+                # Verified Lean GPS quality pre-filter — SHADOW, matching
+                # 03-auth.yaml. Same reason as LEAN_KALMAN: this job is where
+                # the ledger is actually read, as `lean-gpsquality[shadow]
+                # <date> …` per day.
+                #
+                # Read this line differently from the Kalman one. The gate is
+                # EXACT, not bounded-ULP — the filter is drop-only, so both arms
+                # select from bit-identical candidates. There is no expected
+                # divergence class, and `n DIVERGED` means the two arms
+                # disagreed about whether a run of fixes is garbage. That is a
+                # finding to adjudicate, not noise to absorb. See 03-auth.yaml.
+                - name: LEAN_GPSQUALITY
+                  value: "shadow"
                 # Raise the warm bridge-call ceiling (default 5s) for the batch
                 # path: this job has no user waiting, and the heaviest real legs
                 # take several seconds on the throttled pod, so the tight ceiling
