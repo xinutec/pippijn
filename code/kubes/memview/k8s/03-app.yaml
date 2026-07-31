@@ -25,6 +25,8 @@ spec:
           value: "/state/share-state.json"
         - name: COUSE_FILE
           value: /state/couse.json
+        - name: HISTORY_FILE
+          value: /state/history.json
         - name: SESSION_SECRET
           valueFrom:
             secretKeyRef:
