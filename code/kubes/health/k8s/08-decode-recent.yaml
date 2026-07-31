@@ -161,14 +161,19 @@ spec:
                 # shadow run. TS fallback on any bridge failure.
                 - name: LEAN_PASSES
                   value: "on"
-                # Verified Lean walk-matcher — ON since 2026-07-21. An earlier
-                # flip the same day blew this job's 1800s deadline on cost, not
-                # correctness; the matcher's hot path has since moved off Lean
-                # `Int` (a GMP bignum past 2^31) onto `Nat`, and now measures
-                # ~0.36 s/leg over the gated golden legs (185/185 since the gate's
-                # leg population was corrected). See 03-auth.yaml.
+                # Verified Lean walk-matcher — ROLLED BACK to shadow 2026-07-31
+                # after serving `on` since 2026-07-21. This job is where the
+                # regression was caught: its `lean-match[on]` ledger reported
+                # UNEXPLAINED divergences IN SERVED OUTPUT on four of the last
+                # seven days, and adjudicating one (#398) found the served line
+                # was the worse of the two. Full reasoning in 03-auth.yaml; keep
+                # the two in step, or a cron-persisted day and a fresh server
+                # compute disagree about the same leg.
+                #
+                # Cost is not the blocker and was not the reason: ~0.36 s/leg
+                # since the hot path moved off Lean `Int` onto `Nat`.
                 - name: LEAN_MATCH
-                  value: "on"
+                  value: "shadow"
                 # Verified Lean GPS Kalman filter — SHADOW, matching
                 # 03-auth.yaml so a cron-persisted day and a fresh server
                 # compute see the same track. This is where the ledger actually

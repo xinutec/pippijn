@@ -158,20 +158,39 @@ spec:
             # back to TS (swallow-over-wrong). "off"/unset reverts instantly.
             - name: LEAN_PASSES
               value: "on"
-            # Verified Lean walk-matcher (qMatchWalkSegment). ON since
-            # 2026-07-21. Correctness has been gated all along (compare-match
-            # 185/185 bit-exact against the BigInt twin); what blocked the flip
-            # was cost — an earlier attempt the same day made the decode-recent
-            # job exceed its 1800s deadline, because the matcher adds a
-            # synchronous bridge call per leg and its corridor-graph Viterbi
-            # dwarfs the geometry passes. Fixed at the source: the hot path ran
-            # on Lean `Int`, which is a GMP bignum past 2^31, and now runs on
-            # `Nat` (scalar to 2^63) with spatial indices for the footprints and
-            # candidate segments. Measured over the same legs: ~0.36 s/leg,
-            # ~70x cheaper than at the failed flip and ~3x the TS float matcher.
-            # `off`/unset reverts instantly; any bridge failure falls back to TS.
+            # Verified Lean walk-matcher (qMatchWalkSegment). ROLLED BACK to
+            # shadow 2026-07-31 after serving `on` since 2026-07-21.
+            #
+            # The flip rested on "compare-match 185/185 bit-exact against the
+            # BigInt twin". That number is real (191/191 today) but it measures
+            # quant<->Lean — that serving Lean equals serving the twin. It says
+            # nothing about float<->quant, i.e. how the twin differs from the TS
+            # matcher production served before, and THAT is the set of legs whose
+            # behaviour the flip changes. Those legs were never all signed off.
+            #
+            # Measured on leg 71e5544efa614a06 (2026-07-30 09:40Z, King's Cross,
+            # #398): the arms take different corridors for ~2 min, 120 m apart at
+            # coarse vertex 13. The quant line sits 42.1 m from the GPS track at
+            # p85, past matchImprovesDisplay's 40 m cap, so the gate returns
+            # use=false and the leg falls back to RAW GPS — where the float arm
+            # returned use=true and drew a matched line better on every measure
+            # (off-network 3.5 vs 10.9 m, stray 16.5 vs 42.1 m, building
+            # intrusion 169 vs 202 m). A coarse divergence is not display-only:
+            # coarsePath feeds a keep/discard decision (#369).
+            #
+            # `shadow` loses nothing. Both arms run and are compared in either
+            # mode; only the SERVED output differs. So the soak evidence is
+            # identical and the regression goes away.
+            #
+            # Flip back when `compare-match --gate` is green AND wired into a
+            # gate (#395) — not on the strength of the quant<->Lean number alone.
+            #
+            # Cost, for whenever that happens: ~0.36 s/leg after moving the hot
+            # path off Lean `Int` (a GMP bignum past 2^31) to `Nat`, ~70x cheaper
+            # than the attempt that blew the decode-recent 1800s deadline and ~3x
+            # the TS float matcher.
             - name: LEAN_MATCH
-              value: "on"
+              value: "shadow"
             # Verified Lean rail shortest path (Verified.Rail.dijkstraC, proved
             # correct AND complete). SHADOW, not on: the search runs and is
             # compared, but the TS path is what gets drawn. The gate is 6/6
