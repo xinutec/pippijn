@@ -78,6 +78,13 @@ in    { name = "memview"
               name = "COUSE_FILE"
             , value = lit "${statePath}/couse.json"
             }
+          , { -- Which named session works in which project directory, mined
+              -- from the same transcripts and pushed by the same sync.
+              -- Optional in the same way: absent, the agents page says nothing
+              -- has been mined rather than failing.
+              name = "AGENTS_FILE"
+            , value = lit "${statePath}/agents.json"
+            }
           , { -- All three of these must be set or the app serves the corpus to
               -- anyone who can reach it. Required references, not optional ones:
               -- a pod that will not start is the safe failure here.
