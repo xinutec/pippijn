@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dev-lint: allow-no-strict-mode — rclone check exits non-zero on differences (the
 # divergence this script goes on to classify), so errexit would abort the report.
-cd /home/pippijn
+cd /home/pippijn || exit 1
 echo "[1/4] capturing divergence lists..."
 rclone check /home/pippijn/Photos dash:Photos --one-way --size-only \
   --differ /home/pippijn/p-differ.txt --missing-on-dst /home/pippijn/p-missing.txt \

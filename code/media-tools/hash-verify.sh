@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dev-lint: allow-no-strict-mode — a sampling verifier: per-file sha256sum/rclone-cat/
 # grep misses are counted and reported (NOT-ON-NC / MISMATCH), not fatal.
-cd /home/pippijn
+cd /home/pippijn || exit 1
 EMPTY=$(printf '' | sha256sum | cut -d' ' -f1)
 
 sample_path_based() {

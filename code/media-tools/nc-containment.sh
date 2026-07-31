@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dev-lint: allow-no-strict-mode — rclone check exits non-zero on differences and
 # the per-dir grep may not match; both are expected, so errexit is wrong here.
-cd /home/pippijn
+cd /home/pippijn || exit 1
 for d in Documents Media Music Photos Videos; do
   out=$(rclone check "/home/pippijn/$d" "dash:$d" --one-way --size-only --transfers 2 --checkers 2 --tpslimit 4 2>&1)
   miss=$(echo "$out" | grep -oE "[0-9]+ files missing" | head -1)

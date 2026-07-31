@@ -2,7 +2,7 @@
 # dev-lint: allow-no-strict-mode — rclone check exits non-zero when it finds
 # differences (the result this script greps out and reports), so errexit is wrong.
 # Exhaustive byte-level verification: every amun Music file vs NC (downloads NC copy, compares content).
-cd /home/pippijn
+cd /home/pippijn || exit 1
 rclone check /home/pippijn/Music dash:Music --download \
   --transfers 2 --checkers 2 --tpslimit 4 \
   --stats 5m --stats-one-line \
