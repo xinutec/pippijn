@@ -1,0 +1,112 @@
+# One-shot re-decode of the recent window under the CURRENT flag set.
+#
+# Distinct from job-decode-backfill.yaml, which is the 90-day
+# CLASSIFIER_VERSION backfill and deliberately carries NO LEAN_* flags. This
+# one mirrors 08-decode-recent.yaml's env exactly — including the Lean tenants
+# — because its whole purpose is to re-run the nightly decode after a tenant
+# flag changed, so the persisted rows are the ones the current configuration
+# produces rather than the ones the old configuration left behind.
+#
+# NOT part of the standing apply set: apply by hand, bump the name's date
+# suffix each time (a completed Job's spec is immutable).
+#
+#   kubectl apply -f job-decode-redecode.yaml
+#   kubectl -n health logs -f job/health-decode-redecode-20260731
+#
+# History: 20260731 — after LEAN_MATCH was rolled back on→shadow (#398), to
+# re-decode 2026-07-24..07-30, the seven days whose nightly runs had served
+# the verified matcher. `--days 7` counts back from the job's own start date,
+# so this is only that window when applied on 2026-07-31.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: health-decode-redecode-20260731
+  namespace: health
+spec:
+  # Same budget as the nightly cron — identical work, identical window.
+  activeDeadlineSeconds: 1800
+  backoffLimit: 1
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      restartPolicy: OnFailure
+      containers:
+        # dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths)
+        - name: decode
+          image: xinutec/health-sync:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -c
+            - >-
+              node dist/cli/decode-day.js --user pippijn --tz Europe/London --days 7 &&
+              node dist/cli/refresh-presence-log.js 90
+          env:
+            - name: DB_HOST
+              value: health-db
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: DB_PASSWORD
+            - name: NC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: NC_CLIENT_ID
+            - name: NC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: health-secret
+                  key: NC_CLIENT_SECRET
+            # Every flag below is copied from 08-decode-recent.yaml. A
+            # re-decode that differs from the nightly decode in ANY of them
+            # would write rows the cron then contradicts the next morning —
+            # the point is to reproduce the cron, not to run a variant.
+            - name: USE_CONTINUITY_CONTINUATION
+              value: "1"
+            - name: USE_CADENCE_IMPUTATION
+              value: "1"
+            - name: USE_SEGMENT_EVIDENCE
+              value: "1"
+            - name: USE_CHAIN_CONTEXT
+              value: "1"
+            - name: USE_REACQUIRE_ROBUST_SPEED
+              value: "1"
+            - name: LEAN_HSMM
+              value: "on"
+            - name: LEAN_PASSES
+              value: "on"
+            # The reason this Job exists. See 03-auth.yaml for the rollback.
+            - name: LEAN_MATCH
+              value: "shadow"
+            - name: LEAN_KALMAN
+              value: "shadow"
+            - name: LEAN_GPSQUALITY
+              value: "shadow"
+            - name: LEAN_BIOLABELS
+              value: "shadow"
+            - name: LEAN_CALL_TIMEOUT_MS
+              value: "30000"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1536Mi
