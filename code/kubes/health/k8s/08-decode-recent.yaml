@@ -145,8 +145,20 @@ spec:
                 # TS again. CRON-side only — the interactive /api/velocity path
                 # still serves TS (waits on the ~5× Lean speed gap). off disables
                 # the A/B entirely.
+                #
+                # DEMOTED on->shadow 2026-08-01. `on` here was a WRITE, not just
+                # a serve: decode-day is the ONLY caller of saveDecode, so under
+                # `on` it was the Lean decode that landed in decoded_days. The
+                # standing decision is that production writes come from the TS
+                # implementation while Lean runs alongside as measurement, so
+                # this stays shadow until a flip is made deliberately and with
+                # the ledger evidence in hand.
+                #
+                # Nothing is lost from the soak: `shadow` still decodes BOTH ways
+                # and prints the same per-day `lean-hsmm[shadow] <date> ...`
+                # ledger. Only the authorship of the persisted row changes.
                 - name: LEAN_HSMM
-                  value: "on"
+                  value: "shadow"
                 # Serve the verified Lean geometry passes when re-decoding days
                 # (docs/proposals/2026-07-verified-core-lean.md) — kept identical
                 # to the health-auth server so a cached (cron-persisted) day and a
@@ -159,8 +171,22 @@ spec:
                 # nobody has signed off, and `IN SERVED OUTPUT` means it came
                 # from the persisted decode rather than the observational
                 # shadow run. TS fallback on any bridge failure.
+                #
+                # DEMOTED on->shadow 2026-08-01, with LEAN_HSMM and for the same
+                # reason: the geometry these passes produce feeds the segments
+                # this job PERSISTS, so serving Lean here put Lean output in the
+                # database. Kept in step with 03-auth.yaml, as the note above
+                # requires -- both are shadow now.
                 - name: LEAN_PASSES
-                  value: "on"
+                  value: "shadow"
+                # Verified Lean rail shortest-path. Added 2026-08-01: this flag
+                # was absent here, so the tenant was observed NOWHERE -- the
+                # golden corpus structurally cannot reach it (it preloads
+                # rail_route_cache, #233) and no cron set it. `shadow` costs one
+                # Dijkstra per uncached route and is the only place the tenant
+                # gets exercised on real data at all.
+                - name: LEAN_RAIL
+                  value: "shadow"
                 # Verified Lean walk-matcher — ROLLED BACK to shadow 2026-07-31
                 # after serving `on` since 2026-07-21. This job is where the
                 # regression was caught: its `lean-match[on]` ledger reported

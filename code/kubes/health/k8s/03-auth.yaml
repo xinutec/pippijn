@@ -156,8 +156,21 @@ spec:
             # carries entries observed in production on days the corpus does not
             # cover), and any bridge failure falls
             # back to TS (swallow-over-wrong). "off"/unset reverts instantly.
+            #
+            # DEMOTED on->shadow 2026-08-01. Production output is to come from
+            # the TS implementation while Lean runs alongside as measurement;
+            # this was the last tenant still serving Lean to a reader. Kept in
+            # step with 08-decode-recent.yaml, or a cron-persisted day and a
+            # fresh server compute would draw different geometry.
+            #
+            # NOTE the request-path cost, which shadow does NOT avoid: `shadow`
+            # runs both arms synchronously through the in-process bridge, so the
+            # Lean arm is added latency on a cache miss either way. Measured over
+            # the 32-day corpus: passes 1.0ms avg / 34ms max per call -- free.
+            # The matcher is the one that is not (276ms avg, 4.8s max), and it is
+            # LEAN_MATCH=shadow below that pays it, not this flag.
             - name: LEAN_PASSES
-              value: "on"
+              value: "shadow"
             # Verified Lean walk-matcher (qMatchWalkSegment). ROLLED BACK to
             # shadow 2026-07-31 after serving `on` since 2026-07-21.
             #
