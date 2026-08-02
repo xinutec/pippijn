@@ -27,6 +27,8 @@ spec:
           value: /state/couse.json
         - name: AGENTS_FILE
           value: /state/agents.json
+        - name: DOING_FILE
+          value: /state/doing.json
         - name: SESSION_SECRET
           valueFrom:
             secretKeyRef:

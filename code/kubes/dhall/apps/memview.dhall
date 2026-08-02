@@ -85,6 +85,13 @@ in    { name = "memview"
               name = "AGENTS_FILE"
             , value = lit "${statePath}/agents.json"
             }
+          , { -- The timeline: what each session did, in order, and how it
+              -- turned out. Ten times the roster's size and held in memory
+              -- rather than re-read per request, so the pod picks up a new one
+              -- on the first request after the sync rather than at once.
+              name = "DOING_FILE"
+            , value = lit "${statePath}/doing.json"
+            }
           , { -- All three of these must be set or the app serves the corpus to
               -- anyone who can reach it. Required references, not optional ones:
               -- a pod that will not start is the safe failure here.
