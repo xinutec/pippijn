@@ -14,6 +14,9 @@ let keys =
       , DB_PASSWORD = "DB_PASSWORD"
       , DB_ROOT_PASSWORD = "DB_ROOT_PASSWORD"
       , INGEST_TOKEN = "INGEST_TOKEN"
+      , SESSION_SECRET = "SESSION_SECRET"
+      , NC_CLIENT_ID = "NC_CLIENT_ID"
+      , NC_CLIENT_SECRET = "NC_CLIENT_SECRET"
       }
 
 let secret = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False }
@@ -53,6 +56,16 @@ in    { name = "home"
           , { name = "DB_USER", value = secret keys.DB_USER }
           , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
           , { name = "INGEST_TOKEN", value = secret keys.INGEST_TOKEN }
+          , -- Sign-in. Every read on this host stays public; a session exists
+            -- so a *write* can be attributed to a person, which is what makes
+            -- POST /api/telemetry safe to offer on a publicly readable host.
+            { name = "SESSION_SECRET", value = secret keys.SESSION_SECRET }
+          , { name = "NC_BASE_URL", value = lit "https://dash.xinutec.org" }
+          , { name = "NC_REDIRECT_URI"
+            , value = lit "https://home.xinutec.org/auth/callback"
+            }
+          , { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
+          , { name = "NC_CLIENT_SECRET", value = secret keys.NC_CLIENT_SECRET }
           ]
         , probe = T.Probe.Http { path = "/health", port = 3000 }
         , resources =
