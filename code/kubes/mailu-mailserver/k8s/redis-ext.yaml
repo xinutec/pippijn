@@ -87,6 +87,11 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
+  # dev-lint: allow-backup-coverage the nightly `mailu-redis` artifact streams an
+  # RDB dump out of the pod, which IS this volume's contents; the volume itself
+  # is deliberately never mirrored, because a live RDB file copies torn
+  # mid-write. The plan's `claim` field is the PVC an artifact READS FROM, and a
+  # crictl-exec dump reads from the pod, so claiming it there would be false.
   name: mailu-redis-ext-data
   namespace: mailu-mailserver
 spec:
