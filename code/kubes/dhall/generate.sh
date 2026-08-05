@@ -138,11 +138,19 @@ header() { # app file netpol_anchor
       printf '# strategy is Recreate: a single RWO PVC must never have two DB pods.\n'
       ;;
     *-held.yaml)
-      # The marker string below is LOAD-BEARING, not decoration: scripts/apply.sh
-      # refuses any file containing it, and fleet_health.py's drift sweep skips
-      # it so a deliberately-unapplied manifest is not reported as permanent
-      # drift. Both tools also skip on the *held* filename, so this is defence in
-      # depth — losing either would silently arm the policy below.
+      # The marker string below is LOAD-BEARING, not decoration. THREE readers:
+      # scripts/apply.sh refuses any file containing it, fleet_health.py's drift
+      # sweep skips it so a deliberately-unapplied manifest is not reported as
+      # permanent drift, and plan-run's ManifestsUnmixed probe — the one the
+      # fleet's deploys actually go through, via deploy.sh — refuses on it too.
+      # All three also skip on the *held* filename, so this is defence in depth.
+      #
+      # "Losing either would silently arm the policy below" was written when
+      # there were two, and it has since been proven the hard way: plan-run
+      # grepped for "dev-lint: held" from the day it was written until
+      # 2026-08-05, a string no file here has ever contained, so its refusal
+      # could not fire. Only the filename check stood. Add a reader here when one
+      # appears — a marker with one reader is a guard that cannot fail.
       printf '#\n'
       printf '# NOT YET APPLIED. k3s enforces NetworkPolicy via kube-router, which does NOT\n'
       printf '# exempt node-sourced kubelet health-probe traffic, so this policy as written\n'
