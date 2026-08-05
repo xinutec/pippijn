@@ -1,0 +1,30 @@
+{
+  "checks": [
+    {
+      "argv": [
+        "./generate.sh",
+        "--check"
+      ],
+      "cwd": "code/kubes/dhall",
+      "env": {},
+      "name": "the cluster model matches the live manifests",
+      "timeout_s": 900
+    },
+    {
+      "argv": [
+        "nix",
+        "run",
+        "../dev-lint#gate",
+        "--",
+        "--check-table",
+        "gate.dhall",
+        "gate.json"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "the table matches its Dhall",
+      "timeout_s": 300
+    }
+  ],
+  "name": "pippijn"
+}
