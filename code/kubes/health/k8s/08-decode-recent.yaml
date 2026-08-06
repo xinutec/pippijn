@@ -185,8 +185,11 @@ spec:
                 # rail_route_cache, #233) and no cron set it. `shadow` costs one
                 # Dijkstra per uncached route and is the only place the tenant
                 # gets exercised on real data at all.
+                #
+                # PROMOTED shadow->on 2026-08-06 (#432) — see LEAN_KALMAN below
+                # for why these four and not the other three.
                 - name: LEAN_RAIL
-                  value: "shadow"
+                  value: "on"
                 # Verified Lean walk-matcher — ROLLED BACK to shadow 2026-07-31
                 # after serving `on` since 2026-07-21. This job is where the
                 # regression was caught: its `lean-match[on]` ledger reported
@@ -207,8 +210,23 @@ spec:
                 # per day, and that line is the soak. See 03-auth.yaml for why
                 # the most upstream pass earns a soak despite three green gates,
                 # and what EXACT / ULP / DIVERGED mean.
+                #
+                # PROMOTED shadow->on 2026-08-06 (#432), together with
+                # LEAN_GPSQUALITY, LEAN_BIOLABELS and LEAN_RAIL below.
+                #
+                # THIS JOB PERSISTS, so `on` here puts Lean output in the
+                # database — the exact objection that demoted LEAN_HSMM and
+                # LEAN_PASSES on 2026-08-01, and both of those stay `shadow`.
+                # What separates these four is the gate they carry: gpsquality
+                # and biolabels are EXACT (drop-only / discrete labels — no
+                # fresh reals), rail is EXACT over its own cron's volume, and
+                # kalman's only divergence class is a bounded libm ULP whose
+                # effect is femtometres, far under the 1e-7 deg display grid.
+                # A wrong flip is still persisted rather than recomputed, which
+                # is why the four with the strongest gates went and the two
+                # whose output IS the drawn geometry did not.
                 - name: LEAN_KALMAN
-                  value: "shadow"
+                  value: "on"
                 # Verified Lean GPS quality pre-filter — SHADOW, matching
                 # 03-auth.yaml. Same reason as LEAN_KALMAN: this job is where
                 # the ledger is actually read, as `lean-gpsquality[shadow]
@@ -220,8 +238,10 @@ spec:
                 # divergence class, and `n DIVERGED` means the two arms
                 # disagreed about whether a run of fixes is garbage. That is a
                 # finding to adjudicate, not noise to absorb. See 03-auth.yaml.
+                #
+                # PROMOTED shadow->on 2026-08-06 (#432) — see LEAN_KALMAN above.
                 - name: LEAN_GPSQUALITY
-                  value: "shadow"
+                  value: "on"
                 # Verified Lean biometric label rewrites — the four
                 # step-counter-overrules-GPS passes. EXACT gate; see 03-auth.yaml
                 # for why, and for the corpus evidence.
@@ -234,8 +254,12 @@ spec:
                 # and EXACT. Anything else is a
                 # decision flip: adjudicate which arm is right rather than
                 # widening the verdict.
+                #
+                # PROMOTED shadow->on 2026-08-06 (#432) — see LEAN_KALMAN above.
+                # The ledger tag becomes `lean-biolabels[on]`; the five-calls-and
+                # -EXACT expectation above is unchanged.
                 - name: LEAN_BIOLABELS
-                  value: "shadow"
+                  value: "on"
                 # Raise the warm bridge-call ceiling (default 5s) for the batch
                 # path: this job has no user waiting, and the heaviest real legs
                 # take several seconds on the throttled pod, so the tight ceiling

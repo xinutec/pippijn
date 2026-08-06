@@ -216,8 +216,13 @@ spec:
             # for a first-seen route (rail-route-fill.ts, #363) — the railSnap
             # pass itself is an indexed cache lookup. Bulk volume is in
             # 07-rail-refresh.yaml, which prints the ledger.
+            #
+            # PROMOTED shadow->on 2026-08-06 (#432). The soak this asked for
+            # came from 07-rail-refresh, where the volume is: EXACT over 28
+            # calls in a 21-day window, 0 failures. Still rare here — this path
+            # fires only on a miss-driven route-cache fill.
             - name: LEAN_RAIL
-              value: "shadow"
+              value: "on"
             # Verified Lean GPS Kalman filter (Verified.Geo.Kalman.filterGpsTrack).
             # SHADOW: it runs on every velocity compute and is compared, but the
             # TS track is what feeds segmentation.
@@ -242,8 +247,15 @@ spec:
             # so the soak is free; all it buys back is that a length divergence
             # on a day the corpus does not cover gets logged instead of served.
             # Flip to "on" after ~a week of EXACT/ULP with zero length diffs.
+            #
+            # PROMOTED shadow->on 2026-08-06 (#432). That condition is met: the
+            # 9-day soak (07-26..08-03) reads 9/9 clean — 4 EXACT, 5 in the ULP
+            # band, bearing <=5.7e-14 deg, ZERO length diffs, and no swallowed
+            # bridge failure on any tenant in the window. The one open item,
+            # `+1 stationary-bearing` on 08-03, is #394 — a fabricated heading
+            # at speed 0 that BOTH arms emit, so it is not a divergence.
             - name: LEAN_KALMAN
-              value: "shadow"
+              value: "on"
             # Verified Lean GPS quality pre-filter
             # (Verified.Geo.GpsQuality.qualityFilterGps) — the incoherent-run
             # dropper that runs one call ABOVE the Kalman filter.
@@ -266,8 +278,12 @@ spec:
             # doubt. This is now the most upstream pass of all, so a divergence
             # moves every downstream boundary. Both arms run either way, so the
             # soak is free.
+            #
+            # PROMOTED shadow->on 2026-08-06 (#432). EXACT every day it was seen
+            # across the 9-day window, 0 failures. The position argument is what
+            # the soak was for, and the soak is done.
             - name: LEAN_GPSQUALITY
-              value: "shadow"
+              value: "on"
             # Verified Lean biometric label rewrites
             # (Verified.Geo.BiometricLabels) — the four velocity passes that let
             # the step counter overrule what GPS decided about a segment's mode:
@@ -299,8 +315,11 @@ spec:
             # Shadow first anyway. These passes run BEFORE the merge, so a flip
             # here moves every downstream boundary; and both arms run either
             # way, so the soak costs nothing but the logging.
+            #
+            # PROMOTED shadow->on 2026-08-06 (#432). EXACT every day it was seen,
+            # 5 calls/day (one per call site), 0 failures.
             - name: LEAN_BIOLABELS
-              value: "shadow"
+              value: "on"
           resources:
             requests:
               # Idle most of the time; a /api/velocity compute is a short CPU

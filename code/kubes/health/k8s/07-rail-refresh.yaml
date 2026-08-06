@@ -47,8 +47,11 @@ spec:
                 # ceiling like 08-decode-recent does, because a rail graph is
                 # large (the fixture measures V=22310 / E=110764) and the
                 # adjacency crosses the bridge as JSON.
+                # PROMOTED shadow->on 2026-08-06 (#432). This cron is where the
+                # tenant has volume, and it is what earned the flip: EXACT over
+                # 28 calls in a 21-day window, 0 failures.
                 - name: LEAN_RAIL
-                  value: "shadow"
+                  value: "on"
                 - name: LEAN_CALL_TIMEOUT_MS
                   value: "30000"
                 - name: DB_HOST
