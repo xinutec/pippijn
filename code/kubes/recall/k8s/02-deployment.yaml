@@ -105,6 +105,20 @@ spec:
                   optional: true
             - name: RECALL_ALLOWED_USERS
               value: pippijn
+            # The Android meeting recorder's upload credential. A phone cannot do the
+            # OAuth login above — the WebView that can is a separate app with its own
+            # cookie jar — so without this every `POST /api/sessions` from the app is a
+            # 401, which is exactly what happened until 2026-08-07. Accepted on that one
+            # route and no other, so it does not become a reader of the transcripts.
+            # Deliberately NOT SYNC_TOKEN: a phone is easier to lose than the Mac, and
+            # that key opens all of /sync/*. Optional like the SSO keys — unset simply
+            # leaves uploads cookie-only.
+            - name: RECALL_DEVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: recall-secret
+                  key: DEVICE_TOKEN
+                  optional: true
             # The WireGuard address from 03-service.yaml's hostIP: the browser is
             # on the far side of the tunnel, so the callback must be an address it
             # can actually reach — not a cluster-internal name.
