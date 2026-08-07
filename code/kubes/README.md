@@ -43,6 +43,32 @@ uncommitted edit no longer works, which is the guards doing their job.
   Deployment explicitly got this right, and an early version of the replacement
   did not.
 
+## Secrets, and why most `secret.sh` are readable
+
+Each app has a `k8s/secret.sh`, run once on the host to create its k8s secret.
+**Ten of the twelve are plaintext in git, and that is correct**: they generate
+every credential at run time (`openssl rand`, `/dev/urandom`), so the only
+literals in them are usernames like `DB_USER=coach`.
+
+The two that DO hold literal credentials — `nextcloud/nextcloud/secret.sh` and
+`health/k8s/secret.sh` — are the two encrypted with git-crypt. The rule for the
+first lives in a **nested** `.gitattributes` beside it, not in the repo root's,
+so the root list is not the whole picture.
+
+This repository is **public**, and it is **unlocked in a working checkout**. Those
+two files therefore read as plaintext locally while being ciphertext on GitHub.
+Do not judge exposure by opening the file; ask git what it stores:
+
+```
+git cat-file blob HEAD:code/kubes/nextcloud/nextcloud/secret.sh | head -c 16
+```
+
+A `\x00GITCRYPT` prefix means encrypted. Reading the working tree instead produced
+a false "credentials have been public for 19 months" report on 2026-08-07.
+
+**Adding an app whose secret.sh needs a literal? Add its git-crypt rule first,
+then the literal** — in that order, or the plaintext is in history for good.
+
 ## Not covered
 
 `cert-manager`, `ingress-nginx`, `mailu-mailserver` and `nextcloud` keep their
