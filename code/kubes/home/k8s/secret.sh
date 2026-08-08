@@ -16,12 +16,21 @@ kubectl create namespace home --dry-run=client -o yaml | kubectl apply -f -
 # Only create the secret if it doesn't exist, so re-runs don't rotate the
 # passwords out from under a running DB.
 if ! kubectl -n home get secret home-secret >/dev/null 2>&1; then
+  # Assigned before the command, not substituted inside its arguments — the
+  # second half of the lesson in this file's header. Moving off openssl stopped
+  # the generator failing; it did not stop a failing generator being INVISIBLE,
+  # because a substitution in an argument has its status discarded and `set -e`
+  # never sees it. The all-empty secret got here by both together.
+  DB_PASSWORD="$(rnd 16)"
+  DB_ROOT_PASSWORD="$(rnd 16)"
+  INGEST_TOKEN="$(rnd 24)"
+  SESSION_SECRET="$(rnd 32)"
   kubectl -n home create secret generic home-secret \
     --from-literal=DB_USER=home \
-    --from-literal="DB_PASSWORD=$(rnd 16)" \
-    --from-literal="DB_ROOT_PASSWORD=$(rnd 16)" \
-    --from-literal="INGEST_TOKEN=$(rnd 24)" \
-    --from-literal="SESSION_SECRET=$(rnd 32)"
+    --from-literal="DB_PASSWORD=$DB_PASSWORD" \
+    --from-literal="DB_ROOT_PASSWORD=$DB_ROOT_PASSWORD" \
+    --from-literal="INGEST_TOKEN=$INGEST_TOKEN" \
+    --from-literal="SESSION_SECRET=$SESSION_SECRET"
   echo "home-secret created."
 else
   echo "home-secret already exists — leaving it untouched."

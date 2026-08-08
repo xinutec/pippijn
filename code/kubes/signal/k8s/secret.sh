@@ -18,10 +18,19 @@ gen() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32; }
 
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 
+# Assigned before the command rather than substituted inside its arguments. `gen`
+# reads /dev/urandom and will not fail, so nothing is broken here today — the
+# shape is. A substitution inline in an argument has its exit status discarded,
+# so `set -e` cannot see it and a generator that stopped working would be written
+# into the secret as an empty password, with kubectl exiting 0. That is not
+# hypothetical: `home` shipped it and `health` still had it until 2026-08-08.
+DB_PASSWORD="$(gen)"
+DB_ROOT_PASSWORD="$(gen)"
+
 kubectl -n "$NS" create secret generic signal-secret \
   --from-literal=DB_USER=signal \
-  --from-literal=DB_PASSWORD="$(gen)" \
-  --from-literal=DB_ROOT_PASSWORD="$(gen)"
+  --from-literal=DB_PASSWORD="$DB_PASSWORD" \
+  --from-literal=DB_ROOT_PASSWORD="$DB_ROOT_PASSWORD"
 
 echo "Created signal-secret in namespace '$NS'."
 echo "After linking, add the account number:"
