@@ -53,6 +53,21 @@ resource "cloudflare_dns_record" "org_memview" {
   proxied = false
 }
 
+# tasks.xinutec.org — the work Claude sessions and Pippijn hand between each
+# other, on isis, VPN-only. Same posture as memview beside it: the WireGuard IP
+# keeps the name unlisted, and the real gate is the Nextcloud login plus the
+# pippijn-only allow-list, since the isis ingress also answers on the public IP.
+# A DNS-01 cert for the same reason — HTTP-01 cannot validate a name that
+# resolves inside the tunnel. See code/kubes/tasks.
+resource "cloudflare_dns_record" "org_tasks" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "tasks"
+  content = local.hosts.vpn_isis
+  ttl     = 3600
+  proxied = false
+}
+
 # fleetwatch.xinutec.org — fleet monitoring dashboard on isis. Points at isis's
 # WireGuard IP so it's unlisted publicly, but the real gate is a Nextcloud login
 # on the read UI (the ingress answers on the public IP too — DNS is not a gate;
