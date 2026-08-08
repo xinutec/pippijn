@@ -1,0 +1,115 @@
+# GENERATED from dhall/apps/tasks.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+#
+# MariaDB has NO downgrade path. Before changing the engine version
+# (lib/render.dhall, one line, bumps every database at once):
+#   scripts/mariadb-major-upgrade.sh before <app> <db>   (then after)
+# strategy is Recreate: a single RWO PVC must never have two DB pods.
+# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "tasks-db"
+  namespace: tasks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "tasks-db"
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: "tasks-db"
+    spec:
+      containers:
+      - env:
+        - name: MARIADB_AUTO_UPGRADE
+          value: '1'
+        - name: MARIADB_DATABASE
+          value: tasks
+        - name: MARIADB_USER
+          valueFrom:
+            secretKeyRef:
+              key: DB_USER
+              name: "tasks-secret"
+        - name: MARIADB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_PASSWORD
+              name: "tasks-secret"
+        - name: MARIADB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_ROOT_PASSWORD
+              name: "tasks-secret"
+        image: "mariadb:12.3"
+        livenessProbe:
+          exec:
+            command:
+            - healthcheck.sh
+            - "--connect"
+            - "--innodb_initialized"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        name: mariadb
+        ports:
+        - containerPort: 3306
+        readinessProbe:
+          exec:
+            command:
+            - healthcheck.sh
+            - "--connect"
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          exec:
+            command:
+            - healthcheck.sh
+            - "--connect"
+          failureThreshold: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - mountPath: /var/lib/mysql
+          name: data
+          subPath: "mariadb-data"
+      securityContext:
+        fsGroup: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        runAsUser: 999
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: "tasks-db-pvc"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "tasks-db"
+  namespace: tasks
+spec:
+  clusterIP: None
+  ports:
+  - port: 3306
+    targetPort: 3306
+  selector:
+    app: "tasks-db"

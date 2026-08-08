@@ -25,6 +25,7 @@ in  { -- Hosts (the machines themselves)
     , nocodb = sub "nocodb"
     , sinterklaas = sub "sinterklaas"
     , slides = sub "slides"
+    , tasks = sub "tasks"
     , utterance = sub "utterance"
     , vault = sub "vault"
     , domain

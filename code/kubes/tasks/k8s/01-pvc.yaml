@@ -1,0 +1,15 @@
+# GENERATED from dhall/apps/tasks.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: "tasks-db-pvc"
+  namespace: tasks
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+

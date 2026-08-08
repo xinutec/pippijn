@@ -1,0 +1,102 @@
+# GENERATED from dhall/apps/tasks.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tasks
+  namespace: tasks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tasks
+  template:
+    metadata:
+      labels:
+        app: tasks
+    spec:
+      containers:
+      - env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: "tasks-secret"
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: SESSION_SECRET
+              name: "tasks-secret"
+        - name: NC_BASE_URL
+          value: "https://dash.xinutec.org"
+        - name: NC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_ID
+              name: "tasks-secret"
+        - name: NC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_SECRET
+              name: "tasks-secret"
+        - name: NC_INTERNAL_URL
+          value: "http://nextcloud-server.nextcloud.svc.cluster.local"
+        - name: NC_REDIRECT_URI
+          value: "https://tasks.xinutec.org/auth/callback"
+        - name: ALLOWED_USERS
+          value: pippijn
+        - name: AGENT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: AGENT_TOKEN
+              name: "tasks-secret"
+        - name: RUST_LOG
+          value: "info,tasks=debug"
+        image: "xinutec/tasks:latest"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8092
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: tasks
+        ports:
+        - containerPort: 8092
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8092
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      securityContext:
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tasks
+  namespace: tasks
+spec:
+  ports:
+  - port: 80
+    targetPort: 8092
+  selector:
+    app: tasks

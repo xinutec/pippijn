@@ -1,0 +1,21 @@
+# GENERATED from dhall/apps/tasks.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "tasks-db-from-app-only"
+  namespace: tasks
+spec:
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: tasks
+    ports:
+    - port: 3306
+  podSelector:
+    matchLabels:
+      app: "tasks-db"
+  policyTypes:
+  - Ingress
