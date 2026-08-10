@@ -15,6 +15,7 @@ let T = ../lib/types.dhall
 let dns = ../dns.dhall
 
 in    { name = "httpd-isis"
+      , cluster = T.Cluster.isis
       , slug = "isis"
       , host = Some dns.isis
       , replicas = 2

@@ -12,9 +12,13 @@
 -- rather than by a decision. Task #691 has the history.
 let S = ../lib/site.dhall
 
+let T = ../lib/types.dhall
+
 let dns = ../dns.dhall
 
 in    { name = "httpd-sinterklaas"
+      , -- On amun, beside httpd-amun — not isis, where the rest of the fleet is.
+        cluster = T.Cluster.amun
       , slug = "sinterklaas"
       , host = Some dns.sinterklaas
       , replicas = 2

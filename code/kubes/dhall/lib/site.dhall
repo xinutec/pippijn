@@ -83,6 +83,13 @@ let Site =
         --  renaming a live Ingress costs an outage per host (the nginx admission
         --  webhook refuses the overlap, so it is delete-then-create, not apply).
         slug : Text
+      , --| Which k3s cluster serves it. NOT decoration and not derivable: isis
+        --  and amun are two clusters, `scripts/apply.sh` defaults to isis, and
+        --  the four sites are split two-and-two between them. Without this field
+        --  a site cannot say where it lives, and a dry run against the wrong
+        --  cluster reports "nothing exists here" — which reads exactly like a
+        --  first deploy rather than like a mistake. That happened.
+        cluster : T.Cluster
       , host : Optional Text
       , replicas : Natural
       , webroot : Webroot
@@ -585,6 +592,15 @@ let redirect
 --| The declared-unowned filenames, one per line, for the generator's `--check`.
 --  A fold rather than a Prelude import: this directory deliberately vendors the
 --  two list helpers it needs instead of pulling a package over the network.
+--| The host `scripts/apply.sh --host` needs, from the model rather than from
+--  whoever is typing. See `Site.cluster`.
+let clusterHost
+    : Site → Text
+    = λ(site : Site) →
+        merge
+          { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
+          site.cluster
+
 let netpolWaiver
     : Site → Bool
     = λ(site : Site) → site.netpolWaiver
@@ -614,6 +630,7 @@ in  { Doc
     , webrootPath
     , storageWaiver
     , netpolWaiver
+    , clusterHost
     , unownedFiles
     , configMaps
     , pvc

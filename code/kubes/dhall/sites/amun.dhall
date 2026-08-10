@@ -8,9 +8,13 @@
 -- replacing the directory.
 let S = ../lib/site.dhall
 
+let T = ../lib/types.dhall
+
 let dns = ../dns.dhall
 
 in    { name = "httpd-amun"
+      , -- amun serves itself; its k3s is a different cluster from isis.
+        cluster = T.Cluster.amun
       , slug = "amun"
       , host = Some dns.amun
       , replicas = 2

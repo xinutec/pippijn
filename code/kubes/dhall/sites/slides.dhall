@@ -16,6 +16,7 @@ let T = ../lib/types.dhall
 let dns = ../dns.dhall
 
 in    { name = "slides"
+      , cluster = T.Cluster.isis
       , slug = "slides"
       , host = Some dns.slides
       , replicas = 1
