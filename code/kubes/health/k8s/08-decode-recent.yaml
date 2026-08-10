@@ -159,6 +159,32 @@ spec:
                 # ledger. Only the authorship of the persisted row changes.
                 - name: LEAN_HSMM
                   value: "shadow"
+                # Verified Lean station-chain resolver (#711). Added 2026-08-10:
+                # this flag did not exist until then, so the tenant was observed
+                # NOWHERE on live data -- the same hole LEAN_RAIL had before
+                # 2026-08-01. The port has been complete and compared 11/11 on
+                # the decoded-day corpus since #672; what it lacked was any
+                # measurement on days nobody chose to capture.
+                #
+                # `shadow` and not `on` for the reason that keeps HSMM and
+                # PASSES at shadow: this resolver runs inside
+                # segmentsFromStates, so its board/alight stations are PERSISTED
+                # to decoded_days by this very job. Production writes come from
+                # the TS implementation while Lean runs alongside as
+                # measurement.
+                #
+                # Costs this job ~2.87 MiB/day of extra request (measured over
+                # the 11 fixtures; 3.31 max), 81% of it the route graph, which
+                # cannot be pruned without moving results -- see
+                # src/lean/lean-station-chain.ts. That is under a tenth of what
+                # LEAN_HSMM above already ships (#411).
+                #
+                # Reads as `lean-stationchain[shadow] <date> EXACT n pair(s) /
+                # m leg(s)` per day, and a day with no named-line train leg
+                # makes no bridge call at all rather than paying 2.87 MiB to
+                # decide nothing.
+                - name: LEAN_STATIONCHAIN
+                  value: "shadow"
                 # Serve the verified Lean geometry passes when re-decoding days
                 # (docs/proposals/2026-07-verified-core-lean.md) — kept identical
                 # to the health-auth server so a cached (cron-persisted) day and a

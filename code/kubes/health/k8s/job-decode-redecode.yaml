@@ -92,6 +92,11 @@ spec:
               value: "on"
             - name: LEAN_PASSES
               value: "on"
+            # #711 — shadow here as in 08-decode-recent.yaml. A redecode that
+            # measured nothing about this tenant would be the one run where a
+            # divergence is cheapest to find and would be invisible.
+            - name: LEAN_STATIONCHAIN
+              value: "shadow"
             # The reason this Job exists. See 03-auth.yaml for the rollback.
             - name: LEAN_MATCH
               value: "shadow"
