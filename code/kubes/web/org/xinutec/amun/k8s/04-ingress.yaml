@@ -1,0 +1,54 @@
+# GENERATED from dhall/sites/amun.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+  name: "amun-ingress"
+  namespace: web
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: amun.xinutec.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: "httpd-amun"
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - amun.xinutec.org
+    secretName: "amun-tls"
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+    "nginx.ingress.kubernetes.io/permanent-redirect": "https://amun.xinutec.org$request_uri"
+  name: "xinutec-apex-redirect"
+  namespace: web
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: xinutec.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: "httpd-amun"
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - xinutec.org
+    secretName: "xinutec-apex-tls"

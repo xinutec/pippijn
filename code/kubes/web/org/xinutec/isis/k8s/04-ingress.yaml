@@ -1,0 +1,27 @@
+# GENERATED from dhall/sites/isis.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+  name: "isis-ingress"
+  namespace: web
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: isis.xinutec.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: "httpd-isis"
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - isis.xinutec.org
+    secretName: "isis-tls"

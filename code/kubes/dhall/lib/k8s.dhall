@@ -14,6 +14,10 @@ let Meta =
       { name : Text
       , namespace : Optional Text
       , annotations : Optional (List { mapKey : Text, mapValue : Text })
+      , -- Labels on the OBJECT, distinct from the pod-template labels a
+        -- Deployment selects on. Only the static sites set them, and only on
+        -- their Service, where the convention predates this model.
+        labels : Optional (List { mapKey : Text, mapValue : Text })
       }
 
 let Quantity = { cpu : Text, memory : Text }
@@ -53,7 +57,12 @@ let emptyProbe =
 
 let ContainerPort = { containerPort : Natural }
 
-let VolumeMount = { name : Text, mountPath : Text, subPath : Text }
+let VolumeMount =
+      { name : Text
+      , mountPath : Text
+      , subPath : Optional Text
+      , readOnly : Optional Bool
+      }
 
 let ContainerSecurityContext =
       { allowPrivilegeEscalation : Bool
@@ -66,6 +75,10 @@ let PodSecurityContext =
       , runAsUser : Natural
       , runAsGroup : Natural
       , fsGroup : Optional Natural
+      , -- `OnRootMismatch` skips the recursive chown when the volume root is
+        -- already group-owned. Only meaningful alongside `fsGroup`, and only the
+        -- static sites with a webroot PVC set it today.
+        fsGroupChangePolicy : Optional Text
       , seccompProfile : { type : Text }
       }
 
@@ -80,10 +93,30 @@ let Container =
       , startupProbe : Optional Probe
       , livenessProbe : Optional Probe
       , readinessProbe : Optional Probe
-      , resources : Resources
+      , -- Optional HERE and required in `T.Workload`, which is the distinction
+        -- that matters: every app the fleet BUILDS must state its limits, and
+        -- `T.Resources` makes that impossible to omit. The four static sites run
+        -- a stock `nginx-unprivileged` with no `resources` block at all and
+        -- carry the `allow-no-mem-limit` waiver for it; rendering an invented
+        -- limit onto four live pods to satisfy a type would be the model
+        -- changing production to flatter itself.
+        resources : Optional Resources
       }
 
-let Volume = { name : Text, persistentVolumeClaim : { claimName : Text } }
+let Volume =
+      { name : Text
+      , persistentVolumeClaim : Optional { claimName : Text }
+      , configMap : Optional { name : Text }
+      }
+
+--| Files served or mounted as configuration. `data` is a map, so the KEY is the
+--  filename inside the mount and the value is its whole contents.
+let ConfigMap =
+      { apiVersion : Text
+      , kind : Text
+      , metadata : Meta
+      , data : List { mapKey : Text, mapValue : Text }
+      }
 
 let PodSpec =
       { securityContext : PodSecurityContext
@@ -91,10 +124,19 @@ let PodSpec =
       , volumes : List Volume
       }
 
---| Every workload in this fleet is selected by a single `app` label. Modelling
---  the selector as a record rather than a free-form map is what makes it
---  impossible for a Service selector and its pod template to disagree.
-let Selector = { app : Text }
+--| The labels that tie a pod template, its Service and its policies together.
+--
+-- A free-form map rather than a fixed `{ app : Text }` record, because the fleet
+-- has two conventions and neither can be changed: the apps select on `app`, and
+-- the static sites under `web/` select on `run`. **A Deployment's
+-- `spec.selector` is immutable** — the API rejects an edit — so rewriting the
+-- sites to `app` would mean deleting and recreating four live Deployments.
+--
+-- What stops a Service selector disagreeing with its pod template is NOT the
+-- record shape: it is that one expression (`render.dhall`'s `appLabels`,
+-- `site.dhall`'s `runLabels`) produces the value everywhere it is needed. The
+-- shape only ever documented the convention; the derivation is the guarantee.
+let Labels = List { mapKey : Text, mapValue : Text }
 
 let Deployment =
       { apiVersion : Text
@@ -103,12 +145,16 @@ let Deployment =
       , spec :
           { replicas : Natural
           , strategy : Optional { type : Text }
-          , selector : { matchLabels : Selector }
-          , template : { metadata : { labels : Selector }, spec : PodSpec }
+          , selector : { matchLabels : Labels }
+          , template : { metadata : { labels : Labels }, spec : PodSpec }
           }
       }
 
-let ServicePort = { port : Natural, targetPort : Optional Natural }
+let ServicePort =
+      { port : Natural
+      , targetPort : Optional Natural
+      , protocol : Optional Text
+      }
 
 let Service =
       { apiVersion : Text
@@ -116,7 +162,7 @@ let Service =
       , metadata : Meta
       , spec :
           { clusterIP : Optional Text
-          , selector : Selector
+          , selector : Labels
           , ports : List ServicePort
           }
       }
@@ -151,7 +197,7 @@ let Ingress =
       }
 
 let NetworkPolicyPeer =
-      { podSelector : Optional { matchLabels : Selector }
+      { podSelector : Optional { matchLabels : Labels }
       , namespaceSelector :
           Optional
             { matchLabels : List { mapKey : Text, mapValue : Text } }
@@ -162,7 +208,7 @@ let NetworkPolicy =
       , kind : Text
       , metadata : Meta
       , spec :
-          { podSelector : { matchLabels : Selector }
+          { podSelector : { matchLabels : Labels }
           , policyTypes : List Text
           , ingress :
               List
@@ -187,8 +233,9 @@ in  { Meta
     , PodSecurityContext
     , Container
     , Volume
+    , ConfigMap
     , PodSpec
-    , Selector
+    , Labels
     , Deployment
     , ServicePort
     , Service

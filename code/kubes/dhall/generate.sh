@@ -46,6 +46,23 @@ manifests=(
   "06-networkpolicy-app-held.yaml:netpolAppHeld"
 )
 
+# The same, for the static sites under web/org/xinutec/. A separate list because
+# a site is a different KIND of thing, not an app with fields switched off — see
+# lib/site.dhall. It renders no Namespace: all four share `web`, which
+# kubes/web/k8s owns, and a second copy of a shared object is how two trees start
+# fighting over it.
+site_manifests=(
+  "00-configmap.yaml:configMaps"
+  "01-pvc.yaml:pvc"
+  "02-deployment.yaml:deployment"
+  "03-service.yaml:service"
+  "04-ingress.yaml:ingress"
+)
+
+site_tree() { # site -> its live manifest directory, relative to kubes/
+  printf 'web/org/xinutec/%s/k8s' "$1"
+}
+
 ask() { # app expr -> the model's normalised answer
   # Evaluate a plain (non-manifest) expression against an app model, for facts
   # the generator needs that do not appear in the rendered YAML. Typechecked like
@@ -59,6 +76,57 @@ ask_text() { # app expr -> the model's answer, as raw text
   # gives the string itself, which is what gets embedded in a comment.
   printf 'let R = %s/lib/render.dhall in R.%s %s/apps/%s.dhall\n' \
     "$here" "$2" "$here" "$1" | dhall text
+}
+
+site_render() { # site renderer -> YAML documents (nothing if the renderer opts out)
+  local out
+  out=$(printf 'let S = %s/lib/site.dhall in S.%s %s/sites/%s.dhall\n' \
+    "$here" "$2" "$here" "$1" |
+    dhall-to-yaml-ng --omit-empty --documents)
+  [[ $out == "---"$'\n'"null" ]] && return 0
+  printf '%s' "$out"
+}
+
+site_ask() { # site expr -> the model's normalised answer
+  printf 'let S = %s/lib/site.dhall in S.%s %s/sites/%s.dhall\n' \
+    "$here" "$2" "$here" "$1" | dhall
+}
+
+site_ask_text() { # site expr -> the model's answer, as raw text
+  printf 'let S = %s/lib/site.dhall in S.%s %s/sites/%s.dhall\n' \
+    "$here" "$2" "$here" "$1" | dhall text
+}
+
+compare() { # label live-dir model-file [unowned-file ...]
+  # Concatenate the live tree and diff it against what the model produced, both
+  # normalised. Each file needs its own document separator, or two files
+  # concatenate into one malformed document and the diff becomes nonsense.
+  local label=$1 dir=$2 model=$3; shift 3
+  local live="$tmp/$label.live.yaml" f skip
+  : > "$live"
+  for f in "$dir"/*.yaml; do
+    skip=0
+    for u in "$@"; do
+      [[ $(basename "$f") == "$u" ]] && skip=1
+    done
+    # A file the model DECLARED it does not own. Anything else that is present
+    # and unmodelled still shows up in the diff, which is the point: an
+    # undeclared manifest is a failure, and the only way to make one not a
+    # failure is to say so in the model.
+    (( skip )) && continue
+    { printf -- '---\n'; cat "$f"; printf '\n'; } >> "$live"
+  done
+  if ! diff -u \
+         <(python3 "$here/normalize.py" < "$live") \
+         <(python3 "$here/normalize.py" < "$model") \
+         > "$tmp/$label.diff"; then
+    echo "===== $label: live tree → model"
+    tail -n +3 "$tmp/$label.diff"
+    echo
+    status=1
+  else
+    echo "===== $label: model matches the live tree"
+  fi
 }
 
 netpol_anchor_file() { # app -> the manifest that carries the namespace's first Deployment
@@ -183,6 +251,45 @@ header() { # app file netpol_anchor
   fi
 }
 
+site_header() { # site file
+  printf '# GENERATED from dhall/sites/%s.dhall by dhall/generate.sh — do not edit.\n' "$1"
+  printf '# Change the model and re-render; hand edits are overwritten.\n'
+  case $2 in
+    02-deployment.yaml)
+      # Both waivers are facts about the STOCK nginx image, so every site
+      # carries them and none of them is a per-site decision: the image writes
+      # its own /tmp and pid file, and it ships with no resource block. They are
+      # emitted here rather than modelled because a waiver is a statement about
+      # dev-lint, not about the deployment — same split as the app renderer's.
+      printf '#\n'
+      printf '# dev-lint: allow-rootfs-rw — the stock nginx-unprivileged image writes /tmp and its pid file\n'
+      printf '# dev-lint: allow-no-mem-limit — stock image, never sized (fix: size from kubectl top)\n'
+      if [[ $(site_ask "$1" netpolWaiver) == True ]]; then
+        # DL-K8S-NP-DEFAULT-DENY anchors on the FIRST Deployment in a namespace,
+        # and all four sites share `web` — so exactly ONE of them may carry this
+        # and the model says which. dev-lint fails a waiver that waives nothing,
+        # so a second one would be caught rather than silently over-waiving.
+        printf '# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
+      fi
+      ;;
+  esac
+}
+
+site_waiver() { # site file body -> body, with any in-document waiver injected
+  # As doc_waiver, and for the same reason: DL-DEPLOY-BACKUP-COVERAGE walks up
+  # from the document's first key and stops at the leading `---`, so a line above
+  # the separator is never seen. A site renders at most one claim, so this
+  # anchors on the first separator rather than the last.
+  [[ $2 == 01-pvc.yaml ]] || { printf '%s' "$3"; return; }
+  local why
+  why=$(site_ask_text "$1" storageWaiver)
+  [[ -n $why ]] || { printf '%s' "$3"; return; }
+  local waiver="# dev-lint: allow-""backup-coverage $why"
+  printf '%s' "$3" | awk '
+    /^---$/ && !done { print; print WAIVER; done = 1; next }
+    { print }' WAIVER="$waiver"
+}
+
 status=0
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -212,24 +319,34 @@ for src in "$here"/apps/*.dhall; do
     [[ $mode == write ]] && { header "$app" "$file" "$is_anchor"; doc_waiver "$app" "$file" "$body"; } > "$outdir/$file"
   done
 
-  if [[ $mode == check ]]; then
-    # Each file needs its own document separator, or two files concatenate into
-    # one malformed document and the diff becomes nonsense.
-    : > "$tmp/$app.live.yaml"
-    for f in "$kubes/$app"/k8s/*.yaml; do
-      { printf -- '---\n'; cat "$f"; printf '\n'; } >> "$tmp/$app.live.yaml"
+  [[ $mode == check ]] && compare "$app" "$kubes/$app/k8s" "$tmp/$app.model.yaml"
+done
+
+for src in "$here"/sites/*.dhall; do
+  site=$(basename "$src" .dhall)
+  outdir="$here/generated/site-$site"
+  [[ $mode == write ]] && { rm -rf "$outdir"; mkdir -p "$outdir"; }
+  : > "$tmp/$site.model.yaml"
+
+  for entry in "${site_manifests[@]}"; do
+    file=${entry%%:*}
+    body=""
+    for r in ${entry#*:}; do
+      body+=$(site_render "$site" "$r")
+      body+=$'\n'
     done
-    if ! diff -u \
-           <(python3 "$here/normalize.py" < "$tmp/$app.live.yaml") \
-           <(python3 "$here/normalize.py" < "$tmp/$app.model.yaml") \
-           > "$tmp/$app.diff"; then
-      echo "===== $app: live tree → model"
-      tail -n +3 "$tmp/$app.diff"
-      echo
-      status=1
-    else
-      echo "===== $app: model matches the live tree"
-    fi
+    [[ -z ${body//[$'\n']/} ]] && continue
+
+    printf '%s' "$body" >> "$tmp/$site.model.yaml"
+    printf '\n' >> "$tmp/$site.model.yaml"
+
+    [[ $mode == write ]] && { site_header "$site" "$file"; site_waiver "$site" "$file" "$body"; } > "$outdir/$file"
+  done
+
+  if [[ $mode == check ]]; then
+    # The model states which files it does NOT own, and only those are excluded.
+    mapfile -t unowned < <(site_ask_text "$site" unownedFiles | grep -v '^$' || true)
+    compare "$site" "$kubes/$(site_tree "$site")" "$tmp/$site.model.yaml" "${unowned[@]}"
   fi
 done
 

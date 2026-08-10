@@ -1,0 +1,20 @@
+# GENERATED from dhall/sites/isis.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: v1
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        location ~ \.(md|py|sh)$ {
+            default_type text/plain;
+        }
+    }
+kind: ConfigMap
+metadata:
+  name: "httpd-isis-nginx-config"
+  namespace: web

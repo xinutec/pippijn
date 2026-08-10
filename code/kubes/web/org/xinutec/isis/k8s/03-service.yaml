@@ -1,0 +1,17 @@
+# GENERATED from dhall/sites/isis.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    run: "httpd-isis"
+  name: "httpd-isis"
+  namespace: web
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    run: "httpd-isis"

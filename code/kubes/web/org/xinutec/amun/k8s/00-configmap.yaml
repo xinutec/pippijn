@@ -1,15 +1,7 @@
-# First, create a ConfigMap whose contents are used
-# as the nginx.conf file in the web server. 
-# This server uses /var/www/html as its
-# root document directory. When the server gets a 
-# request for *.php, it will forward that request
-# to our PHP-FPM container.
+# GENERATED from dhall/sites/amun.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
 ---
 apiVersion: v1
-kind: ConfigMap
-metadata:
-  namespace: web
-  name: assetlinks-config
 data:
   assetlinks.json: |
     [{
@@ -21,3 +13,7 @@ data:
         ["FF:2A:CF:7B:DD:CC:F1:03:3E:E8:B2:27:7C:A2:E3:3C:DE:13:DB:AC:8E:EB:3A:B9:72:A1:0E:26:8A:F5:EC:AF"]
       }
     }]
+kind: ConfigMap
+metadata:
+  name: "assetlinks-config"
+  namespace: web

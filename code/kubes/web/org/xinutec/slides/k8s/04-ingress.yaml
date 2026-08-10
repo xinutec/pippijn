@@ -1,0 +1,30 @@
+# GENERATED from dhall/sites/slides.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+    "nginx.ingress.kubernetes.io/auth-realm": Authentication required
+    "nginx.ingress.kubernetes.io/auth-secret": "web/slides-auth"
+    "nginx.ingress.kubernetes.io/auth-type": basic
+  name: "slides-ingress"
+  namespace: web
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: slides.xinutec.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: slides
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - slides.xinutec.org
+    secretName: "slides-tls"

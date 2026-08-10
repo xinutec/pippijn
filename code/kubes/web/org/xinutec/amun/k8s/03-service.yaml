@@ -1,0 +1,17 @@
+# GENERATED from dhall/sites/amun.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    run: "httpd-amun"
+  name: "httpd-amun"
+  namespace: web
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    run: "httpd-amun"

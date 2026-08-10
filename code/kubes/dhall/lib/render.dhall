@@ -51,16 +51,30 @@ let dataPvcName = λ(app : T.App) → "${app.name}-data-pvc"
 --  `data` volume, which lives in a different pod entirely.
 let dataVolumeName = "app-data"
 
+--| The labels an app's pod template, Service and policies all select on. One
+--  expression, so a Service selector cannot disagree with what it selects.
+let appLabels
+    : Text → K.Labels
+    = λ(name : Text) → toMap { app = name }
+
 let meta
     : Text → Text → K.Meta
     = λ(name : Text) →
       λ(ns : Text) →
-        { name, namespace = Some ns, annotations = None Annotations }
+        { name
+        , namespace = Some ns
+        , annotations = None Annotations
+        , labels = None Annotations
+        }
 
 let clusterMeta
     : Text → K.Meta
     = λ(name : Text) →
-        { name, namespace = None Text, annotations = None Annotations }
+        { name
+        , namespace = None Text
+        , annotations = None Annotations
+        , labels = None Annotations
+        }
 
 let renderEnv
     : Text → T.EnvVar → K.EnvVar
@@ -114,6 +128,18 @@ let baseContainer =
       , readinessProbe = None K.Probe
       }
 
+--| A declared mount, widened to the API shape. `T.VolumeMount` keeps `subPath`
+--  required because every mount the fleet declares has one; the API field is
+--  optional, and the sites use it both ways.
+let k8sMount
+    : T.VolumeMount → K.VolumeMount
+    = λ(m : T.VolumeMount) →
+        { name = m.name
+        , mountPath = m.mountPath
+        , subPath = Some m.subPath
+        , readOnly = None Bool
+        }
+
 let podSecurityContext
     : Natural → Optional Natural → K.PodSecurityContext
     = λ(uid : Natural) →
@@ -122,6 +148,7 @@ let podSecurityContext
         , runAsUser = uid
         , runAsGroup = uid
         , fsGroup
+        , fsGroupChangePolicy = None Text
         , seccompProfile.type = "RuntimeDefault"
         }
 
@@ -226,9 +253,9 @@ let dbDeployment
                     { replicas = 1
                     , -- Single RWO PVC: never run two DB pods at once.
                       strategy = Some { type = "Recreate" }
-                    , selector.matchLabels.app = dbName app
+                    , selector.matchLabels = appLabels (dbName app)
                     , template =
-                      { metadata.labels.app = dbName app
+                      { metadata.labels = appLabels (dbName app)
                       , spec =
                         { -- The official image runs as uid 999 (mysql) when
                           -- started unprivileged; fsGroup keeps the data dir
@@ -280,7 +307,8 @@ let dbDeployment
                               , volumeMounts =
                                 [ { name = "data"
                                   , mountPath = "/var/lib/mysql"
-                                  , subPath = "mariadb-data"
+                                  , subPath = Some "mariadb-data"
+                                  , readOnly = None Bool
                                   }
                                 ]
                               , -- startupProbe holds liveness off until the
@@ -314,12 +342,14 @@ let dbDeployment
                                       , periodSeconds = Some 5
                                       }
                                   )
-                              , resources = d.resources
+                              , resources = Some d.resources
                               }
                           ]
                         , volumes =
                           [ { name = "data"
-                            , persistentVolumeClaim.claimName = pvcName app
+                            , persistentVolumeClaim = Some
+                              { claimName = pvcName app }
+                            , configMap = None { name : Text }
                             }
                           ]
                         }
@@ -343,8 +373,13 @@ let dbService
                   , spec =
                     { -- headless; the app reaches it by name
                       clusterIP = Some "None"
-                    , selector.app = dbName app
-                    , ports = [ { port = 3306, targetPort = Some 3306 } ]
+                    , selector = appLabels (dbName app)
+                    , ports =
+                      [ { port = 3306
+                        , targetPort = Some 3306
+                        , protocol = None Text
+                        }
+                      ]
                     }
                   }
                 ]
@@ -363,7 +398,8 @@ let appDeployment
                     λ(s : T.Storage) →
                       [ { name = dataVolumeName
                         , mountPath = s.mountPath
-                        , subPath = s.subPath
+                        , subPath = Some s.subPath
+                        , readOnly = None Bool
                         }
                       ]
                 , None = [] : List K.VolumeMount
@@ -375,7 +411,9 @@ let appDeployment
                 { Some =
                     λ(_ : T.Storage) →
                       [ { name = dataVolumeName
-                        , persistentVolumeClaim.claimName = dataPvcName app
+                        , persistentVolumeClaim = Some
+                          { claimName = dataPvcName app }
+                        , configMap = None { name : Text }
                         }
                       ]
                 , None = [] : List K.Volume
@@ -400,9 +438,9 @@ let appDeployment
               , spec =
                 { replicas = 1
                 , strategy = None { type : Text }
-                , selector.matchLabels.app = w.name
+                , selector.matchLabels = appLabels w.name
                 , template =
-                  { metadata.labels.app = w.name
+                  { metadata.labels = appLabels w.name
                   , spec =
                     { securityContext = podSecurityContext w.uid fsGroup
                     , containers =
@@ -431,8 +469,8 @@ let appDeployment
                                   , periodSeconds = Some 20
                                   }
                               )
-                          , resources = w.resources
-                          , volumeMounts = w.mounts # dataMounts
+                          , resources = Some w.resources
+                          , volumeMounts = L.map T.VolumeMount K.VolumeMount k8sMount w.mounts # dataMounts
                           }
                       ]
                     , volumes = dataVolumes
@@ -450,8 +488,13 @@ let appService
           , metadata = meta app.workload.name app.name
           , spec =
             { clusterIP = None Text
-            , selector.app = app.workload.name
-            , ports = [ { port = 80, targetPort = Some app.workload.port } ]
+            , selector = appLabels app.workload.name
+            , ports =
+              [ { port = 80
+                , targetPort = Some app.workload.port
+                , protocol = None Text
+                }
+              ]
             }
           }
         ]
@@ -508,14 +551,14 @@ let netpolDb
                   , kind = "NetworkPolicy"
                   , metadata = meta "${app.name}-db-from-app-only" app.name
                   , spec =
-                    { podSelector.matchLabels.app = dbName app
+                    { podSelector.matchLabels = appLabels (dbName app)
                     , policyTypes = [ "Ingress" ]
                     , ingress =
                       [ { from =
                           [ { podSelector = Some
-                              { matchLabels.app = app.workload.name }
+                              { matchLabels = appLabels app.workload.name }
                             , namespaceSelector =
-                                None { matchLabels : Annotations }
+                                None { matchLabels : K.Labels }
                             }
                           ]
                         , ports = [ { port = 3306 } ]
@@ -542,11 +585,11 @@ let netpolAppHeld
                 , kind = "NetworkPolicy"
                 , metadata = meta "${app.name}-app-from-ingress-only" app.name
                 , spec =
-                  { podSelector.matchLabels.app = app.workload.name
+                  { podSelector.matchLabels = appLabels app.workload.name
                   , policyTypes = [ "Ingress" ]
                   , ingress =
                     [ { from =
-                        [ { podSelector = None { matchLabels : K.Selector }
+                        [ { podSelector = None { matchLabels : K.Labels }
                           , -- Selected by the namespace's automatic
                             -- kubernetes.io/metadata.name label rather than
                             -- chart pod labels, which change across versions.

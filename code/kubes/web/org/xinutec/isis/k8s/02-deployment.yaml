@@ -1,0 +1,59 @@
+# GENERATED from dhall/sites/isis.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+#
+# dev-lint: allow-rootfs-rw — the stock nginx-unprivileged image writes /tmp and its pid file
+# dev-lint: allow-no-mem-limit — stock image, never sized (fix: size from kubectl top)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "httpd-isis"
+  namespace: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      run: "httpd-isis"
+  template:
+    metadata:
+      labels:
+        run: "httpd-isis"
+    spec:
+      containers:
+      - image: "nginxinc/nginx-unprivileged:alpine"
+        name: "httpd-isis"
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /usr/share/nginx/html/share
+          name: webroot
+        - mountPath: /etc/nginx/conf.d/default.conf
+          name: "nginx-config"
+          readOnly: true
+          subPath: default.conf
+      securityContext:
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 101
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: webroot
+        persistentVolumeClaim:
+          claimName: "httpd-isis-storage"
+      - configMap:
+          name: "httpd-isis-nginx-config"
+        name: "nginx-config"

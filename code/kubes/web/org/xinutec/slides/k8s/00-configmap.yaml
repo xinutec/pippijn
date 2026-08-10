@@ -1,0 +1,28 @@
+# GENERATED from dhall/sites/slides.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: v1
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Directory 301 (/<deck> -> /<deck>/) stays relative, so it never leaks
+        # the internal listen port or path into the Location header.
+        absolute_redirect off;
+
+        # Kubelet readiness — bypasses the ingress auth layer, so it must not
+        # require a password.
+        location = /healthz {
+            access_log off;
+            add_header Content-Type text/plain;
+            return 200 "ok\n";
+        }
+    }
+kind: ConfigMap
+metadata:
+  name: "slides-nginx-config"
+  namespace: web
