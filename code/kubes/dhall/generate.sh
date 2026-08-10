@@ -57,6 +57,7 @@ site_manifests=(
   "02-deployment.yaml:deployment"
   "03-service.yaml:service"
   "04-ingress.yaml:ingress"
+  "05-redirect.yaml:redirect"
 )
 
 site_tree() { # site -> its live manifest directory, relative to kubes/

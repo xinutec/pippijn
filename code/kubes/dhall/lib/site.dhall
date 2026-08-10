@@ -477,9 +477,7 @@ let service
           }
         ]
 
---| The site's own Ingress, plus one per redirect. Both carry an issuer, because
---  a host with no certificate of its own gets the controller's fake one and the
---  browser is what reports it.
+--| The site's own Ingress. Redirects render separately — see `redirect`.
 let ingress
     : Site → List K.Ingress
     = λ(site : Site) →
@@ -533,8 +531,33 @@ let ingress
                 }
                 site.host
 
-        let redirected =
-              L.map
+        in  own
+
+--| Redirect-only hosts, rendered to their OWN file.
+--
+-- ⚠ Not decoration: `nginx.ingress.kubernetes.io/permanent-redirect` is
+-- validated as a URL by the ingress admission webhook, and `$request_uri` is not
+-- one — so a redirect carrying it is REFUSED on apply even though an identical
+-- object created before the webhook gained that check is still running. Keeping
+-- these in a separate manifest means one un-appliable document cannot block the
+-- site it sits beside. See task #692.
+let redirect
+    : Site → List K.Ingress
+    = λ(site : Site) →
+        let issuer = toMap { `cert-manager.io/cluster-issuer` = "letsencrypt-prod" }
+
+        let backend =
+              λ(host : Text) →
+                { host
+                , http.paths =
+                  [ { path = "/"
+                    , pathType = "Prefix"
+                    , backend.service = { name = site.name, port.number = 80 }
+                    }
+                  ]
+                }
+
+        in  L.map
                 Redirect
                 K.Ingress
                 ( λ(r : Redirect) →
@@ -558,8 +581,6 @@ let ingress
                     }
                 )
                 site.redirects
-
-        in  own # redirected
 
 --| The declared-unowned filenames, one per line, for the generator's `--check`.
 --  A fold rather than a Prelude import: this directory deliberately vendors the
@@ -599,4 +620,5 @@ in  { Doc
     , deployment
     , service
     , ingress
+    , redirect
     }
