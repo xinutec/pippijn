@@ -39,6 +39,16 @@ let hasDb
     : T.App → Bool
     = λ(app : T.App) → merge { None = False, Some = λ(_ : T.Database) → True } app.db
 
+--| The host `scripts/apply.sh` must deploy to. The cluster has been a field on
+--  `T.App` since the model existed; until 2026-08-10 nothing read it, and the
+--  deploy tool asked whoever was typing instead. See `site.dhall`'s twin.
+let clusterHost
+    : T.App → Text
+    = λ(app : T.App) →
+        merge
+          { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
+          app.cluster
+
 let secretName = λ(app : T.App) → "${app.name}-secret"
 
 let dbName = λ(app : T.App) → "${app.name}-db"
@@ -623,5 +633,6 @@ in  { storageWaiver
     , netpolAppHeld
     , mariadbVersion
     , secretName
+    , clusterHost
     , hasDb
     }

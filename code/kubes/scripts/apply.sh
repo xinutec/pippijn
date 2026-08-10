@@ -4,9 +4,21 @@
 #   scripts/apply.sh life                 # dry run: show what would change
 #   scripts/apply.sh --apply life         # actually apply
 #   scripts/apply.sh --apply life 02-db.yaml
-#   scripts/apply.sh --host amun <app>
+#   scripts/apply.sh --host amun <unmodelled-app>
 #
 # Dry run is the default and changes nothing, so a forgotten flag is safe.
+#
+# THE CLUSTER COMES FROM THE MODEL, not from whoever is typing. isis and amun
+# are two k3s clusters; `dhall/apps/<app>.dhall` and `dhall/sites/<site>.dhall`
+# each carry a `cluster` field, and this reads it. `--host` is an override for
+# the trees that have no model yet, and it is an ERROR to pass one that
+# disagrees with a model that does exist.
+#
+# This used to default to isis. That default was not wrong often — 9 of the 11
+# modelled trees are isis — but when it was wrong it was SILENT: applying to a
+# cluster where the objects do not exist prints a full-file addition, which
+# reads exactly like a first deploy rather than like a mistake. It cost a wrong
+# bug report (#692) before anyone noticed.
 #
 # This exists because the deploy loop has two halves that need *different*
 # identities, and doing it by hand gets it wrong:
@@ -29,7 +41,7 @@
 set -euo pipefail
 
 HELD_MARKER='NOT YET APPLIED'
-host=isis.xinutec.org
+host=""
 apply=0
 app=""
 files=()
@@ -45,13 +57,47 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n $app ]] || { echo "usage: $0 [--host HOST] [--apply] <app> [file...]" >&2; exit 2; }
-[[ $host == *.* ]] || host="$host.xinutec.org"
+[[ -z $host || $host == *.* ]] || host="$host.xinutec.org"
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 local_dir="$repo/code/kubes/$app/k8s"
 remote_dir="/home/pippijn/code/kubes/$app/k8s"
 
 [[ -d $local_dir ]] || { echo "no such app: $local_dir" >&2; exit 1; }
+
+# What the MODEL says this subject's cluster is, or empty if it has no model.
+# `web/org/xinutec/slides` is a site and `life` is an app; the basename picks
+# the right one and neither can be both.
+model_host() {
+  local dhall_dir="$repo/code/kubes/dhall" leaf=${app##*/} expr=""
+  if [[ -f $dhall_dir/apps/$leaf.dhall ]]; then
+    expr="let R = $dhall_dir/lib/render.dhall in R.clusterHost $dhall_dir/apps/$leaf.dhall"
+  elif [[ -f $dhall_dir/sites/$leaf.dhall ]]; then
+    expr="let S = $dhall_dir/lib/site.dhall in S.clusterHost $dhall_dir/sites/$leaf.dhall"
+  else
+    return 0
+  fi
+  # The pinned toolchain, same as generate.sh re-execs into. A model that fails
+  # to evaluate must not silently fall back to a guess, so this is fatal.
+  printf '%s\n' "$expr" |
+    nix develop "$dhall_dir" --command dhall text ||
+    { echo "the model for $leaf did not evaluate — refusing to guess a cluster" >&2; exit 1; }
+}
+
+declared=$(model_host)
+if [[ -n $declared ]]; then
+  if [[ -n $host && $host != "$declared" ]]; then
+    echo "refusing: --host $host, but the model says $app lives on $declared." >&2
+    echo "Change dhall/{apps,sites}/${app##*/}.dhall if the app moved; do not override it here." >&2
+    exit 1
+  fi
+  host=$declared
+elif [[ -z $host ]]; then
+  echo "refusing: $app has no model, so nothing states which cluster it belongs to." >&2
+  echo "Pass --host isis or --host amun. There is deliberately no default: a wrong" >&2
+  echo "cluster applies cleanly against an empty namespace and looks like a first deploy." >&2
+  exit 1
+fi
 
 # Default to every manifest except the ones whose filename marks them held.
 if [[ ${#files[@]} -eq 0 ]]; then
