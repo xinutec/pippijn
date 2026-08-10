@@ -440,7 +440,14 @@ let deployment
                             readOnlyRootFilesystem = None Bool
                           , capabilities.drop = [ "ALL" ]
                           }
-                        , ports = [ { containerPort = nginxPort } ]
+                        , ports =
+                          [ { containerPort = nginxPort
+                            , -- A site is reached through the shared ingress,
+                              -- never by a port on the node itself.
+                              hostPort = None Natural
+                            , hostIP = None Text
+                            }
+                          ]
                         , env = [] : List K.EnvVar
                         , volumeMounts = mounts site
                         , startupProbe = None K.Probe

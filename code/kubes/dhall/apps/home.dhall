@@ -74,8 +74,8 @@ in    { name = "home"
           }
         , mounts = [] : List T.VolumeMount
         }
-      , host = Some dns.home
-      , exposure = T.Exposure.Public
+      , reach = T.Reach.Ingress
+        { host = dns.home, exposure = T.Exposure.Public }
       , secrets = toMap keys
       , netpol = False
       }

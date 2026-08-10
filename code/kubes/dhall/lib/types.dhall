@@ -46,7 +46,12 @@ let EnvVar = { name : Text, value : EnvValue }
 -- property of the workload kind, not of the app, and the renderer supplies one
 -- reviewed set for all of them.
 let Probe =
-      < Http : { path : Text, port : Natural } | Exec : { command : List Text } >
+      < Http : { path : Text, port : Natural }
+      | Exec : { command : List Text }
+      | --| Just "is anything listening". For a server that has no health
+        --  endpoint, which is honest about what is actually being checked.
+        Tcp : { port : Natural }
+      >
 
 let Quantity = { cpu : Text, memory : Text }
 
@@ -120,6 +125,15 @@ let Database =
       , keys : { user : Text, password : Text, rootPassword : Text }
       }
 
+--| The WireGuard address of each cluster's node. An app reached over the tunnel
+--  pins its hostPort to one of these, and DERIVES it from `cluster` rather than
+--  repeating it: a hostPort with no `hostIP` DNATs on EVERY address the node has,
+--  including the public one, and a k8s hostPort rule bypasses the NixOS firewall
+--  entirely. Getting this wrong publishes the service.
+let wgAddress
+    : Cluster → Text
+    = λ(c : Cluster) → merge { isis = "10.100.0.2", amun = "10.100.0.1" } c
+
 --| How the internet sees an app's hostname, and therefore how its certificate
 --  can be issued.
 --
@@ -147,14 +161,34 @@ let issuerFor
 --  its fields, which is how a mistyped key becomes a compile error.
 let SecretKey = { mapKey : Text, mapValue : Text }
 
+--| How anything outside the pod gets to it. ONE field, replacing the pair
+--  `host : Optional Text` + `exposure : Exposure`, because they were never
+--  independent: a host with no exposure has no issuer, and an exposure with no
+--  host describes nothing. Both inconsistent pairings were writable and are now
+--  not.
+--
+-- The third arm is why this exists. `WireGuard` is not "an Ingress with a
+-- private DNS name" — it is NO Ingress at all, a hostPort DNAT'd to the node's
+-- tunnel address only, which is a network-layer gate rather than the obscurity
+-- `Exposure.VpnOnly` provides. Three apps do it (scanner, recall, observe) and
+-- each said so in a comment beginning "same as recall".
+--
+-- The port is NOT a field: it is the workload's own. A hostPort that disagrees
+-- with the containerPort forwards to nothing, silently.
+let Reach =
+      < Ingress : { host : Text, exposure : Exposure }
+      | WireGuard
+      | --| Cluster-internal only: a Service and nothing else.
+        Internal
+      >
+
 let App =
       { name : Text
       , cluster : Cluster
       , db : Optional Database
       , storage : Optional Storage
       , workload : Workload
-      , host : Optional Text
-      , exposure : Exposure
+      , reach : Reach
       , secrets : List SecretKey
       , netpol : Bool
       }
@@ -175,5 +209,7 @@ in  { Cluster
     , SecretKey
     , Exposure
     , issuerFor
+    , wgAddress
+    , Reach
     , App
     }

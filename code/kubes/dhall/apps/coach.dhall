@@ -95,8 +95,8 @@ in    { name = "coach"
           }
         , mounts = [] : List T.VolumeMount
         }
-      , host = Some dns.coach
-      , exposure = T.Exposure.Public
+      , reach = T.Reach.Ingress
+        { host = dns.coach, exposure = T.Exposure.Public }
       , secrets = toMap keys
       , netpol = True
       }

@@ -136,12 +136,16 @@ in    { name = "memview"
         , mounts =
           [ { name = "app-data", mountPath = statePath, subPath = "state" } ]
         }
-      , host = Some dns.memview
       , -- The hostname resolves to the WireGuard address, not the public one, so
         -- the corpus is not advertised to the internet at large. Obscurity, not
         -- a firewall — the ingress still answers on the public IP — but it does
         -- mean HTTP-01 cannot validate, hence a DNS-01 certificate.
-        exposure = T.Exposure.VpnOnly
+        --
+        -- ⚠ `Ingress`, not `WireGuard`: there IS an Ingress here. The stronger
+        -- arm is a hostPort DNAT'd to the tunnel address with no ingress at all,
+        -- which scanner, recall and observe use.
+        reach = T.Reach.Ingress
+          { host = dns.memview, exposure = T.Exposure.VpnOnly }
       , secrets = toMap keys
       , netpol = True
       }

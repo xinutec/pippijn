@@ -118,13 +118,13 @@ in    { name = "tasks"
           }
         , mounts = [] : List T.VolumeMount
         }
-      , host = Some dns.tasks
       , -- The hostname resolves to the WireGuard address, not the public one.
         -- Obscurity, NOT a firewall — the isis ingress answers on the public IP
         -- too, and the Nextcloud login plus the `pippijn`-only allow-list is the
         -- real gate. But it does mean HTTP-01 cannot validate, hence a DNS-01
-        -- certificate, which is what this field decides.
-        exposure = T.Exposure.VpnOnly
+        -- certificate, which is what this arm decides.
+        reach = T.Reach.Ingress
+          { host = dns.tasks, exposure = T.Exposure.VpnOnly }
       , secrets = toMap keys
       , netpol = True
       }

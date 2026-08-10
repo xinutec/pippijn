@@ -118,6 +118,7 @@ let renderProbe
         merge
           { Http = λ(h : K.HTTPGetAction) → K.emptyProbe ⫽ { httpGet = Some h }
           , Exec = λ(e : K.ExecAction) → K.emptyProbe ⫽ { exec = Some e }
+          , Tcp = λ(t : K.TCPSocketAction) → K.emptyProbe ⫽ { tcpSocket = Some t }
           }
           p
 
@@ -313,7 +314,12 @@ let dbDeployment
                                             }
                                       }
                                     ]
-                              , ports = [ { containerPort = 3306 } ]
+                              , ports =
+                                [ { containerPort = 3306
+                                  , hostPort = None Natural
+                                  , hostIP = None Text
+                                  }
+                                ]
                               , volumeMounts =
                                 [ { name = "data"
                                   , mountPath = "/var/lib/mysql"
@@ -460,7 +466,30 @@ let appDeployment
                           , command = w.command
                           , securityContext =
                               containerSecurityContext w.readOnlyRootFs
-                          , ports = [ { containerPort = w.port } ]
+                          , ports =
+                            [ merge
+                                { Ingress =
+                                    λ(_ : { host : Text, exposure : T.Exposure }) →
+                                      { containerPort = w.port
+                                      , hostPort = None Natural
+                                      , hostIP = None Text
+                                      }
+                                , WireGuard =
+                                    { containerPort = w.port
+                                    , -- Same number by construction: a hostPort
+                                      -- that disagrees with the containerPort
+                                      -- forwards to nothing, silently.
+                                      hostPort = Some w.port
+                                    , hostIP = Some (T.wgAddress app.cluster)
+                                    }
+                                , Internal =
+                                    { containerPort = w.port
+                                    , hostPort = None Natural
+                                    , hostIP = None Text
+                                    }
+                                }
+                                app.reach
+                            ]
                           , env =
                               L.map
                                 T.EnvVar
@@ -513,16 +542,18 @@ let ingress
     : T.App → List K.Ingress
     = λ(app : T.App) →
         merge
-          { Some =
-              λ(host : Text) →
-                [ { apiVersion = "networking.k8s.io/v1"
+          { Ingress =
+              λ(r : { host : Text, exposure : T.Exposure }) →
+                let host = r.host
+
+                in  [ { apiVersion = "networking.k8s.io/v1"
                   , kind = "Ingress"
                   , metadata =
                         meta "${app.name}-ingress" app.name
                       ⫽ { annotations = Some
                             ( toMap
                                 { `cert-manager.io/cluster-issuer` =
-                                    T.issuerFor app.exposure
+                                    T.issuerFor r.exposure
                                 }
                             )
                         }
@@ -544,9 +575,10 @@ let ingress
                     }
                   }
                 ]
-          , None = [] : List K.Ingress
+          , WireGuard = [] : List K.Ingress
+          , Internal = [] : List K.Ingress
           }
-          app.host
+          app.reach
 
 --| Only the app may reach the database. Rendered whenever the app has one, so
 --  "namespace has a DB but nothing protecting it" is not a state this model can

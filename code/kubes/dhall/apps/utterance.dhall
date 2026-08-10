@@ -93,8 +93,8 @@ in    { name = "utterance"
           }
         , mounts = [] : List T.VolumeMount
         }
-      , host = Some dns.utterance
-      , exposure = T.Exposure.Public
+      , reach = T.Reach.Ingress
+        { host = dns.utterance, exposure = T.Exposure.Public }
       , secrets = toMap keys
       , netpol = True
       }

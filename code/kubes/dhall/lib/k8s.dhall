@@ -36,9 +36,12 @@ let HTTPGetAction = { path : Text, port : Natural }
 
 let ExecAction = { command : List Text }
 
+let TCPSocketAction = { port : Natural }
+
 let Probe =
       { httpGet : Optional HTTPGetAction
       , exec : Optional ExecAction
+      , tcpSocket : Optional TCPSocketAction
       , initialDelaySeconds : Optional Natural
       , periodSeconds : Optional Natural
       , timeoutSeconds : Optional Natural
@@ -49,13 +52,21 @@ let Probe =
 let emptyProbe =
       { httpGet = None HTTPGetAction
       , exec = None ExecAction
+      , tcpSocket = None TCPSocketAction
       , initialDelaySeconds = None Natural
       , periodSeconds = None Natural
       , timeoutSeconds = None Natural
       , failureThreshold = None Natural
       }
 
-let ContainerPort = { containerPort : Natural }
+--| A hostPort ALWAYS carries its `hostIP` here. A bare hostPort DNATs on every
+--  address the node has, including the public one, and the rule bypasses the
+--  NixOS firewall — so the two are one field pair, never separable.
+let ContainerPort =
+      { containerPort : Natural
+      , hostPort : Optional Natural
+      , hostIP : Optional Text
+      }
 
 let VolumeMount =
       { name : Text
@@ -225,6 +236,7 @@ in  { Meta
     , EnvVar
     , HTTPGetAction
     , ExecAction
+    , TCPSocketAction
     , Probe
     , emptyProbe
     , ContainerPort

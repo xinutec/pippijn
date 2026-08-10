@@ -101,7 +101,6 @@ in    { name = "fleetwatch"
           }
         , mounts = [] : List T.VolumeMount
         }
-      , host = Some dns.fleetwatch
       , -- The hostname resolves to isis's WireGuard address, not the public one,
         -- so HTTP-01 cannot validate and the certificate must come from DNS-01 —
         -- which is what this field decides.
@@ -114,7 +113,8 @@ in    { name = "fleetwatch"
         -- VPN client. Making the source IP survive needs a cluster-wide ingress
         -- change (externalTrafficPolicy: Local + forwarded-headers) affecting
         -- every service, and is deliberately not done.
-        exposure = T.Exposure.VpnOnly
+        reach = T.Reach.Ingress
+          { host = dns.fleetwatch, exposure = T.Exposure.VpnOnly }
       , secrets = toMap keys
       , netpol = True
       }
