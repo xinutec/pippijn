@@ -1,0 +1,17 @@
+# GENERATED from dhall/sites/sinterklaas.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    run: "httpd-sinterklaas"
+  name: "httpd-sinterklaas"
+  namespace: web
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    run: "httpd-sinterklaas"

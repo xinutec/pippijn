@@ -1,0 +1,50 @@
+# GENERATED from dhall/sites/sinterklaas.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+#
+# dev-lint: allow-rootfs-rw — the stock nginx-unprivileged image writes /tmp and its pid file
+# dev-lint: allow-no-mem-limit — stock image, never sized (fix: size from kubectl top)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "httpd-sinterklaas"
+  namespace: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      run: "httpd-sinterklaas"
+  template:
+    metadata:
+      labels:
+        run: "httpd-sinterklaas"
+    spec:
+      containers:
+      - image: "nginxinc/nginx-unprivileged:alpine"
+        name: "httpd-sinterklaas"
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /usr/share/nginx/html
+          name: webroot
+      securityContext:
+        runAsGroup: 101
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - configMap:
+          name: "sinterklaas-html"
+        name: webroot
