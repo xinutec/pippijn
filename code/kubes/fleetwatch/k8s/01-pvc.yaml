@@ -1,11 +1,15 @@
+# GENERATED from dhall/apps/fleetwatch.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: fleetwatch-db-pvc
+  name: "fleetwatch-db-pvc"
   namespace: fleetwatch
 spec:
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
   resources:
     requests:
       storage: 5Gi
+

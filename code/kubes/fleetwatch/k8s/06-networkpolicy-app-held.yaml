@@ -1,29 +1,32 @@
-# HELD — NOT applied by sync.sh. Kept here as the intended hardening.
+# GENERATED from dhall/apps/fleetwatch.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
 #
-# The app should be reachable only through the nginx ingress controller, so no
-# other pod can hit the API directly and bypass the ingress' TLS + source-range
-# gate. But k3s enforces NetworkPolicy via kube-router, which does NOT exempt
-# node-sourced kubelet health-probe traffic — this policy as written would drop
-# the liveness/readiness probes, mark the pod NotReady, and take the site down.
+# NOT YET APPLIED. k3s enforces NetworkPolicy via kube-router, which does NOT
+# exempt node-sourced kubelet health-probe traffic, so this policy as written
+# drops the liveness/readiness probes, marks the pod NotReady, and takes the
+# site down. Before applying: admit the probe source as well (an ipBlock for
+# the node/pod CIDR), then verify probes stay green on a live pod.
 #
-# Before applying: add an ingress rule that also admits the probe source (an
-# ipBlock for the node/pod CIDR), then verify probes stay green on a live pod.
-# Same caveat as life/k8s/05-networkpolicy.yaml.
+# Intent: the app is reachable only through the nginx ingress controller, so
+# no other pod can hit the API directly and bypass its TLS termination. The
+# selector uses the namespace automatic kubernetes.io/metadata.name label
+# rather than chart pod labels, which can change across chart versions.
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: fleetwatch-app-from-ingress-only
+  name: "fleetwatch-app-from-ingress-only"
   namespace: fleetwatch
 spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: "ingress-nginx"
+    ports:
+    - port: 8080
   podSelector:
     matchLabels:
-      app: fleetwatch-app
+      app: "fleetwatch-app"
   policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
-      ports:
-        - port: 8080
+  - Ingress

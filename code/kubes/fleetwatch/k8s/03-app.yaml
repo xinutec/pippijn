@@ -1,116 +1,104 @@
+# GENERATED from dhall/apps/fleetwatch.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fleetwatch-app
+  name: "fleetwatch-app"
   namespace: fleetwatch
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: fleetwatch-app
+      app: "fleetwatch-app"
   template:
     metadata:
       labels:
-        app: fleetwatch-app
+        app: "fleetwatch-app"
     spec:
-      # Matches the nonroot user baked into the image (Dockerfile, uid 65532).
+      containers:
+      - env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: "fleetwatch-secret"
+        - name: FLEETWATCH_TOKENS
+          valueFrom:
+            secretKeyRef:
+              key: FLEETWATCH_TOKENS
+              name: "fleetwatch-secret"
+        - name: FLEETWATCH_READ_TOKENS
+          valueFrom:
+            secretKeyRef:
+              key: FLEETWATCH_READ_TOKENS
+              name: "fleetwatch-secret"
+              optional: true
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: SESSION_SECRET
+              name: "fleetwatch-secret"
+        - name: NC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_ID
+              name: "fleetwatch-secret"
+        - name: NC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_SECRET
+              name: "fleetwatch-secret"
+        - name: NC_BASE_URL
+          value: "https://dash.xinutec.org"
+        - name: NC_REDIRECT_URI
+          value: "https://fleetwatch.xinutec.org/auth/callback"
+        - name: RUST_LOG
+          value: "info,fleetwatch=debug"
+        image: "xinutec/fleetwatch:latest"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: "fleetwatch-app"
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: '1'
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
       securityContext:
+        runAsGroup: 65532
         runAsNonRoot: true
         runAsUser: 65532
-        runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
-      containers:
-        - name: app
-          image: xinutec/fleetwatch:latest
-          # The app never writes to disk, so the whole root fs can be read-only.
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          ports:
-            - containerPort: 8080
-          env:
-            # Full mysql:// DSN (carries the DB password) — kept whole in the secret.
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: fleetwatch-secret
-                  key: DATABASE_URL
-            # Comma-separated source:token pairs — the ingest credentials. A
-            # producer can only ever write as its mapped source (see src/auth.rs).
-            - name: FLEETWATCH_TOKENS
-              valueFrom:
-                secretKeyRef:
-                  name: fleetwatch-secret
-                  key: FLEETWATCH_TOKENS
-            # Read token(s) for unattended readers: the Android app's background poller,
-            # which asks GET /api/problems every 30 min and raises a notification when
-            # the answer changes. It opens that ONE endpoint (src/auth.rs) — every other
-            # read stays behind the Nextcloud login. Optional: unset simply means no
-            # poller, and the service boots with no unattended reader at all.
-            - name: FLEETWATCH_READ_TOKENS
-              valueFrom:
-                secretKeyRef:
-                  name: fleetwatch-secret
-                  key: FLEETWATCH_READ_TOKENS
-                  optional: true
-            # Human auth: Nextcloud-login sessions gate the read API (the ingest
-            # path above stays token-only). Session cookies are HMAC-signed with
-            # SESSION_SECRET; NC_CLIENT_* is this app's OAuth2 client on dash.
-            - name: SESSION_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: fleetwatch-secret
-                  key: SESSION_SECRET
-            - name: NC_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: fleetwatch-secret
-                  key: NC_CLIENT_ID
-            - name: NC_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: fleetwatch-secret
-                  key: NC_CLIENT_SECRET
-            # Non-secret: which Nextcloud, and the OAuth redirect back to here.
-            - name: NC_BASE_URL
-              value: https://dash.xinutec.org
-            - name: NC_REDIRECT_URI
-              value: https://fleetwatch.xinutec.org/auth/callback
-            # info = one line per /api request (TraceLayer); fleetwatch=debug adds our
-            # own ingest detail. Third-party crates stay at info (quiet).
-            - name: RUST_LOG
-              value: info,fleetwatch=debug
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: "1"
-              memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: fleetwatch-app
+  name: "fleetwatch-app"
   namespace: fleetwatch
 spec:
-  selector:
-    app: fleetwatch-app
   ports:
-    - port: 80
-      targetPort: 8080
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: "fleetwatch-app"
