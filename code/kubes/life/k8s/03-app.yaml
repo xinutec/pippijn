@@ -50,6 +50,12 @@ spec:
               key: EMOTION_WORKER_TOKEN
               name: "life-secret"
               optional: true
+        - name: BINS_ICAL_URL
+          valueFrom:
+            secretKeyRef:
+              key: BINS_ICAL_URL
+              name: "life-secret"
+              optional: true
         image: "xinutec/life:latest"
         livenessProbe:
           httpGet:

@@ -12,6 +12,7 @@ let keys =
       , NC_CLIENT_ID = "NC_CLIENT_ID"
       , NC_CLIENT_SECRET = "NC_CLIENT_SECRET"
       , EMOTION_WORKER_TOKEN = "EMOTION_WORKER_TOKEN"
+      , BINS_ICAL_URL = "BINS_ICAL_URL"
       }
 
 let secret = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False }
@@ -74,6 +75,14 @@ in    { name = "life"
               -- pod still starts before the key exists.
               name = "EMOTION_WORKER_TOKEN"
             , value = optionalSecret keys.EMOTION_WORKER_TOKEN
+            }
+          , { -- The council's bin-collection iCal subscription. A SECRET rather
+              -- than a plain value, though the feed itself is public and needs
+              -- no auth: the URL carries a property id that identifies one
+              -- address, and this repository is public. Optional so the pod
+              -- starts without it — unset simply means no bin card.
+              name = "BINS_ICAL_URL"
+            , value = optionalSecret keys.BINS_ICAL_URL
             }
           ]
         , probe = T.Probe.Http { path = "/healthz", port = 8080 }
