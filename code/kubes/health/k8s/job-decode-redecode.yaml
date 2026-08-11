@@ -82,24 +82,59 @@ spec:
               value: "1"
             - name: USE_REACQUIRE_ROBUST_SPEED
               value: "1"
+            # THIS JOB HAD GONE STALE IN BOTH DIRECTIONS, found 2026-08-11 while
+            # promoting the matcher. It claims in its header to mirror
+            # 08-decode-recent.yaml's env exactly, and it did not:
+            #
+            #   LEAN_HSMM / LEAN_PASSES  `on` here, `shadow` in the cron since
+            #                            the 2026-08-01 rollback. Running this
+            #                            Job would have persisted LEAN-AUTHORED
+            #                            decodes — the precise thing that
+            #                            rollback existed to stop.
+            #   LEAN_KALMAN / GPSQUALITY / BIOLABELS
+            #                            `shadow` here, `on` in the cron since
+            #                            2026-08-06 (#432).
+            #   LEAN_RAIL                absent entirely, `on` in the cron.
+            #
+            # So the one Job whose purpose is to make persisted rows match the
+            # standing configuration would have written rows matching a
+            # configuration a fortnight out of date — and it is also the REPAIR
+            # path if a tenant is rolled back, which means the repair would have
+            # made things worse than the fault.
+            #
+            # A mirror that drifts silently is worse than no mirror, because it
+            # is reached for precisely when something has already gone wrong.
+            # Aligned to the cron below; check it against 08-decode-recent.yaml
+            # before every run, since nothing enforces this.
             - name: LEAN_HSMM
-              value: "on"
+              value: "shadow"
             - name: LEAN_PASSES
+              value: "shadow"
+            - name: LEAN_RAIL
               value: "on"
-            # #711 — shadow here as in 08-decode-recent.yaml. A redecode that
-            # measured nothing about this tenant would be the one run where a
-            # divergence is cheapest to find and would be invisible.
+            # #711 — `on` as in 08-decode-recent.yaml, which this Job exists to
+            # mirror. Promoted 2026-08-11 with the cron.
             - name: LEAN_STATIONCHAIN
-              value: "shadow"
-            # The reason this Job exists. See 03-auth.yaml for the rollback.
+              value: "on"
+            # Re-promoted with the cron 2026-08-11 (#9 wired the flip gate and
+            # it is green). Kept in step with 08-decode-recent.yaml and
+            # 03-auth.yaml — a redecode under a DIFFERENT flag set than the
+            # nightly would persist rows the standing configuration would not
+            # produce, which is the one thing this Job must never do.
+            #
+            # If either tenant is rolled back, this Job is the repair: set the
+            # flags here to match, bump the name's date suffix, and re-run it
+            # over the affected window.
             - name: LEAN_MATCH
-              value: "shadow"
+              value: "on"
+            # `on` since #432 promoted these three in the cron on 2026-08-06;
+            # they had been left at shadow here. See the drift note above.
             - name: LEAN_KALMAN
-              value: "shadow"
+              value: "on"
             - name: LEAN_GPSQUALITY
-              value: "shadow"
+              value: "on"
             - name: LEAN_BIOLABELS
-              value: "shadow"
+              value: "on"
             - name: LEAN_CALL_TIMEOUT_MS
               value: "30000"
           resources:

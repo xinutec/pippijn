@@ -166,12 +166,28 @@ spec:
                 # src/lean/lean-station-chain.ts. That is under a tenth of what
                 # LEAN_HSMM above already ships (#411).
                 #
-                # Reads as `lean-stationchain[shadow] <date> EXACT n pair(s) /
+                # Reads as `lean-stationchain[on] <date> EXACT n pair(s) /
                 # m leg(s)` per day, and a day with no named-line train leg
                 # makes no bridge call at all rather than paying 2.87 MiB to
                 # decide nothing.
+                #
+                # PROMOTED shadow->on 2026-08-11, one day after it was staged.
+                # Fast, and deliberately so -- the evidence is narrow but the
+                # blast radius is two fields. Evidence: 11/11 identical on the
+                # decoded-day corpus (scripts/compare-stationchain.sh), and
+                # 2026-08-03..08-09 EXACT in production shadow, 13 pairs across
+                # 17 named-line train legs.
+                #
+                # This one DOES write. `resolveStationChain` runs inside
+                # segmentsFromStates, so under `on` the boardStation and
+                # alightStation columns in decoded_days are the Lean resolver's.
+                # That is the whole of the exposure: two fields on train legs,
+                # not the decode. A divergence shows as a wrong station name on
+                # a timeline, and the repair is the exercised one -- set back to
+                # "shadow" and re-run job-decode-redecode.yaml over the window,
+                # as was done on 2026-07-31 after the matcher rollback.
                 - name: LEAN_STATIONCHAIN
-                  value: "shadow"
+                  value: "on"
                 # Serve the verified Lean geometry passes when re-decoding days
                 # (docs/proposals/2026-07-verified-core-lean.md) — kept identical
                 # to the health-auth server so a cached (cron-persisted) day and a
@@ -214,8 +230,26 @@ spec:
                 #
                 # Cost is not the blocker and was not the reason: ~0.36 s/leg
                 # since the hot path moved off Lean `Int` onto `Nat`.
+                #
+                # RE-PROMOTED shadow->on 2026-08-11, and what changed is that
+                # the rollback's cause is now GATED rather than argued about.
+                # The 07-31 rollback happened because a divergence reached
+                # served output and nobody was looking; `compare-match --gate`
+                # existed but ran nowhere (#9), so nothing failed when its
+                # premise stopped being true. It now runs in deploy.sh and is
+                # GREEN: 35 days, 208 legs, 28 float<->quant deltas, every one
+                # signed off on all THREE axes a leg can move in -- line, vertex
+                # and timestamp (#401). #398's own leg is bit-clean since #406.
+                #
+                # This tenant writes NOTHING to decoded_days: a 7-day production
+                # re-decode under the rolled-back flag produced byte-identical
+                # rows, so the matcher cannot reach mode, place or journey. What
+                # it decides is the drawn line, via matchImprovesDisplay -- which
+                # is exactly what #398 broke, and exactly what the gate now
+                # bounds. Reversible by setting this back to "shadow", with no
+                # data repair needed.
                 - name: LEAN_MATCH
-                  value: "shadow"
+                  value: "on"
                 # Verified Lean GPS Kalman filter — SHADOW, matching
                 # 03-auth.yaml so a cron-persisted day and a fresh server
                 # compute see the same track. This is where the ledger actually

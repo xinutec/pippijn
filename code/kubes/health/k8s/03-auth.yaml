@@ -180,8 +180,30 @@ spec:
             # path off Lean `Int` (a GMP bignum past 2^31) to `Nat`, ~70x cheaper
             # than the attempt that blew the decode-recent 1800s deadline and ~3x
             # the TS float matcher.
+            #
+            # RE-PROMOTED shadow->on 2026-08-11, against the condition this
+            # block set for itself: green AND wired into a gate. Both now hold.
+            # `compare-match --gate` runs in deploy.sh (#9) and prints GATE
+            # GREEN over 35 days / 208 legs / 28 deltas, each signed off on all
+            # three axes a leg can move in (#401). 71e5544efa614a06 — the leg
+            # this rollback was measured on — is bit-clean since #406.
+            #
+            # What is NOT claimed: that a live day cannot still surprise us.
+            # That leg served for ten days before anyone looked, on a day the
+            # corpus does not contain, and the gate is evidence about the corpus.
+            # What changed is that the same class of divergence now fails a
+            # deploy instead of accumulating unread.
+            #
+            # NOTE ON THIS FILE SPECIFICALLY: no LEAN_CALL_TIMEOUT_MS here, by
+            # design — the interactive path must never stall a request, so the
+            # 5 s default stands while the cron carries 30 s. The matcher's
+            # heaviest measured leg is 4838 ms, 97% of that ceiling, so expect
+            # occasional timeouts falling back to TS under load. Warned and
+            # ledgered, and harmless: the two arms' lines differ by <=0.14 m
+            # across the whole corpus, so a fallback draws an imperceptibly
+            # different pavement line, not a different route.
             - name: LEAN_MATCH
-              value: "shadow"
+              value: "on"
             # Verified Lean rail shortest path (Verified.Rail.dijkstraC, proved
             # correct AND complete). SHADOW, not on: the search runs and is
             # compared, but the TS path is what gets drawn. The gate is 6/6
