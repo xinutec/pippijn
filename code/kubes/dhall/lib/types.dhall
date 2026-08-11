@@ -143,11 +143,37 @@ let Durability =
         LossAccepted : { why : Text }
       >
 
+--| May two pods hold this volume at once?
+--
+-- Beside `durability` because both are questions a volume forces you to answer,
+-- and neither is derivable from the manifest: this one is a fact about how the
+-- app WRITES. `Exclusive` renders `strategy: Recreate`, so a rolling update
+-- never overlaps two instances.
+--
+-- ⚠ Atomic writes do not answer it. Both apps here write-then-rename now (#744),
+-- which stops a reader seeing a half-written file — and does nothing at all
+-- about two pods each holding their own copy of a whole document, where the one
+-- that renames last simply erases the other's update.
+--
+-- `Concurrent` carries `why` and `Exclusive` does not, deliberately: the safe
+-- answer is free and the permissive one has to be argued. Only the apps that
+-- declare their OWN storage answer this — five of the seven modelled apps keep
+-- their state in a database and never reach it.
+let Writers =
+      < --| One pod at a time. The volume holds a document the pod rewrites
+        --  whole, so a second instance's stale copy would overwrite the first's
+        --  work rather than merge with it.
+        Exclusive
+      | --| Two at once is safe, and `why` says why it is safe HERE.
+        Concurrent : { why : Text }
+      >
+
 let Storage =
       { storageGi : Natural
       , mountPath : Text
       , subPath : Text
       , durability : Durability
+      , writers : Writers
       }
 
 --| A volume that is NOT the app's own persistent claim.
@@ -282,6 +308,7 @@ in  { Cluster
     , VolumeMount
     , VolumeSource
     , Volume
+    , Writers
     , Storage
     , Workload
     , Database

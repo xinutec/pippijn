@@ -30,6 +30,16 @@ in    { name = "utterance"
           storageGi = 5
         , mountPath = dataPath
         , subPath = "recordings"
+        , writers =
+            -- One directory per take, ids content-addressed from the audio, so
+            -- two pods writing DIFFERENT takes never touch the same file.
+            -- Concurrent edits to one take are a race that already exists
+            -- between two browser tabs, and each file is replaced atomically
+            -- (#744) rather than rewritten in place.
+            T.Writers.Concurrent
+              { why =
+                  "one directory per take, so two pods never write the same file"
+              }
         , durability =
             T.Durability.LossAccepted
               { why =

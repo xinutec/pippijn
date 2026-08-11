@@ -40,6 +40,12 @@ in    { name = "memview"
           storageGi = 1
         , mountPath = corpusPath
         , subPath = "corpus"
+        , -- `ShareStore` holds the whole share document in memory and rewrites
+          -- it whole on every read of a shared page. A second pod's copy —
+          -- loaded before the first created a share — would erase it on the
+          -- next touch. Atomic writes (#744) stop a reader seeing half a file
+          -- and do nothing whatever about that, so this is `Recreate`.
+          writers = T.Writers.Exclusive
         , -- Nothing here is a primary copy. The corpus is pushed wholesale from
           -- the Mac by every sync, so a restore re-syncs it; the `state`
           -- subPath holds only the share-token file, and a lost token is

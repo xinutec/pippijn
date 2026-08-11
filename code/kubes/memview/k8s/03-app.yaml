@@ -12,6 +12,8 @@ spec:
   selector:
     matchLabels:
       app: memview
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:

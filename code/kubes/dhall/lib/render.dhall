@@ -479,28 +479,40 @@ let appDeployment
                 }
                 app.storage
 
-        let strategy =
-            -- DERIVED, not declared. A `WireGuard` app is reached by a hostPort,
-            -- and a second pod cannot bind a port the first one holds — so a
-            -- rolling update does not merely risk two writers, it hangs: the new
-            -- pod stays Pending forever while the old one is never torn down.
-            -- That is a fact about the reach, so it is read off the reach rather
-            -- than offered as a field somebody has to remember.
-            --
-            -- ⚠ It deliberately does NOT fire on `storage`. utterance and
-            -- memview both hold a ReadWriteOnce claim and both roll today; RWO
-            -- permits two pods on ONE node, so they do not hang, they briefly
-            -- double-write. Making those Recreate is a change to two live
-            -- deployments and a decision of its own, not a side effect of adding
-            -- a type.
+        let reachForbidsRolling =
+            -- A `WireGuard` app is reached by a hostPort, and a second pod
+            -- cannot bind a port the first one holds — so a rolling update does
+            -- not merely risk two writers, it HANGS: the new pod stays Pending
+            -- for ever while the old one is never torn down. A fact about the
+            -- reach, read off the reach rather than offered as a field.
               merge
-                { Ingress =
-                    λ(_ : { host : Text, exposure : T.Exposure }) →
-                      None { type : Text }
-                , WireGuard = Some { type = "Recreate" }
-                , Internal = None { type : Text }
+                { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → False
+                , WireGuard = True
+                , Internal = False
                 }
                 app.reach
+
+        let volumeForbidsRolling =
+            -- And a fact about how the app WRITES, which no manifest can imply.
+            -- ReadWriteOnce does not settle it: RWO restricts a claim to one
+            -- NODE, both pods land on that node, so k8s permits both mounts and
+            -- the rollout does not hang — it double-writes. See `T.Writers`.
+              merge
+                { Some =
+                    λ(s : T.Storage) →
+                      merge
+                        { Exclusive = True
+                        , Concurrent = λ(_ : { why : Text }) → False
+                        }
+                        s.writers
+                , None = False
+                }
+                app.storage
+
+        let strategy =
+              if    reachForbidsRolling || volumeForbidsRolling
+              then  Some { type = "Recreate" }
+              else  None { type : Text }
 
         in  [ { apiVersion = "apps/v1"
               , kind = "Deployment"
