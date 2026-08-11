@@ -42,7 +42,7 @@ manifests=(
   "02-db.yaml:dbDeployment dbService"
   "03-app.yaml:appDeployment appService"
   "04-ingress.yaml:ingress"
-  "05-networkpolicy.yaml:netpolDb"
+  "05-networkpolicy.yaml:netpolDb netpolApp"
   "06-networkpolicy-app-held.yaml:netpolAppHeld"
 )
 
@@ -247,7 +247,11 @@ header() { # app file netpol_anchor
   # dev-lint FAILS an ineffective waiver ("a waiver that waives nothing is a
   # baseline entry nobody can see"), so the first app to gain a real default-deny
   # policy fails here rather than being silently over-waived.
-  if [[ ${3:-0} == 1 ]]; then
+  #
+  # ...and only when the app has no APPLIED policy of its own. An app with a
+  # real default-deny needs no waiver, and dev-lint fails one that waives
+  # nothing, so this asks the model rather than keeping a second list here.
+  if [[ ${3:-0} == 1 && $(ask "$1" hasAppliedNetpol) == False ]]; then
     printf '# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
   fi
 }

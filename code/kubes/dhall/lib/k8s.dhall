@@ -234,9 +234,18 @@ let NetworkPolicyPeer =
 --  left implicit everywhere.
 let NetworkPolicyPort = { port : Natural, protocol : Optional Text }
 
---| `podSelector` is `Optional` so that `None` renders `podSelector: {}` under
---  `--omit-empty` — the whole namespace, which is what a default-deny selects.
---  `matchLabels: {}` is NOT the same document and would select nothing.
+--| `podSelector` is `Optional` so an empty selector — the whole namespace, which
+--  is what a default-deny selects — can be expressed at all.
+--
+-- ⚠ An earlier version of this comment said `matchLabels: {}` "selects
+-- nothing". That is WRONG: a Kubernetes `LabelSelector` with no terms matches
+-- EVERYTHING, so `podSelector: {}` and `podSelector: {matchLabels: {}}` are the
+-- same selector. The real problem is narrower and is about rendering rather
+-- than meaning — under `--omit-empty` an empty `matchLabels` collapses the
+-- whole `podSelector` key away, and `spec.podSelector` is a required field
+-- whose absence works only because Go unmarshals it to its zero value. A
+-- manifest that relies on that reads as "no selector stated" where the intent
+-- is "every pod in the namespace".
 --
 -- `egress` is a list of rules, and an EMPTY list is meaningful: with `Egress` in
 -- `policyTypes` it denies all egress. Under `--omit-empty` the key disappears,

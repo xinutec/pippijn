@@ -35,6 +35,27 @@ let Annotations = List { mapKey : Text, mapValue : Text }
 --  generate.sh is ordered db-before-app, so reordering that list would have
 --  silently moved the waiver onto the wrong file. Here it is a total function of
 --  the model, checked by the typechecker.
+--| Does this app render a NetworkPolicy the cluster will actually APPLY?
+--
+-- Asked by `generate.sh` to decide whether to emit the `allow-no-netpol`
+-- waiver. dev-lint fails a waiver that waives nothing, so an app with a real
+-- default-deny must NOT carry one — and the answer has to come from the model
+-- rather than from a list in the generator, which is the shape that let
+-- utterance go unwaived for months.
+--
+-- `IngressFromNginx` counts as NO: it renders to a `-held.yaml` that is
+-- deliberately outside the applied set, so the namespace is still undefended
+-- and the waiver is still the honest record.
+let hasAppliedNetpol
+    : T.App → Bool
+    = λ(app : T.App) →
+        merge
+          { Unpoliced = False
+          , IngressFromNginx = False
+          , Egress = λ(_ : List T.EgressTo) → True
+          }
+          app.netpol
+
 let hasDb
     : T.App → Bool
     = λ(app : T.App) → merge { None = False, Some = λ(_ : T.Database) → True } app.db
@@ -827,4 +848,5 @@ in  { storageWaiver
     , secretName
     , clusterHost
     , hasDb
+    , hasAppliedNetpol
     }
