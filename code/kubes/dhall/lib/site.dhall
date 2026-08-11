@@ -341,6 +341,8 @@ let volumes
                         , persistentVolumeClaim = Some
                           { claimName = pvcName site }
                         , configMap = None { name : Text }
+                        , emptyDir = None {}
+                        , hostPath = None { path : Text, type : Text }
                         }
                       ]
                 }
@@ -354,6 +356,8 @@ let volumes
                       [ { name = webrootVolume
                         , persistentVolumeClaim = None { claimName : Text }
                         , configMap = Some { name = configName site }
+                        , emptyDir = None {}
+                        , hostPath = None { path : Text, type : Text }
                         }
                       ]
                 }
@@ -367,6 +371,8 @@ let volumes
                     { name = "${o.name}-volume"
                     , persistentVolumeClaim = None { claimName : Text }
                     , configMap = Some { name = o.name }
+                    , emptyDir = None {}
+                    , hostPath = None { path : Text, type : Text }
                     }
                 )
                 site.overlays
@@ -379,6 +385,8 @@ let volumes
                       [ { name = confVolume
                         , persistentVolumeClaim = None { claimName : Text }
                         , configMap = Some { name = nginxConfName site }
+                        , emptyDir = None {}
+                        , hostPath = None { path : Text, type : Text }
                         }
                       ]
                 }
@@ -450,6 +458,7 @@ let deployment
                           ]
                         , env = [] : List K.EnvVar
                         , volumeMounts = mounts site
+                        , imagePullPolicy = None Text
                         , startupProbe = None K.Probe
                         , livenessProbe = None K.Probe
                         , readinessProbe = Some

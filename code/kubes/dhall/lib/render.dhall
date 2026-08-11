@@ -131,6 +131,7 @@ let execProbe
 --  about it.
 let baseContainer =
       { command = None (List Text)
+      , imagePullPolicy = None Text
       , ports = [] : List K.ContainerPort
       , env = [] : List K.EnvVar
       , volumeMounts = [] : List K.VolumeMount
@@ -148,8 +149,34 @@ let k8sMount
         { name = m.name
         , mountPath = m.mountPath
         , subPath = Some m.subPath
-        , readOnly = None Bool
+        , -- Absent rather than `false`, so a mount that is writable renders the
+          -- same as every mount rendered before this field existed.
+          readOnly = if m.readOnly then Some True else None Bool
         }
+
+--| One declared volume as the API wants it: exactly one source key set, the
+--  other three absent. `T.VolumeSource` is what makes "exactly one" true; this
+--  only widens it.
+let k8sVolume
+    : T.Volume → K.Volume
+    = λ(v : T.Volume) →
+        let empty =
+              { name = v.name
+              , persistentVolumeClaim = None { claimName : Text }
+              , configMap = None { name : Text }
+              , emptyDir = None {}
+              , hostPath = None { path : Text, type : Text }
+              }
+
+        in  merge
+              { EmptyDir = empty ⫽ { emptyDir = Some {=} }
+              , ConfigMap =
+                  λ(c : { name : Text }) → empty ⫽ { configMap = Some c }
+              , HostPath =
+                  λ(h : { path : Text, why : Text }) →
+                    empty ⫽ { hostPath = Some { path = h.path, type = "Directory" } }
+              }
+              v.source
 
 let podSecurityContext
     : Natural → Optional Natural → K.PodSecurityContext
@@ -366,6 +393,8 @@ let dbDeployment
                             , persistentVolumeClaim = Some
                               { claimName = pvcName app }
                             , configMap = None { name : Text }
+                            , emptyDir = None {}
+                            , hostPath = None { path : Text, type : Text }
                             }
                           ]
                         }
@@ -430,6 +459,8 @@ let appDeployment
                         , persistentVolumeClaim = Some
                           { claimName = dataPvcName app }
                         , configMap = None { name : Text }
+                        , emptyDir = None {}
+                        , hostPath = None { path : Text, type : Text }
                         }
                       ]
                 , None = [] : List K.Volume
@@ -448,12 +479,35 @@ let appDeployment
                 }
                 app.storage
 
+        let strategy =
+            -- DERIVED, not declared. A `WireGuard` app is reached by a hostPort,
+            -- and a second pod cannot bind a port the first one holds — so a
+            -- rolling update does not merely risk two writers, it hangs: the new
+            -- pod stays Pending forever while the old one is never torn down.
+            -- That is a fact about the reach, so it is read off the reach rather
+            -- than offered as a field somebody has to remember.
+            --
+            -- ⚠ It deliberately does NOT fire on `storage`. utterance and
+            -- memview both hold a ReadWriteOnce claim and both roll today; RWO
+            -- permits two pods on ONE node, so they do not hang, they briefly
+            -- double-write. Making those Recreate is a change to two live
+            -- deployments and a decision of its own, not a side effect of adding
+            -- a type.
+              merge
+                { Ingress =
+                    λ(_ : { host : Text, exposure : T.Exposure }) →
+                      None { type : Text }
+                , WireGuard = Some { type = "Recreate" }
+                , Internal = None { type : Text }
+                }
+                app.reach
+
         in  [ { apiVersion = "apps/v1"
               , kind = "Deployment"
               , metadata = meta w.name app.name
               , spec =
                 { replicas = 1
-                , strategy = None { type : Text }
+                , strategy
                 , selector.matchLabels = appLabels w.name
                 , template =
                   { metadata.labels = appLabels w.name
@@ -463,6 +517,7 @@ let appDeployment
                       [     baseContainer
                         ⫽ { name = w.name
                           , image = T.imageRef w.image
+                          , imagePullPolicy = T.pullPolicyFor w.image
                           , command = w.command
                           , securityContext =
                               containerSecurityContext w.readOnlyRootFs
@@ -498,21 +553,26 @@ let appDeployment
                                 w.env
                           , readinessProbe = Some
                               (   renderProbe w.probe
-                                ⫽ { initialDelaySeconds = Some 5
-                                  , periodSeconds = Some 10
+                                ⫽ { initialDelaySeconds = Some
+                                      w.probeTiming.readiness.initialDelaySeconds
+                                  , periodSeconds = Some
+                                      w.probeTiming.readiness.periodSeconds
                                   }
                               )
                           , livenessProbe = Some
                               (   renderProbe w.probe
-                                ⫽ { initialDelaySeconds = Some 15
-                                  , periodSeconds = Some 20
+                                ⫽ { initialDelaySeconds = Some
+                                      w.probeTiming.liveness.initialDelaySeconds
+                                  , periodSeconds = Some
+                                      w.probeTiming.liveness.periodSeconds
                                   }
                               )
                           , resources = Some w.resources
                           , volumeMounts = L.map T.VolumeMount K.VolumeMount k8sMount w.mounts # dataMounts
                           }
                       ]
-                    , volumes = dataVolumes
+                    , volumes =
+                        L.map T.Volume K.Volume k8sVolume w.volumes # dataVolumes
                     }
                   }
                 }

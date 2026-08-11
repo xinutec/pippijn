@@ -124,6 +124,7 @@ in    { name = "memview"
             }
           , { name = "RUST_LOG", value = lit "info,memview=debug" }
           ]
+        , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8091 }
         , resources =
           { requests = { cpu = "25m", memory = "64Mi" }
@@ -133,8 +134,14 @@ in    { name = "memview"
             -- reads rather than a resident cache, so the ceiling is modest.
             limits = { cpu = "500m", memory = "256Mi" }
           }
+        , volumes = [] : List T.Volume
         , mounts =
-          [ { name = "app-data", mountPath = statePath, subPath = "state" } ]
+          [ { name = "app-data"
+            , mountPath = statePath
+            , subPath = "state"
+            , readOnly = False
+            }
+          ]
         }
       , -- The hostname resolves to the WireGuard address, not the public one, so
         -- the corpus is not advertised to the internet at large. Obscurity, not

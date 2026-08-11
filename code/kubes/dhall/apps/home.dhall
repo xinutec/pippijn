@@ -67,11 +67,13 @@ in    { name = "home"
           , { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
           , { name = "NC_CLIENT_SECRET", value = secret keys.NC_CLIENT_SECRET }
           ]
+        , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/health", port = 3000 }
         , resources =
           { requests = { cpu = "10m", memory = "128Mi" }
           , limits = { cpu = "200m", memory = "256Mi" }
           }
+        , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
         }
       , reach = T.Reach.Ingress

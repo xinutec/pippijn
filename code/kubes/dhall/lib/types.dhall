@@ -24,7 +24,17 @@ let Cluster = < isis | amun >
 -- version- or digest-pinned fleet deploy is not expressible in this model, so
 -- it cannot be reintroduced by copy-paste. Third-party images DO pin, because
 -- an unpinned `mariadb` would silently major-upgrade a database.
-let Image = < Fleet : Text | Upstream : { repo : Text, tag : Text } >
+-- `Local` is the third case and the awkward one: an image built ON the node with
+-- nix and imported straight into containerd, for a repo that has no CI and no
+-- registry because its test data is private. It is NOT on Docker Hub, so a pull
+-- would reach whatever stranger holds that name — which is why it is a
+-- constructor rather than an `Upstream` with a `:local` tag. Carrying its own
+-- `imagePullPolicy: Never` is the whole point: the two must not be separable.
+let Image =
+      < Fleet : Text
+      | Upstream : { repo : Text, tag : Text }
+      | Local : Text
+      >
 
 let imageRef
     : Image → Text
@@ -32,6 +42,23 @@ let imageRef
         merge
           { Fleet = λ(name : Text) → "xinutec/${name}:latest"
           , Upstream = λ(u : { repo : Text, tag : Text }) → "${u.repo}:${u.tag}"
+          , Local = λ(name : Text) → "docker.io/xinutec/${name}:local"
+          }
+          i
+
+--| Never, for a `Local` image; the cluster's own default for anything else.
+--
+-- Derived rather than declared, so "hand-imported" and "do not pull" cannot come
+-- apart. A `Local` image whose policy was left at the default pulls on the first
+-- restart after the node reboots, fails, and takes the app down at the moment
+-- nobody is watching.
+let pullPolicyFor
+    : Image → Optional Text
+    = λ(i : Image) →
+        merge
+          { Fleet = λ(_ : Text) → None Text
+          , Upstream = λ(_ : { repo : Text, tag : Text }) → None Text
+          , Local = λ(_ : Text) → Some "Never"
           }
           i
 
@@ -40,11 +67,8 @@ let EnvValue = < Literal : Text | FromSecret : { key : Text, optional : Bool } >
 
 let EnvVar = { name : Text, value : EnvValue }
 
---| How kubelet decides the container is alive.
---
--- The probe *timings* are not part of this type on purpose: they are a
--- property of the workload kind, not of the app, and the renderer supplies one
--- reviewed set for all of them.
+--| How kubelet decides the container is alive. The timings are `ProbeTiming`
+--  below; this is only the question being asked.
 let Probe =
       < Http : { path : Text, port : Natural }
       | Exec : { command : List Text }
@@ -53,13 +77,41 @@ let Probe =
         Tcp : { port : Natural }
       >
 
+--| How often kubelet asks, and how long it waits first.
+--
+-- This USED to be literals in the renderer, on the argument that the timings are
+-- a property of the workload kind rather than of the app. That held while every
+-- modelled app was a web service behind an Ingress. It stopped holding at the
+-- three tunnel-only apps, which start in two to three seconds and want to be
+-- marked ready in that time rather than in five — and, being reached by a
+-- hostPort that cannot roll, spend that delay as downtime on every deploy.
+--
+-- Required rather than optional, and `standardTiming` is one definition: an app
+-- says which set it uses and a reader can see it, but there is still exactly one
+-- place the fleet default is written down.
+let ProbeTiming =
+      { readiness : { initialDelaySeconds : Natural, periodSeconds : Natural }
+      , liveness : { initialDelaySeconds : Natural, periodSeconds : Natural }
+      }
+
+--| The reviewed set the renderer used to hardcode for everything.
+let standardTiming
+    : ProbeTiming
+    = { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
+      , liveness = { initialDelaySeconds = 15, periodSeconds = 20 }
+      }
+
 let Quantity = { cpu : Text, memory : Text }
 
 --| Both halves are required. A container with requests but no limits is the
 --  state `DL-K8S-NO-MEM-LIMIT` exists to catch; here it does not typecheck.
 let Resources = { requests : Quantity, limits : Quantity }
 
-let VolumeMount = { name : Text, mountPath : Text, subPath : Text }
+--| `readOnly` is stated, not defaulted. A content mirror the app must never
+--  write and a scratch directory it must are the same three fields otherwise,
+--  and only one of them is safe to get wrong quietly.
+let VolumeMount =
+      { name : Text, mountPath : Text, subPath : Text, readOnly : Bool }
 
 --| A persistent volume the app's *own* container writes to.
 --
@@ -98,6 +150,26 @@ let Storage =
       , durability : Durability
       }
 
+--| A volume that is NOT the app's own persistent claim.
+--
+-- `Storage` stays separate and keeps carrying `Durability`, because the question
+-- "what happens to this on a restore" is real for a PVC and vacuous for the
+-- three below: an emptyDir is gone at every restart by definition, a ConfigMap
+-- is rendered from this model, and a HostPath states in `why` that losing it is
+-- acceptable — which is emitted as the schema waiver on the rendered manifest,
+-- so the reason lives where the finding is rather than in a comment beside it.
+--
+-- Exactly one source per volume, which the API cannot say and this does: the
+-- API shape is four optional keys, and a record with two of them set is
+-- writable there and rejected by the cluster.
+let VolumeSource =
+      < EmptyDir
+      | ConfigMap : { name : Text }
+      | HostPath : { path : Text, why : Text }
+      >
+
+let Volume = { name : Text, source : VolumeSource }
+
 --| A long-running container plus the Service in front of it.
 let Workload =
       { name : Text
@@ -108,7 +180,9 @@ let Workload =
       , readOnlyRootFs : Bool
       , env : List EnvVar
       , probe : Probe
+      , probeTiming : ProbeTiming
       , resources : Resources
+      , volumes : List Volume
       , mounts : List VolumeMount
       }
 
@@ -197,12 +271,17 @@ in  { Cluster
     , Durability
     , Image
     , imageRef
+    , pullPolicyFor
     , EnvValue
     , EnvVar
     , Probe
+    , ProbeTiming
+    , standardTiming
     , Quantity
     , Resources
     , VolumeMount
+    , VolumeSource
+    , Volume
     , Storage
     , Workload
     , Database

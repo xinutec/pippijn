@@ -80,6 +80,7 @@ in    { name = "utterance"
             }
           , { name = "RUST_LOG", value = lit "info,utterance=debug" }
           ]
+        , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8080 }
         , resources =
           { requests = { cpu = "50m", memory = "128Mi" }
@@ -91,6 +92,7 @@ in    { name = "utterance"
             -- be starved.
             limits = { cpu = "2", memory = "1Gi" }
           }
+        , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
         }
       , reach = T.Reach.Ingress

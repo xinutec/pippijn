@@ -112,12 +112,27 @@ let Container =
         -- limit onto four live pods to satisfy a type would be the model
         -- changing production to flatter itself.
         resources : Optional Resources
+      , -- Only ever `Never`, and only for an image that was hand-imported into
+        -- containerd rather than pushed to a registry. Left absent otherwise so
+        -- the cluster keeps its own default per tag.
+        imagePullPolicy : Optional Text
       }
 
+--| Exactly one of the source fields is set. The API models this as a union of
+--  optional keys and cannot say "exactly one"; `T.Volume` can, and does, so
+--  nothing hand-writes this record.
+--
+-- `emptyDir` renders as `{}` — the empty record, which is the API's way of
+-- saying "default medium, no size limit". `hostPath` states its `type` because
+-- omitting it makes kubelet CREATE a missing path as a directory rather than
+-- fail, so a typo'd mirror path becomes an empty volume that serves 404s
+-- instead of an error anyone would see.
 let Volume =
       { name : Text
       , persistentVolumeClaim : Optional { claimName : Text }
       , configMap : Optional { name : Text }
+      , emptyDir : Optional {}
+      , hostPath : Optional { path : Text, type : Text }
       }
 
 --| Files served or mounted as configuration. `data` is a map, so the KEY is the

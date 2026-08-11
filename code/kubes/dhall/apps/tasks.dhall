@@ -109,6 +109,7 @@ in    { name = "tasks"
             , value = lit "info,tasks=debug"
             }
           ]
+        , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8092 }
         , resources =
           { requests = { cpu = "25m", memory = "64Mi" }
@@ -116,6 +117,7 @@ in    { name = "tasks"
             -- bodies are fetched one at a time. Nothing here is resident.
             limits = { cpu = "500m", memory = "256Mi" }
           }
+        , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
         }
       , -- The hostname resolves to the WireGuard address, not the public one.
