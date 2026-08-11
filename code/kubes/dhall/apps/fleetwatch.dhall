@@ -118,6 +118,6 @@ in    { name = "fleetwatch"
         reach = T.Reach.Ingress
           { host = dns.fleetwatch, exposure = T.Exposure.VpnOnly }
       , secrets = toMap keys
-      , netpol = True
+      , netpol = T.Netpol.IngressFromNginx
       }
     : T.App

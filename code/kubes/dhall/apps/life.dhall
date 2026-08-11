@@ -97,6 +97,6 @@ in    { name = "life"
       , reach = T.Reach.Ingress
         { host = dns.life, exposure = T.Exposure.Public }
       , secrets = toMap keys
-      , netpol = True
+      , netpol = T.Netpol.IngressFromNginx
       }
     : T.App

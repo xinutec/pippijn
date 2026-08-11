@@ -282,6 +282,43 @@ let Reach =
         Internal
       >
 
+--| One thing an app is allowed to reach, and on which ports.
+--
+-- Addressed by NAMESPACE, not by pod labels: a chart's pod labels change across
+-- versions where `kubernetes.io/metadata.name` is set by Kubernetes itself and
+-- cannot drift.
+let EgressTo = { namespace : Text, ports : List { port : Natural, protocol : Text } }
+
+--| What NetworkPolicy an app declares, if any.
+--
+-- This replaces `netpol : Bool`, which could say one thing: render the
+-- ingress-from-nginx policy, or nothing. That was never a switch on a single
+-- policy — it named ONE policy, and three apps in the fleet carry a different
+-- one entirely.
+--
+-- ⚠ The two arms differ in whether they are APPLIED, which is the part a Bool
+-- hid. `IngressFromNginx` is rendered to its own `-held.yaml` and deliberately
+-- kept out of the applied set: k3s enforces NetworkPolicy through kube-router,
+-- which does not exempt node-sourced kubelet probe traffic, so applying it as
+-- written drops the liveness probes and takes the app down. `Egress` IS applied
+-- and has been running on scanner, recall and observe for months.
+--
+-- A union rather than a record of two optional policies, because no app in the
+-- fleet has both and pretending otherwise would invent a state to test. When one
+-- does, that is a change with a reason behind it.
+let Netpol =
+      < --| No policy of its own. `generate.sh` emits the `allow-no-netpol`
+        --  waiver for these, which is the honest record of a namespace that has
+        --  not been hardened yet.
+        Unpoliced
+      | --| Reachable only from the ingress controller. HELD — see above.
+        IngressFromNginx
+      | --| Default-deny egress, with named exceptions. An EMPTY list is the
+        --  whole point rather than a degenerate case: it is deny-everything,
+        --  which is what an app that talks to nothing outside its pod wants.
+        Egress : List EgressTo
+      >
+
 let App =
       { name : Text
       , cluster : Cluster
@@ -290,7 +327,7 @@ let App =
       , workload : Workload
       , reach : Reach
       , secrets : List SecretKey
-      , netpol : Bool
+      , netpol : Netpol
       }
 
 in  { Cluster
@@ -317,5 +354,7 @@ in  { Cluster
     , issuerFor
     , wgAddress
     , Reach
+    , Netpol
+    , EgressTo
     , App
     }

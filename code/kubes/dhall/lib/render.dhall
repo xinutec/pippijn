@@ -665,7 +665,7 @@ let netpolDb
                   , kind = "NetworkPolicy"
                   , metadata = meta "${app.name}-db-from-app-only" app.name
                   , spec =
-                    { podSelector.matchLabels = appLabels (dbName app)
+                    { podSelector.matchLabels = Some (appLabels (dbName app))
                     , policyTypes = [ "Ingress" ]
                     , ingress =
                       [ { from =
@@ -675,9 +675,14 @@ let netpolDb
                                 None { matchLabels : K.Labels }
                             }
                           ]
-                        , ports = [ { port = 3306 } ]
+                        , ports = [ { port = 3306, protocol = None Text } ]
                         }
                       ]
+                    , egress =
+                        [] : List
+                               { to : List K.NetworkPolicyPeer
+                               , ports : List K.NetworkPolicyPort
+                               }
                     }
                   }
                 ]
@@ -691,38 +696,120 @@ let netpolDb
 --  site down. Rendered to its own file so the intent stays reviewed, but it is
 --  deliberately outside the applied set until a probe-source rule is added and
 --  verified on a live pod.
+let ingressFromNginx
+    : T.App → K.NetworkPolicy
+    = λ(app : T.App) →
+        { apiVersion = "networking.k8s.io/v1"
+        , kind = "NetworkPolicy"
+        , metadata = meta "${app.name}-app-from-ingress-only" app.name
+        , spec =
+          { podSelector.matchLabels = Some (appLabels app.workload.name)
+          , policyTypes = [ "Ingress" ]
+          , ingress =
+            [ { from =
+                [ { podSelector = None { matchLabels : K.Labels }
+                  , -- Selected by the namespace's automatic
+                    -- kubernetes.io/metadata.name label rather than chart pod
+                    -- labels, which change across versions.
+                    namespaceSelector = Some
+                      { matchLabels =
+                          toMap
+                            { `kubernetes.io/metadata.name` = "ingress-nginx" }
+                      }
+                  }
+                ]
+              , ports =
+                [ { port = app.workload.port, protocol = None Text } ]
+              }
+            ]
+          , egress =
+              [] : List
+                     { to : List K.NetworkPolicyPeer
+                     , ports : List K.NetworkPolicyPort
+                     }
+          }
+        }
+
+--| Default-deny egress for the whole namespace, with named exceptions.
+--
+-- `podSelector: {}` — the namespace, not a label match — because a policy that
+-- selected only the app's own pods would leave anything else scheduled there
+-- unrestricted, and the point of a default-deny is that it has no holes.
+let egressDefaultDeny
+    : T.App → List T.EgressTo → K.NetworkPolicy
+    = λ(app : T.App) →
+      λ(allowed : List T.EgressTo) →
+        { apiVersion = "networking.k8s.io/v1"
+        , kind = "NetworkPolicy"
+        , metadata = meta "default-deny-egress" app.name
+        , spec =
+          { podSelector.matchLabels = None K.Labels
+          , policyTypes = [ "Egress" ]
+          , ingress =
+              [] : List
+                     { from : List K.NetworkPolicyPeer
+                     , ports : List K.NetworkPolicyPort
+                     }
+          , egress =
+              L.map
+                T.EgressTo
+                { to : List K.NetworkPolicyPeer
+                , ports : List K.NetworkPolicyPort
+                }
+                ( λ(e : T.EgressTo) →
+                    { to =
+                      [ { podSelector = None { matchLabels : K.Labels }
+                        , namespaceSelector = Some
+                          { matchLabels =
+                              toMap { `kubernetes.io/metadata.name` = e.namespace }
+                          }
+                        }
+                      ]
+                    , ports =
+                        L.map
+                          { port : Natural, protocol : Text }
+                          K.NetworkPolicyPort
+                          ( λ(p : { port : Natural, protocol : Text }) →
+                              { port = p.port, protocol = Some p.protocol }
+                          )
+                          e.ports
+                    }
+                )
+                allowed
+          }
+        }
+
+--| ⚠️ HELD, not applied. k3s enforces NetworkPolicy via kube-router, which does
+--  NOT exempt node-sourced kubelet probe traffic — applying this as written
+--  drops the liveness/readiness probes, marks the pod NotReady and takes the
+--  site down. Rendered to its own file so the intent stays reviewed, but it is
+--  deliberately outside the applied set until a probe-source rule is added and
+--  verified on a live pod.
+--
+-- Only the `IngressFromNginx` arm lands here. The egress policies ARE applied
+-- and go to `netpolApp` below, which is the whole reason `netpol` stopped being
+-- a Bool: the two policies differ in whether they reach the cluster at all.
 let netpolAppHeld
     : T.App → List K.NetworkPolicy
     = λ(app : T.App) →
-        if    app.netpol
-        then  [ { apiVersion = "networking.k8s.io/v1"
-                , kind = "NetworkPolicy"
-                , metadata = meta "${app.name}-app-from-ingress-only" app.name
-                , spec =
-                  { podSelector.matchLabels = appLabels app.workload.name
-                  , policyTypes = [ "Ingress" ]
-                  , ingress =
-                    [ { from =
-                        [ { podSelector = None { matchLabels : K.Labels }
-                          , -- Selected by the namespace's automatic
-                            -- kubernetes.io/metadata.name label rather than
-                            -- chart pod labels, which change across versions.
-                            namespaceSelector = Some
-                              { matchLabels =
-                                  toMap
-                                    { `kubernetes.io/metadata.name` =
-                                        "ingress-nginx"
-                                    }
-                              }
-                          }
-                        ]
-                      , ports = [ { port = app.workload.port } ]
-                      }
-                    ]
-                  }
-                }
-              ]
-        else  [] : List K.NetworkPolicy
+        merge
+          { Unpoliced = [] : List K.NetworkPolicy
+          , IngressFromNginx = [ ingressFromNginx app ]
+          , Egress = λ(_ : List T.EgressTo) → [] : List K.NetworkPolicy
+          }
+          app.netpol
+
+--| The APPLIED app policy, as opposed to the held one above.
+let netpolApp
+    : T.App → List K.NetworkPolicy
+    = λ(app : T.App) →
+        merge
+          { Unpoliced = [] : List K.NetworkPolicy
+          , IngressFromNginx = [] : List K.NetworkPolicy
+          , Egress =
+              λ(allowed : List T.EgressTo) → [ egressDefaultDeny app allowed ]
+          }
+          app.netpol
 
 in  { storageWaiver
     , namespace
@@ -735,6 +822,7 @@ in  { storageWaiver
     , ingress
     , netpolDb
     , netpolAppHeld
+    , netpolApp
     , mariadbVersion
     , secretName
     , clusterHost

@@ -160,6 +160,6 @@ in    { name = "memview"
         reach = T.Reach.Ingress
           { host = dns.memview, exposure = T.Exposure.VpnOnly }
       , secrets = toMap keys
-      , netpol = True
+      , netpol = T.Netpol.IngressFromNginx
       }
     : T.App

@@ -229,17 +229,34 @@ let NetworkPolicyPeer =
             { matchLabels : List { mapKey : Text, mapValue : Text } }
       }
 
+--| A port in a NetworkPolicy rule. `protocol` is absent for TCP, which is the
+--  API's default; DNS needs both UDP and TCP named explicitly, so it cannot be
+--  left implicit everywhere.
+let NetworkPolicyPort = { port : Natural, protocol : Optional Text }
+
+--| `podSelector` is `Optional` so that `None` renders `podSelector: {}` under
+--  `--omit-empty` — the whole namespace, which is what a default-deny selects.
+--  `matchLabels: {}` is NOT the same document and would select nothing.
+--
+-- `egress` is a list of rules, and an EMPTY list is meaningful: with `Egress` in
+-- `policyTypes` it denies all egress. Under `--omit-empty` the key disappears,
+-- which the API reads identically.
 let NetworkPolicy =
       { apiVersion : Text
       , kind : Text
       , metadata : Meta
       , spec :
-          { podSelector : { matchLabels : Labels }
+          { podSelector : { matchLabels : Optional Labels }
           , policyTypes : List Text
           , ingress :
               List
                 { from : List NetworkPolicyPeer
-                , ports : List { port : Natural }
+                , ports : List NetworkPolicyPort
+                }
+          , egress :
+              List
+                { to : List NetworkPolicyPeer
+                , ports : List NetworkPolicyPort
                 }
           }
       }
@@ -273,5 +290,6 @@ in  { Meta
     , IngressRule
     , Ingress
     , NetworkPolicyPeer
+    , NetworkPolicyPort
     , NetworkPolicy
     }

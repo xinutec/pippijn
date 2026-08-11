@@ -79,6 +79,6 @@ in    { name = "home"
       , reach = T.Reach.Ingress
         { host = dns.home, exposure = T.Exposure.Public }
       , secrets = toMap keys
-      , netpol = False
+      , netpol = T.Netpol.Unpoliced
       }
     : T.App
