@@ -110,8 +110,18 @@ let Resources = { requests : Quantity, limits : Quantity }
 --| `readOnly` is stated, not defaulted. A content mirror the app must never
 --  write and a scratch directory it must are the same three fields otherwise,
 --  and only one of them is safe to get wrong quietly.
+--
+-- `subPath` is Optional and that is a DATA-SAFETY property, not tidiness: a
+-- mount that gains one stops seeing the volume's root and starts seeing an
+-- empty child. To the app that is indistinguishable from its data having been
+-- lost. So a mount that has none must be able to say so rather than being given
+-- one to satisfy the type.
 let VolumeMount =
-      { name : Text, mountPath : Text, subPath : Text, readOnly : Bool }
+      { name : Text
+      , mountPath : Text
+      , subPath : Optional Text
+      , readOnly : Bool
+      }
 
 --| A persistent volume the app's *own* container writes to.
 --
@@ -171,7 +181,9 @@ let Writers =
 let Storage =
       { storageGi : Natural
       , mountPath : Text
-      , subPath : Text
+      , -- Optional for the reason `VolumeMount.subPath` is — adding one to a
+        -- live mount hides the data that was there.
+        subPath : Optional Text
       , durability : Durability
       , writers : Writers
       }

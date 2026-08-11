@@ -148,7 +148,7 @@ let k8sMount
     = λ(m : T.VolumeMount) →
         { name = m.name
         , mountPath = m.mountPath
-        , subPath = Some m.subPath
+        , subPath = m.subPath
         , -- Absent rather than `false`, so a mount that is writable renders the
           -- same as every mount rendered before this field existed.
           readOnly = if m.readOnly then Some True else None Bool
@@ -443,7 +443,7 @@ let appDeployment
                     λ(s : T.Storage) →
                       [ { name = dataVolumeName
                         , mountPath = s.mountPath
-                        , subPath = Some s.subPath
+                        , subPath = s.subPath
                         , readOnly = None Bool
                         }
                       ]

@@ -29,7 +29,7 @@ in    { name = "utterance"
           -- at the rate two people record.
           storageGi = 5
         , mountPath = dataPath
-        , subPath = "recordings"
+        , subPath = Some "recordings"
         , writers =
             -- One directory per take, ids content-addressed from the audio, so
             -- two pods writing DIFFERENT takes never touch the same file.

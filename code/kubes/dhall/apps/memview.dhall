@@ -39,7 +39,7 @@ in    { name = "memview"
           -- local-path provisioner has no smaller unit worth asking for.
           storageGi = 1
         , mountPath = corpusPath
-        , subPath = "corpus"
+        , subPath = Some "corpus"
         , -- `ShareStore` holds the whole share document in memory and rewrites
           -- it whole on every read of a shared page. A second pod's copy —
           -- loaded before the first created a share — would erase it on the
@@ -144,7 +144,7 @@ in    { name = "memview"
         , mounts =
           [ { name = "app-data"
             , mountPath = statePath
-            , subPath = "state"
+            , subPath = Some "state"
             , readOnly = False
             }
           ]
