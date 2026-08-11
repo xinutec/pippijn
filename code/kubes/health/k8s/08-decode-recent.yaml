@@ -45,7 +45,7 @@ spec:
                   drop: ["ALL"]
               # Decode the recent window, then rebuild presence_log from the
               # fresh decoded_days. presence_log feeds the empty-day inference
-              # and the USE_CONTINUITY_CONTINUATION emission factor (below);
+              # and the presence-continuity emission factor;
               # without this second step it goes stale and both silently
               # degrade. DB-only and idempotent (DELETE+INSERT over the window).
               command:
@@ -79,19 +79,6 @@ spec:
                     secretKeyRef:
                       name: health-secret
                       key: NC_CLIENT_SECRET
-                # Presence-continuity emission factor — Phase 3 of
-                # docs/proposals/2026-06-presence-continuity.md. Without
-                # this, the HSMM defaults to the user's highest-history
-                # focus_place (Home with 90+ unique days) on minutes
-                # without GPS evidence, which on sparse-GPS hospital
-                # days produces phantom "@ Home" segments where the
-                # user was actually inpatient. Verified 2026-06-05 on
-                # 2026-06-01 (8-night Cleveland Clinic stay rendered
-                # as "@ Home" all day). Goldens pass 9/10 with the
-                # flag on (no regression vs off — the remaining 1 is
-                # the 05-22 time-shift bug, separate).
-                - name: USE_CONTINUITY_CONTINUATION
-                  value: "1"
                 # C4 cross-segment continuity (task #224,
                 # docs/proposals/2026-07-continuity-c4.md). Enabled
                 # 2026-07-17 after the decoder scoreboard

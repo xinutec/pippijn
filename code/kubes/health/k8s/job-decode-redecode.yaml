@@ -74,12 +74,6 @@ spec:
                 secretKeyRef:
                   name: health-secret
                   key: NC_CLIENT_SECRET
-            # Every flag below is copied from 08-decode-recent.yaml. A
-            # re-decode that differs from the nightly decode in ANY of them
-            # would write rows the cron then contradicts the next morning —
-            # the point is to reproduce the cron, not to run a variant.
-            - name: USE_CONTINUITY_CONTINUATION
-              value: "1"
             - name: USE_CADENCE_IMPUTATION
               value: "1"
             - name: USE_SEGMENT_EVIDENCE

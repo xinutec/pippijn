@@ -68,10 +68,6 @@ spec:
                 secretKeyRef:
                   name: health-secret
                   key: NC_CLIENT_SECRET
-            # Same flag set as 08-decode-recent.yaml — the backfill must
-            # decode exactly what the nightly cron decodes.
-            - name: USE_CONTINUITY_CONTINUATION
-              value: "1"
             - name: USE_CADENCE_IMPUTATION
               value: "1"
             - name: USE_SEGMENT_EVIDENCE
