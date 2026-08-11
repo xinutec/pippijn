@@ -5,6 +5,13 @@
 #   ./secret.sh                    # default: a single 'mac-mini' producer token
 #   FLEETWATCH_SOURCES="mac-mini odin" ./secret.sh   # a token per named producer
 #
+# ⚠ THE LIVE SOURCES ARE mac-mini, amun AND isis (isis added 2026-08-11, when the
+# picade fleet moved there from amun). This script REGENERATES EVERYTHING — DB
+# passwords, the read token the Android app holds, the session secret — so it is
+# the wrong tool for adding one producer. To add a source without rotating the
+# rest, append a `source:token` pair to the live secret's FLEETWATCH_TOKENS and
+# restart the app. Named here so the list is not lost if this ever is re-run.
+#
 # The printed producer tokens are shown ONCE — copy each to its producer's
 # ~/.config/fleetwatch/token (0600) so the pusher can authenticate. Re-running
 # rotates every secret (and invalidates old tokens).
