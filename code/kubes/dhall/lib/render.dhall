@@ -612,6 +612,28 @@ let appDeployment
               }
             ]
 
+--| The port the app's Service listens on — ONE expression, read by both the
+--  Service and the Ingress backend that targets it.
+--
+-- 80 for an app behind an Ingress, which is the convention the backend follows;
+-- the app's own port otherwise, where there is no Ingress to have a convention
+-- with. scanner's live Service is on 8090 for exactly that reason, and the
+-- hardcoded 80 is what stopped it joining the model.
+--
+-- Derived at both sites rather than written twice, for the same reason
+-- `Reach.WireGuard` derives the hostPort from the containerPort: a Service port
+-- and an Ingress backend that disagree forward to nothing, and say nothing
+-- about it.
+let servicePort
+    : T.App → Natural
+    = λ(app : T.App) →
+        merge
+          { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → 80
+          , WireGuard = app.workload.port
+          , Internal = app.workload.port
+          }
+          app.reach
+
 let appService
     : T.App → List K.Service
     = λ(app : T.App) →
@@ -622,7 +644,7 @@ let appService
             { clusterIP = None Text
             , selector = appLabels app.workload.name
             , ports =
-              [ { port = 80
+              [ { port = servicePort app
                 , targetPort = Some app.workload.port
                 , protocol = None Text
                 }
@@ -660,7 +682,9 @@ let ingress
                           [ { path = "/"
                             , pathType = "Prefix"
                             , backend.service
-                              = { name = app.workload.name, port.number = 80 }
+                              = { name = app.workload.name
+                                , port.number = servicePort app
+                                }
                             }
                           ]
                         }
