@@ -23,7 +23,6 @@ in  { -- Hosts (the machines themselves)
     , memview = sub "memview"
     , messages = sub "messages"
     , nocodb = sub "nocodb"
-    , sinterklaas = sub "sinterklaas"
     , slides = sub "slides"
     , tasks = sub "tasks"
     , utterance = sub "utterance"

@@ -6,8 +6,6 @@
 /code/dns/*.tfvars filter=git-crypt diff=git-crypt
 /code/kubes/health/k8s/secret.sh filter=git-crypt diff=git-crypt
 /code/kubes/web/org/xinutec/isis/k8s/share-auth.yaml filter=git-crypt diff=git-crypt
-/code/kubes/dhall/sites/content/sinterklaas.dhall filter=git-crypt diff=git-crypt
-/code/kubes/web/org/xinutec/sinterklaas/k8s/00-configmap.yaml filter=git-crypt diff=git-crypt
 /code/kubes/web/org/xinutec/slides/k8s/auth.yaml filter=git-crypt diff=git-crypt
 /.config/grafana/* filter=git-crypt diff=git-crypt
 /code/fleet-keys/** filter=git-crypt diff=git-crypt
