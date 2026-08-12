@@ -1,0 +1,132 @@
+# Default-deny egress for the `signal` namespace, plus the allow-graph.
+#
+# Egress-only, for the reason recall/observe/scanner are: k3s enforces
+# NetworkPolicy through kube-router, which does NOT exempt node-sourced kubelet
+# probe traffic, so a default-deny INGRESS drops the liveness/readiness probes
+# and takes every pod NotReady. Ingress is gated at the network layer (nginx
+# ingress + the app's own login for `messages`; nothing else here is exposed).
+#
+# Four pods share this namespace and they do NOT have the same reach:
+#
+#   signal-db       nothing outbound  (DNS only, for MariaDB's reverse lookups)
+#   signal-ingester signal-db:3306, signal-cli-rest-api:8080 — both in-namespace
+#   messages        signal-db:3306, and the Nextcloud SSO exchange (see below)
+#   signal-cli-rest the open internet on 443 — it IS a Signal client
+#
+# so signal-cli's internet reach and messages' SSO reach are separate policies
+# rather than lines in the default one. NetworkPolicies are additive: the
+# default policy denies by selecting every pod, and each extra policy widens
+# only the pods it selects.
+#
+# The graph was measured, not assumed — /proc/net/nf_conntrack on isis
+# 2026-08-12, filtered to the four pod IPs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: signal
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # kube-dns. Every pod here resolves something: the ingester and messages
+    # resolve service names, and MariaDB does a reverse lookup on each incoming
+    # connection (skip-name-resolve is not set), which without this would stall
+    # every connect until the resolver times out rather than fail outright.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # In-namespace: the archive DB and the signal-cli REST/websocket API. The
+    # ingester and messages reach both through Services (ClusterIP 10.43.x, or
+    # headless for signal-db); a podSelector is still the right match because
+    # DNAT runs in the nat table before kube-router's filter rules see the
+    # packet, so the destination has already become the backend pod's IP.
+    - to:
+        - podSelector: {}
+      ports:
+        - port: 3306
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
+---
+# signal-cli talks to Signal, which is the whole point of it, and Signal's
+# addresses are AWS and Cloudflare ranges that rotate — so this cannot be an
+# address list. What it CAN be is "the internet and nothing local": every
+# private range is excepted, so a compromised signal-cli cannot reach another
+# namespace's pods, the service network, the WireGuard tunnel (10.100.0.0/24,
+# inside the 10/8 except) or isis itself.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: signal-cli-egress-internet
+  namespace: signal
+spec:
+  podSelector:
+    matchLabels:
+      app: signal-cli-rest-api
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8 # pod 10.42/16, service 10.43/16, WireGuard 10.100/24
+              - 172.16.0.0/12 # docker0
+              - 192.168.0.0/16
+              - 169.254.0.0/16 # flannel + link-local, incl. the metadata address
+              - 127.0.0.0/8
+      # isis's own public address needs no `except` and cannot usefully have
+      # one: it is LOCAL, so CNI-HOSTPORT-DNAT rewrites the packet to a pod in
+      # kube-system before this policy is evaluated, and the 10.0.0.0/8 except
+      # above is what actually denies it. Measured blocked 2026-08-12.
+      ports:
+        - port: 443
+          protocol: TCP
+---
+# messages exchanges the OAuth2 code with Nextcloud on `/auth/callback`
+# (NC_BASE_URL in 01-app.yaml of the messages tree). That URL is the PUBLIC
+# https://dash.xinutec.org, which resolves to isis's own address — so the
+# request hairpins out of the pod, into isis's ingress, and back down to the
+# nextcloud namespace.
+#
+# An `ipBlock: 188.165.200.180/32` here reads correctly and does NOT work; it
+# was written that way first and MEASURED blocked. isis's own address is LOCAL,
+# so `nat PREROUTING -m addrtype --dst-type LOCAL -j CNI-HOSTPORT-DNAT` rewrites
+# the packet to the k3s service-load-balancer pod BEFORE kube-router's filter
+# rules see it. By the time the policy is evaluated the destination is
+# 10.42.x.y in kube-system, and no ipBlock can name it.
+#
+# So the destination is that pod, selected by the two labels klipper stamps on
+# it. Not `app`, which carries a per-Service hash suffix
+# (svclb-ingress-nginx-controller-d811185f) that moves when the Service does.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messages-egress-sso
+  namespace: signal
+spec:
+  podSelector:
+    matchLabels:
+      app: messages
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              svccontroller.k3s.cattle.io/svcname: ingress-nginx-controller
+              svccontroller.k3s.cattle.io/svcnamespace: ingress-nginx
+      ports:
+        - port: 443
+          protocol: TCP
