@@ -303,8 +303,15 @@ header() { # app file netpol_anchor
   # ...and only when the app has no APPLIED policy of its own. An app with a
   # real default-deny needs no waiver, and dev-lint fails one that waives
   # nothing, so this asks the model rather than keeping a second list here.
+  #
+  # `allow-''<suffix>` — the same split as doc_waiver's and host_port_waiver's,
+  # and for the same reason. It was added here on 2026-08-12: dev-lint's YAML
+  # engines started reporting which rules they ran, which let it condemn a waiver
+  # that suppressed nothing — and it read these three printf strings as waivers
+  # sited in generate.sh, where they suppress nothing at all. The emitted text is
+  # unchanged; `''` closes and reopens the quote and contributes no character.
   if [[ ${3:-0} == 1 && $(ask "$1" hasAppliedNetpol) == False ]]; then
-    printf '# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
+    printf '# dev-lint: allow-''no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
   fi
 }
 
@@ -319,14 +326,14 @@ site_header() { # site file
       # emitted here rather than modelled because a waiver is a statement about
       # dev-lint, not about the deployment — same split as the app renderer's.
       printf '#\n'
-      printf '# dev-lint: allow-rootfs-rw — the stock nginx-unprivileged image writes /tmp and its pid file\n'
-      printf '# dev-lint: allow-no-mem-limit — stock image, never sized (fix: size from kubectl top)\n'
+      printf '# dev-lint: allow-''rootfs-rw — the stock nginx-unprivileged image writes /tmp and its pid file\n'
+      printf '# dev-lint: allow-''no-mem-limit — stock image, never sized (fix: size from kubectl top)\n'
       if [[ $(site_ask "$1" netpolWaiver) == True ]]; then
         # DL-K8S-NP-DEFAULT-DENY anchors on the FIRST Deployment in a namespace,
         # and all four sites share `web` — so exactly ONE of them may carry this
         # and the model says which. dev-lint fails a waiver that waives nothing,
         # so a second one would be caught rather than silently over-waiving.
-        printf '# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
+        printf '# dev-lint: allow-''no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
       fi
       ;;
   esac
