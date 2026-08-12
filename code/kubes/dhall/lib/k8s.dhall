@@ -22,7 +22,11 @@ let Meta =
 
 let Quantity = { cpu : Text, memory : Text }
 
-let Resources = { requests : Quantity, limits : Quantity }
+--| `limits` is Optional because the API's is: a container may reserve without
+--  capping. Which containers MAY do that is not decided here — `T.Resources`
+--  requires both halves for every workload the fleet builds, and only
+--  `T.DbResources` relaxes it, for the one case that is argued.
+let Resources = { requests : Quantity, limits : Optional Quantity }
 
 let SecretKeyRef = { name : Text, key : Text, optional : Optional Bool }
 

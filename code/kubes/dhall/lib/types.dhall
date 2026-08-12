@@ -107,6 +107,27 @@ let Quantity = { cpu : Text, memory : Text }
 --  state `DL-K8S-NO-MEM-LIMIT` exists to catch; here it does not typecheck.
 let Resources = { requests : Quantity, limits : Quantity }
 
+--| A database engine's resources, where `limits` is Optional — and this is the
+--  ONLY place in the model where it is.
+--
+-- Not a softening of the rule above. dev-lint's `image_profile` already sets
+-- `require_memory_limit = false` for every `is_db` container fleet-wide, on the
+-- stated grounds that "DB pools can be large and variable", so an unlimited
+-- database is the linter's own considered position rather than an omission it
+-- would catch. This type says the same thing where the manifest is written.
+--
+-- ⚠ It exists because health-db could not be modelled without it. That database
+-- is ~4 GB with a 2 GB pool and its manifest argues the case explicitly: "a hard
+-- cap risks an OOM-kill mid-query". The alternative was inventing a memory limit
+-- on the largest database in the fleet so a type would accept it — which is the
+-- model changing production to flatter itself, the exact failure `k8s.dhall`
+-- names about `Container.resources`.
+--
+-- `Some` is still available and five of the six modelled databases use it. The
+-- Optional buys the ONE case that is argued, not a default anybody can drift
+-- into: omitting limits takes a `None` written on purpose.
+let DbResources = { requests : Quantity, limits : Optional Quantity }
+
 --| `readOnly` is stated, not defaulted. A content mirror the app must never
 --  write and a scratch directory it must are the same three fields otherwise,
 --  and only one of them is safe to get wrong quietly.
@@ -233,7 +254,7 @@ let Workload =
 let Database =
       { dbName : Text
       , storageGi : Natural
-      , resources : Resources
+      , resources : DbResources
       , keys : { user : Text, password : Text, rootPassword : Text }
       }
 
@@ -373,6 +394,7 @@ in  { Cluster
     , standardTiming
     , Quantity
     , Resources
+    , DbResources
     , ConfigMapDoc
     , VolumeMount
     , VolumeSource

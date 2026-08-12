@@ -677,7 +677,14 @@ let appDeployment
                                       w.probeTiming.liveness.periodSeconds
                                   }
                               )
-                          , resources = Some w.resources
+                          , -- `T.Resources` requires both halves; `K.Resources`
+                            -- makes `limits` Optional to match the API. Every
+                            -- workload the fleet builds therefore renders
+                            -- `Some`, and only a database may render `None`.
+                            resources = Some
+                              { requests = w.resources.requests
+                              , limits = Some w.resources.limits
+                              }
                           , volumeMounts =
                               L.nonEmpty
                                 K.VolumeMount

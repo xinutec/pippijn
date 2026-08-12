@@ -38,7 +38,7 @@ in    { name = "fleetwatch"
         , storageGi = 5
         , resources =
           { requests = { cpu = "50m", memory = "256Mi" }
-          , limits = { cpu = "1", memory = "1Gi" }
+          , limits = Some { cpu = "1", memory = "1Gi" }
           }
         , keys =
           { user = keys.DB_USER
