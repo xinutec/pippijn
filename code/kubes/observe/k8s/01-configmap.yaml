@@ -1,12 +1,7 @@
-# nginx vhost for the observe runs viewer: static files only. Two disjoint
-# trees so the Mac can mirror each with rsync --delete (observe repo,
-# scripts/publish_run.sh): /srv/observe/web (the built Angular viewer, served
-# at /) and /srv/observe/runs (the runs ledger, served at /runs/).
+# GENERATED from dhall/apps/observe.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
 apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: observe-viewer-nginx
-  namespace: observe
 data:
   default.conf: |
     # The client activity trace, as one line per batch. `client-event` is the
@@ -81,3 +76,7 @@ data:
         try_files $uri $uri/ =404;
       }
     }
+kind: ConfigMap
+metadata:
+  name: "observe-viewer-nginx"
+  namespace: observe

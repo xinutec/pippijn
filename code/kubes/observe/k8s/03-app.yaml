@@ -1,0 +1,89 @@
+# GENERATED from dhall/apps/observe.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "observe-viewer"
+  namespace: observe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "observe-viewer"
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: "observe-viewer"
+    spec:
+      containers:
+      - image: "docker.io/nginxinc/nginx-unprivileged:alpine"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8091
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        name: "observe-viewer"
+        ports:
+        - containerPort: 8091
+          hostIP: '10.100.0.2'
+          hostPort: 8091 # dev-lint: allow-host-port — bound to wg0 only, see hostIP
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8091
+          initialDelaySeconds: 2
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: '1'
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 32Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /srv/observe
+          name: content
+          readOnly: true
+        - mountPath: /etc/nginx/conf.d
+          name: "nginx-conf"
+          readOnly: true
+        - mountPath: /tmp
+          name: tmp
+      securityContext:
+        runAsGroup: 101
+        runAsNonRoot: true
+        runAsUser: 101
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - hostPath:
+          path: /srv/observe # dev-lint: allow-host-path — a disposable mirror the Mac rsyncs to (scripts/publish_run.sh); a local-path PVC's opaque path would break that publish for no gain on one node
+          type: Directory
+        name: content
+      - configMap:
+          name: "observe-viewer-nginx"
+        name: "nginx-conf"
+      - emptyDir: {}
+        name: tmp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "observe-viewer"
+  namespace: observe
+spec:
+  ports:
+  - port: 8091
+    targetPort: 8091
+  selector:
+    app: "observe-viewer"

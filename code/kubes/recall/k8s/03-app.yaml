@@ -1,0 +1,133 @@
+# GENERATED from dhall/apps/recall.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recall
+  namespace: recall
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recall
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: recall
+    spec:
+      containers:
+      - command:
+        - python
+        - "-m"
+        - recall
+        - api
+        - "--out"
+        - /data
+        - "--host"
+        - '0.0.0.0'
+        - "--port"
+        - '8000'
+        env:
+        - name: RECALL_ROLE
+          value: fleet
+        - name: RECALL_SYNC_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: SYNC_TOKEN
+              name: "recall-secret"
+        - name: RECALL_SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: SESSION_SECRET
+              name: "recall-secret"
+              optional: true
+        - name: NC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_ID
+              name: "recall-secret"
+              optional: true
+        - name: NC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_SECRET
+              name: "recall-secret"
+              optional: true
+        - name: RECALL_ALLOWED_USERS
+          value: pippijn
+        - name: RECALL_DEVICE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: DEVICE_TOKEN
+              name: "recall-secret"
+              optional: true
+        - name: NC_REDIRECT_URI
+          value: "http://10.100.0.2:8000/auth/callback"
+        - name: NC_INTERNAL_URL
+          value: "http://nextcloud-server.nextcloud.svc.cluster.local"
+        image: "xinutec/recall:latest"
+        livenessProbe:
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          tcpSocket:
+            port: 8000
+        name: recall
+        ports:
+        - containerPort: 8000
+          hostIP: '10.100.0.2'
+          hostPort: 8000 # dev-lint: allow-host-port — bound to wg0 only, see hostIP
+        readinessProbe:
+          initialDelaySeconds: 3
+          periodSeconds: 10
+          tcpSocket:
+            port: 8000
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /app/logs
+          name: logs
+        - mountPath: /data
+          name: "app-data"
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - emptyDir: {}
+        name: tmp
+      - emptyDir: {}
+        name: logs
+      - name: "app-data"
+        persistentVolumeClaim:
+          claimName: "recall-data-pvc"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recall
+  namespace: recall
+spec:
+  ports:
+  - port: 8000
+    targetPort: 8000
+  selector:
+    app: recall
