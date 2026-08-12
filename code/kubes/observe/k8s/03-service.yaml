@@ -8,7 +8,6 @@ metadata:
   name: observe-viewer
   namespace: observe
 spec:
-  type: ClusterIP
   selector:
     app: observe-viewer
   ports:

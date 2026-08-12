@@ -31,7 +31,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: nginx
+        - name: observe-viewer
           image: docker.io/nginxinc/nginx-unprivileged:alpine
           securityContext:
             allowPrivilegeEscalation: false

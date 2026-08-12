@@ -38,6 +38,7 @@ esac
 # Output file -> the renderers whose documents it concatenates.
 manifests=(
   "00-namespace.yaml:namespace"
+  "01-configmap.yaml:configMap"
   "01-pvc.yaml:pvc appPvc"
   "02-db.yaml:dbDeployment dbService"
   "03-app.yaml:appDeployment appService"
@@ -156,7 +157,7 @@ render() { # app renderer -> YAML documents (nothing if the renderer opts out)
   # is why K.NetworkPolicy's rule lists are Optional — see lib/k8s.dhall.
   local flags=(--omit-empty --documents)
   case $2 in
-    netpol*) flags=(--documents) ;;
+    netpol*|appDeployment) flags=(--documents) ;;
   esac
   out=$(printf 'let R = %s/lib/render.dhall in R.%s %s/apps/%s.dhall\n' \
     "$here" "$2" "$here" "$1" |
@@ -238,6 +239,49 @@ host_port_waiver() { # app file  (body on stdin) -> body, waiver injected
     END {
       if (!done) {
         print "generate.sh: usesHostPort but no hostPort line to waive" \
+          > "/dev/stderr"
+        exit 1
+      }
+    }'
+}
+
+host_path_waiver() { # app file  (body on stdin) -> body, waiver injected
+  # DL-K8S-HOST-PATH, and the placement is NOT free choice. The rule anchors at
+  # the hostPath's `path` VALUE, and the k8s engine honours a line-scoped waiver
+  # on the flagged line or in the contiguous COMMENT block directly above it —
+  # so a trailing marker on the `hostPath:` key line waives nothing, because a
+  # key line ends the block. Measured both ways on observe, 2026-08-12.
+  #
+  # Injected on the `path:` line itself. Same division of labour as the other
+  # two: the model answers WHETHER and WHY (R.hostPathWaiver returns the
+  # volume's own justification, "" for none) and this holds only the syntax.
+  [[ $2 == 03-app.yaml ]] || { cat; return; }
+  local why
+  why=$(ask "$1" hostPathWaiver | sed -e 's/^"//' -e 's/"$//')
+  [[ -n $why ]] || { cat; return; }
+
+  # Split for the same reason as the others: a whole `dev-lint: allow-<suffix>`
+  # string in this file registers as a waiver sited HERE, which suppresses
+  # nothing and is itself reported as DL-WAIVER-INEFFECTIVE.
+  local waiver="# dev-lint: allow-""host-path — $why"
+
+  # Failing loudly if the anchor is not there, as host_port_waiver does: the
+  # model said this app mounts a host path, so a body without one means the two
+  # have drifted and a silent skip would ship an unwaived finding.
+  # ⚠ Anchored on the `path:` that FOLLOWS a `hostPath:` key, not on the first
+  # `path:` in the document. The first version matched `/^ *path: /` alone and
+  # put the marker on the readiness probe's `path: /healthz`, eleven lines above
+  # the volume — which `--check` cannot catch, because it compares normalised
+  # YAML and comments are not in it. dev-lint over the rendered tree is what
+  # sees this, so run it after changing anything here.
+  awk -v w="$waiver" '
+    # `- hostPath:` when the volume sorts it first, `  hostPath:` otherwise.
+    /^ *-? *hostPath:/ { in_hp = 1 }
+    in_hp && /^ *path: / && !done { print $0 " " w; done = 1; in_hp = 0; next }
+    { print }
+    END {
+      if (!done) {
+        print "generate.sh: hostPathWaiver but no hostPath/path line to waive" \
           > "/dev/stderr"
         exit 1
       }
@@ -385,7 +429,9 @@ for src in "$here"/apps/*.dhall; do
 
     [[ $mode == write ]] && {
       header "$app" "$file" "$is_anchor"
-      doc_waiver "$app" "$file" "$body" | host_port_waiver "$app" "$file"
+      doc_waiver "$app" "$file" "$body" \
+        | host_port_waiver "$app" "$file" \
+        | host_path_waiver "$app" "$file"
     } > "$outdir/$file"
   done
 

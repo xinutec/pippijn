@@ -456,8 +456,8 @@ let deployment
                             , hostIP = None Text
                             }
                           ]
-                        , env = [] : List K.EnvVar
-                        , volumeMounts = mounts site
+                        , env = None (List K.EnvVar)
+                        , volumeMounts = L.nonEmpty K.VolumeMount (mounts site)
                         , imagePullPolicy = None Text
                         , startupProbe = None K.Probe
                         , livenessProbe = None K.Probe
@@ -474,7 +474,7 @@ let deployment
                           resources = None K.Resources
                         }
                       ]
-                    , volumes = volumes site
+                    , volumes = L.nonEmpty K.Volume (volumes site)
                     }
                   }
                 }

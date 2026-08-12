@@ -38,6 +38,8 @@ in    { name = "life"
           }
         }
       , storage = None T.Storage
+      , -- Configured entirely from the environment; no files to mount.
+        configMap = None T.ConfigMapDoc
       , workload =
         { name = "life-app"
         , image = T.Image.Fleet "life"

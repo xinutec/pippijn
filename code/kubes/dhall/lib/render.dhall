@@ -174,8 +174,8 @@ let baseContainer =
       { command = None (List Text)
       , imagePullPolicy = None Text
       , ports = [] : List K.ContainerPort
-      , env = [] : List K.EnvVar
-      , volumeMounts = [] : List K.VolumeMount
+      , env = None (List K.EnvVar)
+      , volumeMounts = None (List K.VolumeMount)
       , startupProbe = None K.Probe
       , livenessProbe = None K.Probe
       , readinessProbe = None K.Probe
@@ -249,6 +249,27 @@ let namespace
           }
         ]
 
+--| The app's own ConfigMap, if it declares one.
+--
+-- A list rather than an Optional so the generator concatenates it like every
+-- other renderer: an app with no ConfigMap renders no document, and the file is
+-- simply not written. Same shape as `pvc`, for the same reason.
+let configMap
+    : T.App → List K.ConfigMap
+    = λ(app : T.App) →
+        merge
+          { None = [] : List K.ConfigMap
+          , Some =
+              λ(cm : T.ConfigMapDoc) →
+                [ { apiVersion = "v1"
+                  , kind = "ConfigMap"
+                  , metadata = meta cm.name app.name
+                  , data = cm.files
+                  }
+                ]
+          }
+          app.configMap
+
 --| The backup-coverage waiver an app's own claim should carry, or "" for none.
 --
 -- Empty means "no waiver": either the app has no volume of its own, or it
@@ -273,6 +294,38 @@ let storageWaiver
           , None = ""
           }
           app.storage
+
+--| The `allow-host-path` justification an app's volumes need, or "" for none.
+--
+-- Same discipline as `storageWaiver`: the model answers WHETHER and WHY, and the
+-- generator holds only the marker syntax. A list of host-path apps in the shell
+-- is the shape that let utterance go unwaived for months.
+--
+-- The FIRST `why` wins, and that is a real limit rather than an oversight: the
+-- marker is line-scoped, so a second host-path volume would need its own marker
+-- on its own line. No app has two, and `--check` fails loudly if one appears —
+-- the rendered tree would carry a finding the live tree waives.
+let hostPathWaiver
+    : T.App → Text
+    = λ(app : T.App) →
+        merge
+          { None = "", Some = λ(why : Text) → why }
+          ( List/head
+              Text
+              ( L.concatMap
+                  T.Volume
+                  Text
+                  ( λ(v : T.Volume) →
+                      merge
+                        { EmptyDir = [] : List Text
+                        , ConfigMap = λ(_ : { name : Text }) → [] : List Text
+                        , HostPath = λ(h : { path : Text, why : Text }) → [ h.why ]
+                        }
+                        v.source
+                  )
+                  app.workload.volumes
+              )
+          )
 
 let pvc
     : T.App → List K.PersistentVolumeClaim
@@ -347,8 +400,8 @@ let dbDeployment
                               , -- No readOnlyRootFilesystem: mariadb writes
                                 -- /run/mysqld and its data dir.
                                 securityContext = containerSecurityContext False
-                              , env =
-                                  L.map
+                              , env = Some
+                                ( L.map
                                     T.EnvVar
                                     K.EnvVar
                                     (renderEnv (secretName app))
@@ -382,13 +435,14 @@ let dbDeployment
                                             }
                                       }
                                     ]
+                                )
                               , ports =
                                 [ { containerPort = 3306
                                   , hostPort = None Natural
                                   , hostIP = None Text
                                   }
                                 ]
-                              , volumeMounts =
+                              , volumeMounts = Some
                                 [ { name = "data"
                                   , mountPath = "/var/lib/mysql"
                                   , subPath = Some "mariadb-data"
@@ -429,7 +483,7 @@ let dbDeployment
                               , resources = Some d.resources
                               }
                           ]
-                        , volumes =
+                        , volumes = Some
                           [ { name = "data"
                             , persistentVolumeClaim = Some
                               { claimName = pvcName app }
@@ -599,11 +653,14 @@ let appDeployment
                                 app.reach
                             ]
                           , env =
-                              L.map
-                                T.EnvVar
+                              L.nonEmpty
                                 K.EnvVar
-                                (renderEnv (secretName app))
-                                w.env
+                                ( L.map
+                                    T.EnvVar
+                                    K.EnvVar
+                                    (renderEnv (secretName app))
+                                    w.env
+                                )
                           , readinessProbe = Some
                               (   renderProbe w.probe
                                 ⫽ { initialDelaySeconds = Some
@@ -621,11 +678,18 @@ let appDeployment
                                   }
                               )
                           , resources = Some w.resources
-                          , volumeMounts = L.map T.VolumeMount K.VolumeMount k8sMount w.mounts # dataMounts
+                          , volumeMounts =
+                              L.nonEmpty
+                                K.VolumeMount
+                                (   L.map T.VolumeMount K.VolumeMount k8sMount w.mounts
+                                  # dataMounts
+                                )
                           }
                       ]
                     , volumes =
-                        L.map T.Volume K.Volume k8sVolume w.volumes # dataVolumes
+                        L.nonEmpty
+                          K.Volume
+                          (L.map T.Volume K.Volume k8sVolume w.volumes # dataVolumes)
                     }
                   }
                 }
@@ -892,7 +956,9 @@ let netpolApp
           app.netpol
 
 in  { storageWaiver
+    , hostPathWaiver
     , namespace
+    , configMap
     , pvc
     , appPvc
     , dbDeployment

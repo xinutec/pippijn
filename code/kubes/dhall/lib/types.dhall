@@ -331,11 +331,30 @@ let Netpol =
         Egress : List EgressTo
       >
 
+--| Configuration the app's own container mounts as files.
+--
+-- The KEY is the filename inside the mount and the value is its whole contents,
+-- which is what a k8s ConfigMap's `data` already means — so this is the upstream
+-- shape rather than an invention.
+--
+-- Optional on `App` because most of the fleet has none: a service that reads its
+-- configuration from the environment wants no ConfigMap, and one that has a
+-- ConfigMap nobody mounts is a manifest that does nothing. The one app that
+-- needs it (observe) IS its nginx vhost — there is no application backend at
+-- all, so the configuration is the deployment.
+--
+-- ⚠ The name is stated, not derived, and the volume that mounts it names it
+-- again. Bind it to a `let` in the app model so the two cannot drift: a
+-- `VolumeSource.ConfigMap` pointing at a name nobody created is a pod stuck in
+-- `ContainerCreating` with the reason several layers down in an event.
+let ConfigMapDoc = { name : Text, files : List { mapKey : Text, mapValue : Text } }
+
 let App =
       { name : Text
       , cluster : Cluster
       , db : Optional Database
       , storage : Optional Storage
+      , configMap : Optional ConfigMapDoc
       , workload : Workload
       , reach : Reach
       , secrets : List SecretKey
@@ -354,6 +373,7 @@ in  { Cluster
     , standardTiming
     , Quantity
     , Resources
+    , ConfigMapDoc
     , VolumeMount
     , VolumeSource
     , Volume

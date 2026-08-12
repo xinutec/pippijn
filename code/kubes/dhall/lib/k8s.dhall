@@ -99,8 +99,14 @@ let Container =
       , command : Optional (List Text)
       , securityContext : ContainerSecurityContext
       , ports : List ContainerPort
-      , env : List EnvVar
-      , volumeMounts : List VolumeMount
+      , -- Optional, not `List`, for the reason NetworkPolicy's rule lists are:
+        -- `appDeployment` renders WITHOUT `--omit-empty` (an `emptyDir: {}`
+        -- volume is an empty record that the flag deletes, which would emit a
+        -- volume with no source at all), and with the flag off an empty list
+        -- serialises as `[]` rather than vanishing. `None` disappears; a list
+        -- that is genuinely present stays.
+        env : Optional (List EnvVar)
+      , volumeMounts : Optional (List VolumeMount)
       , startupProbe : Optional Probe
       , livenessProbe : Optional Probe
       , readinessProbe : Optional Probe
@@ -147,7 +153,7 @@ let ConfigMap =
 let PodSpec =
       { securityContext : PodSecurityContext
       , containers : List Container
-      , volumes : List Volume
+      , volumes : Optional (List Volume)
       }
 
 --| The labels that tie a pod template, its Service and its policies together.

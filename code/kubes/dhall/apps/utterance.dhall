@@ -46,6 +46,8 @@ in    { name = "utterance"
                   "utterance is under heavy development and its uploads are re-derivable; backing it up is deliberately deferred"
               }
         }
+      , -- Configured entirely from the environment; no files to mount.
+        configMap = None T.ConfigMapDoc
       , workload =
         { name = "utterance"
         , image = T.Image.Fleet "utterance"

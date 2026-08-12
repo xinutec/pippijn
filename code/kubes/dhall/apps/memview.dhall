@@ -57,6 +57,8 @@ in    { name = "memview"
                   "memview holds no primary copy: the corpus is re-pushed wholesale by every sync from the Mac, and the state subPath holds only a re-issuable share token"
               }
         }
+      , -- Configured entirely from the environment; no files to mount.
+        configMap = None T.ConfigMapDoc
       , workload =
         { name = "memview"
         , image = T.Image.Fleet "memview"
