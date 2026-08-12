@@ -1,0 +1,23 @@
+# What 05-networkpolicy.yaml must and must not allow, as destinations to connect to.
+#   scripts/netpol-reach.sh signal netpol-reach.table
+# Run it before applying a policy change as well as after: a row that is already
+# blocked before proves nothing.
+#
+# deploy               host                  port  expect
+
+# --- must stay open ---------------------------------------------------------
+signal-ingester        signal-db             3306  open     # the archive it writes
+signal-ingester        signal-cli-rest-api   8080  open     # the receive websocket
+messages               signal-db             3306  open     # the archive it reads
+messages               188.165.200.180        443  open     # NC token exchange, hairpinned
+signal-cli-rest-api    chat.signal.org        443  open     # Signal itself
+signal-cli-rest-api    cdn.signal.org         443  open     # attachment blobs
+
+# --- must be blocked --------------------------------------------------------
+# Not "things nobody asked for": each was OPEN before the policy, so each is a
+# reach that was really taken away.
+signal-ingester        1.1.1.1                443  blocked  # no internet for the archiver
+messages               1.1.1.1                443  blocked  # nor the viewer
+signal-db              1.1.1.1                443  blocked  # nor the database
+signal-cli-rest-api    10.100.0.2             443  blocked  # not the WireGuard tunnel
+signal-cli-rest-api    188.165.200.180        443  blocked  # not isis's own ingress

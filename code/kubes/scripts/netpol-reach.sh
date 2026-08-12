@@ -18,7 +18,7 @@
 # `bash`'s /dev/tcp is the probe because it is the one tool present in every
 # image here; curl and nc are not (the two Rust services are distroless-ish and
 # have neither).
-set -uo pipefail
+set -euo pipefail
 
 ns=${1:?usage: netpol-reach.sh <namespace> [table-file]}
 table=${2:-}
@@ -42,7 +42,12 @@ rc=0
 # blank lines are skipped so a table can be annotated with WHY a row is there —
 # which is the half of it a bare address cannot carry.
 while read -r deploy host port expect _; do
-	[[ -z ${deploy:-} || $deploy == \#* ]] && continue
+	# `if`, not `[[ … ]] && continue` — under `set -e` the latter exits the
+	# script on every row that is NOT a comment, because a false test is the
+	# statement's exit status.
+	if [[ -z ${deploy:-} || $deploy == \#* ]]; then
+		continue
+	fi
 	probe "$deploy" "$host" "$port" "$expect"
 done < <(if [[ -n $table ]]; then cat "$table"; else cat; fi)
 
