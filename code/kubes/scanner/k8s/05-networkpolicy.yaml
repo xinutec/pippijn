@@ -1,0 +1,14 @@
+# GENERATED from dhall/apps/scanner.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "default-deny-egress"
+  namespace: scanner
+spec:
+  egress: []
+  podSelector: {}
+  policyTypes:
+  - Egress

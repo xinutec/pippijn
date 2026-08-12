@@ -1,28 +1,16 @@
-# Scan session recordings: every accepted photo post persists under
-# /srv/data/<session>/NNNN.json so a scan replays through the identical engine
-# offline. DELIBERATELY NOT BACKED UP (Pippijn, 2026-07-16): this service is
-# not important state — the paper original exists until a scan worked, the Mac
-# pulls sessions for the eval loop (scripts/pull-sessions.sh), and finished
-# scans are moved to their long-term homes by hand once the app received them.
-# Losing this PVC costs at most an in-flight session that can be re-scanned.
-#
-# 2026-07-28: the "transient" premise had quietly stopped holding — an audit
-# found 20 sessions from 16-26 July still sitting here with no second copy. They
-# are now archived in the PRIVATE repo github.com/pippijn/scanner-sessions, which
-# is why this stays waived rather than becoming a restic block. ⚠ That repo does
-# NOT sync itself: new sessions live only on this PVC until someone pushes them,
-# so re-check it before assuming a given session is safe. It is private on
-# purpose — each frame's `text`/`words` hold the OCR'd contents of the scanned
-# page, so publishing it would publish the documents.
-# dev-lint: allow-backup-coverage archived to the private github.com/pippijn/scanner-sessions (manual sync)
+# GENERATED from dhall/apps/scanner.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+
+---
+# dev-lint: allow-backup-coverage scanner's sessions are recordings of scans the Mac still holds; they are input for replay scoring rather than a primary copy
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: scanner-data-pvc
+  name: "scanner-data-pvc"
   namespace: scanner
 spec:
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi

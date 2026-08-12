@@ -1,0 +1,79 @@
+# GENERATED from dhall/apps/scanner.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scanner
+  namespace: scanner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scanner
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: scanner
+    spec:
+      containers:
+      - image: "docker.io/xinutec/scanner:local"
+        imagePullPolicy: Never
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8090
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        name: scanner
+        ports:
+        - containerPort: 8090
+          hostIP: '10.100.0.2'
+          hostPort: 8090 # dev-lint: allow-host-port — bound to wg0 only, see hostIP
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8090
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: '2'
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /srv/data
+          name: "app-data"
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: "app-data"
+        persistentVolumeClaim:
+          claimName: "scanner-data-pvc"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scanner
+  namespace: scanner
+spec:
+  ports:
+  - port: 8090
+    targetPort: 8090
+  selector:
+    app: scanner

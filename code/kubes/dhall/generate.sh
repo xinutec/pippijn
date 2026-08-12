@@ -144,9 +144,23 @@ netpol_anchor_file() { # app -> the manifest that carries the namespace's first 
 
 render() { # app renderer -> YAML documents (nothing if the renderer opts out)
   local out
+  # `--omit-empty` everywhere EXCEPT the NetworkPolicies, and the exception is
+  # load-bearing rather than cosmetic. A default-deny selects the whole namespace
+  # with `podSelector: {}` and denies a direction with an empty rule list — both
+  # empty, both deleted by that flag. dev-lint then cannot RECOGNISE the policy:
+  # measured 2026-08-11 by rendering scanner and running the linter over the
+  # result, which reported `DL-K8S-NP-DEFAULT-DENY namespace scanner has no
+  # default-deny NetworkPolicy` on a tree that had one.
+  #
+  # With the flag off, "empty" and "absent" become expressible separately, which
+  # is why K.NetworkPolicy's rule lists are Optional — see lib/k8s.dhall.
+  local flags=(--omit-empty --documents)
+  case $2 in
+    netpol*) flags=(--documents) ;;
+  esac
   out=$(printf 'let R = %s/lib/render.dhall in R.%s %s/apps/%s.dhall\n' \
     "$here" "$2" "$here" "$1" |
-    dhall-to-yaml-ng --omit-empty --documents)
+    dhall-to-yaml-ng "${flags[@]}")
   # A renderer that does not apply returns an empty list, which --omit-empty
   # serialises as one null document. That means "no file", not "a file
   # containing null".
@@ -190,6 +204,44 @@ doc_waiver() { # app file body -> body, with any in-document waiver injected
         if (i == last) print WAIVER
       }
     }' WAIVER="$waiver"
+}
+
+host_port_waiver() { # app file  (body on stdin) -> body, waiver injected
+  # ⚠ NOT a `header()` waiver, which is where an earlier note on #689 said this
+  # belonged. DL-K8S-HOST-PORT is `Scope.LINE` in dev-lint's registry, so the
+  # marker has to land ON the `hostPort:` line (or the one directly above it) —
+  # a comment in the file's header block would be reported UNKNOWN and waive
+  # nothing. The netpol and backup-coverage waivers differ precisely here:
+  # DL-K8S-NP-DEFAULT-DENY is FILE-scoped, so its marker may sit anywhere.
+  #
+  # As with those two, the model decides WHETHER (R.usesHostPort) and this
+  # decides the text: the justification is a fact about `Reach.WireGuard`'s
+  # rendering — the port is pinned to the tunnel address by `hostIP` on the very
+  # next line — and is therefore identical for every app that gets one.
+  # Reads the body from stdin rather than an argument, unlike doc_waiver: `$( )`
+  # strips every trailing newline, so chaining the two through a variable would
+  # quietly reshape the end of each file.
+  [[ $2 == 03-app.yaml ]] || { cat; return; }
+  [[ $(ask "$1" usesHostPort) == True ]] || { cat; return; }
+
+  # Split for the same reason as doc_waiver's: a whole `dev-lint: allow-<suffix>`
+  # string in this file registers as a waiver sited HERE, which suppresses
+  # nothing and is itself reported as DL-WAIVER-INEFFECTIVE.
+  local waiver="# dev-lint: allow-""host-port — bound to wg0 only, see hostIP"
+
+  # Failing loudly if the anchor is not there. A waiver silently not emitted is
+  # the same class of bug as one emitted where nothing needs it: the model said
+  # this app has a hostPort, so a body without one means the two have drifted.
+  awk -v w="$waiver" '
+    /^ *hostPort: [0-9]+$/ && !done { print $0 " " w; done = 1; next }
+    { print }
+    END {
+      if (!done) {
+        print "generate.sh: usesHostPort but no hostPort line to waive" \
+          > "/dev/stderr"
+        exit 1
+      }
+    }'
 }
 
 header() { # app file netpol_anchor
@@ -321,7 +373,10 @@ for src in "$here"/apps/*.dhall; do
     is_anchor=0
     [[ $file == "$netpol_anchor" ]] && is_anchor=1
 
-    [[ $mode == write ]] && { header "$app" "$file" "$is_anchor"; doc_waiver "$app" "$file" "$body"; } > "$outdir/$file"
+    [[ $mode == write ]] && {
+      header "$app" "$file" "$is_anchor"
+      doc_waiver "$app" "$file" "$body" | host_port_waiver "$app" "$file"
+    } > "$outdir/$file"
   done
 
   [[ $mode == check ]] && compare "$app" "$kubes/$app/k8s" "$tmp/$app.model.yaml"

@@ -248,8 +248,16 @@ let NetworkPolicyPort = { port : Natural, protocol : Optional Text }
 -- is "every pod in the namespace".
 --
 -- `egress` is a list of rules, and an EMPTY list is meaningful: with `Egress` in
--- `policyTypes` it denies all egress. Under `--omit-empty` the key disappears,
--- which the API reads identically.
+-- `policyTypes` it denies all egress. So the NetworkPolicy documents are the one
+-- thing here rendered WITHOUT `--omit-empty` (see generate.sh's `render`), which
+-- keeps both `podSelector: {}` and `egress: []` on the page.
+--
+-- That flips the burden onto the OTHER direction: with the flag off, a rule list
+-- that is empty because the policy does not govern that direction at all would
+-- render as a bare `ingress: []` — a term the live manifests do not carry and
+-- which reads as "an ingress section, deliberately empty". Hence `Optional`:
+-- `None` means "this policy says nothing about that direction" and disappears,
+-- `Some ([] : ...)` means "this direction is denied outright" and stays.
 let NetworkPolicy =
       { apiVersion : Text
       , kind : Text
@@ -258,15 +266,19 @@ let NetworkPolicy =
           { podSelector : { matchLabels : Optional Labels }
           , policyTypes : List Text
           , ingress :
-              List
-                { from : List NetworkPolicyPeer
-                , ports : List NetworkPolicyPort
-                }
+              Optional
+                ( List
+                    { from : List NetworkPolicyPeer
+                    , ports : List NetworkPolicyPort
+                    }
+                )
           , egress :
-              List
-                { to : List NetworkPolicyPeer
-                , ports : List NetworkPolicyPort
-                }
+              Optional
+                ( List
+                    { to : List NetworkPolicyPeer
+                    , ports : List NetworkPolicyPort
+                    }
+                )
           }
       }
 

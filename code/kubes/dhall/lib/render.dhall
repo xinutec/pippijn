@@ -56,6 +56,26 @@ let hasAppliedNetpol
           }
           app.netpol
 
+--| Does this app's Deployment carry a `hostPort`?
+--
+-- Asked by `generate.sh` to decide whether to emit the `allow-host-port` waiver.
+-- `WireGuard` is the only arm that renders one, and it always does — the hostPort
+-- pinned to the tunnel address IS how such an app is reached, so the question is
+-- answered by the reach and never per-app.
+--
+-- Same discipline as `hasAppliedNetpol`: dev-lint fails a waiver that waives
+-- nothing, so this must be the model's answer rather than a list in the
+-- generator that a new app can be missing from.
+let usesHostPort
+    : T.App → Bool
+    = λ(app : T.App) →
+        merge
+          { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → False
+          , WireGuard = True
+          , Internal = False
+          }
+          app.reach
+
 let hasDb
     : T.App → Bool
     = λ(app : T.App) → merge { None = False, Some = λ(_ : T.Database) → True } app.db
@@ -712,7 +732,7 @@ let netpolDb
                   , spec =
                     { podSelector.matchLabels = Some (appLabels (dbName app))
                     , policyTypes = [ "Ingress" ]
-                    , ingress =
+                    , ingress = Some
                       [ { from =
                           [ { podSelector = Some
                               { matchLabels = appLabels app.workload.name }
@@ -723,11 +743,15 @@ let netpolDb
                         , ports = [ { port = 3306, protocol = None Text } ]
                         }
                       ]
-                    , egress =
-                        [] : List
-                               { to : List K.NetworkPolicyPeer
-                               , ports : List K.NetworkPolicyPort
-                               }
+                    , -- Says nothing about egress, as opposed to denying it:
+                      -- `policyTypes` lists Ingress alone.
+                      egress =
+                        None
+                          ( List
+                              { to : List K.NetworkPolicyPeer
+                              , ports : List K.NetworkPolicyPort
+                              }
+                          )
                     }
                   }
                 ]
@@ -750,7 +774,7 @@ let ingressFromNginx
         , spec =
           { podSelector.matchLabels = Some (appLabels app.workload.name)
           , policyTypes = [ "Ingress" ]
-          , ingress =
+          , ingress = Some
             [ { from =
                 [ { podSelector = None { matchLabels : K.Labels }
                   , -- Selected by the namespace's automatic
@@ -768,10 +792,12 @@ let ingressFromNginx
               }
             ]
           , egress =
-              [] : List
-                     { to : List K.NetworkPolicyPeer
-                     , ports : List K.NetworkPolicyPort
-                     }
+              None
+                ( List
+                    { to : List K.NetworkPolicyPeer
+                    , ports : List K.NetworkPolicyPort
+                    }
+                )
           }
         }
 
@@ -790,13 +816,21 @@ let egressDefaultDeny
         , spec =
           { podSelector.matchLabels = None K.Labels
           , policyTypes = [ "Egress" ]
-          , ingress =
-              [] : List
-                     { from : List K.NetworkPolicyPeer
-                     , ports : List K.NetworkPolicyPort
-                     }
-          , egress =
-              L.map
+          , -- `None`, not an empty list: this policy governs egress only, and a
+            -- rendered `ingress: []` beside `policyTypes: [Egress]` would read
+            -- as a denial it does not make.
+            ingress =
+              None
+                ( List
+                    { from : List K.NetworkPolicyPeer
+                    , ports : List K.NetworkPolicyPort
+                    }
+                )
+          , -- `Some`, and an EMPTY list is the whole point when `allowed` is
+            -- empty: with Egress in policyTypes it denies all outbound traffic.
+            egress =
+              Some
+              ( L.map
                 T.EgressTo
                 { to : List K.NetworkPolicyPeer
                 , ports : List K.NetworkPolicyPort
@@ -821,6 +855,7 @@ let egressDefaultDeny
                     }
                 )
                 allowed
+              )
           }
         }
 
@@ -873,4 +908,5 @@ in  { storageWaiver
     , clusterHost
     , hasDb
     , hasAppliedNetpol
+    , usesHostPort
     }
