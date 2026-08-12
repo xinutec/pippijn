@@ -9,7 +9,6 @@ metadata:
   name: recall
   namespace: recall
 spec:
-  type: ClusterIP
   selector:
     app: recall
   ports:

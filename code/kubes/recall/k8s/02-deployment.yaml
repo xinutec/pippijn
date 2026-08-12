@@ -30,7 +30,6 @@ spec:
       containers:
         - name: recall
           image: xinutec/recall:latest
-          imagePullPolicy: Always
           # --out sets the data root; `recall api` overwrites RECALL_OUT from it, so the
           # env below can't be relied on — the flag is what binds the archive to /data.
           command:
@@ -137,19 +136,22 @@ spec:
               cpu: "1"
               memory: 1Gi
           volumeMounts:
-            - name: data
-              mountPath: /data
             - name: tmp
               mountPath: /tmp
             - name: logs
               mountPath: /app/logs
+            # `app-data` is the model's derived name for an app's own volume, and
+            # it goes last because the renderer appends the PVC after the ones
+            # the app declares. It was `data` until 2026-08-12.
+            - name: app-data
+              mountPath: /data
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: recall-data-pvc
         # readOnlyRootFilesystem is on, so every path the app writes needs a mount:
         # /tmp (ffmpeg scratch) and /app/logs (log rotation + client-error log).
         - name: tmp
           emptyDir: {}
         - name: logs
           emptyDir: {}
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: recall-data-pvc
