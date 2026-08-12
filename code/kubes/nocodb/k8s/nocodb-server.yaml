@@ -39,7 +39,6 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-      # dev-lint: allow-no-mem-limit — pre-existing (fix: size from kubectl top)
       - name: nocodb
         image: nocodb/nocodb:0.257.2
         imagePullPolicy: Always

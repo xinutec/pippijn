@@ -19,3 +19,4 @@ spec:
       app: "home-db"
   policyTypes:
   - Ingress
+

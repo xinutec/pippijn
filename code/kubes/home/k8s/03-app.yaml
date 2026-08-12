@@ -42,9 +42,6 @@ spec:
             secretKeyRef:
               key: INGEST_TOKEN
               name: "home-secret"
-        # Sign-in. Every read on this host stays public; a session exists so a
-        # *write* can be attributed to a person, which is what makes
-        # POST /api/telemetry safe to offer on a publicly readable host.
         - name: SESSION_SECRET
           valueFrom:
             secretKeyRef:
@@ -92,6 +89,7 @@ spec:
           capabilities:
             drop:
             - ALL
+          readOnlyRootFilesystem: true
       securityContext:
         runAsGroup: 1000
         runAsNonRoot: true

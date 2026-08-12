@@ -32,7 +32,6 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-      # dev-lint: allow-no-mem-limit / dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths); pre-existing (fix: size from kubectl top)
       - name: nextcloud
         resources:
           limits:
@@ -78,7 +77,6 @@ spec:
           periodSeconds: 10
       # Our nginx container, which uses the configuration declared in
       # nginx-config.yaml, along with the files shared with the PHP-FPM app.
-      # dev-lint: allow-no-mem-limit / dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths); pre-existing (fix: size from kubectl top)
       - name: nginx
         resources:
           limits:

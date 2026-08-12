@@ -1,8 +1,5 @@
 # GENERATED from dhall/sites/isis.dhall by dhall/generate.sh — do not edit.
 # Change the model and re-render; hand edits are overwritten.
-#
-# dev-lint: allow-rootfs-rw — the stock nginx-unprivileged image writes /tmp and its pid file
-# dev-lint: allow-no-mem-limit — stock image, never sized (fix: size from kubectl top)
 ---
 apiVersion: apps/v1
 kind: Deployment

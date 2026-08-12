@@ -26,7 +26,6 @@ spec:
       # dev-lint: allow-unhardened — the mariadb entrypoint starts as root to
       # fix datadir ownership/permissions, then drops to the mysql user itself;
       # forcing runAsNonRoot breaks first-boot init on the PVC.
-      # dev-lint: allow-no-mem-limit — pre-existing (fix: size from kubectl top)
       - name: mariadb
         # 12.3 is the current LTS (GA 2026-05-28, supported to Jun 2029). MariaDB has
         # no downgrade path; a verified app-user dump of the nextcloud schema is taken

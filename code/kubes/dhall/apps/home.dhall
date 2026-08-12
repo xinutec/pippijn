@@ -48,7 +48,12 @@ in    { name = "home"
         , port = 3000
         , -- Matches the nonroot "node" user in the image.
           uid = 1000
-        , readOnlyRootFs = False
+        , -- Nothing in the server writes to disk: state is the database and
+          -- the session cookie, and `src/` has no `writeFile`,
+          -- `createWriteStream` or `mkdir`. It was `False` and said nothing
+          -- about why, which went unnoticed because dev-lint carved
+          -- `xinutec/home` out of DL-K8S-ROOTFS-RW by name until 2026-08-12.
+          readOnlyRootFs = True
         , env =
           [ { name = "PORT", value = lit "3000" }
           , { name = "DB_HOST", value = lit "home-db" }

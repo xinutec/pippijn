@@ -320,15 +320,18 @@ site_header() { # site file
   printf '# Change the model and re-render; hand edits are overwritten.\n'
   case $2 in
     02-deployment.yaml)
-      # Both waivers are facts about the STOCK nginx image, so every site
-      # carries them and none of them is a per-site decision: the image writes
-      # its own /tmp and pid file, and it ships with no resource block. They are
-      # emitted here rather than modelled because a waiver is a statement about
-      # dev-lint, not about the deployment — same split as the app renderer's.
-      printf '#\n'
-      printf '# dev-lint: allow-''rootfs-rw — the stock nginx-unprivileged image writes /tmp and its pid file\n'
-      printf '# dev-lint: allow-''no-mem-limit — stock image, never sized (fix: size from kubectl top)\n'
+      # NO rootfs-rw / no-mem-limit waiver here, and it is worth saying why one
+      # is not missing. Both WERE emitted until 2026-08-12, and both waived
+      # nothing: dev-lint's `image_profile` already carves every `nginx` image
+      # out of DL-K8S-ROOTFS-RW and DL-K8S-LIMITS-MEM, because they are facts
+      # about a stock image nobody here builds. Two mechanisms said the same
+      # thing and the quieter one won, so the marker sat inert in three live
+      # trees until the linter learned to condemn a waiver that waives nothing.
+      #
+      # The remaining waiver below is a different kind of statement: it is about
+      # THIS namespace, not about the image, so no carve-out can pre-empt it.
       if [[ $(site_ask "$1" netpolWaiver) == True ]]; then
+        printf '#\n'
         # DL-K8S-NP-DEFAULT-DENY anchors on the FIRST Deployment in a namespace,
         # and all four sites share `web` — so exactly ONE of them may carry this
         # and the model says which. dev-lint fails a waiver that waives nothing,

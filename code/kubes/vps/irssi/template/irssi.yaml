@@ -46,7 +46,6 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        # dev-lint: allow-rootfs-rw — pre-existing writable rootfs (fix per-app: add emptyDir for writable paths)
         - name: irssi
           image: xinutec/irssi:latest
           imagePullPolicy: Always
