@@ -172,6 +172,7 @@ let execProbe
 --  about it.
 let baseContainer =
       { command = None (List Text)
+      , args = None (List Text)
       , imagePullPolicy = None Text
       , ports = [] : List K.ContainerPort
       , env = None (List K.EnvVar)
@@ -397,6 +398,26 @@ let dbDeployment
                           [     baseContainer
                             ⫽ { name = "mariadb"
                               , image = "mariadb:${mariadbVersion}"
+                              , -- Server flags to the image's own entrypoint.
+                                -- The pool is stated in GiB and rendered in
+                                -- bytes, because the flag takes bytes and a
+                                -- hand-written 2147483648 is a number nobody
+                                -- can check by reading.
+                                args =
+                                  merge
+                                    { None = None (List Text)
+                                    , Some =
+                                        λ(gi : Natural) →
+                                          Some
+                                            [ "--innodb-buffer-pool-size=${Natural/show
+                                                                             ( gi
+                                                                             * 1024
+                                                                             * 1024
+                                                                             * 1024
+                                                                             )}"
+                                            ]
+                                    }
+                                    d.innodbBufferPoolGi
                               , -- No readOnlyRootFilesystem: mariadb writes
                                 -- /run/mysqld and its data dir.
                                 securityContext = containerSecurityContext False

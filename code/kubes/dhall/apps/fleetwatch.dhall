@@ -35,6 +35,7 @@ in    { name = "fleetwatch"
       , cluster = T.Cluster.isis
       , db = Some
         { dbName = "fleetwatch"
+        , innodbBufferPoolGi = None Natural
         , storageGi = 5
         , resources =
           { requests = { cpu = "50m", memory = "256Mi" }

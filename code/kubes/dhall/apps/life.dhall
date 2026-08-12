@@ -26,6 +26,7 @@ in    { name = "life"
       , cluster = T.Cluster.isis
       , db = Some
         { dbName = "life"
+        , innodbBufferPoolGi = None Natural
         , storageGi = 5
         , resources =
           { requests = { cpu = "50m", memory = "256Mi" }

@@ -254,6 +254,21 @@ let Workload =
 let Database =
       { dbName : Text
       , storageGi : Natural
+      , -- InnoDB's buffer pool, in GiB. `None` leaves the engine default, which
+        -- is 128 MiB — fine for the five small databases and catastrophic for
+        -- the one that is not.
+        --
+        -- ⚠ A FIELD RATHER THAN A FREE `args` LIST, because it is the one server
+        -- flag the fleet sets and the one that must not drift from
+        -- `resources.requests.memory`: the pool is resident, so a request that
+        -- does not cover it is a pod the scheduler places on a node that cannot
+        -- hold it. health-db is `Some 2` against a 2304Mi request — 2 GiB of
+        -- pool plus mariadbd overhead.
+        --
+        -- It exists because `--check` caught its absence: rendering health-db
+        -- without it silently cut a 4 GB database's pool by 16x, which is not a
+        -- failure any manifest review would have seen.
+        innodbBufferPoolGi : Optional Natural
       , resources : DbResources
       , keys : { user : Text, password : Text, rootPassword : Text }
       }

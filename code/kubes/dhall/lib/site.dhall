@@ -439,6 +439,9 @@ let deployment
                       [ { name = site.name
                         , image = nginxImage
                         , command = None (List Text)
+                        , -- Stock nginx, run as the image intends: neither its
+                          -- entrypoint nor its arguments are ours to set.
+                          args = None (List Text)
                         , securityContext =
                           { allowPrivilegeEscalation = False
                           , -- The stock image writes its own /tmp and pid file,

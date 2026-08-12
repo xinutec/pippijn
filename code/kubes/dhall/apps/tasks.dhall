@@ -38,6 +38,7 @@ in    { name = "tasks"
       , cluster = T.Cluster.isis
       , db = Some
         { dbName = "tasks"
+        , innodbBufferPoolGi = None Natural
         , -- Rows of one-line subjects and short markdown bodies, plus one event
           -- row per change. The corpus this replaces was 21 tasks and 21 body
           -- files; 5 Gi is the smallest unit the fleet asks for and is already

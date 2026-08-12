@@ -101,6 +101,11 @@ let Container =
       { name : Text
       , image : Text
       , command : Optional (List Text)
+      , -- Arguments to the image's own entrypoint, distinct from `command`,
+        -- which REPLACES it. Only a database engine uses this: the mariadb
+        -- entrypoint takes server flags here, and health-db's 2 GiB InnoDB
+        -- buffer pool is one.
+        args : Optional (List Text)
       , securityContext : ContainerSecurityContext
       , ports : List ContainerPort
       , -- Optional, not `List`, for the reason NetworkPolicy's rule lists are:

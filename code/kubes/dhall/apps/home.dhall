@@ -27,6 +27,7 @@ in    { name = "home"
       , cluster = T.Cluster.isis
       , db = Some
         { dbName = "home"
+        , innodbBufferPoolGi = None Natural
         , -- Readings are tiny (one small row every few minutes); 5Gi is years
           -- of headroom.
           storageGi = 5
