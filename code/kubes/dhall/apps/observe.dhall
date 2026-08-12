@@ -179,5 +179,6 @@ in    { name = "observe"
         -- node-sourced kubelet probes — a default-deny INGRESS would drop them
         -- and take the pod NotReady.
         netpol = T.Netpol.Egress ([] : List T.EgressTo)
+      , tasks = [] : List T.ScheduledTask
       }
     : T.App

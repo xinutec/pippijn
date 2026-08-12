@@ -163,5 +163,6 @@ in    { name = "memview"
           { host = dns.memview, exposure = T.Exposure.VpnOnly }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
+      , tasks = [] : List T.ScheduledTask
       }
     : T.App

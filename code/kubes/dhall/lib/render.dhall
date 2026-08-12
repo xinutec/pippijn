@@ -150,6 +150,18 @@ let renderEnv
                     }
                   }
                 }
+          , FromUnmanagedSecret =
+              λ(s : { secret : Text, key : Text, optional : Bool }) →
+                { name = e.name
+                , value = None Text
+                , valueFrom = Some
+                  { secretKeyRef =
+                    { name = s.secret
+                    , key = s.key
+                    , optional = if s.optional then Some True else None Bool
+                    }
+                  }
+                }
           }
           e.value
 
@@ -394,6 +406,7 @@ let dbDeployment
                           -- started unprivileged; fsGroup keeps the data dir
                           -- writable.
                           securityContext = podSecurityContext 999 (Some 999)
+                        , restartPolicy = None Text
                         , containers =
                           [     baseContainer
                             ⫽ { name = "mariadb"
@@ -641,6 +654,7 @@ let appDeployment
                   { metadata.labels = appLabels w.name
                   , spec =
                     { securityContext = podSecurityContext w.uid fsGroup
+                    , restartPolicy = None Text
                     , containers =
                       [     baseContainer
                         ⫽ { name = w.name
@@ -746,6 +760,76 @@ let servicePort
           }
           app.reach
 
+--| The app's batch work, one CronJob each.
+--
+-- They share the app's IMAGE, UID, namespace and secret — a scheduled task is
+-- the same program with a different entrypoint, not a separate app — and differ
+-- only in schedule, command, deadline, env and resources. That sharing is the
+-- reason the type is thin: everything a task could get wrong by restating it is
+-- taken from the workload instead.
+--
+-- ⚠ The container is named after the TASK, where the live tree names them
+-- `sync` / `refresh` / `decode` — three names for eight jobs, so `kubectl logs`
+-- on a failed run needs the pod name to disambiguate. Harmless to change: every
+-- cron run creates a fresh pod, so there is no rolling update to survive.
+let cronJobs
+    : T.App → List K.CronJob
+    = λ(app : T.App) →
+        L.map
+          T.ScheduledTask
+          K.CronJob
+          ( λ(t : T.ScheduledTask) →
+              { apiVersion = "batch/v1"
+              , kind = "CronJob"
+              , metadata = meta t.name app.name
+              , spec =
+                { schedule = t.schedule
+                , -- Never two at once. These jobs write the same rows — a
+                  -- decode overlapping its predecessor is not slow, it is
+                  -- wrong — and `Allow` is the API's default, so it has to be
+                  -- said.
+                  concurrencyPolicy = "Forbid"
+                , successfulJobsHistoryLimit = 3
+                , -- Kept at 3 rather than the API's 1: the failed run is the
+                  -- one somebody wants the logs of, and 1 means the second
+                  -- failure erases the first.
+                  failedJobsHistoryLimit = 3
+                , jobTemplate.spec =
+                  { activeDeadlineSeconds = t.deadlineSeconds
+                  , backoffLimit = None Natural
+                  , template.spec =
+                    { securityContext =
+                        podSecurityContext app.workload.uid (None Natural)
+                    , restartPolicy = Some "OnFailure"
+                    , volumes = None (List K.Volume)
+                    , containers =
+                      [     baseContainer
+                        ⫽ { name = t.name
+                          , image = T.imageRef app.workload.image
+                          , command = Some t.command
+                          , securityContext =
+                              containerSecurityContext
+                                app.workload.readOnlyRootFs
+                          , env = Some
+                              ( L.map
+                                  T.EnvVar
+                                  K.EnvVar
+                                  (renderEnv (secretName app))
+                                  t.env
+                              )
+                          , resources = Some
+                            { requests = t.resources.requests
+                            , limits = Some t.resources.limits
+                            }
+                          }
+                      ]
+                    }
+                  }
+                }
+              }
+          )
+          app.tasks
+
 let appService
     : T.App → List K.Service
     = λ(app : T.App) →
@@ -820,14 +904,50 @@ let netpolDb
               λ(_ : T.Database) →
                 [ { apiVersion = "networking.k8s.io/v1"
                   , kind = "NetworkPolicy"
-                  , metadata = meta "${app.name}-db-from-app-only" app.name
+                  , -- The NAME follows the rule rather than being fixed to it.
+                    -- With batch tasks the policy admits the namespace, and a
+                    -- manifest called `-db-from-app-only` that does not do that
+                    -- is precisely the drift this model exists to make
+                    -- impossible. Safe to vary: the only app it renames for has
+                    -- no NetworkPolicy today, so nothing is orphaned.
+                    metadata =
+                      meta
+                        ( if    Natural/isZero
+                                  (List/length T.ScheduledTask app.tasks)
+                          then  "${app.name}-db-from-app-only"
+                          else  "${app.name}-db-from-namespace"
+                        )
+                        app.name
                   , spec =
                     { podSelector.matchLabels = Some (appLabels (dbName app))
                     , policyTypes = [ "Ingress" ]
                     , ingress = Some
                       [ { from =
-                          [ { podSelector = Some
-                              { matchLabels = appLabels app.workload.name }
+                          [ { -- ⚠ AN APP WITH BATCH TASKS OPENS THIS TO THE
+                              -- WHOLE NAMESPACE, and the narrower rule is not
+                              -- available: a CronJob's pods carry only the
+                              -- labels the Job controller generates
+                              -- (`job-name`, `controller-uid`), which are
+                              -- per-run and cannot be named in advance. Naming
+                              -- the long-running workload alone would render a
+                              -- policy that reads correct and cuts every cron
+                              -- off from the database — silently, at 04:00,
+                              -- since a batch pod has no probe and no readiness
+                              -- for anything to notice. `--check` caught
+                              -- exactly that on health before it was applied.
+                              --
+                              -- `podSelector: {}` is a selector with no terms,
+                              -- which matches every pod IN THIS NAMESPACE. It
+                              -- is a real policy — nothing outside the app's own
+                              -- namespace reaches the database — just not a
+                              -- per-pod one.
+                              podSelector = Some
+                                { matchLabels =
+                                    if    Natural/isZero
+                                            (List/length T.ScheduledTask app.tasks)
+                                    then  Some (appLabels app.workload.name)
+                                    else  None K.Labels
+                                }
                             , namespaceSelector =
                                 None { matchLabels : K.Labels }
                             }
@@ -868,7 +988,7 @@ let ingressFromNginx
           , policyTypes = [ "Ingress" ]
           , ingress = Some
             [ { from =
-                [ { podSelector = None { matchLabels : K.Labels }
+                [ { podSelector = None { matchLabels : Optional K.Labels }
                   , -- Selected by the namespace's automatic
                     -- kubernetes.io/metadata.name label rather than chart pod
                     -- labels, which change across versions.
@@ -929,7 +1049,7 @@ let egressDefaultDeny
                 }
                 ( λ(e : T.EgressTo) →
                     { to =
-                      [ { podSelector = None { matchLabels : K.Labels }
+                      [ { podSelector = None { matchLabels : Optional K.Labels }
                         , namespaceSelector = Some
                           { matchLabels =
                               toMap { `kubernetes.io/metadata.name` = e.namespace }
@@ -992,6 +1112,7 @@ in  { storageWaiver
     , dbDeployment
     , dbService
     , appDeployment
+    , cronJobs
     , appService
     , ingress
     , netpolDb

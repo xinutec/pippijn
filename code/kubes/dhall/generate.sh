@@ -43,6 +43,7 @@ manifests=(
   "02-db.yaml:dbDeployment dbService"
   "03-app.yaml:appDeployment appService"
   "04-ingress.yaml:ingress"
+  "04-cronjobs.yaml:cronJobs"
   "05-networkpolicy.yaml:netpolDb netpolApp"
   "06-networkpolicy-app-held.yaml:netpolAppHeld"
 )

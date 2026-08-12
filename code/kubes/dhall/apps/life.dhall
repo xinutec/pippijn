@@ -101,5 +101,6 @@ in    { name = "life"
         { host = dns.life, exposure = T.Exposure.Public }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
+      , tasks = [] : List T.ScheduledTask
       }
     : T.App

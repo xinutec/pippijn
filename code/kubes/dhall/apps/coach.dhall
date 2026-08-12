@@ -104,5 +104,6 @@ in    { name = "coach"
         { host = dns.coach, exposure = T.Exposure.Public }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
+      , tasks = [] : List T.ScheduledTask
       }
     : T.App

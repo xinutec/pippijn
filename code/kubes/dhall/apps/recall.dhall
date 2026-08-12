@@ -195,5 +195,6 @@ in    { name = "recall"
               , ports = [ { port = 80, protocol = "TCP" } ]
               }
             ]
+      , tasks = [] : List T.ScheduledTask
       }
     : T.App

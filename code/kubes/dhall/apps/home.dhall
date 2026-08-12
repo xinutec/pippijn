@@ -88,5 +88,6 @@ in    { name = "home"
         { host = dns.home, exposure = T.Exposure.Public }
       , secrets = toMap keys
       , netpol = T.Netpol.Unpoliced
+      , tasks = [] : List T.ScheduledTask
       }
     : T.App

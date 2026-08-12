@@ -122,5 +122,6 @@ in    { name = "fleetwatch"
           { host = dns.fleetwatch, exposure = T.Exposure.VpnOnly }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
+      , tasks = [] : List T.ScheduledTask
       }
     : T.App

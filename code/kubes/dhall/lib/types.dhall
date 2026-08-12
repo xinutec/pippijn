@@ -63,7 +63,21 @@ let pullPolicyFor
           i
 
 --| Where an environment variable's value comes from.
-let EnvValue = < Literal : Text | FromSecret : { key : Text, optional : Bool } >
+--
+-- `FromSecret` reads the app's OWN secret — the one `secrets` declares and
+-- `secret.sh` writes, named `<app>-secret`. `FromUnmanagedSecret` names a
+-- different one, and the distinction is the point rather than a convenience:
+-- the app's secret is a thing this model knows the key list of, so a typo is
+-- caught; a foreign secret is provisioned out-of-band and the model can only
+-- state what it expects to find. health-sync's Google Health credentials live in
+-- `health-google` for exactly that reason (long-lived OAuth refresh token,
+-- managed by hand), so the arm exists to say so rather than to let any app quote
+-- any secret.
+let EnvValue =
+      < Literal : Text
+      | FromSecret : { key : Text, optional : Bool }
+      | FromUnmanagedSecret : { secret : Text, key : Text, optional : Bool }
+      >
 
 let EnvVar = { name : Text, value : EnvValue }
 
@@ -385,6 +399,25 @@ let Netpol =
 -- `ContainerCreating` with the reason several layers down in an event.
 let ConfigMapDoc = { name : Text, files : List { mapKey : Text, mapValue : Text } }
 
+--| Work that runs on a schedule and exits, as against a `Workload`, which runs
+--  until something stops it.
+--
+-- ⚠ `deadlineSeconds` is REQUIRED, and it is the field this type exists for. A
+-- batch workload has no Service, no probe and no readiness — nothing watches it,
+-- so the ONLY thing standing between a wedged run and a job that never ends is
+-- this number. Kubernetes defaults it to unset, i.e. forever. Every one of
+-- health's crons sets it and each has a different value, so it is neither
+-- derivable nor safely defaulted.
+let ScheduledTask =
+      { name : Text
+      , -- `*/15 * * * *`. In the cluster's timezone, which is UTC.
+        schedule : Text
+      , command : List Text
+      , deadlineSeconds : Natural
+      , env : List EnvVar
+      , resources : Resources
+      }
+
 let App =
       { name : Text
       , cluster : Cluster
@@ -392,6 +425,9 @@ let App =
       , storage : Optional Storage
       , configMap : Optional ConfigMapDoc
       , workload : Workload
+      , -- Batch work sharing this app's image, namespace and database. Empty for
+        -- every app but health.
+        tasks : List ScheduledTask
       , reach : Reach
       , secrets : List SecretKey
       , netpol : Netpol
@@ -417,6 +453,7 @@ in  { Cluster
     , Writers
     , Storage
     , Workload
+    , ScheduledTask
     , Database
     , SecretKey
     , Exposure

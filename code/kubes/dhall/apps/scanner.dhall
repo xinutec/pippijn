@@ -87,5 +87,6 @@ in    { name = "scanner"
         -- its own pod. The empty list is the whole statement rather than a
         -- degenerate case.
         netpol = T.Netpol.Egress ([] : List T.EgressTo)
+      , tasks = [] : List T.ScheduledTask
       }
     : T.App

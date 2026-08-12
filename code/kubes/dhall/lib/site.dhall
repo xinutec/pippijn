@@ -435,6 +435,9 @@ let deployment
                       , fsGroupChangePolicy = changePolicy
                       , seccompProfile.type = "RuntimeDefault"
                       }
+                    , -- A Deployment's pods restart Always, which is the API's
+                      -- only legal value there and so is left unsaid.
+                      restartPolicy = None Text
                     , containers =
                       [ { name = site.name
                         , image = nginxImage

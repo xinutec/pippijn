@@ -163,6 +163,40 @@ let PodSpec =
       { securityContext : PodSecurityContext
       , containers : List Container
       , volumes : Optional (List Volume)
+      , -- Absent for a Deployment, where the API's `Always` is the only legal
+        -- value. A batch pod must say `OnFailure` or `Never`, and `OnFailure` is
+        -- what every one of ours says.
+        restartPolicy : Optional Text
+      }
+
+--| The pod a Job runs, plus the two bounds on running it.
+--
+-- `activeDeadlineSeconds` is required here where the API makes it optional. An
+-- unset deadline means a wedged run continues forever, and nothing watches a
+-- batch pod — there is no Service and no probe — so the failure is a job that is
+-- still "running" days later with `concurrencyPolicy: Forbid` suppressing every
+-- scheduled successor. That is silent, and it is why the field is not Optional.
+let JobSpec =
+      { activeDeadlineSeconds : Natural
+      , backoffLimit : Optional Natural
+      , template : { spec : PodSpec }
+      }
+
+--| A CronJob. The three policy fields are required rather than defaulted
+--  because the API's defaults are all wrong for this fleet: `concurrencyPolicy`
+--  defaults to `Allow` (two decodes writing the same rows), and the history
+--  limits to 3/1 — the failed one being the one worth keeping.
+let CronJob =
+      { apiVersion : Text
+      , kind : Text
+      , metadata : Meta
+      , spec :
+          { schedule : Text
+          , concurrencyPolicy : Text
+          , successfulJobsHistoryLimit : Natural
+          , failedJobsHistoryLimit : Natural
+          , jobTemplate : { spec : JobSpec }
+          }
       }
 
 --| The labels that tie a pod template, its Service and its policies together.
@@ -237,8 +271,13 @@ let Ingress =
           }
       }
 
+--| `matchLabels` is Optional inside the peer for the same reason it is on
+--  `spec.podSelector`: `podSelector: {}` — a selector with no terms — matches
+--  EVERY pod in the namespace, and that is a thing a rule sometimes needs to
+--  say. `netpolDb` says it for an app with batch tasks, whose pods carry no
+--  stable labels of their own.
 let NetworkPolicyPeer =
-      { podSelector : Optional { matchLabels : Labels }
+      { podSelector : Optional { matchLabels : Optional Labels }
       , namespaceSelector :
           Optional
             { matchLabels : List { mapKey : Text, mapValue : Text } }
@@ -315,6 +354,8 @@ in  { Meta
     , Volume
     , ConfigMap
     , PodSpec
+    , JobSpec
+    , CronJob
     , Labels
     , Deployment
     , ServicePort
