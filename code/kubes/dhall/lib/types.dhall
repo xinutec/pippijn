@@ -82,6 +82,13 @@ let Durability = < BackedUp | LossAccepted : { why : Text } >
 
 let Writers = < Exclusive | Concurrent : { why : Text } >
 
+let Claim =
+      { name : Text
+      , storageGi : Natural
+      , durability : Durability
+      , writers : Writers
+      }
+
 let Storage =
       { storageGi : Natural
       , mountPath : Text
@@ -96,6 +103,7 @@ let VolumeSource =
       < EmptyDir
       | ConfigMap : { name : Text }
       | HostPath : { path : Text, why : Text }
+      | Claim : Claim
       >
 
 let Volume = { name : Text, source : VolumeSource }
@@ -194,8 +202,8 @@ let Namespace =
       { name : Text
       , cluster : Cluster
       , db : Optional Database
-      , storage : Optional Storage
       , configMap : Optional ConfigMapDoc
+      , claims : List Claim
       , workloads : List Workload
       , tasks : List ScheduledTask
       , secrets : List SecretKey
@@ -219,8 +227,60 @@ let App =
 let namespaceOf
     : App → Namespace
     = λ(a : App) →
-          a.{ name, cluster, db, storage, configMap, tasks, secrets, netpol }
-        ⫽ { workloads = [ a.workload ] }
+        let dataVolumeName = "app-data"
+
+        let claimName = "${a.name}-data-pvc"
+
+        let claimOf =
+              λ(s : Storage) →
+                { name = claimName
+                , storageGi = s.storageGi
+                , durability = s.durability
+                , writers = s.writers
+                }
+
+        let claims =
+              merge
+                { None = [] : List Claim
+                , Some = λ(s : Storage) → [ claimOf s ]
+                }
+                a.storage
+
+        let extraVolumes =
+              merge
+                { None = [] : List Volume
+                , Some =
+                    λ(s : Storage) →
+                      [ { name = dataVolumeName
+                        , source = VolumeSource.Claim (claimOf s)
+                        }
+                      ]
+                }
+                a.storage
+
+        let extraMounts =
+              merge
+                { None = [] : List VolumeMount
+                , Some =
+                    λ(s : Storage) →
+                      [ { name = dataVolumeName
+                        , mountPath = s.mountPath
+                        , subPath = s.subPath
+                        , readOnly = False
+                        }
+                      ]
+                }
+                a.storage
+
+        in    a.{ name, cluster, db, configMap, tasks, secrets, netpol }
+            ⫽ { claims
+              , workloads =
+                [   a.workload
+                  ⫽ { volumes = a.workload.volumes # extraVolumes
+                    , mounts = a.workload.mounts # extraMounts
+                    }
+                ]
+              }
 
 in  { Cluster
     , Durability
@@ -239,6 +299,7 @@ in  { Cluster
     , VolumeMount
     , VolumeSource
     , Volume
+    , Claim
     , Writers
     , Storage
     , Workload

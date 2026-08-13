@@ -188,8 +188,35 @@ let k8sVolume
                   λ(h : { path : Text, why : Text }) →
                       empty
                     ⫽ { hostPath = Some { path = h.path, type = "Directory" } }
+              , Claim =
+                  λ(c : T.Claim) →
+                      empty
+                    ⫽ { persistentVolumeClaim = Some { claimName = c.name } }
               }
               v.source
+
+let mountedClaims
+    : T.Workload → List T.Claim
+    = λ(w : T.Workload) →
+        L.concatMap
+          T.Volume
+          T.Claim
+          ( λ(v : T.Volume) →
+              merge
+                { EmptyDir = [] : List T.Claim
+                , ConfigMap = λ(_ : { name : Text }) → [] : List T.Claim
+                , HostPath =
+                    λ(_ : { path : Text, why : Text }) → [] : List T.Claim
+                , Claim = λ(c : T.Claim) → [ c ]
+                }
+                v.source
+          )
+          w.volumes
+
+let anyClaim
+    : T.Workload → Bool
+    = λ(w : T.Workload) →
+        Natural/isZero (List/length T.Claim (mountedClaims w)) == False
 
 let podSecurityContext
     : Natural → Optional Natural → K.PodSecurityContext
@@ -268,6 +295,7 @@ let hostPathWaiver
                         , ConfigMap = λ(_ : { name : Text }) → [] : List Text
                         , HostPath =
                             λ(h : { path : Text, why : Text }) → [ h.why ]
+                        , Claim = λ(_ : T.Claim) → [] : List Text
                         }
                         v.source
                   )
@@ -295,25 +323,27 @@ let pvc
           }
           app.db
 
+let claimPvcs
+    : T.Namespace → List K.PersistentVolumeClaim
+    = λ(ns : T.Namespace) →
+        L.map
+          T.Claim
+          K.PersistentVolumeClaim
+          ( λ(c : T.Claim) →
+              { apiVersion = "v1"
+              , kind = "PersistentVolumeClaim"
+              , metadata = meta c.name ns.name
+              , spec =
+                { accessModes = [ "ReadWriteOnce" ]
+                , resources.requests.storage = "${Natural/show c.storageGi}Gi"
+                }
+              }
+          )
+          ns.claims
+
 let appPvc
     : T.App → List K.PersistentVolumeClaim
-    = λ(app : T.App) →
-        merge
-          { Some =
-              λ(s : T.Storage) →
-                [ { apiVersion = "v1"
-                  , kind = "PersistentVolumeClaim"
-                  , metadata = meta (dataPvcName app) app.name
-                  , spec =
-                    { accessModes = [ "ReadWriteOnce" ]
-                    , resources.requests.storage
-                      = "${Natural/show s.storageGi}Gi"
-                    }
-                  }
-                ]
-          , None = [] : List K.PersistentVolumeClaim
-          }
-          app.storage
+    = λ(app : T.App) → claimPvcs (T.namespaceOf app)
 
 let dbDeployment
     : T.App → List K.Deployment
@@ -500,45 +530,13 @@ let deploymentFor
     : T.Namespace → T.Workload → K.Deployment
     = λ(ns : T.Namespace) →
       λ(w : T.Workload) →
-        let dataMounts =
-              merge
-                { Some =
-                    λ(s : T.Storage) →
-                      [ { name = dataVolumeName
-                        , mountPath = s.mountPath
-                        , subPath = s.subPath
-                        , readOnly = None Bool
-                        }
-                      ]
-                , None = [] : List K.VolumeMount
-                }
-                ns.storage
-
-        let dataVolumes =
-              merge
-                { Some =
-                    λ(_ : T.Storage) →
-                      [ { name = dataVolumeName
-                        , persistentVolumeClaim = Some
-                          { claimName = dataPvcNameFor ns.name }
-                        , configMap = None { name : Text }
-                        , emptyDir = None {}
-                        , hostPath = None { path : Text, type : Text }
-                        }
-                      ]
-                , None = [] : List K.Volume
-                }
-                ns.storage
-
         let fsGroup =
             -- Only when there is a volume, and equal to the uid the container
             -- runs as. A PVC arrives owned by root, so without this the app is
             -- a non-root process holding a directory it cannot write — which
             -- surfaces as a permission error at the first upload rather than at
             -- startup, long after anyone would connect it to the manifest.
-              merge
-                { Some = λ(_ : T.Storage) → Some w.uid, None = None Natural }
-                ns.storage
+              if anyClaim w then Some w.uid else None Natural
 
         let reachForbidsRolling =
             -- A `WireGuard` app is reached by a hostPort, and a second pod
@@ -560,17 +558,20 @@ let deploymentFor
             -- ReadWriteOnce does not settle it: RWO restricts a claim to one
             -- NODE, both pods land on that node, so k8s permits both mounts and
             -- the rollout does not hang — it double-writes. See `T.Writers`.
-              merge
-                { Some =
-                    λ(s : T.Storage) →
-                      merge
-                        { Exclusive = True
-                        , Concurrent = λ(_ : { why : Text }) → False
-                        }
-                        s.writers
-                , None = False
-                }
-                ns.storage
+              List/fold
+                T.Claim
+                (mountedClaims w)
+                Bool
+                ( λ(c : T.Claim) →
+                  λ(acc : Bool) →
+                        merge
+                          { Exclusive = True
+                          , Concurrent = λ(_ : { why : Text }) → False
+                          }
+                          c.writers
+                    ||  acc
+                )
+                False
 
         let strategy =
               if    reachForbidsRolling || volumeForbidsRolling
@@ -665,21 +666,18 @@ let deploymentFor
                         , volumeMounts =
                             L.nonEmpty
                               K.VolumeMount
-                              (   L.map
-                                    T.VolumeMount
-                                    K.VolumeMount
-                                    k8sMount
-                                    w.mounts
-                                # dataMounts
+                              ( L.map
+                                  T.VolumeMount
+                                  K.VolumeMount
+                                  k8sMount
+                                  w.mounts
                               )
                         }
                     ]
                   , volumes =
                       L.nonEmpty
                         K.Volume
-                        (   L.map T.Volume K.Volume k8sVolume w.volumes
-                          # dataVolumes
-                        )
+                        (L.map T.Volume K.Volume k8sVolume w.volumes)
                   }
                 }
               }
