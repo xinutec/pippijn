@@ -31,7 +31,8 @@ let optionalSecret =
 
 let lit = T.EnvValue.Literal
 
-in    { name = "fleetwatch"
+in  T.namespaceOf
+      (     { name = "fleetwatch"
       , cluster = T.Cluster.isis
       , db = Some
         { dbName = "fleetwatch"
@@ -125,4 +126,5 @@ in    { name = "fleetwatch"
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
       }
-    : T.App
+          : T.App
+      )

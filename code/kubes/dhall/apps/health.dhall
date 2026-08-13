@@ -278,7 +278,8 @@ let leanTenants
         }
       ]
 
-in    { name = "health"
+in  T.namespaceOf
+      (     { name = "health"
       , cluster = T.Cluster.isis
       , db = Some
         { dbName = "health"
@@ -564,4 +565,5 @@ in    { name = "health"
         -- the six crons that dial Fitbit, Overpass and the rail feeds.
         netpol = T.Netpol.Unpoliced
       }
-    : T.App
+          : T.App
+      )

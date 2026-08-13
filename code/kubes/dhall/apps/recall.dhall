@@ -38,7 +38,8 @@ let optional = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = True
 
 let lit = T.EnvValue.Literal
 
-in    { name = "recall"
+in  T.namespaceOf
+      (     { name = "recall"
       , cluster = T.Cluster.isis
       , db = None T.Database
       , storage = Some
@@ -199,4 +200,5 @@ in    { name = "recall"
               }
             ]
       }
-    : T.App
+          : T.App
+      )

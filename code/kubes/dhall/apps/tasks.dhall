@@ -34,7 +34,8 @@ let secret = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False 
 
 let lit = T.EnvValue.Literal
 
-in    { name = "tasks"
+in  T.namespaceOf
+      (     { name = "tasks"
       , cluster = T.Cluster.isis
       , db = Some
         { dbName = "tasks"
@@ -134,4 +135,5 @@ in    { name = "tasks"
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
       }
-    : T.App
+          : T.App
+      )

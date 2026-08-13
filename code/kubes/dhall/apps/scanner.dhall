@@ -12,7 +12,8 @@ let T = ../lib/types.dhall
 
 let dataPath = "/srv/data"
 
-in    { name = "scanner"
+in  T.namespaceOf
+      (     { name = "scanner"
       , cluster = T.Cluster.isis
       , db = None T.Database
       , storage = Some
@@ -90,4 +91,5 @@ in    { name = "scanner"
         -- degenerate case.
         netpol = T.Netpol.Egress ([] : List T.EgressTo)
       }
-    : T.App
+          : T.App
+      )

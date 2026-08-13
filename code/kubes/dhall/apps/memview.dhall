@@ -30,7 +30,8 @@ let corpusPath = "/corpus"
 
 let statePath = "/state"
 
-in    { name = "memview"
+in  T.namespaceOf
+      (     { name = "memview"
       , cluster = T.Cluster.isis
       , db = None T.Database
       , storage = Some
@@ -166,4 +167,5 @@ in    { name = "memview"
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
       }
-    : T.App
+          : T.App
+      )

@@ -17,7 +17,8 @@ let secret = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False 
 
 let lit = T.EnvValue.Literal
 
-in    { name = "home"
+in  T.namespaceOf
+      (     { name = "home"
       , cluster = T.Cluster.isis
       , db = Some
         { dbName = "home"
@@ -81,4 +82,5 @@ in    { name = "home"
       , secrets = toMap keys
       , netpol = T.Netpol.Unpoliced
       }
-    : T.App
+          : T.App
+      )

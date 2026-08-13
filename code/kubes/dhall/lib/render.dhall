@@ -47,50 +47,60 @@ let Annotations = List { mapKey : Text, mapValue : Text }
 -- deliberately outside the applied set, so the namespace is still undefended
 -- and the waiver is still the honest record.
 let hasAppliedNetpol
-    : T.App → Bool
-    = λ(app : T.App) →
+    : T.Namespace → Bool
+    = λ(ns : T.Namespace) →
         merge
           { Unpoliced = False
           , IngressFromNginx = False
           , Egress = λ(_ : List T.EgressTo) → True
           }
-          app.netpol
+          ns.netpol
 
 --| Does this app's Deployment carry a `hostPort`?
 --
 -- Asked by `generate.sh` to decide whether to emit the `allow-host-port` waiver.
 -- `WireGuard` is the only arm that renders one, and it always does — the hostPort
 -- pinned to the tunnel address IS how such an app is reached, so the question is
--- answered by the reach and never per-app.
+-- answered by the reach and never per-ns.
 --
 -- Same discipline as `hasAppliedNetpol`: dev-lint fails a waiver that waives
 -- nothing, so this must be the model's answer rather than a list in the
 -- generator that a new app can be missing from.
 let usesHostPort
-    : T.App → Bool
-    = λ(app : T.App) →
-        merge
-          { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → False
-          , WireGuard = True
-          , Internal = False
-          , NoService = False
-          }
-          app.workload.reach
+    : T.Namespace → Bool
+    = λ(ns : T.Namespace) →
+        List/fold
+          T.Workload
+          ns.workloads
+          Bool
+          ( λ(w : T.Workload) →
+            λ(acc : Bool) →
+                  merge
+                    { Ingress =
+                        λ(_ : { host : Text, exposure : T.Exposure }) → False
+                    , WireGuard = True
+                    , Internal = False
+                    , NoService = False
+                    }
+                    w.reach
+              ||  acc
+          )
+          False
 
 let hasDb
-    : T.App → Bool
-    = λ(app : T.App) →
-        merge { None = False, Some = λ(_ : T.Database) → True } app.db
+    : T.Namespace → Bool
+    = λ(ns : T.Namespace) →
+        merge { None = False, Some = λ(_ : T.Database) → True } ns.db
 
 --| The host `scripts/apply.sh` must deploy to. The cluster has been a field on
 --  `T.App` since the model existed; until 2026-08-10 nothing read it, and the
 --  deploy tool asked whoever was typing instead. See `site.dhall`'s twin.
 let clusterHost
-    : T.App → Text
-    = λ(app : T.App) →
+    : T.Namespace → Text
+    = λ(ns : T.Namespace) →
         merge
           { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
-          app.cluster
+          ns.cluster
 
 -- Keyed on the NAMESPACE NAME rather than on an `App`, because both `T.App` and
 -- `T.Namespace` need them and Dhall has no subtyping — a function taking one
@@ -104,13 +114,13 @@ let pvcNameFor = λ(name : Text) → "${name}-db-pvc"
 
 let dataPvcNameFor = λ(name : Text) → "${name}-data-pvc"
 
-let secretName = λ(app : T.App) → secretNameFor app.name
+let secretName = λ(ns : T.Namespace) → secretNameFor ns.name
 
-let dbName = λ(app : T.App) → dbNameFor app.name
+let dbName = λ(ns : T.Namespace) → dbNameFor ns.name
 
-let pvcName = λ(app : T.App) → pvcNameFor app.name
+let pvcName = λ(ns : T.Namespace) → pvcNameFor ns.name
 
-let dataPvcName = λ(app : T.App) → dataPvcNameFor app.name
+let dataPvcName = λ(ns : T.Namespace) → dataPvcNameFor ns.name
 
 --| The pod-local name of the app's own volume. Distinct from the database's
 --  `data` volume, which lives in a different pod entirely.
@@ -275,6 +285,21 @@ let anyClaim
     = λ(w : T.Workload) →
         Natural/isZero (List/length T.Claim (mountedClaims w)) == False
 
+--| The namespace's ONE workload, when it has exactly one.
+--
+-- `netpolDb` names a workload in its selector, which is only meaningful when
+-- there is one to name. With several — or with batch tasks, whose pods carry
+-- only per-run labels — the honest selector is the whole namespace.
+let soleWorkload
+    : T.Namespace → Optional T.Workload
+    = λ(ns : T.Namespace) →
+        let len = List/length T.Workload ns.workloads
+
+        in  if        Natural/isZero (Natural/subtract 1 len)
+                  &&  (if Natural/isZero len then False else True)
+            then  List/head T.Workload ns.workloads
+            else  None T.Workload
+
 let podSecurityContext
     : Natural → Optional Natural → K.PodSecurityContext
     = λ(uid : Natural) →
@@ -297,11 +322,11 @@ let containerSecurityContext
         }
 
 let namespace
-    : T.App → List K.Namespace
-    = λ(app : T.App) →
+    : T.Namespace → List K.Namespace
+    = λ(ns : T.Namespace) →
         [ { apiVersion = "v1"
           , kind = "Namespace"
-          , metadata = clusterMeta app.name
+          , metadata = clusterMeta ns.name
           }
         ]
 
@@ -311,20 +336,20 @@ let namespace
 -- other renderer: an app with no ConfigMap renders no document, and the file is
 -- simply not written. Same shape as `pvc`, for the same reason.
 let configMap
-    : T.App → List K.ConfigMap
-    = λ(app : T.App) →
+    : T.Namespace → List K.ConfigMap
+    = λ(ns : T.Namespace) →
         merge
           { None = [] : List K.ConfigMap
           , Some =
               λ(cm : T.ConfigMapDoc) →
                 [ { apiVersion = "v1"
                   , kind = "ConfigMap"
-                  , metadata = meta cm.name app.name
+                  , metadata = meta cm.name ns.name
                   , data = cm.files
                   }
                 ]
           }
-          app.configMap
+          ns.configMap
 
 --| The backup-coverage waiver an app's own claim should carry, or "" for none.
 --
@@ -332,24 +357,27 @@ let configMap
 -- declared `BackedUp` and must genuinely appear in backup-prepare.sh — dev-lint
 -- checks that join across the fleet, so the claim cannot be merely asserted.
 --
--- The generator used to hold this as a hardcoded case for one app. Moving it
+-- The generator used to hold this as a hardcoded case for one ns. Moving it
 -- into the model means a second app cannot be added without answering the
 -- question, and the answer sits beside the volume it describes rather than in a
 -- shell `case` far away from it.
 let storageWaiver
-    : T.App → Text
-    = λ(app : T.App) →
-        merge
-          { Some =
-              λ(s : T.Storage) →
-                merge
-                  { BackedUp = ""
-                  , LossAccepted = λ(r : { why : Text }) → r.why
-                  }
-                  s.durability
-          , None = ""
-          }
-          app.storage
+    : T.Namespace → Text
+    = λ(ns : T.Namespace) →
+        List/fold
+          T.Claim
+          ns.claims
+          Text
+          ( λ(c : T.Claim) →
+            λ(acc : Text) →
+                  merge
+                    { BackedUp = ""
+                    , LossAccepted = λ(r : { why : Text }) → r.why
+                    }
+                    c.durability
+              ++  acc
+          )
+          ""
 
 --| The `allow-host-path` justification an app's volumes need, or "" for none.
 --
@@ -362,8 +390,8 @@ let storageWaiver
 -- on its own line. No app has two, and `--check` fails loudly if one appears —
 -- the rendered tree would carry a finding the live tree waives.
 let hostPathWaiver
-    : T.App → Text
-    = λ(app : T.App) →
+    : T.Namespace → Text
+    = λ(ns : T.Namespace) →
         merge
           { None = "", Some = λ(why : Text) → why }
           ( List/head
@@ -381,19 +409,24 @@ let hostPathWaiver
                         }
                         v.source
                   )
-                  app.workload.volumes
+                  ( L.concatMap
+                      T.Workload
+                      T.Volume
+                      (λ(w : T.Workload) → w.volumes)
+                      ns.workloads
+                  )
               )
           )
 
 let pvc
-    : T.App → List K.PersistentVolumeClaim
-    = λ(app : T.App) →
+    : T.Namespace → List K.PersistentVolumeClaim
+    = λ(ns : T.Namespace) →
         merge
           { Some =
               λ(d : T.Database) →
                 [ { apiVersion = "v1"
                   , kind = "PersistentVolumeClaim"
-                  , metadata = meta (pvcName app) app.name
+                  , metadata = meta (pvcNameFor ns.name) ns.name
                   , spec =
                     { accessModes = [ "ReadWriteOnce" ]
                     , resources.requests.storage
@@ -403,7 +436,7 @@ let pvc
                 ]
           , None = [] : List K.PersistentVolumeClaim
           }
-          app.db
+          ns.db
 
 let claimPvcs
     : T.Namespace → List K.PersistentVolumeClaim
@@ -428,27 +461,25 @@ let claimPvcs
 -- Rendered into the same file as the database's claim, so `01-pvc.yaml` is
 -- every piece of durable state a namespace owns rather than only the half that
 -- happens to be a database.
-let appPvc
-    : T.App → List K.PersistentVolumeClaim
-    = λ(app : T.App) → claimPvcs (T.namespaceOf app)
+let appPvc = claimPvcs
 
 let dbDeployment
-    : T.App → List K.Deployment
-    = λ(app : T.App) →
+    : T.Namespace → List K.Deployment
+    = λ(ns : T.Namespace) →
         merge
           { Some =
               λ(d : T.Database) →
                 [ { apiVersion = "apps/v1"
                   , kind = "Deployment"
-                  , metadata = meta (dbName app) app.name
+                  , metadata = meta (dbNameFor ns.name) ns.name
                   , spec =
                     { replicas = 1
                     , -- Single RWO PVC: never run two DB pods at once.
                       strategy = Some
                       { type = "Recreate" }
-                    , selector.matchLabels = appLabels (dbName app)
+                    , selector.matchLabels = appLabels (dbNameFor ns.name)
                     , template =
-                      { metadata.labels = appLabels (dbName app)
+                      { metadata.labels = appLabels (dbNameFor ns.name)
                       , spec =
                         { -- The official image runs as uid 999 (mysql) when
                           -- started unprivileged; fsGroup keeps the data dir
@@ -486,7 +517,7 @@ let dbDeployment
                                   ( L.map
                                       T.EnvVar
                                       K.EnvVar
-                                      (renderEnv (secretName app))
+                                      (renderEnv (secretNameFor ns.name))
                                       [ { name = "MARIADB_AUTO_UPGRADE"
                                         , -- Migrate system tables on first start
                                           -- after a major bump.
@@ -571,7 +602,7 @@ let dbDeployment
                         , volumes = Some
                           [ { name = "data"
                             , persistentVolumeClaim = Some
-                              { claimName = pvcName app }
+                              { claimName = pvcNameFor ns.name }
                             , configMap = None { name : Text }
                             , emptyDir = None {}
                             , hostPath = None { path : Text, type : Text }
@@ -584,22 +615,22 @@ let dbDeployment
                 ]
           , None = [] : List K.Deployment
           }
-          app.db
+          ns.db
 
 let dbService
-    : T.App → List K.Service
-    = λ(app : T.App) →
+    : T.Namespace → List K.Service
+    = λ(ns : T.Namespace) →
         merge
           { Some =
               λ(_ : T.Database) →
                 [ { apiVersion = "v1"
                   , kind = "Service"
-                  , metadata = meta (dbName app) app.name
+                  , metadata = meta (dbNameFor ns.name) ns.name
                   , spec =
                     { -- headless; the app reaches it by name
                       clusterIP = Some
                         "None"
-                    , selector = appLabels (dbName app)
+                    , selector = appLabels (dbNameFor ns.name)
                     , ports =
                       [ { port = 3306
                         , targetPort = Some 3306
@@ -611,7 +642,7 @@ let dbService
                 ]
           , None = [] : List K.Service
           }
-          app.db
+          ns.db
 
 let deploymentFor
     : T.Namespace → T.Workload → K.Deployment
@@ -779,9 +810,7 @@ let deployments
 --| ι applied: the generator hands each renderer an `apps/*.dhall`, whose type is
 --  still `T.App`, so the entry points keep that shape and the generalised work
 --  happens behind `namespaceOf`.
-let appDeployment
-    : T.App → List K.Deployment
-    = λ(app : T.App) → deployments (T.namespaceOf app)
+let appDeployment = deployments
 
 --| The port the app's Service listens on — ONE expression, read by both the
 --  Service and the Ingress backend that targets it.
@@ -882,11 +911,9 @@ let cronJobsFor
 -- on a failed run needs the pod name to disambiguate. Harmless to change: every
 -- cron run creates a fresh pod, so there is no rolling update to survive.
 let cronJobs
-    : T.App → List K.CronJob
-    = λ(app : T.App) →
-        let ns = T.namespaceOf app
-
-        in  L.concatMap T.Workload K.CronJob (cronJobsFor ns) ns.workloads
+    : T.Namespace → List K.CronJob
+    = λ(ns : T.Namespace) →
+        L.concatMap T.Workload K.CronJob (cronJobsFor ns) ns.workloads
 
 let serviceFor
     : T.Namespace → T.Workload → List K.Service
@@ -922,9 +949,7 @@ let services
     = λ(ns : T.Namespace) →
         L.concatMap T.Workload K.Service (serviceFor ns) ns.workloads
 
-let appService
-    : T.App → List K.Service
-    = λ(app : T.App) → services (T.namespaceOf app)
+let appService = services
 
 let ingressFor
     : T.Namespace → T.Workload → List K.Ingress
@@ -978,16 +1003,14 @@ let ingresses
     = λ(ns : T.Namespace) →
         L.concatMap T.Workload K.Ingress (ingressFor ns) ns.workloads
 
-let ingress
-    : T.App → List K.Ingress
-    = λ(app : T.App) → ingresses (T.namespaceOf app)
+let ingress = ingresses
 
 --| Only the app may reach the database. Rendered whenever the app has one, so
 --  "namespace has a DB but nothing protecting it" is not a state this model can
 --  produce.
 let netpolDb
-    : T.App → List K.NetworkPolicy
-    = λ(app : T.App) →
+    : T.Namespace → List K.NetworkPolicy
+    = λ(ns : T.Namespace) →
         merge
           { Some =
               λ(_ : T.Database) →
@@ -1004,14 +1027,19 @@ let netpolDb
                         ( if    Natural/isZero
                                   ( List/length
                                       T.ScheduledTask
-                                      app.workload.tasks
+                                      ( L.concatMap
+                                          T.Workload
+                                          T.ScheduledTask
+                                          (λ(w : T.Workload) → w.tasks)
+                                          ns.workloads
+                                      )
                                   )
-                          then  "${app.name}-db-from-app-only"
-                          else  "${app.name}-db-from-namespace"
+                          then  "${ns.name}-db-from-app-only"
+                          else  "${ns.name}-db-from-namespace"
                         )
-                        app.name
+                        ns.name
                   , spec =
-                    { podSelector.matchLabels = Some (appLabels (dbName app))
+                    { podSelector.matchLabels = Some (appLabels (dbNameFor ns.name))
                     , policyTypes = [ "Ingress" ]
                     , ingress = Some
                       [ { from =
@@ -1035,13 +1063,19 @@ let netpolDb
                               -- per-pod one.
                               podSelector = Some
                               { matchLabels =
-                                  if    Natural/isZero
-                                          ( List/length
-                                              T.ScheduledTask
-                                              app.workload.tasks
-                                          )
-                                  then  Some (appLabels app.workload.name)
-                                  else  None K.Labels
+                                  merge
+                                    { None = None K.Labels
+                                    , Some =
+                                        λ(w : T.Workload) →
+                                          if    Natural/isZero
+                                                  ( List/length
+                                                      T.ScheduledTask
+                                                      w.tasks
+                                                  )
+                                          then  Some (appLabels w.name)
+                                          else  None K.Labels
+                                    }
+                                    (soleWorkload ns)
                               }
                             , namespaceSelector =
                                 None { matchLabels : K.Labels }
@@ -1064,7 +1098,7 @@ let netpolDb
                 ]
           , None = [] : List K.NetworkPolicy
           }
-          app.db
+          ns.db
 
 --| ⚠️ HELD, not applied. k3s enforces NetworkPolicy via kube-router, which does
 --  NOT exempt node-sourced kubelet probe traffic — applying this as written
@@ -1073,13 +1107,14 @@ let netpolDb
 --  deliberately outside the applied set until a probe-source rule is added and
 --  verified on a live pod.
 let ingressFromNginx
-    : T.App → K.NetworkPolicy
-    = λ(app : T.App) →
+    : T.Namespace → T.Workload → K.NetworkPolicy
+    = λ(ns : T.Namespace) →
+      λ(w : T.Workload) →
         { apiVersion = "networking.k8s.io/v1"
         , kind = "NetworkPolicy"
-        , metadata = meta "${app.name}-app-from-ingress-only" app.name
+        , metadata = meta "${ns.name}-app-from-ingress-only" ns.name
         , spec =
-          { podSelector.matchLabels = Some (appLabels app.workload.name)
+          { podSelector.matchLabels = Some (appLabels w.name)
           , policyTypes = [ "Ingress" ]
           , ingress = Some
             [ { from =
@@ -1093,7 +1128,7 @@ let ingressFromNginx
                     }
                   }
                 ]
-              , ports = [ { port = app.workload.port, protocol = None Text } ]
+              , ports = [ { port = w.port, protocol = None Text } ]
               }
             ]
           , egress =
@@ -1112,12 +1147,12 @@ let ingressFromNginx
 -- selected only the app's own pods would leave anything else scheduled there
 -- unrestricted, and the point of a default-deny is that it has no holes.
 let egressDefaultDeny
-    : T.App → List T.EgressTo → K.NetworkPolicy
-    = λ(app : T.App) →
+    : T.Namespace → List T.EgressTo → K.NetworkPolicy
+    = λ(ns : T.Namespace) →
       λ(allowed : List T.EgressTo) →
         { apiVersion = "networking.k8s.io/v1"
         , kind = "NetworkPolicy"
-        , metadata = meta "default-deny-egress" app.name
+        , metadata = meta "default-deny-egress" ns.name
         , spec =
           { podSelector.matchLabels = None K.Labels
           , policyTypes = [ "Egress" ]
@@ -1175,26 +1210,27 @@ let egressDefaultDeny
 -- and go to `netpolApp` below, which is the whole reason `netpol` stopped being
 -- a Bool: the two policies differ in whether they reach the cluster at all.
 let netpolAppHeld
-    : T.App → List K.NetworkPolicy
-    = λ(app : T.App) →
+    : T.Namespace → List K.NetworkPolicy
+    = λ(ns : T.Namespace) →
         merge
           { Unpoliced = [] : List K.NetworkPolicy
-          , IngressFromNginx = [ ingressFromNginx app ]
+          , IngressFromNginx =
+              L.map T.Workload K.NetworkPolicy (ingressFromNginx ns) ns.workloads
           , Egress = λ(_ : List T.EgressTo) → [] : List K.NetworkPolicy
           }
-          app.netpol
+          ns.netpol
 
 --| The APPLIED app policy, as opposed to the held one above.
 let netpolApp
-    : T.App → List K.NetworkPolicy
-    = λ(app : T.App) →
+    : T.Namespace → List K.NetworkPolicy
+    = λ(ns : T.Namespace) →
         merge
           { Unpoliced = [] : List K.NetworkPolicy
           , IngressFromNginx = [] : List K.NetworkPolicy
           , Egress =
-              λ(allowed : List T.EgressTo) → [ egressDefaultDeny app allowed ]
+              λ(allowed : List T.EgressTo) → [ egressDefaultDeny ns allowed ]
           }
-          app.netpol
+          ns.netpol
 
 in  { storageWaiver
     , hostPathWaiver

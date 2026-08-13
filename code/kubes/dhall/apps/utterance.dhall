@@ -20,7 +20,8 @@ let lit = T.EnvValue.Literal
 
 let dataPath = "/data"
 
-in    { name = "utterance"
+in  T.namespaceOf
+      (     { name = "utterance"
       , cluster = T.Cluster.isis
       , db = None T.Database
       , storage = Some
@@ -114,4 +115,5 @@ in    { name = "utterance"
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
       }
-    : T.App
+          : T.App
+      )

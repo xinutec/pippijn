@@ -19,7 +19,8 @@ let contentPath = "/srv/observe"
 
 let nginxConfName = "observe-viewer-nginx"
 
-in    { name = "observe"
+in  T.namespaceOf
+      (     { name = "observe"
       , cluster = T.Cluster.isis
       , db = None T.Database
       , -- No PVC. The content is a hostPath the Mac rsyncs to; see `volumes`.
@@ -181,4 +182,5 @@ in    { name = "observe"
         -- and take the pod NotReady.
         netpol = T.Netpol.Egress ([] : List T.EgressTo)
       }
-    : T.App
+          : T.App
+      )
