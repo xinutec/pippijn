@@ -304,17 +304,35 @@ let soleWorkload
             then  List/head T.Workload ns.workloads
             else  None T.Workload
 
+--| `Unhardened` drops the three identity fields and keeps everything else —
+--  `fsGroup` and seccomp still apply, which is as far as such a pod can be
+--  hardened. See `T.Hardening`.
 let podSecurityContext
-    : Natural → Optional Natural → K.PodSecurityContext
+    : Natural → Optional Natural → T.Hardening → K.PodSecurityContext
     = λ(uid : Natural) →
       λ(fsGroup : Optional Natural) →
-        { runAsNonRoot = True
-        , runAsUser = uid
-        , runAsGroup = uid
-        , fsGroup
-        , fsGroupChangePolicy = None Text
-        , seccompProfile.type = "RuntimeDefault"
-        }
+      λ(h : T.Hardening) →
+        let identity =
+              merge
+                { NonRoot =
+                  { runAsNonRoot = Some True
+                  , runAsUser = Some uid
+                  , runAsGroup = Some uid
+                  }
+                , Unhardened =
+                    λ(_ : { why : Text }) →
+                      { runAsNonRoot = None Bool
+                      , runAsUser = None Natural
+                      , runAsGroup = None Natural
+                      }
+                }
+                h
+
+        in    identity
+            ⫽ { fsGroup
+              , fsGroupChangePolicy = None Text
+              , seccompProfile.type = "RuntimeDefault"
+              }
 
 let containerSecurityContext
     : Bool → K.ContainerSecurityContext
@@ -488,7 +506,7 @@ let dbDeployment
                         { -- The official image runs as uid 999 (mysql) when
                           -- started unprivileged; fsGroup keeps the data dir
                           -- writable.
-                          securityContext = podSecurityContext 999 (Some 999)
+                          securityContext = podSecurityContext 999 (Some 999) T.Hardening.NonRoot
                         , restartPolicy = None Text
                         , containers =
                           [   baseContainer
@@ -710,7 +728,7 @@ let deploymentFor
               , template =
                 { metadata.labels = appLabels w.name
                 , spec =
-                  { securityContext = podSecurityContext w.uid fsGroup
+                  { securityContext = podSecurityContext w.uid fsGroup w.hardening
                   , restartPolicy = None Text
                   , containers =
                     [   baseContainer
@@ -883,7 +901,7 @@ let cronJobsFor
                   , backoffLimit = None Natural
                   , template.spec
                     =
-                    { securityContext = podSecurityContext w.uid (None Natural)
+                    { securityContext = podSecurityContext w.uid (None Natural) w.hardening
                     , restartPolicy = Some "OnFailure"
                     , volumes = None (List K.Volume)
                     , containers =

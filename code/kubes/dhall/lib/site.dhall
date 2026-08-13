@@ -428,9 +428,9 @@ let deployment
                   { metadata.labels = runLabels site.name
                   , spec =
                     { securityContext =
-                      { runAsNonRoot = True
-                      , runAsUser = nginxUid
-                      , runAsGroup = nginxUid
+                      { runAsNonRoot = Some True
+                      , runAsUser = Some nginxUid
+                      , runAsGroup = Some nginxUid
                       , fsGroup
                       , fsGroupChangePolicy = changePolicy
                       , seccompProfile.type = "RuntimeDefault"

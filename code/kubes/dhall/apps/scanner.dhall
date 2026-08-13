@@ -64,6 +64,7 @@ in  T.namespaceOf
         , command = None (List Text)
         , port = 8090
         , uid = 1000
+        , hardening = T.Hardening.NonRoot
         , readOnlyRootFs = True
         , env = [] : List T.EnvVar
         , probeTiming =

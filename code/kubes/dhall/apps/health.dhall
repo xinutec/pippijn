@@ -321,6 +321,7 @@ in  T.namespaceOf
         , command = Some [ "node", "dist/server.js" ]
         , port
         , uid = 1000
+        , hardening = T.Hardening.NonRoot
         , -- MEASURED, not assumed — see the header. The nine `allow-rootfs-rw`
           -- waivers in this tree go away with it.
           readOnlyRootFs = True

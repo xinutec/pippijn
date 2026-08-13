@@ -338,6 +338,25 @@ let ScheduledTask =
       , resources : Resources
       }
 
+--| Whether this pod can be run as a non-root user.
+--
+-- `NonRoot` is the fleet default and what every workload but one uses. The
+-- exception is not laziness: `signal-cli-rest-api`'s entrypoint runs
+-- `usermod`/`groupmod` as root before dropping to uid 1000, and forcing
+-- `runAsNonRoot` makes those calls fail with "cannot lock /etc/group" and
+-- crash-loops the container. Somebody already paid to learn that; the manifest
+-- carried it as an `allow-unhardened` comment, and this makes it structural.
+--
+-- `why` is required for the same reason `Durability.LossAccepted` and
+-- `HostPath` require one: the permissive arm has to be argued, and the argument
+-- belongs where the decision is, not in a waiver a linter reads.
+--
+-- ⚠ `uid` stays meaningful under `Unhardened` — it is the `fsGroup` that keeps
+-- the volume writable by whatever user the entrypoint drops to. What is dropped
+-- is `runAsNonRoot`/`runAsUser`/`runAsGroup`, not the pod's relationship to its
+-- storage.
+let Hardening = < NonRoot | Unhardened : { why : Text } >
+
 --| A long-running container plus the Service in front of it.
 let Workload =
       { name : Text
@@ -349,6 +368,7 @@ let Workload =
       , command : Optional (List Text)
       , port : Natural
       , uid : Natural
+      , hardening : Hardening
       , readOnlyRootFs : Bool
       , env : List EnvVar
       , probe : Probe
@@ -618,6 +638,7 @@ in  { Cluster
     , Claim
     , Writers
     , Storage
+    , Hardening
     , Workload
     , ScheduledTask
     , Namespace

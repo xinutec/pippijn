@@ -85,10 +85,15 @@ let ContainerSecurityContext =
       , capabilities : { drop : List Text }
       }
 
+--| The three identity fields are Optional because one pod in the fleet must
+--  omit them. `signal-cli-rest-api`'s entrypoint runs `usermod`/`groupmod` as
+--  root before dropping to uid 1000; under `runAsNonRoot` those calls fail with
+--  "cannot lock /etc/group" and the container crash-loops. That was measured,
+--  not assumed, and `T.Hardening` is where a workload says so.
 let PodSecurityContext =
-      { runAsNonRoot : Bool
-      , runAsUser : Natural
-      , runAsGroup : Natural
+      { runAsNonRoot : Optional Bool
+      , runAsUser : Optional Natural
+      , runAsGroup : Optional Natural
       , fsGroup : Optional Natural
       , -- `OnRootMismatch` skips the recursive chown when the volume root is
         -- already group-owned. Only meaningful alongside `fsGroup`, and only the

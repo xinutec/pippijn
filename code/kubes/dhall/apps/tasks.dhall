@@ -72,6 +72,7 @@ in  T.namespaceOf
         , port = 8092
         , -- Matches the nonroot user baked into the image (Dockerfile).
           uid = 65532
+        , hardening = T.Hardening.NonRoot
         , -- Everything it writes goes to the database.
           readOnlyRootFs = True
         , env =

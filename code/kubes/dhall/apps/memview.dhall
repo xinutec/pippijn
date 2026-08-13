@@ -78,6 +78,7 @@ in  T.namespaceOf
         , port = 8091
         , -- Matches the nonroot user baked into the image (Dockerfile).
           uid = 65532
+        , hardening = T.Hardening.NonRoot
         , -- The only thing it writes is the share-token state file, which lives
           -- on the volume below, so the root filesystem stays read-only.
           readOnlyRootFs = True

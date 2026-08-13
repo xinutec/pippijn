@@ -122,6 +122,7 @@ in  T.namespaceOf
         , command = None (List Text)
         , port = 8091
         , uid = 101
+        , hardening = T.Hardening.NonRoot
         , readOnlyRootFs = True
         , env = [] : List T.EnvVar
         , probeTiming =

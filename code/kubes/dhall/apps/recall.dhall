@@ -89,6 +89,7 @@ in  T.namespaceOf
           ]
         , port
         , uid = 1000
+        , hardening = T.Hardening.NonRoot
         , -- Everything it writes is a mount: the archive, /tmp (ffmpeg scratch)
           -- and /app/logs.
           readOnlyRootFs = True
