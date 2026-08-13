@@ -784,6 +784,7 @@ let cronJobs
               , metadata = meta t.name app.name
               , spec =
                 { schedule = t.schedule
+                , suspend = if t.suspended then Some True else None Bool
                 , -- Never two at once. These jobs write the same rows — a
                   -- decode overlapping its predecessor is not slow, it is
                   -- wrong — and `Allow` is the API's default, so it has to be

@@ -192,6 +192,11 @@ let CronJob =
       , metadata : Meta
       , spec :
           { schedule : Text
+          , -- Optional so a running job renders no `suspend:` key at all, which
+            -- is what every live manifest looks like. `Some True` is the only
+            -- value ever rendered; `Some False` would be noise on five jobs to
+            -- state the API's default.
+            suspend : Optional Bool
           , concurrencyPolicy : Text
           , successfulJobsHistoryLimit : Natural
           , failedJobsHistoryLimit : Natural

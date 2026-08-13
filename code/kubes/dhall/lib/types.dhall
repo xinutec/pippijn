@@ -414,6 +414,17 @@ let ScheduledTask =
         schedule : Text
       , command : List Text
       , deadlineSeconds : Natural
+      , -- Defined but not running. Kubernetes keeps this in `spec.suspend`, and
+        -- it is the field most likely to exist ONLY in the cluster: suspending
+        -- is what you do from a terminal at the moment something misbehaves, and
+        -- `kubectl patch` leaves no trace in any repo.
+        --
+        -- ⚠ health-bus-refresh was found exactly that way on 2026-08-13 —
+        -- suspended in the cluster, no `suspend:` in its manifest, and never run
+        -- in the 62 days since it was created. A model that omitted the field
+        -- would have declared a daily job that does not run, which is worse than
+        -- the drift it replaced: it would read as reviewed.
+        suspended : Bool
       , env : List EnvVar
       , resources : Resources
       }

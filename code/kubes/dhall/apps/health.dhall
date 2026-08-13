@@ -436,6 +436,7 @@ in    { name = "health"
             -- own successors is wedged, and `Forbid` means those four never
             -- started.
             deadlineSeconds = 3300
+          , suspended = False
           , env =
                 dbEnv
               # [ { name = "FITBIT_CLIENT_ID"
@@ -475,6 +476,7 @@ in    { name = "health"
             schedule = "0 4 * * 0"
           , command = [ "node", "dist/cli/refresh-focus-places.js" ]
           , deadlineSeconds = 3300
+          , suspended = False
           , env = dbEnv # ncEnv
           , resources =
             { requests = { cpu = "50m", memory = "128Mi" }
@@ -488,6 +490,7 @@ in    { name = "health"
             -- decode's railSnap pass is only an indexed lookup into what this
             -- job filled.
             deadlineSeconds = 5400
+          , suspended = False
           , env =
                 [ { name = "LEAN_RAIL", value = lit "on" }
                 , leanCallTimeout
@@ -500,6 +503,19 @@ in    { name = "health"
           , schedule = "30 5 * * *"
           , command = [ "node", "dist/cli/refresh-bus-routes.js" ]
           , deadlineSeconds = 5400
+          , -- ⚠ SUSPENDED IN THE CLUSTER SINCE IT WAS CREATED, and it has never
+            -- run once in 62 days. Nothing in any repo said so before this line:
+            -- the suspend was applied with kubectl and left no trace, which is
+            -- why #760 could be filed claiming the job "exists only in the
+            -- cluster". Half of that was a search artefact — the manifest is
+            -- committed (`fbb73cb1`) and `rg` from ~/Code silently searches
+            -- nothing — but the suspend flag genuinely was cluster-only.
+            --
+            -- Stated as `True` to preserve what is running, NOT because the
+            -- state is endorsed. Whether a bus-route mirror that has never run
+            -- should be resumed or removed is a question about C-bus (#254,
+            -- #328), and it is Pippijn's.
+            suspended = True
           , env = dbEnv
           , resources = batchResources
           }
@@ -516,6 +532,7 @@ in    { name = "health"
             -- job an expensive Lean tenant blows first. The matcher's move off
             -- Lean `Int` to `Nat` was forced by a run that missed it.
             deadlineSeconds = 1800
+          , suspended = False
           , env =
                 dbEnv
               # ncEnv
@@ -531,6 +548,7 @@ in    { name = "health"
           , schedule = "0 6 * * *"
           , command = [ "node", "dist/cli/refresh-rail-stops.js" ]
           , deadlineSeconds = 5400
+          , suspended = False
           , env = dbEnv
           , resources = batchResources
           }
