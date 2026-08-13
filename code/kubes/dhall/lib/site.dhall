@@ -445,7 +445,7 @@ let deployment
                         , -- Stock nginx, run as the image intends: neither its
                           -- entrypoint nor its arguments are ours to set.
                           args = None (List Text)
-                        , securityContext =
+                        , securityContext = Some
                           { allowPrivilegeEscalation = False
                           , -- The stock image writes its own /tmp and pid file,
                             -- so the root filesystem stays writable. Carried as

@@ -482,6 +482,12 @@ let EgressTo = { namespace : Text, ports : List { port : Natural, protocol : Tex
 let NetpolPeer =
       < Namespace : Text
       | Workload : Text
+      | --| Any pod in THIS namespace — `podSelector: {}`, a selector with no
+        --  terms. signal's default-deny uses it to let everything reach the
+        --  database and the REST bridge without naming them one by one, which
+        --  also means a workload added later is covered rather than silently
+        --  cut off.
+        SameNamespace
       | NamespacedWorkload :
           { namespace : Text, labels : List { mapKey : Text, mapValue : Text } }
       | Internet : { except : List Text }

@@ -535,7 +535,7 @@ let dbDeployment
                                     d.innodbBufferPoolGi
                               , -- No readOnlyRootFilesystem: mariadb writes
                                 -- /run/mysqld and its data dir.
-                                securityContext = containerSecurityContext False
+                                securityContext = Some (containerSecurityContext False)
                               , env = Some
                                   ( L.map
                                       T.EnvVar
@@ -737,8 +737,20 @@ let deploymentFor
                         , image = T.imageRef w.image
                         , imagePullPolicy = T.pullPolicyFor w.image
                         , command = w.command
-                        , securityContext =
-                            containerSecurityContext w.readOnlyRootFs
+                        , -- ⚠ `Unhardened` drops this too, and that is the
+                          -- point: `drop: ALL` takes CAP_CHOWN/CAP_SETUID/
+                          -- CAP_SETGID, which is exactly what an entrypoint
+                          -- running usermod as root needs. Hardening the POD
+                          -- but not the CONTAINER crash-loops it just the same.
+                          securityContext =
+                            merge
+                              { NonRoot =
+                                  Some (containerSecurityContext w.readOnlyRootFs)
+                              , Unhardened =
+                                  λ(_ : { why : Text }) →
+                                    None K.ContainerSecurityContext
+                              }
+                              w.hardening
                         , ports =
                           [ merge
                               { Ingress =
@@ -911,7 +923,15 @@ let cronJobsFor
                           , image = T.imageRef w.image
                           , command = Some t.command
                           , securityContext =
-                              containerSecurityContext w.readOnlyRootFs
+                              merge
+                                { NonRoot =
+                                    Some
+                                      (containerSecurityContext w.readOnlyRootFs)
+                                , Unhardened =
+                                    λ(_ : { why : Text }) →
+                                      None K.ContainerSecurityContext
+                                }
+                                w.hardening
                           , env = Some
                               ( L.map
                                   T.EnvVar
@@ -1209,6 +1229,9 @@ let renderPolicy
                         ⫽ { podSelector = Some
                               { matchLabels = Some (appLabels n) }
                           }
+                  , SameNamespace =
+                          emptyPeer
+                      ⫽ { podSelector = Some { matchLabels = None K.Labels } }
                   , NamespacedWorkload =
                       λ ( x
                         : { namespace : Text

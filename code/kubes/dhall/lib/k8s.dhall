@@ -111,7 +111,7 @@ let Container =
         -- entrypoint takes server flags here, and health-db's 2 GiB InnoDB
         -- buffer pool is one.
         args : Optional (List Text)
-      , securityContext : ContainerSecurityContext
+      , securityContext : Optional ContainerSecurityContext
       , ports : List ContainerPort
       , -- Optional, not `List`, for the reason NetworkPolicy's rule lists are:
         -- `appDeployment` renders WITHOUT `--omit-empty` (an `emptyDir: {}`
