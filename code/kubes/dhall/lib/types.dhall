@@ -89,6 +89,21 @@ let Probe =
       | --| Just "is anything listening". For a server that has no health
         --  endpoint, which is honest about what is actually being checked.
         Tcp : { port : Natural }
+      | --| NOTHING is probed, because there is nothing to probe.
+        --
+        -- signal's archiver is a websocket CLIENT: it dials signal-cli and
+        -- writes rows, and listens on no port at all. A `Tcp` probe needs a
+        -- port it does not have, and an `Exec` probe would be inventing a
+        -- health command the image does not ship. It has carried
+        -- `allow-no-probe` for months saying exactly this.
+        --
+        -- ⚠ `probeTiming` is then INERT — the pair is writable in a state where
+        -- one half means nothing. `Reach` unified `host` + `exposure` for
+        -- precisely that reason, and the same treatment (one `Probing` union
+        -- carrying probe and timings together) is what this should become if a
+        -- SECOND probeless workload appears. One case did not justify editing
+        -- every model to move two fields into a constructor; two would.
+        Unprobed
       >
 
 --| How often kubelet asks, and how long it waits first.
@@ -117,30 +132,28 @@ let standardTiming
 
 let Quantity = { cpu : Text, memory : Text }
 
---| Both halves are required. A container with requests but no limits is the
---  state `DL-K8S-NO-MEM-LIMIT` exists to catch; here it does not typecheck.
-let Resources = { requests : Quantity, limits : Quantity }
-
---| A database engine's resources, where `limits` is Optional — and this is the
---  ONLY place in the model where it is.
+--| `limits` is Optional, and WHICH containers may omit it is not a question
+--  this type can answer.
 --
--- Not a softening of the rule above. dev-lint's `image_profile` already sets
--- `require_memory_limit = false` for every `is_db` container fleet-wide, on the
--- stated grounds that "DB pools can be large and variable", so an unlimited
--- database is the linter's own considered position rather than an omission it
--- would catch. This type says the same thing where the manifest is written.
+-- It was required, on the argument that requests without limits is the state
+-- `DL-K8S-NO-MEM-LIMIT` exists to catch. That does not survive contact with the
+-- fleet: `signal-cli-rest-api` is an upstream image with requests only, and
+-- `signal-archiver` is an image the fleet BUILDS with requests only. Both carry
+-- `allow-no-mem-limit` and have for months. Requiring limits here would mean
+-- inventing numbers for two live pods so that a type would accept them.
 --
--- ⚠ It exists because health-db could not be modelled without it. That database
--- is ~4 GB with a 2 GB pool and its manifest argues the case explicitly: "a hard
--- cap risks an OOM-kill mid-query". The alternative was inventing a memory limit
--- on the largest database in the fleet so a type would accept it — which is the
--- model changing production to flatter itself, the exact failure `k8s.dhall`
--- names about `Container.resources`.
+-- Whether a container ought to state limits depends on WHAT RUNS IN IT, and
+-- dev-lint's `image_profile` already reasons about exactly that — it sets
+-- `require_memory_limit = false` for every `is_db` container and demands limits
+-- elsewhere unless waived. That is a decidable predicate over the rendered set
+-- with a stated escape hatch: a linter's job, not a type's.
 --
--- `Some` is still available and five of the six modelled databases use it. The
--- Optional buys the ONE case that is argued, not a default anybody can drift
--- into: omitting limits takes a `None` written on purpose.
-let DbResources = { requests : Quantity, limits : Optional Quantity }
+-- ⚠ This ABSORBS the former `DbResources`, which was this shape carved out for
+-- databases alone. Two types saying one thing is how a rule stops being a rule —
+-- and the second case (signal) proved the carve-out was never about databases.
+-- health-db's argument still stands and is now stated at `innodbBufferPoolGi`:
+-- ~4 GB with a 2 GB pool, where "a hard cap risks an OOM-kill mid-query".
+let Resources = { requests : Quantity, limits : Optional Quantity }
 
 --| `readOnly` is stated, not defaulted. A content mirror the app must never
 --  write and a scratch directory it must are the same three fields otherwise,
@@ -376,7 +389,7 @@ let Database =
         -- without it silently cut a 4 GB database's pool by 16x, which is not a
         -- failure any manifest review would have seen.
         innodbBufferPoolGi : Optional Natural
-      , resources : DbResources
+      , resources : Resources
       , keys : { user : Text, password : Text, rootPassword : Text }
       }
 
@@ -598,7 +611,6 @@ in  { Cluster
     , standardTiming
     , Quantity
     , Resources
-    , DbResources
     , ConfigMapDoc
     , VolumeMount
     , VolumeSource

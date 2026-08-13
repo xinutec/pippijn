@@ -106,7 +106,7 @@ in  T.namespaceOf
             -- shares this node with Nextcloud, which is the thing that must not
             -- be starved.
             limits =
-            { cpu = "2", memory = "1Gi" }
+            Some { cpu = "2", memory = "1Gi" }
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount

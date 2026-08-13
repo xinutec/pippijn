@@ -134,7 +134,7 @@ in  T.namespaceOf
         , probe = T.Probe.Http { path = "/healthz", port = 8091 }
         , resources =
           { requests = { cpu = "50m", memory = "32Mi" }
-          , limits = { cpu = "1", memory = "256Mi" }
+          , limits = Some { cpu = "1", memory = "256Mi" }
           }
         , volumes =
           [ { name = "content"

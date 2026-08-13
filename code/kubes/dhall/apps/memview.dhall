@@ -152,7 +152,7 @@ in  T.namespaceOf
             -- would be worse than the read cost. That makes it steady small
             -- reads rather than a resident cache, so the ceiling is modest.
             limits =
-            { cpu = "500m", memory = "256Mi" }
+            Some { cpu = "500m", memory = "256Mi" }
           }
         , volumes = [] : List T.Volume
         , mounts =

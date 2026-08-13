@@ -86,7 +86,7 @@ let leanCallTimeout
 let batchResources
     : T.Resources
     = { requests = { cpu = "100m", memory = "256Mi" }
-      , limits = { cpu = "1000m", memory = "1Gi" }
+      , limits = Some { cpu = "1000m", memory = "1Gi" }
       }
 
 -- The decode carries more memory than the refreshes: it holds a day's fixes and
@@ -94,7 +94,7 @@ let batchResources
 let decodeResources
     : T.Resources
     = { requests = { cpu = "100m", memory = "256Mi" }
-      , limits = { cpu = "1000m", memory = "1536Mi" }
+      , limits = Some { cpu = "1000m", memory = "1536Mi" }
       }
 
 -- C4 continuity flags (task #224). The auth pod does not READ them — it is the
@@ -400,7 +400,7 @@ in  T.namespaceOf
             , memory = "128Mi"
             }
           , limits =
-            { -- The velocity pipeline is CPU-bound (map-matchers / HMM decode):
+            Some { -- The velocity pipeline is CPU-bound (map-matchers / HMM decode):
               -- ~6 CPU-seconds for a busy day. A 200m cap CFS-throttled that to
               -- ~50 s wall-clock (measured: walkMatch 4 s of CPU → 40 s
               -- on-pod). 2 cores lets a compute finish in a few seconds; isis
@@ -471,7 +471,7 @@ in  T.namespaceOf
                     ]
               , resources =
                 { requests = { cpu = "50m", memory = "128Mi" }
-                , limits = { cpu = "500m", memory = "512Mi" }
+                , limits = Some { cpu = "500m", memory = "512Mi" }
                 }
               }
             , { name = "health-focus-refresh"
@@ -483,7 +483,7 @@ in  T.namespaceOf
               , env = dbEnv # ncEnv
               , resources =
                 { requests = { cpu = "50m", memory = "128Mi" }
-                , limits = { cpu = "500m", memory = "512Mi" }
+                , limits = Some { cpu = "500m", memory = "512Mi" }
                 }
               }
             , { name = "health-rail-refresh"

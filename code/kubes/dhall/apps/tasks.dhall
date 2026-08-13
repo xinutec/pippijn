@@ -126,7 +126,7 @@ in  T.namespaceOf
           , -- The heavy read is a list of a few hundred one-line rows; the
             -- bodies are fetched one at a time. Nothing here is resident.
             limits =
-            { cpu = "500m", memory = "256Mi" }
+            Some { cpu = "500m", memory = "256Mi" }
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount

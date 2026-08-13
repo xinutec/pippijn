@@ -190,13 +190,17 @@ let renderEnv
           e.value
 
 let renderProbe
-    : T.Probe → K.Probe
+    : T.Probe → Optional K.Probe
     = λ(p : T.Probe) →
         merge
-          { Http = λ(h : K.HTTPGetAction) → K.emptyProbe ⫽ { httpGet = Some h }
-          , Exec = λ(e : K.ExecAction) → K.emptyProbe ⫽ { exec = Some e }
+          { Http =
+              λ(h : K.HTTPGetAction) → Some (K.emptyProbe ⫽ { httpGet = Some h })
+          , Exec = λ(e : K.ExecAction) → Some (K.emptyProbe ⫽ { exec = Some e })
           , Tcp =
-              λ(t : K.TCPSocketAction) → K.emptyProbe ⫽ { tcpSocket = Some t }
+              λ(t : K.TCPSocketAction) →
+                Some (K.emptyProbe ⫽ { tcpSocket = Some t })
+          , -- Nothing to probe: renders neither key rather than an empty probe.
+            Unprobed = None K.Probe
           }
           p
 
@@ -757,30 +761,41 @@ let deploymentFor
                                   (renderEnv (secretNameFor ns.name))
                                   w.env
                               )
-                        , readinessProbe = Some
-                            (   renderProbe w.probe
-                              ⫽ { initialDelaySeconds = Some
-                                    w.probeTiming.readiness.initialDelaySeconds
-                                , periodSeconds = Some
-                                    w.probeTiming.readiness.periodSeconds
-                                }
-                            )
-                        , livenessProbe = Some
-                            (   renderProbe w.probe
-                              ⫽ { initialDelaySeconds = Some
-                                    w.probeTiming.liveness.initialDelaySeconds
-                                , periodSeconds = Some
-                                    w.probeTiming.liveness.periodSeconds
-                                }
-                            )
-                        , -- `T.Resources` requires both halves; `K.Resources`
-                          -- makes `limits` Optional to match the API. Every
-                          -- workload the fleet builds therefore renders
-                          -- `Some`, and only a database may render `None`.
-                          resources = Some
-                          { requests = w.resources.requests
-                          , limits = Some w.resources.limits
-                          }
+                        , readinessProbe =
+                            merge
+                              { None = None K.Probe
+                              , Some =
+                                  λ(pr : K.Probe) →
+                                    Some
+                                      (   pr
+                                        ⫽ { initialDelaySeconds = Some
+                                              w.probeTiming.readiness.initialDelaySeconds
+                                          , periodSeconds = Some
+                                              w.probeTiming.readiness.periodSeconds
+                                          }
+                                      )
+                              }
+                              (renderProbe w.probe)
+                        , livenessProbe =
+                            merge
+                              { None = None K.Probe
+                              , Some =
+                                  λ(pr : K.Probe) →
+                                    Some
+                                      (   pr
+                                        ⫽ { initialDelaySeconds = Some
+                                              w.probeTiming.liveness.initialDelaySeconds
+                                          , periodSeconds = Some
+                                              w.probeTiming.liveness.periodSeconds
+                                          }
+                                      )
+                              }
+                              (renderProbe w.probe)
+                        , -- `T.Resources` and `K.Resources` are the same shape
+                          -- now — `limits` Optional in both — because whether a
+                          -- container ought to state them is a fact about its
+                          -- image, which dev-lint knows and this does not.
+                          resources = Some w.resources
                         , volumeMounts =
                             L.nonEmpty
                               K.VolumeMount
@@ -885,10 +900,7 @@ let cronJobsFor
                                   (renderEnv (secretNameFor ns.name))
                                   t.env
                               )
-                          , resources = Some
-                            { requests = t.resources.requests
-                            , limits = Some t.resources.limits
-                            }
+                          , resources = Some t.resources
                           }
                       ]
                     }

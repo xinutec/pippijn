@@ -158,7 +158,7 @@ in  T.namespaceOf
           probe = T.Probe.Tcp { port }
         , resources =
           { requests = { cpu = "100m", memory = "256Mi" }
-          , limits = { cpu = "1", memory = "1Gi" }
+          , limits = Some { cpu = "1", memory = "1Gi" }
           }
         , volumes =
           [ { name = "tmp", source = T.VolumeSource.EmptyDir }
