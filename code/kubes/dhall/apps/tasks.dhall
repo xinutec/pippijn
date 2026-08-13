@@ -58,7 +58,14 @@ in    { name = "tasks"
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { name = "tasks"
+        { -- The hostname resolves to the WireGuard address, not the public one.
+          -- Obscurity, NOT a firewall — the isis ingress answers on the public IP
+          -- too, and the Nextcloud login plus the `pippijn`-only allow-list is the
+          -- real gate. But it does mean HTTP-01 cannot validate, hence a DNS-01
+          -- certificate, which is what this arm decides.
+          reach =
+            T.Reach.Ingress { host = dns.tasks, exposure = T.Exposure.VpnOnly }
+        , name = "tasks"
         , image = T.Image.Fleet "tasks"
         , command = None (List Text)
         , port = 8092
@@ -81,8 +88,7 @@ in    { name = "tasks"
               -- sends the public host as a `Host:` header over this address so
               -- Nextcloud's trusted-domain routing is unchanged.
               name = "NC_INTERNAL_URL"
-            , value =
-                lit "http://nextcloud-server.nextcloud.svc.cluster.local"
+            , value = lit "http://nextcloud-server.nextcloud.svc.cluster.local"
             }
           , { -- Derived from the same hostname the Ingress serves, so the OAuth
               -- callback cannot drift from where the app actually lives.
@@ -118,18 +124,12 @@ in    { name = "tasks"
           { requests = { cpu = "25m", memory = "64Mi" }
           , -- The heavy read is a list of a few hundred one-line rows; the
             -- bodies are fetched one at a time. Nothing here is resident.
-            limits = { cpu = "500m", memory = "256Mi" }
+            limits =
+            { cpu = "500m", memory = "256Mi" }
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
         }
-      , -- The hostname resolves to the WireGuard address, not the public one.
-        -- Obscurity, NOT a firewall — the isis ingress answers on the public IP
-        -- too, and the Nextcloud login plus the `pippijn`-only allow-list is the
-        -- real gate. But it does mean HTTP-01 cannot validate, hence a DNS-01
-        -- certificate, which is what this arm decides.
-        reach = T.Reach.Ingress
-          { host = dns.tasks, exposure = T.Exposure.VpnOnly }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
       , tasks = [] : List T.ScheduledTask

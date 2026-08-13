@@ -52,6 +52,21 @@ in    { name = "fleetwatch"
         configMap = None T.ConfigMapDoc
       , workload =
         { name = "fleetwatch-app"
+        , -- The hostname resolves to isis's WireGuard address, not the public one,
+          -- so HTTP-01 cannot validate and the certificate must come from DNS-01 —
+          -- which is what this field decides.
+          --
+          -- ⚠ Obscurity, NOT a firewall: the isis ingress answers on the public IP
+          -- too. The real gate on the WRITE path is the ingest bearer token. A
+          -- `whitelist-source-range: 10.100.0.0/24` annotation was tried and
+          -- REMOVED (2026-07-03): behind k3s servicelb the client's WireGuard
+          -- source IP is SNAT'd before nginx sees it, so the rule 403s a legitimate
+          -- VPN client. Making the source IP survive needs a cluster-wide ingress
+          -- change (externalTrafficPolicy: Local + forwarded-headers) affecting
+          -- every service, and is deliberately not done.
+          reach =
+            T.Reach.Ingress
+              { host = dns.fleetwatch, exposure = T.Exposure.VpnOnly }
         , image = T.Image.Fleet "fleetwatch"
         , command = None (List Text)
         , port = 8080
@@ -106,20 +121,6 @@ in    { name = "fleetwatch"
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
         }
-      , -- The hostname resolves to isis's WireGuard address, not the public one,
-        -- so HTTP-01 cannot validate and the certificate must come from DNS-01 —
-        -- which is what this field decides.
-        --
-        -- ⚠ Obscurity, NOT a firewall: the isis ingress answers on the public IP
-        -- too. The real gate on the WRITE path is the ingest bearer token. A
-        -- `whitelist-source-range: 10.100.0.0/24` annotation was tried and
-        -- REMOVED (2026-07-03): behind k3s servicelb the client's WireGuard
-        -- source IP is SNAT'd before nginx sees it, so the rule 403s a legitimate
-        -- VPN client. Making the source IP survive needs a cluster-wide ingress
-        -- change (externalTrafficPolicy: Local + forwarded-headers) affecting
-        -- every service, and is deliberately not done.
-        reach = T.Reach.Ingress
-          { host = dns.fleetwatch, exposure = T.Exposure.VpnOnly }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
       , tasks = [] : List T.ScheduledTask

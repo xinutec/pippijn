@@ -52,15 +52,11 @@ let optionalSecret =
 
 let lit = T.EnvValue.Literal
 
--- The Google Health credentials, which live in a secret this model does not
--- manage. See `T.EnvValue.FromUnmanagedSecret`.
 let google =
       λ(k : Text) →
         T.EnvValue.FromUnmanagedSecret
           { secret = "health-google", key = k, optional = False }
 
--- Every batch task reads and writes the same database, so this is their floor
--- rather than something each restates.
 let dbEnv
     : List T.EnvVar
     = [ { name = "DB_HOST", value = lit "health-db" }
@@ -69,16 +65,12 @@ let dbEnv
       , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
       ]
 
--- Nextcloud OAuth, for the jobs that read places out of it.
 let ncEnv
     : List T.EnvVar
     = [ { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
       , { name = "NC_CLIENT_SECRET", value = secret keys.NC_CLIENT_SECRET }
       ]
 
--- 30 s, against the request path's 5 s default. A batch job may wait for the
--- verified core; an interactive request may not. This is the flag whose absence
--- from `leanTenants` is deliberate — see the note at LEAN_MATCH.
 let leanCallTimeout
     : T.EnvVar
     = { name = "LEAN_CALL_TIMEOUT_MS", value = lit "30000" }
@@ -89,20 +81,12 @@ let batchResources
       , limits = { cpu = "1000m", memory = "1Gi" }
       }
 
--- The decode carries more memory than the refreshes: it holds a day's fixes and
--- both arms of every shadowed Lean pass at once.
 let decodeResources
     : T.Resources
     = { requests = { cpu = "100m", memory = "256Mi" }
       , limits = { cpu = "1000m", memory = "1536Mi" }
       }
 
--- C4 continuity flags (task #224). The auth pod does not READ them — it is the
--- decode that does — but `scripts/prod-db.sh` mirrors the pod env via printenv
--- so a Mac replay decodes the same day the cron wrote. A missing mirror is the
--- exact feedback_parity_tools_must_mirror_env failure, so these are carried
--- here deliberately. Rationale and the open defect (#366) are documented at the
--- cron: kubes/health/k8s/08-decode-recent.yaml.
 let decodeFlags
     : List T.EnvVar
     = [ { name = "USE_CADENCE_IMPUTATION", value = lit "1" }
@@ -111,12 +95,6 @@ let decodeFlags
       , { name = "USE_REACQUIRE_ROBUST_SPEED", value = lit "1" }
       ]
 
--- The verified-Lean tenants, shared with the decode cron.
---
--- ⚠ SHARED BASE, NOT THE WHOLE ENV. The cron adds `LEAN_HSMM`,
--- `LEAN_STATIONCHAIN` and `LEAN_CALL_TIMEOUT_MS`; the auth pod adds
--- `WALK_BUILDING_ESCAPE`. Only what BOTH must agree on lives here — a list that
--- absorbed the extras would force one of them to carry a flag it does not want.
 let leanTenants
     : List T.EnvVar
     = [ { -- Serve the verified Lean geometry passes on the request path
@@ -287,7 +265,8 @@ in    { name = "health"
         , -- The only database in the fleet that sets one. `requests.memory`
           -- below covers this plus mariadbd's overhead, and the two move
           -- together.
-          innodbBufferPoolGi = Some 2
+          innodbBufferPoolGi = Some
+            2
         , resources =
           { requests =
             { cpu = "100m"
@@ -312,7 +291,9 @@ in    { name = "health"
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { name = "health-auth"
+        { reach =
+            T.Reach.Ingress { host = dns.health, exposure = T.Exposure.Public }
+        , name = "health-auth"
         , image = T.Image.Fleet "health-sync"
         , command = Some [ "node", "dist/server.js" ]
         , port
@@ -413,148 +394,144 @@ in    { name = "health"
         , mounts = [] : List T.VolumeMount
         }
       , tasks =
-        -- The six recurring jobs. `dbEnv` is every task's floor — all of them
-        -- read and write the same database — and the extras are per task.
-        --
-        -- ⚠ The two one-shot Jobs in the live tree (`health-decode-backfill-v7`,
-        -- `health-decode-redecode-20260731`) are NOT here and should not be. A
-        -- Job's spec is immutable, so re-rendering one with today's flags makes
-        -- `apply` fail rather than update; their names encode a run rather than
-        -- a service; and `backfill-v7` still carries the pre-2026-08-06 env with
-        -- no LEAN_* tenants at all, which is a record of how that run decoded
-        -- and NOT a policy anything should reproduce. They are spent, and
-        -- retiring them is a decision about the cluster, not about the model.
-        [ { -- Every 15 min so Fitbit data (esp. sleep, which Fitbit only
-            -- finalizes after you wake) appears within ~15 min instead of up to
-            -- an hour. Each run re-queries a 2-day overlap (SYNC_OVERLAP_DAYS);
-            -- ~15 calls/run x 4 runs/hr stays well under Fitbit's 150
-            -- req/hr/user.
-            name = "health-sync"
-          , schedule = "*/15 * * * *"
-          , command = [ "node", "dist/sync.js" ]
-          , -- 55 min: under the 15-min cadence a run that outlives four of its
-            -- own successors is wedged, and `Forbid` means those four never
-            -- started.
-            deadlineSeconds = 3300
-          , suspended = False
-          , env =
-                dbEnv
-              # [ { name = "FITBIT_CLIENT_ID"
-                  , value = secret keys.FITBIT_CLIENT_ID
-                  }
-                , { name = "FITBIT_CLIENT_SECRET"
-                  , value = secret keys.FITBIT_CLIENT_SECRET
-                  }
-                , { -- Google Health weight sync (#260). GH_USER_ID names the
-                    -- health-sync user the Google account belongs to.
-                    name = "GH_USER_ID"
-                  , value = lit "pippijn"
-                  }
-                , { -- ⚠ A SECRET THIS MODEL DOES NOT OWN. The refresh token is
-                    -- long-lived (OAuth app published 2026-07-18) and the
-                    -- credentials are managed by hand in `health-google`, so
-                    -- they are not in `secrets` above and `secret.sh` does not
-                    -- write them. `FromUnmanagedSecret` is how that is said out
-                    -- loud instead of being a name that happens to differ.
-                    name = "GH_CLIENT_ID"
-                  , value = google "GH_CLIENT_ID"
-                  }
-                , { name = "GH_CLIENT_SECRET"
-                  , value = google "GH_CLIENT_SECRET"
-                  }
-                , { name = "GH_REFRESH_TOKEN"
-                  , value = google "GH_REFRESH_TOKEN"
-                  }
-                ]
-          , resources =
-            { requests = { cpu = "50m", memory = "128Mi" }
-            , limits = { cpu = "500m", memory = "512Mi" }
+          -- The six recurring jobs. `dbEnv` is every task's floor — all of them
+          -- read and write the same database — and the extras are per task.
+          --
+          -- ⚠ The two one-shot Jobs in the live tree (`health-decode-backfill-v7`,
+          -- `health-decode-redecode-20260731`) are NOT here and should not be. A
+          -- Job's spec is immutable, so re-rendering one with today's flags makes
+          -- `apply` fail rather than update; their names encode a run rather than
+          -- a service; and `backfill-v7` still carries the pre-2026-08-06 env with
+          -- no LEAN_* tenants at all, which is a record of how that run decoded
+          -- and NOT a policy anything should reproduce. They are spent, and
+          -- retiring them is a decision about the cluster, not about the model.
+          [ { -- Every 15 min so Fitbit data (esp. sleep, which Fitbit only
+              -- finalizes after you wake) appears within ~15 min instead of up to
+              -- an hour. Each run re-queries a 2-day overlap (SYNC_OVERLAP_DAYS);
+              -- ~15 calls/run x 4 runs/hr stays well under Fitbit's 150
+              -- req/hr/user.
+              name = "health-sync"
+            , schedule = "*/15 * * * *"
+            , command = [ "node", "dist/sync.js" ]
+            , -- 55 min: under the 15-min cadence a run that outlives four of its
+              -- own successors is wedged, and `Forbid` means those four never
+              -- started.
+              deadlineSeconds = 3300
+            , suspended = False
+            , env =
+                  dbEnv
+                # [ { name = "FITBIT_CLIENT_ID"
+                    , value = secret keys.FITBIT_CLIENT_ID
+                    }
+                  , { name = "FITBIT_CLIENT_SECRET"
+                    , value = secret keys.FITBIT_CLIENT_SECRET
+                    }
+                  , { -- Google Health weight sync (#260). GH_USER_ID names the
+                      -- health-sync user the Google account belongs to.
+                      name = "GH_USER_ID"
+                    , value = lit "pippijn"
+                    }
+                  , { -- ⚠ A SECRET THIS MODEL DOES NOT OWN. The refresh token is
+                      -- long-lived (OAuth app published 2026-07-18) and the
+                      -- credentials are managed by hand in `health-google`, so
+                      -- they are not in `secrets` above and `secret.sh` does not
+                      -- write them. `FromUnmanagedSecret` is how that is said out
+                      -- loud instead of being a name that happens to differ.
+                      name = "GH_CLIENT_ID"
+                    , value = google "GH_CLIENT_ID"
+                    }
+                  , { name = "GH_CLIENT_SECRET"
+                    , value = google "GH_CLIENT_SECRET"
+                    }
+                  , { name = "GH_REFRESH_TOKEN"
+                    , value = google "GH_REFRESH_TOKEN"
+                    }
+                  ]
+            , resources =
+              { requests = { cpu = "50m", memory = "128Mi" }
+              , limits = { cpu = "500m", memory = "512Mi" }
+              }
             }
-          }
-        , { name = "health-focus-refresh"
-          , -- Weekly, Sunday 04:00.
-            schedule = "0 4 * * 0"
-          , command = [ "node", "dist/cli/refresh-focus-places.js" ]
-          , deadlineSeconds = 3300
-          , suspended = False
-          , env = dbEnv # ncEnv
-          , resources =
-            { requests = { cpu = "50m", memory = "128Mi" }
-            , limits = { cpu = "500m", memory = "512Mi" }
+          , { name = "health-focus-refresh"
+            , -- Weekly, Sunday 04:00.
+              schedule = "0 4 * * 0"
+            , command = [ "node", "dist/cli/refresh-focus-places.js" ]
+            , deadlineSeconds = 3300
+            , suspended = False
+            , env = dbEnv # ncEnv
+            , resources =
+              { requests = { cpu = "50m", memory = "128Mi" }
+              , limits = { cpu = "500m", memory = "512Mi" }
+              }
             }
-          }
-        , { name = "health-rail-refresh"
-          , schedule = "0 5 * * *"
-          , command = [ "node", "dist/cli/refresh-rail-routes.js" ]
-          , -- 90 min. This is where the verified rail search runs in BULK — the
-            -- decode's railSnap pass is only an indexed lookup into what this
-            -- job filled.
-            deadlineSeconds = 5400
-          , suspended = False
-          , env =
-                [ { name = "LEAN_RAIL", value = lit "on" }
-                , leanCallTimeout
-                ]
-              # dbEnv
-              # ncEnv
-          , resources = batchResources
-          }
-        , { name = "health-bus-refresh"
-          , schedule = "30 5 * * *"
-          , command = [ "node", "dist/cli/refresh-bus-routes.js" ]
-          , deadlineSeconds = 5400
-          , -- ⚠ SUSPENDED IN THE CLUSTER SINCE IT WAS CREATED, and it has never
-            -- run once in 62 days. Nothing in any repo said so before this line:
-            -- the suspend was applied with kubectl and left no trace, which is
-            -- why #760 could be filed claiming the job "exists only in the
-            -- cluster". Half of that was a search artefact — the manifest is
-            -- committed (`fbb73cb1`) and `rg` from ~/Code silently searches
-            -- nothing — but the suspend flag genuinely was cluster-only.
-            --
-            -- Stated as `True` to preserve what is running, NOT because the
-            -- state is endorsed. Whether a bus-route mirror that has never run
-            -- should be resumed or removed is a question about C-bus (#254,
-            -- #328), and it is Pippijn's.
-            suspended = True
-          , env = dbEnv
-          , resources = batchResources
-          }
-        , { name = "health-decode-recent"
-          , schedule = "0 6 * * *"
-          , command =
-            [ "sh"
-            , "-c"
-            ,     "node dist/cli/decode-day.js --user pippijn "
-              ++  "--tz Europe/London --days 7 && "
-              ++  "node dist/cli/refresh-presence-log.js 90"
-            ]
-          , -- 30 min, and the tightest deadline here on purpose: this is the
-            -- job an expensive Lean tenant blows first. The matcher's move off
-            -- Lean `Int` to `Nat` was forced by a run that missed it.
-            deadlineSeconds = 1800
-          , suspended = False
-          , env =
-                dbEnv
-              # ncEnv
-              # decodeFlags
-              # [ { name = "LEAN_HSMM", value = lit "shadow" }
-                , { name = "LEAN_STATIONCHAIN", value = lit "on" }
-                ]
-              # leanTenants
-              # [ leanCallTimeout ]
-          , resources = decodeResources
-          }
-        , { name = "health-rail-stops-refresh"
-          , schedule = "0 6 * * *"
-          , command = [ "node", "dist/cli/refresh-rail-stops.js" ]
-          , deadlineSeconds = 5400
-          , suspended = False
-          , env = dbEnv
-          , resources = batchResources
-          }
-        ]
-      , reach = T.Reach.Ingress
-        { host = dns.health, exposure = T.Exposure.Public }
+          , { name = "health-rail-refresh"
+            , schedule = "0 5 * * *"
+            , command = [ "node", "dist/cli/refresh-rail-routes.js" ]
+            , -- 90 min. This is where the verified rail search runs in BULK — the
+              -- decode's railSnap pass is only an indexed lookup into what this
+              -- job filled.
+              deadlineSeconds = 5400
+            , suspended = False
+            , env =
+                  [ { name = "LEAN_RAIL", value = lit "on" }, leanCallTimeout ]
+                # dbEnv
+                # ncEnv
+            , resources = batchResources
+            }
+          , { name = "health-bus-refresh"
+            , schedule = "30 5 * * *"
+            , command = [ "node", "dist/cli/refresh-bus-routes.js" ]
+            , deadlineSeconds = 5400
+            , -- ⚠ SUSPENDED IN THE CLUSTER SINCE IT WAS CREATED, and it has never
+              -- run once in 62 days. Nothing in any repo said so before this line:
+              -- the suspend was applied with kubectl and left no trace, which is
+              -- why #760 could be filed claiming the job "exists only in the
+              -- cluster". Half of that was a search artefact — the manifest is
+              -- committed (`fbb73cb1`) and `rg` from ~/Code silently searches
+              -- nothing — but the suspend flag genuinely was cluster-only.
+              --
+              -- Stated as `True` to preserve what is running, NOT because the
+              -- state is endorsed. Whether a bus-route mirror that has never run
+              -- should be resumed or removed is a question about C-bus (#254,
+              -- #328), and it is Pippijn's.
+              suspended = True
+            , env = dbEnv
+            , resources = batchResources
+            }
+          , { name = "health-decode-recent"
+            , schedule = "0 6 * * *"
+            , command =
+              [ "sh"
+              , "-c"
+              ,     "node dist/cli/decode-day.js --user pippijn "
+                ++  "--tz Europe/London --days 7 && "
+                ++  "node dist/cli/refresh-presence-log.js 90"
+              ]
+            , -- 30 min, and the tightest deadline here on purpose: this is the
+              -- job an expensive Lean tenant blows first. The matcher's move off
+              -- Lean `Int` to `Nat` was forced by a run that missed it.
+              deadlineSeconds = 1800
+            , suspended = False
+            , env =
+                  dbEnv
+                # ncEnv
+                # decodeFlags
+                # [ { name = "LEAN_HSMM", value = lit "shadow" }
+                  , { name = "LEAN_STATIONCHAIN", value = lit "on" }
+                  ]
+                # leanTenants
+                # [ leanCallTimeout ]
+            , resources = decodeResources
+            }
+          , { name = "health-rail-stops-refresh"
+            , schedule = "0 6 * * *"
+            , command = [ "node", "dist/cli/refresh-rail-stops.js" ]
+            , deadlineSeconds = 5400
+            , suspended = False
+            , env = dbEnv
+            , resources = batchResources
+            }
+          ]
       , secrets = toMap keys
       , -- The namespace has no policy of its own, which `generate.sh` records as
         -- the `allow-no-netpol` waiver. Hardening it is network-hardening work

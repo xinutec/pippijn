@@ -47,7 +47,9 @@ in    { name = "coach"
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { name = "coach-app"
+        { reach =
+            T.Reach.Ingress { host = dns.coach, exposure = T.Exposure.Public }
+        , name = "coach-app"
         , image = T.Image.Fleet "coach"
         , command = None (List Text)
         , port = 8080
@@ -100,8 +102,6 @@ in    { name = "coach"
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
         }
-      , reach = T.Reach.Ingress
-        { host = dns.coach, exposure = T.Exposure.Public }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
       , tasks = [] : List T.ScheduledTask

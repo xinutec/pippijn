@@ -19,9 +19,6 @@ let dataPath = "/data"
 
 let port = 8000
 
--- The keys as a RECORD, so a typo is a type error rather than a pod that boots
--- with an empty credential. `secrets = toMap keys` publishes the same
--- expressions `secret.sh` writes.
 let keys =
       { SYNC_TOKEN = "SYNC_TOKEN"
       , SESSION_SECRET = "SESSION_SECRET"
@@ -32,8 +29,6 @@ let keys =
 
 let required = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False }
 
--- Optional here means "the pod starts without it", and every use below says
--- what is lost when it is absent. None of them is optional for convenience.
 let optional = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = True }
 
 let lit = T.EnvValue.Literal
@@ -63,23 +58,29 @@ in    { name = "recall"
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { name = "recall"
+        { -- No Ingress and no DNS record. The shared nginx ingress answers on
+          -- isis's PUBLIC address whatever DNS says — obscurity, not a gate,
+          -- confirmed 2026-07-09 — and this archive is transcripts of
+          -- conversations in the house. The hostPort pinned to the tunnel address
+          -- IS the gate.
+          reach = T.Reach.WireGuard
+        , name = "recall"
         , image = T.Image.Fleet "recall"
         , -- ⚠ `--out` is what binds the archive to /data. `recall api`
           -- OVERWRITES RECALL_OUT from this flag, so setting the env var
           -- instead would be ignored — the flag is the only thing that works.
           command = Some
-            [ "python"
-            , "-m"
-            , "recall"
-            , "api"
-            , "--out"
-            , dataPath
-            , "--host"
-            , "0.0.0.0"
-            , "--port"
-            , "${Natural/show port}"
-            ]
+          [ "python"
+          , "-m"
+          , "recall"
+          , "api"
+          , "--out"
+          , dataPath
+          , "--host"
+          , "0.0.0.0"
+          , "--port"
+          , "${Natural/show port}"
+          ]
         , port
         , uid = 1000
         , -- Everything it writes is a mount: the archive, /tmp (ffmpeg scratch)
@@ -173,12 +174,6 @@ in    { name = "recall"
             }
           ]
         }
-      , -- No Ingress and no DNS record. The shared nginx ingress answers on
-        -- isis's PUBLIC address whatever DNS says — obscurity, not a gate,
-        -- confirmed 2026-07-09 — and this archive is transcripts of
-        -- conversations in the house. The hostPort pinned to the tunnel address
-        -- IS the gate.
-        reach = T.Reach.WireGuard
       , secrets = toMap keys
       , -- Default-deny egress with exactly one exception besides DNS: the SSO
         -- token exchange with Nextcloud, in-cluster on port 80. Egress-only
@@ -189,7 +184,9 @@ in    { name = "recall"
           T.Netpol.Egress
             [ { namespace = "kube-system"
               , ports =
-                [ { port = 53, protocol = "UDP" }, { port = 53, protocol = "TCP" } ]
+                [ { port = 53, protocol = "UDP" }
+                , { port = 53, protocol = "TCP" }
+                ]
               }
             , { namespace = "nextcloud"
               , ports = [ { port = 80, protocol = "TCP" } ]

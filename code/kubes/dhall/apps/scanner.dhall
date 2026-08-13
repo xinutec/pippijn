@@ -43,7 +43,15 @@ in    { name = "scanner"
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { name = "scanner"
+        { -- No Ingress and no DNS record, deliberately. The shared nginx ingress
+          -- answers on isis's PUBLIC IP whatever DNS says, so an Ingress here
+          -- would be obscurity rather than a gate; scans are private documents.
+          -- `WireGuard` is a hostPort DNAT'd to the tunnel address only, which is
+          -- a network-layer gate — and `T.wgAddress` derives the hostIP from
+          -- `cluster`, because a bare hostPort DNATs on every address the node
+          -- has and the rule bypasses the NixOS firewall entirely.
+          reach = T.Reach.WireGuard
+        , name = "scanner"
         , -- NOT on Docker Hub. The scanner repo is local-only — its eval golden
           -- embeds a private letter — so there is no CI and no registry;
           -- server/deploy/deploy-isis.sh builds the image on isis with nix and
@@ -69,19 +77,12 @@ in    { name = "scanner"
           { requests = { cpu = "100m", memory = "128Mi" }
           , -- Fusion is CPU-bound per post; two of isis's four cores is the
             -- ceiling, which leaves two for everything else on the node.
-            limits = { cpu = "2", memory = "1Gi" }
+            limits =
+            { cpu = "2", memory = "1Gi" }
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
         }
-      , -- No Ingress and no DNS record, deliberately. The shared nginx ingress
-        -- answers on isis's PUBLIC IP whatever DNS says, so an Ingress here
-        -- would be obscurity rather than a gate; scans are private documents.
-        -- `WireGuard` is a hostPort DNAT'd to the tunnel address only, which is
-        -- a network-layer gate — and `T.wgAddress` derives the hostIP from
-        -- `cluster`, because a bare hostPort DNATs on every address the node
-        -- has and the rule bypasses the NixOS firewall entirely.
-        reach = T.Reach.WireGuard
       , secrets = [] : List T.SecretKey
       , -- Default-deny egress with NO exceptions: it talks to nothing outside
         -- its own pod. The empty list is the whole statement rather than a

@@ -49,7 +49,10 @@ in    { name = "utterance"
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { name = "utterance"
+        { reach =
+            T.Reach.Ingress
+              { host = dns.utterance, exposure = T.Exposure.Public }
+        , name = "utterance"
         , image = T.Image.Fleet "utterance"
         , command = None (List Text)
         , port = 8080
@@ -77,8 +80,7 @@ in    { name = "utterance"
               -- sends the public host as a `Host:` header over this address so
               -- Nextcloud's trusted-domain routing is unchanged.
               name = "NC_INTERNAL_URL"
-            , value =
-                lit "http://nextcloud-server.nextcloud.svc.cluster.local"
+            , value = lit "http://nextcloud-server.nextcloud.svc.cluster.local"
             }
           , { -- Derived from the same hostname the Ingress serves, so the OAuth
               -- callback cannot drift from where the app actually lives.
@@ -102,13 +104,12 @@ in    { name = "utterance"
             -- will genuinely saturate a core for seconds at a time — and it
             -- shares this node with Nextcloud, which is the thing that must not
             -- be starved.
-            limits = { cpu = "2", memory = "1Gi" }
+            limits =
+            { cpu = "2", memory = "1Gi" }
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
         }
-      , reach = T.Reach.Ingress
-        { host = dns.utterance, exposure = T.Exposure.Public }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
       , tasks = [] : List T.ScheduledTask

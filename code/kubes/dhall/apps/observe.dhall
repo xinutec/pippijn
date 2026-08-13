@@ -105,7 +105,12 @@ in    { name = "observe"
             }
         }
       , workload =
-        { name = "observe-viewer"
+        { -- No Ingress and no DNS record, the same stance as recall and scanner:
+          -- the shared nginx ingress answers on isis's PUBLIC address whatever DNS
+          -- says, so an Ingress here would be obscurity rather than a gate. These
+          -- are reconstructions of rooms in the house.
+          reach = T.Reach.WireGuard
+        , name = "observe-viewer"
         , -- Third-party and PINNED to a tag, as `Upstream` requires. The
           -- unprivileged variant specifically: it listens on 8091 as uid 101
           -- without ever being root, which is what lets the pod satisfy
@@ -167,11 +172,6 @@ in    { name = "observe"
             }
           ]
         }
-      , -- No Ingress and no DNS record, the same stance as recall and scanner:
-        -- the shared nginx ingress answers on isis's PUBLIC address whatever DNS
-        -- says, so an Ingress here would be obscurity rather than a gate. These
-        -- are reconstructions of rooms in the house.
-        reach = T.Reach.WireGuard
       , secrets = [] : List T.SecretKey
       , -- Default-deny egress with no exceptions: it serves static files and
         -- makes no outbound call at all, not even DNS. Egress-only because k3s

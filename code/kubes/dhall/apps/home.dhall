@@ -3,12 +3,6 @@ let T = ../lib/types.dhall
 
 let dns = ../dns.dhall
 
---| The app's secret, declared once.
---
--- Everything downstream refers to these as *fields* (`keys.INGEST_TOKEN`), so
--- a typo is a type error rather than a pod that starts with an unset variable
--- and fails an hour later. `toMap keys` below hands the same set to the App,
--- which is what `secret.sh` provisions — the two cannot drift apart.
 let keys =
       { DB_USER = "DB_USER"
       , DB_PASSWORD = "DB_PASSWORD"
@@ -45,7 +39,9 @@ in    { name = "home"
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { name = "home"
+        { reach =
+            T.Reach.Ingress { host = dns.home, exposure = T.Exposure.Public }
+        , name = "home"
         , image = T.Image.Fleet "home"
         , command = Some [ "node", "dist/server.js" ]
         , port = 3000
@@ -64,10 +60,7 @@ in    { name = "home"
           , { name = "DB_USER", value = secret keys.DB_USER }
           , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
           , { name = "INGEST_TOKEN", value = secret keys.INGEST_TOKEN }
-          , -- Sign-in. Every read on this host stays public; a session exists
-            -- so a *write* can be attributed to a person, which is what makes
-            -- POST /api/telemetry safe to offer on a publicly readable host.
-            { name = "SESSION_SECRET", value = secret keys.SESSION_SECRET }
+          , { name = "SESSION_SECRET", value = secret keys.SESSION_SECRET }
           , { name = "NC_BASE_URL", value = lit "https://dash.xinutec.org" }
           , { name = "NC_REDIRECT_URI"
             , value = lit "https://home.xinutec.org/auth/callback"
@@ -84,8 +77,6 @@ in    { name = "home"
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
         }
-      , reach = T.Reach.Ingress
-        { host = dns.home, exposure = T.Exposure.Public }
       , secrets = toMap keys
       , netpol = T.Netpol.Unpoliced
       , tasks = [] : List T.ScheduledTask

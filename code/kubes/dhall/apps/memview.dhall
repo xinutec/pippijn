@@ -61,6 +61,17 @@ in    { name = "memview"
         configMap = None T.ConfigMapDoc
       , workload =
         { name = "memview"
+        , -- The hostname resolves to the WireGuard address, not the public one, so
+          -- the corpus is not advertised to the internet at large. Obscurity, not
+          -- a firewall — the ingress still answers on the public IP — but it does
+          -- mean HTTP-01 cannot validate, hence a DNS-01 certificate.
+          --
+          -- ⚠ `Ingress`, not `WireGuard`: there IS an Ingress here. The stronger
+          -- arm is a hostPort DNAT'd to the tunnel address with no ingress at all,
+          -- which scanner, recall and observe use.
+          reach =
+            T.Reach.Ingress
+              { host = dns.memview, exposure = T.Exposure.VpnOnly }
         , image = T.Image.Fleet "memview"
         , command = None (List Text)
         , port = 8091
@@ -115,8 +126,7 @@ in    { name = "memview"
               -- sends the public host as a `Host:` header over this address so
               -- Nextcloud's trusted-domain routing is unchanged.
               name = "NC_INTERNAL_URL"
-            , value =
-                lit "http://nextcloud-server.nextcloud.svc.cluster.local"
+            , value = lit "http://nextcloud-server.nextcloud.svc.cluster.local"
             }
           , { -- Derived from the same hostname the Ingress serves, so the OAuth
               -- callback cannot drift from where the app actually lives.
@@ -140,7 +150,8 @@ in    { name = "memview"
             -- choice, since a live Claude session writes memories and staleness
             -- would be worse than the read cost. That makes it steady small
             -- reads rather than a resident cache, so the ceiling is modest.
-            limits = { cpu = "500m", memory = "256Mi" }
+            limits =
+            { cpu = "500m", memory = "256Mi" }
           }
         , volumes = [] : List T.Volume
         , mounts =
@@ -151,16 +162,6 @@ in    { name = "memview"
             }
           ]
         }
-      , -- The hostname resolves to the WireGuard address, not the public one, so
-        -- the corpus is not advertised to the internet at large. Obscurity, not
-        -- a firewall — the ingress still answers on the public IP — but it does
-        -- mean HTTP-01 cannot validate, hence a DNS-01 certificate.
-        --
-        -- ⚠ `Ingress`, not `WireGuard`: there IS an Ingress here. The stronger
-        -- arm is a hostPort DNAT'd to the tunnel address with no ingress at all,
-        -- which scanner, recall and observe use.
-        reach = T.Reach.Ingress
-          { host = dns.memview, exposure = T.Exposure.VpnOnly }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
       , tasks = [] : List T.ScheduledTask
