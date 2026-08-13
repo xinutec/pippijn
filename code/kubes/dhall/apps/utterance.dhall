@@ -46,6 +46,7 @@ in  T.namespaceOf
               { why =
                   "utterance is under heavy development and its uploads are re-derivable; backing it up is deliberately deferred"
               }
+        , chown = T.FsGroupChange.Always
         }
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc

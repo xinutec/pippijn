@@ -454,7 +454,7 @@ let deployment
                             readOnlyRootFilesystem = None Bool
                           , capabilities.drop = [ "ALL" ]
                           }
-                        , ports =
+                        , ports = Some
                           [ { containerPort = nginxPort
                             , -- A site is reached through the shared ingress,
                               -- never by a port on the node itself.

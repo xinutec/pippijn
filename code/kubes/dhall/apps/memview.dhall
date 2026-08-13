@@ -57,6 +57,7 @@ in  T.namespaceOf
               { why =
                   "memview holds no primary copy: the corpus is re-pushed wholesale by every sync from the Mac, and the state subPath holds only a re-issuable share token"
               }
+        , chown = T.FsGroupChange.Always
         }
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc

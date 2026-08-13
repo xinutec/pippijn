@@ -60,6 +60,7 @@ in  T.namespaceOf
           -- dev-lint checks that claim against the reconciler's backup table, so
           -- stating it here without the row failing is not possible.
           durability = T.Durability.BackedUp
+        , chown = T.FsGroupChange.Always
         }
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc

@@ -14,25 +14,23 @@
 -- is declared HERE, where the namespace's policies live, exactly as the live
 -- tree has it.
 --
--- ⚠⚠ RENDERED BUT NOT APPLIED. `--check` reports four deltas against the live
--- tree, and each needs an answer before this is deployed:
+-- ⚠⚠ RENDERED BUT NOT APPLIED. Three deltas remain against the live tree and
+-- every one is deliberate:
 --
 --   1. container names become the workload's (`rest-api` → `signal-cli-rest-api`,
 --      `ingester` → `signal-ingester`). Cosmetic; costs a pod restart.
 --   2. a liveness probe appears on the bridge, which has readiness only today.
---      Same call health-auth got — a tcpSocket check is answered by the kernel
---      accept queue, so it cannot fail a busy process — but it IS new.
---   3. the ingester gains `containerPort: 8080`, which it should not: nothing
---      dials it. `NoService` ought to render no port at all, and the renderer
---      still does. NOT YET FIXED.
---   4. the ingester LOSES `fsGroupChangePolicy: OnRootMismatch`, which the
---      model cannot express. That policy skips the recursive chown when the
---      volume root is already group-owned; without it every start re-chowns a
---      20 Gi attachments volume. A real regression, NOT YET FIXED.
+--      Same call health-auth got — a `tcpSocket` check is answered by the
+--      kernel's accept queue rather than the process, so a busy pod cannot fail
+--      it — but it IS new behaviour on a live pod.
+--   3. `netpolDb` adds `signal-db-from-app-only`, admitting 3306 from the whole
+--      namespace. The live tree has no such policy: additive hardening, not a
+--      change to anything that works.
 --
---   and one addition: `netpolDb` renders `signal-db-from-app-only`, admitting
---   3306 from the whole namespace. The live tree has no such policy; it is
---   additive hardening rather than a change to what works.
+-- ⚠ APPLYING THIS NEEDS `scripts/netpol-reach.sh` RUN FIRST, against
+-- `signal/k8s/netpol-reach.table`. The policies below were proved by connecting
+-- in #781, and a policy that reads correct and is not is how the archive
+-- quietly stops recording.
 --
 -- ⚠ THE ARCHIVE IS TRANSCRIPTS OF PRIVATE CONVERSATIONS. Every netpol below was
 -- measured by connecting (#781, `scripts/netpol-reach.sh` + the
@@ -70,6 +68,7 @@ let cliClaim
           T.Durability.LossAccepted
             { why = "linked-device keys; re-link from the phone instead" }
       , writers = T.Writers.Exclusive
+      , chown = T.FsGroupChange.Always
       }
 
 -- Downloaded attachment blobs, keyed by attachment id.
@@ -90,6 +89,9 @@ let attachmentsClaim
             { why =
                 "one writer (ingester) and one reader (messages, readOnly)"
             }
+      , -- 20 Gi of blobs. Re-chowning them at every pod start buys nothing —
+        -- the root already carries the right group after the first mount.
+        chown = T.FsGroupChange.OnRootMismatch
       }
 
 in  { name = "signal"

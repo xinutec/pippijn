@@ -112,7 +112,11 @@ let Container =
         -- buffer pool is one.
         args : Optional (List Text)
       , securityContext : Optional ContainerSecurityContext
-      , ports : List ContainerPort
+      , -- Optional for the same reason `env` and `volumeMounts` are:
+        -- `appDeployment` renders WITHOUT `--omit-empty`, so an empty list
+        -- would serialise as `ports: []` rather than vanishing. A workload
+        -- nothing dials declares none.
+        ports : Optional (List ContainerPort)
       , -- Optional, not `List`, for the reason NetworkPolicy's rule lists are:
         -- `appDeployment` renders WITHOUT `--omit-empty` (an `emptyDir: {}`
         -- volume is an empty record that the flag deletes, which would emit a

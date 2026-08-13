@@ -216,7 +216,7 @@ let baseContainer =
       { command = None (List Text)
       , args = None (List Text)
       , imagePullPolicy = None Text
-      , ports = [] : List K.ContainerPort
+      , ports = None (List K.ContainerPort)
       , env = None (List K.EnvVar)
       , volumeMounts = None (List K.VolumeMount)
       , startupProbe = None K.Probe
@@ -572,7 +572,7 @@ let dbDeployment
                                         }
                                       ]
                                   )
-                              , ports =
+                              , ports = Some
                                 [ { containerPort = 3306
                                   , hostPort = None Natural
                                   , hostIP = None Text
@@ -679,6 +679,25 @@ let deploymentFor
             -- startup, long after anyone would connect it to the manifest.
               if anyClaim w then Some w.uid else None Natural
 
+        let fsGroupChangePolicy =
+            -- `OnRootMismatch` if ANY mounted claim asks for it: skipping a
+            -- recursive chown is cheap and safe, and a 20 Gi volume re-chowned
+            -- at every start is not. `Always` is the API default and renders
+            -- as absent.
+              List/fold
+                T.Claim
+                (mountedClaims w)
+                (Optional Text)
+                ( λ(c : T.Claim) →
+                  λ(acc : Optional Text) →
+                    merge
+                      { Always = acc
+                      , OnRootMismatch = Some "OnRootMismatch"
+                      }
+                      c.chown
+                )
+                (None Text)
+
         let reachForbidsRolling =
             -- A `WireGuard` app is reached by a hostPort, and a second pod
             -- cannot bind a port the first one holds — so a rolling update does
@@ -730,6 +749,7 @@ let deploymentFor
                 { metadata.labels = appLabels w.name
                 , spec =
                   { securityContext = podSecurityContext w.uid fsGroup w.hardening
+                        ⫽ { fsGroupChangePolicy }
                   , restartPolicy = None Text
                   , containers =
                     [   baseContainer
@@ -751,38 +771,42 @@ let deploymentFor
                                     None K.ContainerSecurityContext
                               }
                               w.hardening
-                        , ports =
-                          [ merge
+                        , -- ⚠ `NoService` declares NO containerPort. Nothing
+                          -- dials this pod, and a declared port nobody connects
+                          -- to reads to a reviewer as an interface that exists —
+                          -- the same reason `Reach.NoService` renders no Service.
+                          ports =
+                            L.nonEmpty
+                              K.ContainerPort
+                              ( merge
                               { Ingress =
                                   λ ( _
                                     : { host : Text, exposure : T.Exposure }
                                     ) →
-                                    { containerPort = w.port
-                                    , hostPort = None Natural
-                                    , hostIP = None Text
-                                    }
+                                    [ { containerPort = w.port
+                                      , hostPort = None Natural
+                                      , hostIP = None Text
+                                      }
+                                    ]
                               , WireGuard =
-                                { containerPort = w.port
-                                , -- Same number by construction: a hostPort
-                                  -- that disagrees with the containerPort
-                                  -- forwards to nothing, silently.
-                                  hostPort = Some
-                                    w.port
-                                , hostIP = Some (T.wgAddress ns.cluster)
-                                }
+                                [ { containerPort = w.port
+                                  , -- Same number by construction: a hostPort
+                                    -- that disagrees with the containerPort
+                                    -- forwards to nothing, silently.
+                                    hostPort = Some w.port
+                                  , hostIP = Some (T.wgAddress ns.cluster)
+                                  }
+                                ]
                               , Internal =
-                                { containerPort = w.port
-                                , hostPort = None Natural
-                                , hostIP = None Text
-                                }
-                              , NoService =
-                                { containerPort = w.port
-                                , hostPort = None Natural
-                                , hostIP = None Text
-                                }
+                                [ { containerPort = w.port
+                                  , hostPort = None Natural
+                                  , hostIP = None Text
+                                  }
+                                ]
+                              , NoService = [] : List K.ContainerPort
                               }
                               w.reach
-                          ]
+                              )
                         , env =
                             L.nonEmpty
                               K.EnvVar

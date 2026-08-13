@@ -40,6 +40,7 @@ in  T.namespaceOf
               { why =
                   "scanner's sessions are recordings of scans the Mac still holds; they are input for replay scoring rather than a primary copy"
               }
+        , chown = T.FsGroupChange.Always
         }
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc

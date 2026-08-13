@@ -226,11 +226,26 @@ let Writers =
         Concurrent : { why : Text }
       >
 
+--| Whether the volume is re-chowned on every start.
+--
+-- Upstream's own taxonomy (`fsGroupChangePolicy`), not an invention. `Always`
+-- is the Kubernetes default and renders as ABSENT, so saying it changes no
+-- manifest; `OnRootMismatch` skips the recursive chown when the volume root
+-- already carries the right group.
+--
+-- ⚠ On the CLAIM rather than the pod, though the API field is pod-level,
+-- because the reason is the volume's SIZE: signal's attachments claim is 20 Gi
+-- and re-chowning it at every start costs real time for nothing. A pod mounting
+-- several claims takes `OnRootMismatch` if ANY of them asks — the cheap
+-- direction, and the safe one.
+let FsGroupChange = < Always | OnRootMismatch >
+
 let Claim =
       { name : Text
       , storageGi : Natural
       , durability : Durability
       , writers : Writers
+      , chown : FsGroupChange
       }
 
 let Storage =
@@ -241,6 +256,7 @@ let Storage =
         subPath : Optional Text
       , durability : Durability
       , writers : Writers
+      , chown : FsGroupChange
       }
 
 --| A volume that is NOT the app's own persistent claim.
@@ -635,6 +651,7 @@ let namespaceOf
                 , storageGi = s.storageGi
                 , durability = s.durability
                 , writers = s.writers
+                , chown = s.chown
                 }
 
         let claims =
@@ -696,6 +713,7 @@ in  { Cluster
     , VolumeMount
     , VolumeSource
     , Volume
+    , FsGroupChange
     , Claim
     , Writers
     , Storage
