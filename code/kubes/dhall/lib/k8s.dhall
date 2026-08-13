@@ -287,7 +287,10 @@ let Ingress =
 --  say. `netpolDb` says it for an app with batch tasks, whose pods carry no
 --  stable labels of their own.
 let NetworkPolicyPeer =
-      { podSelector : Optional { matchLabels : Optional Labels }
+      { -- CIDR minus exceptions. The only way to say "the public internet",
+        -- and NOT a way to say "this node" — see `T.NetpolPeer.Internet`.
+        ipBlock : Optional { cidr : Text, except : List Text }
+      , podSelector : Optional { matchLabels : Optional Labels }
       , namespaceSelector :
           Optional
             { matchLabels : List { mapKey : Text, mapValue : Text } }

@@ -53,6 +53,7 @@ let hasAppliedNetpol
           { Unpoliced = False
           , IngressFromNginx = False
           , Egress = λ(_ : List T.EgressTo) → True
+          , Policies = λ(_ : List T.NetpolPolicy) → True
           }
           ns.netpol
 
@@ -1073,7 +1074,8 @@ let netpolDb
                     , policyTypes = [ "Ingress" ]
                     , ingress = Some
                       [ { from =
-                          [ { -- ⚠ AN APP WITH BATCH TASKS OPENS THIS TO THE
+                          [ { ipBlock = None { cidr : Text, except : List Text }
+                            , -- ⚠ AN APP WITH BATCH TASKS OPENS THIS TO THE
                               -- WHOLE NAMESPACE, and the narrower rule is not
                               -- available: a CronJob's pods carry only the
                               -- labels the Job controller generates
@@ -1148,7 +1150,174 @@ let ingressFromNginx
           , policyTypes = [ "Ingress" ]
           , ingress = Some
             [ { from =
-                [ { podSelector = None { matchLabels : Optional K.Labels }
+                [ { ipBlock = None { cidr : Text, except : List Text }
+                  , podSelector = None { matchLabels : Optional K.Labels }
+                  , -- Selected by the namespace's automatic
+                    -- kubernetes.io/metadata.name label rather than chart pod
+                    -- labels, which change across versions.
+                    namespaceSelector = Some
+                    { matchLabels = toMap
+                        { `kubernetes.io/metadata.name` = "ingress-nginx" }
+                    }
+                  }
+                ]
+              , ports = [ { port = w.port, protocol = None Text } ]
+              }
+            ]
+          , egress =
+              None
+                ( List
+                    { to : List K.NetworkPolicyPeer
+                    , ports : List K.NetworkPolicyPort
+                    }
+                )
+          }
+        }
+
+--| Default-deny egress for the whole namespace, with named exceptions.
+--
+-- `podSelector: {}` — the namespace, not a label match — because a policy that
+-- selected only the app's own pods would leave anything else scheduled there
+-- unrestricted, and the point of a default-deny is that it has no holes.
+--| One `T.NetpolPolicy` → one NetworkPolicy. EVERY applied policy in the fleet
+--  goes through here, including the `Egress` sugar below, so there is one
+--  expression deciding what a peer means.
+let renderPolicy
+    : T.Namespace → T.NetpolPolicy → K.NetworkPolicy
+    = λ(ns : T.Namespace) →
+      λ(pol : T.NetpolPolicy) →
+        let emptyPeer =
+              { ipBlock = None { cidr : Text, except : List Text }
+              , podSelector = None { matchLabels : Optional K.Labels }
+              , namespaceSelector = None { matchLabels : K.Labels }
+              }
+
+        let peer =
+              λ(t : T.NetpolPeer) →
+                merge
+                  { Namespace =
+                      λ(n : Text) →
+                            emptyPeer
+                        ⫽ { namespaceSelector = Some
+                            { matchLabels = toMap
+                                { `kubernetes.io/metadata.name` = n }
+                            }
+                          }
+                  , Workload =
+                      λ(n : Text) →
+                            emptyPeer
+                        ⫽ { podSelector = Some
+                              { matchLabels = Some (appLabels n) }
+                          }
+                  , NamespacedWorkload =
+                      λ ( x
+                        : { namespace : Text
+                          , labels : List { mapKey : Text, mapValue : Text }
+                          }
+                        ) →
+                        -- BOTH selectors in ONE peer: "in that namespace AND
+                        -- matching these labels". Two separate peers would mean
+                        -- "either", which silently widens the policy.
+                            emptyPeer
+                        ⫽ { namespaceSelector = Some
+                            { matchLabels = toMap
+                                { `kubernetes.io/metadata.name` = x.namespace }
+                            }
+                          , podSelector = Some { matchLabels = Some x.labels }
+                          }
+                  , Internet =
+                      λ(x : { except : List Text }) →
+                            emptyPeer
+                        ⫽ { ipBlock = Some
+                            { cidr = "0.0.0.0/0", except = x.except }
+                          }
+                  }
+                  t
+
+        in  { apiVersion = "networking.k8s.io/v1"
+            , kind = "NetworkPolicy"
+            , metadata = meta pol.name ns.name
+            , spec =
+              { podSelector.matchLabels =
+                  merge
+                    { WholeNamespace = None K.Labels
+                    , OneWorkload = λ(n : Text) → Some (appLabels n)
+                    }
+                    pol.target
+              , policyTypes = [ "Egress" ]
+              , -- `None`, not an empty list: this governs egress only, and a
+                -- rendered `ingress: []` beside `policyTypes: [Egress]` would
+                -- read as a denial it does not make.
+                ingress =
+                  None
+                    ( List
+                        { from : List K.NetworkPolicyPeer
+                        , ports : List K.NetworkPolicyPort
+                        }
+                    )
+              , -- `Some`, and an EMPTY list is the whole point when nothing is
+                -- allowed: with Egress in policyTypes it denies all outbound.
+                egress = Some
+                  ( L.map
+                      T.NetpolRule
+                      { to : List K.NetworkPolicyPeer
+                      , ports : List K.NetworkPolicyPort
+                      }
+                      ( λ(r : T.NetpolRule) →
+                          { to = L.map T.NetpolPeer K.NetworkPolicyPeer peer r.to
+                          , ports =
+                              L.map
+                                { port : Natural, protocol : Text }
+                                K.NetworkPolicyPort
+                                ( λ(x : { port : Natural, protocol : Text }) →
+                                    { port = x.port, protocol = Some x.protocol }
+                                )
+                                r.ports
+                          }
+                      )
+                      pol.egress
+                  )
+              }
+            }
+
+--| The `Egress` sugar, expanded. One namespace-wide default-deny whose
+--  exceptions are whole namespaces — which is what three apps say and all they
+--  need to say.
+let defaultDenyOf
+    : List T.EgressTo → T.NetpolPolicy
+    = λ(allowed : List T.EgressTo) →
+        { name = "default-deny-egress"
+        , target = T.NetpolTarget.WholeNamespace
+        , egress =
+            L.map
+              T.EgressTo
+              T.NetpolRule
+              ( λ(e : T.EgressTo) →
+                  { to = [ T.NetpolPeer.Namespace e.namespace ], ports = e.ports }
+              )
+              allowed
+        }
+
+--| ⚠️ HELD, not applied. k3s enforces NetworkPolicy via kube-router, which does
+--  NOT exempt node-sourced kubelet probe traffic — applying this as written
+--  drops the liveness/readiness probes, marks the pod NotReady and takes the
+--  site down. Rendered to its own file so the intent stays reviewed, but it is
+--  deliberately outside the applied set until a probe-source rule is added and
+--  verified on a live pod.
+let ingressFromNginx
+    : T.Namespace → T.Workload → K.NetworkPolicy
+    = λ(ns : T.Namespace) →
+      λ(w : T.Workload) →
+        { apiVersion = "networking.k8s.io/v1"
+        , kind = "NetworkPolicy"
+        , metadata = meta "${ns.name}-app-from-ingress-only" ns.name
+        , spec =
+          { podSelector.matchLabels = Some (appLabels w.name)
+          , policyTypes = [ "Ingress" ]
+          , ingress = Some
+            [ { from =
+                [ { ipBlock = None { cidr : Text, except : List Text }
+                  , podSelector = None { matchLabels : Optional K.Labels }
                   , -- Selected by the namespace's automatic
                     -- kubernetes.io/metadata.name label rather than chart pod
                     -- labels, which change across versions.
@@ -1206,7 +1375,8 @@ let egressDefaultDeny
                   }
                   ( λ(e : T.EgressTo) →
                       { to =
-                        [ { podSelector =
+                        [ { ipBlock = None { cidr : Text, except : List Text }
+                          , podSelector =
                               None { matchLabels : Optional K.Labels }
                           , namespaceSelector = Some
                             { matchLabels = toMap
@@ -1247,6 +1417,7 @@ let netpolAppHeld
           , IngressFromNginx =
               L.map T.Workload K.NetworkPolicy (ingressFromNginx ns) ns.workloads
           , Egress = λ(_ : List T.EgressTo) → [] : List K.NetworkPolicy
+          , Policies = λ(_ : List T.NetpolPolicy) → [] : List K.NetworkPolicy
           }
           ns.netpol
 
@@ -1258,7 +1429,11 @@ let netpolApp
           { Unpoliced = [] : List K.NetworkPolicy
           , IngressFromNginx = [] : List K.NetworkPolicy
           , Egress =
-              λ(allowed : List T.EgressTo) → [ egressDefaultDeny ns allowed ]
+              λ(allowed : List T.EgressTo) →
+                [ renderPolicy ns (defaultDenyOf allowed) ]
+          , Policies =
+              λ(ps : List T.NetpolPolicy) →
+                L.map T.NetpolPolicy K.NetworkPolicy (renderPolicy ns) ps
           }
           ns.netpol
 

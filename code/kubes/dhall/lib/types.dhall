@@ -460,6 +460,50 @@ let EgressTo = { namespace : Text, ports : List { port : Natural, protocol : Tex
 -- A union rather than a record of two optional policies, because no app in the
 -- fleet has both and pretending otherwise would invent a state to test. When one
 -- does, that is a change with a reason behind it.
+--| One thing a rule may allow traffic TO.
+--
+-- Four arms because signal needs four shapes and no fewer. Each names WHAT it
+-- selects rather than how, so a rule reads as a sentence:
+--
+--   * `Namespace` — every pod in another namespace, by the automatic
+--     `kubernetes.io/metadata.name` label. Chart pod labels change across
+--     versions; that one is set by Kubernetes and cannot drift.
+--   * `Workload` — one workload in THIS namespace, by its `app` label.
+--   * `NamespacedWorkload` — pods in another namespace matching labels. Needed
+--     because `namespaceSelector` and `podSelector` in the SAME peer mean "both
+--     must hold", where two separate peers would mean "either" — a distinction
+--     that silently widens a policy if you get it wrong.
+--   * `Internet` — an ipBlock of everything except the ranges listed.
+--
+-- ⚠ `Internet` is how you say "the public internet" and there is no shorter
+-- way. `ipBlock` cannot name the node's own address either: see #781, where a
+-- rule naming isis's public IP matched nothing because CNI-HOSTPORT-DNAT
+-- rewrites the destination before kube-router's filter rules see it.
+let NetpolPeer =
+      < Namespace : Text
+      | Workload : Text
+      | NamespacedWorkload :
+          { namespace : Text, labels : List { mapKey : Text, mapValue : Text } }
+      | Internet : { except : List Text }
+      >
+
+let NetpolRule =
+      { to : List NetpolPeer
+      , ports : List { port : Natural, protocol : Text }
+      }
+
+--| Which pods a policy governs. `WholeNamespace` renders `podSelector: {}` — a
+--  selector with no terms, which matches EVERY pod in the namespace.
+let NetpolTarget = < WholeNamespace | OneWorkload : Text >
+
+--| A named egress policy. Egress-only by construction, which is not a
+--  simplification: k3s enforces through kube-router, which does not exempt
+--  node-sourced kubelet probe traffic, so a default-deny INGRESS drops the
+--  probes and takes the pod NotReady. Every applied policy in this fleet is
+--  egress, and this type cannot express otherwise.
+let NetpolPolicy =
+      { name : Text, target : NetpolTarget, egress : List NetpolRule }
+
 let Netpol =
       < --| No policy of its own. `generate.sh` emits the `allow-no-netpol`
         --  waiver for these, which is the honest record of a namespace that has
@@ -470,7 +514,18 @@ let Netpol =
       | --| Default-deny egress, with named exceptions. An EMPTY list is the
         --  whole point rather than a degenerate case: it is deny-everything,
         --  which is what an app that talks to nothing outside its pod wants.
+        --
+        -- SUGAR for `Policies [ one WholeNamespace policy ]`, the way `App` is
+        -- sugar for `Namespace` — three apps say exactly this and there is no
+        -- reason to make them spell it out.
         Egress : List EgressTo
+      | --| Policies as they actually are: several, each targeting the namespace
+        --  or one workload, with peers of any shape.
+        --
+        -- signal needs three — a namespace-wide default-deny, one workload
+        -- allowed to the internet on 443, and another allowed to the ingress
+        -- controller for SSO — and `Egress` can express none of them.
+        Policies : List NetpolPolicy
       >
 
 --| Configuration the app's own container mounts as files.
@@ -649,6 +704,10 @@ in  { Cluster
     , issuerFor
     , wgAddress
     , Reach
+    , NetpolPeer
+    , NetpolRule
+    , NetpolTarget
+    , NetpolPolicy
     , Netpol
     , EgressTo
     , App
