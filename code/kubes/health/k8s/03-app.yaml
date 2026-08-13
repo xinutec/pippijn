@@ -1,0 +1,142 @@
+# GENERATED from dhall/apps/health.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "health-auth"
+  namespace: health
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "health-auth"
+  template:
+    metadata:
+      labels:
+        app: "health-auth"
+    spec:
+      containers:
+      - command:
+        - node
+        - dist/server.js
+        env:
+        - name: AUTH_PORT
+          value: '3000'
+        - name: DB_HOST
+          value: "health-db"
+        - name: DB_NAME
+          value: health
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              key: DB_USER
+              name: "health-secret"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_PASSWORD
+              name: "health-secret"
+        - name: FITBIT_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: FITBIT_CLIENT_ID
+              name: "health-secret"
+        - name: FITBIT_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: FITBIT_CLIENT_SECRET
+              name: "health-secret"
+        - name: NC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_ID
+              name: "health-secret"
+        - name: NC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_SECRET
+              name: "health-secret"
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: SESSION_SECRET
+              name: "health-secret"
+        - name: OWNTRACKS_ALLOWED_TOKENS
+          valueFrom:
+            secretKeyRef:
+              key: OWNTRACKS_ALLOWED_TOKENS
+              name: "health-secret"
+        - name: SERVICE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: SERVICE_TOKEN
+              name: "health-secret"
+              optional: true
+        - name: USE_CADENCE_IMPUTATION
+          value: '1'
+        - name: USE_SEGMENT_EVIDENCE
+          value: '1'
+        - name: USE_CHAIN_CONTEXT
+          value: '1'
+        - name: USE_REACQUIRE_ROBUST_SPEED
+          value: '1'
+        - name: WALK_BUILDING_ESCAPE
+          value: '1'
+        - name: LEAN_PASSES
+          value: shadow
+        - name: LEAN_MATCH
+          value: 'on'
+        - name: LEAN_RAIL
+          value: 'on'
+        - name: LEAN_KALMAN
+          value: 'on'
+        - name: LEAN_GPSQUALITY
+          value: 'on'
+        - name: LEAN_BIOLABELS
+          value: 'on'
+        image: "xinutec/health-sync:latest"
+        livenessProbe:
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          tcpSocket:
+            port: 3000
+        name: "health-auth"
+        ports:
+        - containerPort: 3000
+        readinessProbe:
+          initialDelaySeconds: 3
+          periodSeconds: 10
+          tcpSocket:
+            port: 3000
+        resources:
+          limits:
+            cpu: '2'
+            memory: 512Mi
+          requests:
+            cpu: 250m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "health-auth"
+  namespace: health
+spec:
+  ports:
+  - port: 80
+    targetPort: 3000
+  selector:
+    app: "health-auth"

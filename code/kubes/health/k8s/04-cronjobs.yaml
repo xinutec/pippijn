@@ -1,0 +1,438 @@
+# GENERATED from dhall/apps/health.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "health-sync"
+  namespace: health
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3300
+      template:
+        spec:
+          containers:
+          - command:
+            - node
+            - dist/sync.js
+            env:
+            - name: DB_HOST
+              value: "health-db"
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: DB_USER
+                  name: "health-secret"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: "health-secret"
+            - name: FITBIT_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  key: FITBIT_CLIENT_ID
+                  name: "health-secret"
+            - name: FITBIT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: FITBIT_CLIENT_SECRET
+                  name: "health-secret"
+            - name: GH_USER_ID
+              value: pippijn
+            - name: GH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  key: GH_CLIENT_ID
+                  name: "health-google"
+            - name: GH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: GH_CLIENT_SECRET
+                  name: "health-google"
+            - name: GH_REFRESH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: GH_REFRESH_TOKEN
+                  name: "health-google"
+            image: "xinutec/health-sync:latest"
+            name: "health-sync"
+            resources:
+              limits:
+                cpu: 500m
+                memory: 512Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+          restartPolicy: OnFailure
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+  schedule: "*/15 * * * *"
+  successfulJobsHistoryLimit: 3
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "health-focus-refresh"
+  namespace: health
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3300
+      template:
+        spec:
+          containers:
+          - command:
+            - node
+            - "dist/cli/refresh-focus-places.js"
+            env:
+            - name: DB_HOST
+              value: "health-db"
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: DB_USER
+                  name: "health-secret"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: "health-secret"
+            - name: NC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  key: NC_CLIENT_ID
+                  name: "health-secret"
+            - name: NC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: NC_CLIENT_SECRET
+                  name: "health-secret"
+            image: "xinutec/health-sync:latest"
+            name: "health-focus-refresh"
+            resources:
+              limits:
+                cpu: 500m
+                memory: 512Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+          restartPolicy: OnFailure
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+  schedule: "0 4 * * 0"
+  successfulJobsHistoryLimit: 3
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "health-rail-refresh"
+  namespace: health
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 5400
+      template:
+        spec:
+          containers:
+          - command:
+            - node
+            - "dist/cli/refresh-rail-routes.js"
+            env:
+            - name: LEAN_RAIL
+              value: 'on'
+            - name: LEAN_CALL_TIMEOUT_MS
+              value: '30000'
+            - name: DB_HOST
+              value: "health-db"
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: DB_USER
+                  name: "health-secret"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: "health-secret"
+            - name: NC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  key: NC_CLIENT_ID
+                  name: "health-secret"
+            - name: NC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: NC_CLIENT_SECRET
+                  name: "health-secret"
+            image: "xinutec/health-sync:latest"
+            name: "health-rail-refresh"
+            resources:
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+          restartPolicy: OnFailure
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+  schedule: "0 5 * * *"
+  successfulJobsHistoryLimit: 3
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "health-bus-refresh"
+  namespace: health
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 5400
+      template:
+        spec:
+          containers:
+          - command:
+            - node
+            - "dist/cli/refresh-bus-routes.js"
+            env:
+            - name: DB_HOST
+              value: "health-db"
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: DB_USER
+                  name: "health-secret"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: "health-secret"
+            image: "xinutec/health-sync:latest"
+            name: "health-bus-refresh"
+            resources:
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+          restartPolicy: OnFailure
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+  schedule: "30 5 * * *"
+  successfulJobsHistoryLimit: 3
+  suspend: true
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "health-decode-recent"
+  namespace: health
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          containers:
+          - command:
+            - sh
+            - "-c"
+            - "node dist/cli/decode-day.js --user pippijn --tz Europe/London --days 7 && node dist/cli/refresh-presence-log.js 90"
+            env:
+            - name: DB_HOST
+              value: "health-db"
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: DB_USER
+                  name: "health-secret"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: "health-secret"
+            - name: NC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  key: NC_CLIENT_ID
+                  name: "health-secret"
+            - name: NC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  key: NC_CLIENT_SECRET
+                  name: "health-secret"
+            - name: USE_CADENCE_IMPUTATION
+              value: '1'
+            - name: USE_SEGMENT_EVIDENCE
+              value: '1'
+            - name: USE_CHAIN_CONTEXT
+              value: '1'
+            - name: USE_REACQUIRE_ROBUST_SPEED
+              value: '1'
+            - name: LEAN_HSMM
+              value: shadow
+            - name: LEAN_STATIONCHAIN
+              value: 'on'
+            - name: LEAN_PASSES
+              value: shadow
+            - name: LEAN_MATCH
+              value: 'on'
+            - name: LEAN_RAIL
+              value: 'on'
+            - name: LEAN_KALMAN
+              value: 'on'
+            - name: LEAN_GPSQUALITY
+              value: 'on'
+            - name: LEAN_BIOLABELS
+              value: 'on'
+            - name: LEAN_CALL_TIMEOUT_MS
+              value: '30000'
+            image: "xinutec/health-sync:latest"
+            name: "health-decode-recent"
+            resources:
+              limits:
+                cpu: 1000m
+                memory: 1536Mi
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+          restartPolicy: OnFailure
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+  schedule: "0 6 * * *"
+  successfulJobsHistoryLimit: 3
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "health-rail-stops-refresh"
+  namespace: health
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 5400
+      template:
+        spec:
+          containers:
+          - command:
+            - node
+            - "dist/cli/refresh-rail-stops.js"
+            env:
+            - name: DB_HOST
+              value: "health-db"
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: DB_USER
+                  name: "health-secret"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: "health-secret"
+            image: "xinutec/health-sync:latest"
+            name: "health-rail-stops-refresh"
+            resources:
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+          restartPolicy: OnFailure
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+  schedule: "0 6 * * *"
+  successfulJobsHistoryLimit: 3

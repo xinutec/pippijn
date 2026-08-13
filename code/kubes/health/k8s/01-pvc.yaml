@@ -1,11 +1,15 @@
+# GENERATED from dhall/apps/health.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: health-db-pvc
+  name: "health-db-pvc"
   namespace: health
 spec:
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
+

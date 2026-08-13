@@ -1,124 +1,114 @@
+# GENERATED from dhall/apps/health.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+#
+# MariaDB has NO downgrade path. Before changing the engine version
+# (lib/render.dhall, one line, bumps every database at once):
+#   scripts/mariadb-major-upgrade.sh before <app> <db>   (then after)
+# strategy is Recreate: a single RWO PVC must never have two DB pods.
 # dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: health-db
+  name: "health-db"
   namespace: health
 spec:
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
-      app: health-db
+      app: "health-db"
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
-        app: health-db
+        app: "health-db"
     spec:
-      # The official image runs as uid 999 (mysql) when started unprivileged;
-      # fsGroup 999 keeps the data dir writable.
+      containers:
+      - args:
+        - "--innodb-buffer-pool-size=2147483648"
+        env:
+        - name: MARIADB_AUTO_UPGRADE
+          value: '1'
+        - name: MARIADB_DATABASE
+          value: health
+        - name: MARIADB_USER
+          valueFrom:
+            secretKeyRef:
+              key: DB_USER
+              name: "health-secret"
+        - name: MARIADB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_PASSWORD
+              name: "health-secret"
+        - name: MARIADB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_ROOT_PASSWORD
+              name: "health-secret"
+        image: "mariadb:12.3"
+        livenessProbe:
+          exec:
+            command:
+            - healthcheck.sh
+            - "--connect"
+            - "--innodb_initialized"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        name: mariadb
+        ports:
+        - containerPort: 3306
+        readinessProbe:
+          exec:
+            command:
+            - healthcheck.sh
+            - "--connect"
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 100m
+            memory: 2304Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          exec:
+            command:
+            - healthcheck.sh
+            - "--connect"
+          failureThreshold: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - mountPath: /var/lib/mysql
+          name: data
+          subPath: "mariadb-data"
       securityContext:
+        fsGroup: 999
+        runAsGroup: 999
         runAsNonRoot: true
         runAsUser: 999
-        runAsGroup: 999
-        fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
-      containers:
-        - name: mariadb
-          # 12.3 is the current LTS (GA 2026-05-28, supported to Jun 2029). MariaDB has
-          # no downgrade path, so dump before bumping this:
-          #   scripts/mariadb-major-upgrade.sh before health health   (then after)
-          # This is the big one (~4 GB, heart_rate_intraday alone ~2.6 GB): the dump
-          # takes minutes, not seconds, and so does the post-upgrade COUNT(*) pass.
-          image: mariadb:12.3
-          # No readOnlyRootFilesystem: mariadb writes /run/mysqld and its data dir.
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          # The OSM mirror geometry (osm_lines ~1 GB + osm_points ~230 MB) is the
-          # hot working set for the velocity pipeline's spatial reads (classification
-          # osm, roadMatch, walkMatch, rail/bus). The stock 128 MB InnoDB buffer pool
-          # holds ~10% of it, so a walk-heavy day's footway queries are disk-bound
-          # (measured: the same spatial query swings 0.1 s warm → 4–6 s when its pages
-          # aren't resident; walkMatch hit ~40 s). A 2 GB pool keeps the whole mirror
-          # RAM-resident, putting every geometry query in the ~50–250 ms regime.
-          args: ["--innodb-buffer-pool-size=2147483648"]
-          ports:
-            - containerPort: 3306
-          env:
-            # Migrate the system tables on first start after a major bump.
-            - name: MARIADB_AUTO_UPGRADE
-              value: "1"
-            - name: MARIADB_DATABASE
-              value: health
-            - name: MARIADB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: health-secret
-                  key: DB_USER
-            - name: MARIADB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: health-secret
-                  key: DB_PASSWORD
-            - name: MARIADB_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: health-secret
-                  key: DB_ROOT_PASSWORD
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/mysql
-              subPath: mariadb-data
-          # This DB is ~4 GB with a 2 GB pool, so a cold start is slow and a
-          # major-version start is slower still: MARIADB_AUTO_UPGRADE starts the server,
-          # runs mariadb-upgrade, then shuts down and restarts it. On 2026-07-22 that
-          # window blew past the old 30s+3x10s liveness grace and kubelet SIGKILLed the
-          # container mid-upgrade (exit 137). It recovered on the retry and no data was
-          # lost, but killing a server *while it rewrites system tables* is not a risk
-          # worth keeping. A startupProbe holds liveness off until the server actually
-          # answers, giving startup up to 10 minutes while steady-state stays strict.
-          startupProbe:
-            exec:
-              command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\""]
-            periodSeconds: 10
-            failureThreshold: 60
-            timeoutSeconds: 5
-          livenessProbe:
-            exec:
-              command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\""]
-            periodSeconds: 10
-            # Was unset, i.e. 1s: a busy 4 GB server can miss that under load and get
-            # itself killed for being slow rather than for being dead.
-            timeoutSeconds: 5
-            failureThreshold: 3
-          readinessProbe:
-            exec:
-              command: ["sh", "-c", "mariadb -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\" -e 'SELECT 1'"]
-            initialDelaySeconds: 10
-            periodSeconds: 5
-          resources:
-            requests:
-              cpu: 100m
-              # 2 GB pool + mariadbd overhead. No limit: a hard cap risks an
-              # OOM-kill mid-query; isis has ample headroom (~12 GB free).
-              memory: 2304Mi
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: health-db-pvc
+      - name: data
+        persistentVolumeClaim:
+          claimName: "health-db-pvc"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: health-db
+  name: "health-db"
   namespace: health
 spec:
   clusterIP: None
-  selector:
-    app: health-db
   ports:
-    - port: 3306
+  - port: 3306
+    targetPort: 3306
+  selector:
+    app: "health-db"
