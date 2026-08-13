@@ -429,6 +429,53 @@ let ScheduledTask =
       , resources : Resources
       }
 
+--| A namespace and everything in it.
+--
+-- `App` below is the ONE-WORKLOAD CASE of this, and `namespaceOf` is the
+-- embedding. The fleet has three namespaces that are not one workload — signal
+-- runs a database, a REST bridge and an archiver, and `messages` is a fourth
+-- pod in that same namespace because a `secretKeyRef` cannot cross namespaces —
+-- and `App` cannot describe any of them.
+--
+-- ⚠ WHAT THE OLD CARDINALITY WAS SILENTLY PROVING. With exactly one workload,
+-- four properties held by construction; at `List Workload` they become
+-- representable and NOTHING here forbids them:
+--
+--   1. workload names are unique — names derive labels, labels drive Service
+--      selectors, so two workloads sharing a name gives one Service selecting
+--      two different pods, and it fails as intermittent wrong answers;
+--   2. a NetworkPolicy peer names a workload that exists — one that does not
+--      matches nothing, silently, which is #781's failure wearing a new hat;
+--   3. hostPorts do not collide — the second workload to bind 8000 never
+--      schedules;
+--   4. one writer per PVC — `Writers.Exclusive` currently constrains THE
+--      workload, not a set of them.
+--
+-- None of the four is statable in Dhall: they are uniqueness and cardinality
+-- claims over a list, and this language has no dependent types or refinements to
+-- say them with. Each is a decidable predicate over the RENDERED manifest set,
+-- which is dev-lint's job — so generalising this type without those rules
+-- landing alongside it is strictly worse than the conflation it replaces, since
+-- the conflation at least made them impossible.
+--
+-- `storage` and `reach` are still namespace-level and belong on `Workload`: a
+-- namespace with three pods has three answers to "how is this reached". Moving
+-- them edits every app file, so it is deliberately a SEPARATE step — this one
+-- changes no model at all, which is what makes `--check` a proof about the
+-- embedding rather than a comparison of new inputs to new outputs.
+let Namespace =
+      { name : Text
+      , cluster : Cluster
+      , db : Optional Database
+      , storage : Optional Storage
+      , configMap : Optional ConfigMapDoc
+      , workloads : List Workload
+      , tasks : List ScheduledTask
+      , reach : Reach
+      , secrets : List SecretKey
+      , netpol : Netpol
+      }
+
 let App =
       { name : Text
       , cluster : Cluster
@@ -443,6 +490,36 @@ let App =
       , secrets : List SecretKey
       , netpol : Netpol
       }
+
+--| The embedding ι : App → Namespace. An app IS a namespace holding one
+--  workload, and this is the only expression that says so.
+--
+-- Every renderer that had to generalise takes a `Namespace`; the `App`-shaped
+-- entry points the generator calls are one-line wrappers around this. So the 14
+-- app models are unchanged and unchangeable by the refactor, and
+-- `generate.sh --check` decides exactly the obligation that matters:
+--
+--     ∀ a ∈ the 14 models . render_new(namespaceOf a) ≡ render_old(a)
+--
+-- ⚠ 14 points is not ∀. Dhall's normalisation is decidable but function
+-- extensionality is not available, and `App` has infinitely many inhabitants
+-- (Text, Natural, List), so this is the theorem checked at every point that
+-- exists rather than proved for all of them. That is the ceiling here, and it is
+-- worth stating rather than implying more.
+let namespaceOf
+    : App → Namespace
+    = λ(a : App) →
+          a.{ name
+            , cluster
+            , db
+            , storage
+            , configMap
+            , tasks
+            , reach
+            , secrets
+            , netpol
+            }
+        ⫽ { workloads = [ a.workload ] }
 
 in  { Cluster
     , Durability
@@ -465,6 +542,8 @@ in  { Cluster
     , Storage
     , Workload
     , ScheduledTask
+    , Namespace
+    , namespaceOf
     , Database
     , SecretKey
     , Exposure

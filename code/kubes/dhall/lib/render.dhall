@@ -90,13 +90,25 @@ let clusterHost
           { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
           app.cluster
 
-let secretName = λ(app : T.App) → "${app.name}-secret"
+-- Keyed on the NAMESPACE NAME rather than on an `App`, because both `T.App` and
+-- `T.Namespace` need them and Dhall has no subtyping — a function taking one
+-- record type will not accept a wider one. The `App`-shaped versions below are
+-- the same expressions, so the derivation stays single-sourced.
+let secretNameFor = λ(name : Text) → "${name}-secret"
 
-let dbName = λ(app : T.App) → "${app.name}-db"
+let dbNameFor = λ(name : Text) → "${name}-db"
 
-let pvcName = λ(app : T.App) → "${app.name}-db-pvc"
+let pvcNameFor = λ(name : Text) → "${name}-db-pvc"
 
-let dataPvcName = λ(app : T.App) → "${app.name}-data-pvc"
+let dataPvcNameFor = λ(name : Text) → "${name}-data-pvc"
+
+let secretName = λ(app : T.App) → secretNameFor app.name
+
+let dbName = λ(app : T.App) → dbNameFor app.name
+
+let pvcName = λ(app : T.App) → pvcNameFor app.name
+
+let dataPvcName = λ(app : T.App) → dataPvcNameFor app.name
 
 --| The pod-local name of the app's own volume. Distinct from the database's
 --  `data` volume, which lives in a different pod entirely.
@@ -561,11 +573,10 @@ let dbService
           }
           app.db
 
-let appDeployment
-    : T.App → List K.Deployment
-    = λ(app : T.App) →
-        let w = app.workload
-
+let deploymentFor
+    : T.Namespace → T.Workload → K.Deployment
+    = λ(ns : T.Namespace) →
+      λ(w : T.Workload) →
         let dataMounts =
               merge
                 { Some =
@@ -578,7 +589,7 @@ let appDeployment
                       ]
                 , None = [] : List K.VolumeMount
                 }
-                app.storage
+                ns.storage
 
         let dataVolumes =
               merge
@@ -586,7 +597,7 @@ let appDeployment
                     λ(_ : T.Storage) →
                       [ { name = dataVolumeName
                         , persistentVolumeClaim = Some
-                          { claimName = dataPvcName app }
+                          { claimName = dataPvcNameFor ns.name }
                         , configMap = None { name : Text }
                         , emptyDir = None {}
                         , hostPath = None { path : Text, type : Text }
@@ -594,7 +605,7 @@ let appDeployment
                       ]
                 , None = [] : List K.Volume
                 }
-                app.storage
+                ns.storage
 
         let fsGroup =
             -- Only when there is a volume, and equal to the uid the container
@@ -606,7 +617,7 @@ let appDeployment
                 { Some = λ(_ : T.Storage) → Some w.uid
                 , None = None Natural
                 }
-                app.storage
+                ns.storage
 
         let reachForbidsRolling =
             -- A `WireGuard` app is reached by a hostPort, and a second pod
@@ -619,7 +630,7 @@ let appDeployment
                 , WireGuard = True
                 , Internal = False
                 }
-                app.reach
+                ns.reach
 
         let volumeForbidsRolling =
             -- And a fact about how the app WRITES, which no manifest can imply.
@@ -636,16 +647,16 @@ let appDeployment
                         s.writers
                 , None = False
                 }
-                app.storage
+                ns.storage
 
         let strategy =
               if    reachForbidsRolling || volumeForbidsRolling
               then  Some { type = "Recreate" }
               else  None { type : Text }
 
-        in  [ { apiVersion = "apps/v1"
+        in  { apiVersion = "apps/v1"
               , kind = "Deployment"
-              , metadata = meta w.name app.name
+              , metadata = meta w.name ns.name
               , spec =
                 { replicas = 1
                 , strategy
@@ -677,7 +688,7 @@ let appDeployment
                                       -- that disagrees with the containerPort
                                       -- forwards to nothing, silently.
                                       hostPort = Some w.port
-                                    , hostIP = Some (T.wgAddress app.cluster)
+                                    , hostIP = Some (T.wgAddress ns.cluster)
                                     }
                                 , Internal =
                                     { containerPort = w.port
@@ -685,7 +696,7 @@ let appDeployment
                                     , hostIP = None Text
                                     }
                                 }
-                                app.reach
+                                ns.reach
                             ]
                           , env =
                               L.nonEmpty
@@ -693,7 +704,7 @@ let appDeployment
                                 ( L.map
                                     T.EnvVar
                                     K.EnvVar
-                                    (renderEnv (secretName app))
+                                    (renderEnv (secretNameFor ns.name))
                                     w.env
                                 )
                           , readinessProbe = Some
@@ -736,7 +747,19 @@ let appDeployment
                   }
                 }
               }
-            ]
+
+--| One Deployment per workload in the namespace.
+let deployments
+    : T.Namespace → List K.Deployment
+    = λ(ns : T.Namespace) →
+        L.map T.Workload K.Deployment (deploymentFor ns) ns.workloads
+
+--| ι applied: the generator hands each renderer an `apps/*.dhall`, whose type is
+--  still `T.App`, so the entry points keep that shape and the generalised work
+--  happens behind `namespaceOf`.
+let appDeployment
+    : T.App → List K.Deployment
+    = λ(app : T.App) → deployments (T.namespaceOf app)
 
 --| The port the app's Service listens on — ONE expression, read by both the
 --  Service and the Ingress backend that targets it.
