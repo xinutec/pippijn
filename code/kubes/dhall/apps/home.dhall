@@ -76,9 +76,9 @@ in    { name = "home"
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
+        , tasks = [] : List T.ScheduledTask
         }
       , secrets = toMap keys
       , netpol = T.Netpol.Unpoliced
-      , tasks = [] : List T.ScheduledTask
       }
     : T.App

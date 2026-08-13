@@ -82,12 +82,12 @@ in    { name = "scanner"
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
+        , tasks = [] : List T.ScheduledTask
         }
       , secrets = [] : List T.SecretKey
       , -- Default-deny egress with NO exceptions: it talks to nothing outside
         -- its own pod. The empty list is the whole statement rather than a
         -- degenerate case.
         netpol = T.Netpol.Egress ([] : List T.EgressTo)
-      , tasks = [] : List T.ScheduledTask
       }
     : T.App

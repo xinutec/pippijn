@@ -171,6 +171,7 @@ in    { name = "observe"
               readOnly = False
             }
           ]
+        , tasks = [] : List T.ScheduledTask
         }
       , secrets = [] : List T.SecretKey
       , -- Default-deny egress with no exceptions: it serves static files and
@@ -179,6 +180,5 @@ in    { name = "observe"
         -- node-sourced kubelet probes — a default-deny INGRESS would drop them
         -- and take the pod NotReady.
         netpol = T.Netpol.Egress ([] : List T.EgressTo)
-      , tasks = [] : List T.ScheduledTask
       }
     : T.App

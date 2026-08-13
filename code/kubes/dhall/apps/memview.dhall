@@ -161,9 +161,9 @@ in    { name = "memview"
             , readOnly = False
             }
           ]
+        , tasks = [] : List T.ScheduledTask
         }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
-      , tasks = [] : List T.ScheduledTask
       }
     : T.App

@@ -15,10 +15,37 @@ let K = ./k8s.dhall
 
 let L = ./list.dhall
 
+--| The fleet's MariaDB. Bumping this line bumps every database at once, which
+--  is the entire reason it is a line and not a copy-pasted image string.
+--
+--  MariaDB has no downgrade path — dump before changing it:
+--    scripts/mariadb-major-upgrade.sh before <app> <db>   (then after)
 let mariadbVersion = "12.3"
 
 let Annotations = List { mapKey : Text, mapValue : Text }
 
+--| Whether the app has a database, and therefore whether the namespace's FIRST
+--  Deployment is the database's or the app's. The generator needs this to place
+--  the DL-K8S-NP-DEFAULT-DENY waiver, which dev-lint anchors on that first
+--  Deployment; it cannot come from the rendered YAML because a waiver is a
+--  comment and rendering drops comments.
+--
+--  Asked of the model rather than inferred from which manifests come back
+--  non-empty: the inference happened to work only because `manifests` in
+--  generate.sh is ordered db-before-app, so reordering that list would have
+--  silently moved the waiver onto the wrong file. Here it is a total function of
+--  the model, checked by the typechecker.
+--| Does this app render a NetworkPolicy the cluster will actually APPLY?
+--
+-- Asked by `generate.sh` to decide whether to emit the `allow-no-netpol`
+-- waiver. dev-lint fails a waiver that waives nothing, so an app with a real
+-- default-deny must NOT carry one — and the answer has to come from the model
+-- rather than from a list in the generator, which is the shape that let
+-- utterance go unwaived for months.
+--
+-- `IngressFromNginx` counts as NO: it renders to a `-held.yaml` that is
+-- deliberately outside the applied set, so the namespace is still undefended
+-- and the waiver is still the honest record.
 let hasAppliedNetpol
     : T.App → Bool
     = λ(app : T.App) →
@@ -29,6 +56,16 @@ let hasAppliedNetpol
           }
           app.netpol
 
+--| Does this app's Deployment carry a `hostPort`?
+--
+-- Asked by `generate.sh` to decide whether to emit the `allow-host-port` waiver.
+-- `WireGuard` is the only arm that renders one, and it always does — the hostPort
+-- pinned to the tunnel address IS how such an app is reached, so the question is
+-- answered by the reach and never per-app.
+--
+-- Same discipline as `hasAppliedNetpol`: dev-lint fails a waiver that waives
+-- nothing, so this must be the model's answer rather than a list in the
+-- generator that a new app can be missing from.
 let usesHostPort
     : T.App → Bool
     = λ(app : T.App) →
@@ -45,6 +82,9 @@ let hasDb
     = λ(app : T.App) →
         merge { None = False, Some = λ(_ : T.Database) → True } app.db
 
+--| The host `scripts/apply.sh` must deploy to. The cluster has been a field on
+--  `T.App` since the model existed; until 2026-08-10 nothing read it, and the
+--  deploy tool asked whoever was typing instead. See `site.dhall`'s twin.
 let clusterHost
     : T.App → Text
     = λ(app : T.App) →
@@ -52,6 +92,10 @@ let clusterHost
           { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
           app.cluster
 
+-- Keyed on the NAMESPACE NAME rather than on an `App`, because both `T.App` and
+-- `T.Namespace` need them and Dhall has no subtyping — a function taking one
+-- record type will not accept a wider one. The `App`-shaped versions below are
+-- the same expressions, so the derivation stays single-sourced.
 let secretNameFor = λ(name : Text) → "${name}-secret"
 
 let dbNameFor = λ(name : Text) → "${name}-db"
@@ -68,8 +112,12 @@ let pvcName = λ(app : T.App) → pvcNameFor app.name
 
 let dataPvcName = λ(app : T.App) → dataPvcNameFor app.name
 
+--| The pod-local name of the app's own volume. Distinct from the database's
+--  `data` volume, which lives in a different pod entirely.
 let dataVolumeName = "app-data"
 
+--| The labels an app's pod template, Service and policies all select on. One
+--  expression, so a Service selector cannot disagree with what it selects.
 let appLabels
     : Text → K.Labels
     = λ(name : Text) → toMap { app = name }
@@ -146,6 +194,9 @@ let execProbe
     : List Text → K.Probe
     = λ(cmd : List Text) → K.emptyProbe ⫽ { exec = Some { command = cmd } }
 
+--| A container with every optional field switched off; renderers override the
+--  parts they mean. Keeps each container literal to what is actually specific
+--  about it.
 let baseContainer =
       { command = None (List Text)
       , args = None (List Text)
@@ -158,6 +209,9 @@ let baseContainer =
       , readinessProbe = None K.Probe
       }
 
+--| A declared mount, widened to the API shape. `T.VolumeMount` keeps `subPath`
+--  required because every mount the fleet declares has one; the API field is
+--  optional, and the sites use it both ways.
 let k8sMount
     : T.VolumeMount → K.VolumeMount
     = λ(m : T.VolumeMount) →
@@ -169,6 +223,9 @@ let k8sMount
           readOnly = if m.readOnly then Some True else None Bool
         }
 
+--| One declared volume as the API wants it: exactly one source key set, the
+--  other three absent. `T.VolumeSource` is what makes "exactly one" true; this
+--  only widens it.
 let k8sVolume
     : T.Volume → K.Volume
     = λ(v : T.Volume) →
@@ -248,6 +305,11 @@ let namespace
           }
         ]
 
+--| The app's own ConfigMap, if it declares one.
+--
+-- A list rather than an Optional so the generator concatenates it like every
+-- other renderer: an app with no ConfigMap renders no document, and the file is
+-- simply not written. Same shape as `pvc`, for the same reason.
 let configMap
     : T.App → List K.ConfigMap
     = λ(app : T.App) →
@@ -264,6 +326,16 @@ let configMap
           }
           app.configMap
 
+--| The backup-coverage waiver an app's own claim should carry, or "" for none.
+--
+-- Empty means "no waiver": either the app has no volume of its own, or it
+-- declared `BackedUp` and must genuinely appear in backup-prepare.sh — dev-lint
+-- checks that join across the fleet, so the claim cannot be merely asserted.
+--
+-- The generator used to hold this as a hardcoded case for one app. Moving it
+-- into the model means a second app cannot be added without answering the
+-- question, and the answer sits beside the volume it describes rather than in a
+-- shell `case` far away from it.
 let storageWaiver
     : T.App → Text
     = λ(app : T.App) →
@@ -279,6 +351,16 @@ let storageWaiver
           }
           app.storage
 
+--| The `allow-host-path` justification an app's volumes need, or "" for none.
+--
+-- Same discipline as `storageWaiver`: the model answers WHETHER and WHY, and the
+-- generator holds only the marker syntax. A list of host-path apps in the shell
+-- is the shape that let utterance go unwaived for months.
+--
+-- The FIRST `why` wins, and that is a real limit rather than an oversight: the
+-- marker is line-scoped, so a second host-path volume would need its own marker
+-- on its own line. No app has two, and `--check` fails loudly if one appears —
+-- the rendered tree would carry a finding the live tree waives.
 let hostPathWaiver
     : T.App → Text
     = λ(app : T.App) →
@@ -341,6 +423,11 @@ let claimPvcs
           )
           ns.claims
 
+--| The claim behind [`T.Storage`], if the app declared one.
+--
+-- Rendered into the same file as the database's claim, so `01-pvc.yaml` is
+-- every piece of durable state a namespace owns rather than only the half that
+-- happens to be a database.
 let appPvc
     : T.App → List K.PersistentVolumeClaim
     = λ(app : T.App) → claimPvcs (T.namespaceOf app)
@@ -683,15 +770,31 @@ let deploymentFor
               }
             }
 
+--| One Deployment per workload in the namespace.
 let deployments
     : T.Namespace → List K.Deployment
     = λ(ns : T.Namespace) →
         L.map T.Workload K.Deployment (deploymentFor ns) ns.workloads
 
+--| ι applied: the generator hands each renderer an `apps/*.dhall`, whose type is
+--  still `T.App`, so the entry points keep that shape and the generalised work
+--  happens behind `namespaceOf`.
 let appDeployment
     : T.App → List K.Deployment
     = λ(app : T.App) → deployments (T.namespaceOf app)
 
+--| The port the app's Service listens on — ONE expression, read by both the
+--  Service and the Ingress backend that targets it.
+--
+-- 80 for an app behind an Ingress, which is the convention the backend follows;
+-- the app's own port otherwise, where there is no Ingress to have a convention
+-- with. scanner's live Service is on 8090 for exactly that reason, and the
+-- hardcoded 80 is what stopped it joining the model.
+--
+-- Derived at both sites rather than written twice, for the same reason
+-- `Reach.WireGuard` derives the hostPort from the containerPort: a Service port
+-- and an Ingress backend that disagree forward to nothing, and say nothing
+-- about it.
 let servicePort
     : T.Workload → Natural
     = λ(w : T.Workload) →
@@ -706,16 +809,17 @@ let servicePort
           }
           w.reach
 
-let cronJobs
-    : T.App → List K.CronJob
-    = λ(app : T.App) →
+let cronJobsFor
+    : T.Namespace → T.Workload → List K.CronJob
+    = λ(ns : T.Namespace) →
+      λ(w : T.Workload) →
         L.map
           T.ScheduledTask
           K.CronJob
           ( λ(t : T.ScheduledTask) →
               { apiVersion = "batch/v1"
               , kind = "CronJob"
-              , metadata = meta t.name app.name
+              , metadata = meta t.name ns.name
               , spec =
                 { schedule = t.schedule
                 , suspend = if t.suspended then Some True else None Bool
@@ -735,23 +839,21 @@ let cronJobs
                   , backoffLimit = None Natural
                   , template.spec
                     =
-                    { securityContext =
-                        podSecurityContext app.workload.uid (None Natural)
+                    { securityContext = podSecurityContext w.uid (None Natural)
                     , restartPolicy = Some "OnFailure"
                     , volumes = None (List K.Volume)
                     , containers =
                       [   baseContainer
                         ⫽ { name = t.name
-                          , image = T.imageRef app.workload.image
+                          , image = T.imageRef w.image
                           , command = Some t.command
                           , securityContext =
-                              containerSecurityContext
-                                app.workload.readOnlyRootFs
+                              containerSecurityContext w.readOnlyRootFs
                           , env = Some
                               ( L.map
                                   T.EnvVar
                                   K.EnvVar
-                                  (renderEnv (secretName app))
+                                  (renderEnv (secretNameFor ns.name))
                                   t.env
                               )
                           , resources = Some
@@ -765,7 +867,26 @@ let cronJobs
                 }
               }
           )
-          app.tasks
+          w.tasks
+
+--| The app's batch work, one CronJob each.
+--
+-- They share the app's IMAGE, UID, namespace and secret — a scheduled task is
+-- the same program with a different entrypoint, not a separate app — and differ
+-- only in schedule, command, deadline, env and resources. That sharing is the
+-- reason the type is thin: everything a task could get wrong by restating it is
+-- taken from the workload instead.
+--
+-- ⚠ The container is named after the TASK, where the live tree names them
+-- `sync` / `refresh` / `decode` — three names for eight jobs, so `kubectl logs`
+-- on a failed run needs the pod name to disambiguate. Harmless to change: every
+-- cron run creates a fresh pod, so there is no rolling update to survive.
+let cronJobs
+    : T.App → List K.CronJob
+    = λ(app : T.App) →
+        let ns = T.namespaceOf app
+
+        in  L.concatMap T.Workload K.CronJob (cronJobsFor ns) ns.workloads
 
 let serviceFor
     : T.Namespace → T.Workload → List K.Service
@@ -861,6 +982,9 @@ let ingress
     : T.App → List K.Ingress
     = λ(app : T.App) → ingresses (T.namespaceOf app)
 
+--| Only the app may reach the database. Rendered whenever the app has one, so
+--  "namespace has a DB but nothing protecting it" is not a state this model can
+--  produce.
 let netpolDb
     : T.App → List K.NetworkPolicy
     = λ(app : T.App) →
@@ -878,7 +1002,10 @@ let netpolDb
                     metadata =
                       meta
                         ( if    Natural/isZero
-                                  (List/length T.ScheduledTask app.tasks)
+                                  ( List/length
+                                      T.ScheduledTask
+                                      app.workload.tasks
+                                  )
                           then  "${app.name}-db-from-app-only"
                           else  "${app.name}-db-from-namespace"
                         )
@@ -911,7 +1038,7 @@ let netpolDb
                                   if    Natural/isZero
                                           ( List/length
                                               T.ScheduledTask
-                                              app.tasks
+                                              app.workload.tasks
                                           )
                                   then  Some (appLabels app.workload.name)
                                   else  None K.Labels
@@ -939,6 +1066,12 @@ let netpolDb
           }
           app.db
 
+--| ⚠️ HELD, not applied. k3s enforces NetworkPolicy via kube-router, which does
+--  NOT exempt node-sourced kubelet probe traffic — applying this as written
+--  drops the liveness/readiness probes, marks the pod NotReady and takes the
+--  site down. Rendered to its own file so the intent stays reviewed, but it is
+--  deliberately outside the applied set until a probe-source rule is added and
+--  verified on a live pod.
 let ingressFromNginx
     : T.App → K.NetworkPolicy
     = λ(app : T.App) →
@@ -973,6 +1106,11 @@ let ingressFromNginx
           }
         }
 
+--| Default-deny egress for the whole namespace, with named exceptions.
+--
+-- `podSelector: {}` — the namespace, not a label match — because a policy that
+-- selected only the app's own pods would leave anything else scheduled there
+-- unrestricted, and the point of a default-deny is that it has no holes.
 let egressDefaultDeny
     : T.App → List T.EgressTo → K.NetworkPolicy
     = λ(app : T.App) →
@@ -1026,6 +1164,16 @@ let egressDefaultDeny
           }
         }
 
+--| ⚠️ HELD, not applied. k3s enforces NetworkPolicy via kube-router, which does
+--  NOT exempt node-sourced kubelet probe traffic — applying this as written
+--  drops the liveness/readiness probes, marks the pod NotReady and takes the
+--  site down. Rendered to its own file so the intent stays reviewed, but it is
+--  deliberately outside the applied set until a probe-source rule is added and
+--  verified on a live pod.
+--
+-- Only the `IngressFromNginx` arm lands here. The egress policies ARE applied
+-- and go to `netpolApp` below, which is the whole reason `netpol` stopped being
+-- a Bool: the two policies differ in whether they reach the cluster at all.
 let netpolAppHeld
     : T.App → List K.NetworkPolicy
     = λ(app : T.App) →
@@ -1036,6 +1184,7 @@ let netpolAppHeld
           }
           app.netpol
 
+--| The APPLIED app policy, as opposed to the held one above.
 let netpolApp
     : T.App → List K.NetworkPolicy
     = λ(app : T.App) →

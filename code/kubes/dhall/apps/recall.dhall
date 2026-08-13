@@ -19,6 +19,9 @@ let dataPath = "/data"
 
 let port = 8000
 
+-- The keys as a RECORD, so a typo is a type error rather than a pod that boots
+-- with an empty credential. `secrets = toMap keys` publishes the same
+-- expressions `secret.sh` writes.
 let keys =
       { SYNC_TOKEN = "SYNC_TOKEN"
       , SESSION_SECRET = "SESSION_SECRET"
@@ -29,6 +32,8 @@ let keys =
 
 let required = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False }
 
+-- Optional here means "the pod starts without it", and every use below says
+-- what is lost when it is absent. None of them is optional for convenience.
 let optional = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = True }
 
 let lit = T.EnvValue.Literal
@@ -173,6 +178,7 @@ in    { name = "recall"
               readOnly = False
             }
           ]
+        , tasks = [] : List T.ScheduledTask
         }
       , secrets = toMap keys
       , -- Default-deny egress with exactly one exception besides DNS: the SSO
@@ -192,6 +198,5 @@ in    { name = "recall"
               , ports = [ { port = 80, protocol = "TCP" } ]
               }
             ]
-      , tasks = [] : List T.ScheduledTask
       }
     : T.App

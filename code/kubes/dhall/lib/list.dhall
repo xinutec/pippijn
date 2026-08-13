@@ -30,13 +30,6 @@ let concatMap
           (λ(x : a) → λ(acc : List b) → f x # acc)
           ([] : List b)
 
---| `None` for an empty list, `Some` otherwise.
---
--- `appDeployment` renders WITHOUT `--omit-empty` (see generate.sh), so an empty
--- list would serialise as `[]` instead of vanishing. This is how a field that
--- has nothing in it goes back to being absent — and, unlike the flag, it
--- distinguishes "nothing here" from "an empty thing that means something", which
--- is exactly what `emptyDir: {}` and `egress: []` needed.
 let nonEmpty
     : ∀(a : Type) → List a → Optional (List a)
     = λ(a : Type) →
