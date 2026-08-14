@@ -134,11 +134,31 @@ in  { name = "signal"
     , cluster = T.Cluster.isis
     , db = Some
       { dbName = "signal"
-      , innodbBufferPoolGi = None Natural
+      , -- ⚠ MEASURED 2026-08-14, and the default 128 MiB stopped being tenable
+        -- the day IRC ingestion opened to five networks: `irc_messages` went to
+        -- 3.7M rows, 502 MiB of data and 289 MiB of index, so a search scanned
+        -- the whole table through a pool a fifth its size and did ~43,000
+        -- physical page reads every time. With 1 GiB the table is resident and
+        -- the same search is **4.1s against 10.0s**.
+        --
+        -- 1 GiB rather than 2: it covers data + index with room, and this box
+        -- also runs the rest of the fleet. What it does NOT help is the
+        -- conversation list — 1.5s before and after, because that one is
+        -- answered from the index alone and is CPU-bound, not I/O-bound. Only
+        -- the queries that touch row data gain.
+        --
+        -- ⚠ The first query after a restart is still slow (27.7s measured) —
+        -- the pool starts empty and that scan is what fills it.
+        innodbBufferPoolGi = Some 1
       , -- Text messages are small; 10Gi covers years plus the history backfill.
         storageGi = 10
       , resources =
-        { requests = { cpu = "50m", memory = "256Mi" }
+        { requests =
+          { cpu = "50m"
+          , -- 1 GiB pool + mariadbd overhead, the two moving together exactly as
+            -- health-db's do.
+            memory = "1280Mi"
+          }
         , limits = None T.Limits
         }
       , keys =

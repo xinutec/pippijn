@@ -285,7 +285,8 @@ in  T.namespaceOf
         { dbName = "health"
         , -- ~4 GB today, `heart_rate_intraday` alone ~2.6 GB.
           storageGi = 10
-        , -- The only database in the fleet that sets one. `requests.memory`
+        , -- The larger of the fleet's two pools; `signal-db` sets 1 GiB since
+          -- IRC ingestion took its archive to 3.7M rows. `requests.memory`
           -- below covers this plus mariadbd's overhead, and the two move
           -- together.
           innodbBufferPoolGi = Some
@@ -296,12 +297,12 @@ in  T.namespaceOf
             , -- 2 GB pool + mariadbd overhead.
               memory = "2304Mi"
             }
-          , -- THE ONE `None` IN THE FLEET, and the reason `T.DbResources`
-            -- exists: a hard cap risks an OOM-kill mid-query on a ~4 GB
-            -- database, and isis has ample headroom (~12 GB free). dev-lint
-            -- agrees — `image_profile` sets `require_memory_limit = false` for
-            -- every `is_db` container — so this is stating a position the
-            -- linter already holds, not carving an exemption out of it.
+          , -- The reason `T.DbResources` existed: a hard cap risks an OOM-kill
+            -- mid-query on a ~4 GB database, and isis has headroom (~6.7 GB
+            -- available, measured 2026-08-14). dev-lint agrees —
+            -- `image_profile` sets `require_memory_limit = false` for every
+            -- `is_db` container — so this is stating a position the linter
+            -- already holds, not carving an exemption out of it.
             limits = None T.Limits
           }
         , keys =

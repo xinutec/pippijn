@@ -24,7 +24,9 @@ spec:
         app: "signal-db"
     spec:
       containers:
-      - env:
+      - args:
+        - "--innodb-buffer-pool-size=1073741824"
+        env:
         - name: MARIADB_AUTO_UPGRADE
           value: '1'
         - name: MARIADB_DATABASE
@@ -67,7 +69,7 @@ spec:
         resources:
           requests:
             cpu: 50m
-            memory: 256Mi
+            memory: 1280Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
