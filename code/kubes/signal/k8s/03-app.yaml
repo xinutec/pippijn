@@ -1,0 +1,135 @@
+# GENERATED from dhall/apps/signal.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "signal-cli-rest-api"
+  namespace: signal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "signal-cli-rest-api"
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: "signal-cli-rest-api"
+    spec:
+      containers:
+      - env:
+        - name: MODE
+          value: "json-rpc"
+        image: "bbernhard/signal-cli-rest-api:0.100"
+        livenessProbe:
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          tcpSocket:
+            port: 8080
+        name: "signal-cli-rest-api"
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          tcpSocket:
+            port: 8080
+        resources:
+          requests:
+            cpu: 100m
+            memory: 384Mi
+        volumeMounts:
+        - mountPath: "/home/.local/share/signal-cli"
+          name: data
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: "signal-cli-pvc"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "signal-ingester"
+  namespace: signal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "signal-ingester"
+  template:
+    metadata:
+      labels:
+        app: "signal-ingester"
+    spec:
+      containers:
+      - env:
+        - name: DB_HOST
+          value: "signal-db"
+        - name: DB_NAME
+          value: signal
+        - name: SIGNAL_API_WS
+          value: "ws://signal-cli-rest-api:8080"
+        - name: SIGNAL_API_HTTP
+          value: "http://signal-cli-rest-api:8080"
+        - name: ATTACHMENTS_DIR
+          value: /attachments
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              key: DB_USER
+              name: "signal-secret"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_PASSWORD
+              name: "signal-secret"
+        - name: SIGNAL_NUMBER
+          valueFrom:
+            secretKeyRef:
+              key: SIGNAL_NUMBER
+              name: "signal-secret"
+        image: "xinutec/signal-archiver:latest"
+        name: "signal-ingester"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /attachments
+          name: attachments
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: attachments
+        persistentVolumeClaim:
+          claimName: "signal-attachments-pvc"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "signal-cli-rest-api"
+  namespace: signal
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: "signal-cli-rest-api"

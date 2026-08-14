@@ -1,0 +1,27 @@
+# GENERATED from dhall/apps/messages.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    "cert-manager.io/cluster-issuer": "letsencrypt-dns"
+  name: messages
+  namespace: signal
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: messages.xinutec.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: messages
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - messages.xinutec.org
+    secretName: "messages-tls"

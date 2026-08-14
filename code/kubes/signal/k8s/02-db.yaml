@@ -1,101 +1,111 @@
+# GENERATED from dhall/apps/signal.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+#
+# MariaDB has NO downgrade path. Before changing the engine version
+# (lib/render.dhall, one line, bumps every database at once):
+#   scripts/mariadb-major-upgrade.sh before <app> <db>   (then after)
+# strategy is Recreate: a single RWO PVC must never have two DB pods.
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: signal-db
+  name: "signal-db"
   namespace: signal
 spec:
   replicas: 1
-  strategy:
-    type: Recreate # single RWO PVC — never run two DB pods at once
   selector:
     matchLabels:
-      app: signal-db
+      app: "signal-db"
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
-        app: signal-db
+        app: "signal-db"
     spec:
-      # The official image runs as uid 999 (mysql) when started unprivileged;
-      # fsGroup 999 keeps the data dir writable.
+      containers:
+      - env:
+        - name: MARIADB_AUTO_UPGRADE
+          value: '1'
+        - name: MARIADB_DATABASE
+          value: signal
+        - name: MARIADB_USER
+          valueFrom:
+            secretKeyRef:
+              key: DB_USER
+              name: "signal-secret"
+        - name: MARIADB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_PASSWORD
+              name: "signal-secret"
+        - name: MARIADB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_ROOT_PASSWORD
+              name: "signal-secret"
+        image: "mariadb:12.3"
+        livenessProbe:
+          exec:
+            command:
+            - healthcheck.sh
+            - "--connect"
+            - "--innodb_initialized"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        name: mariadb
+        ports:
+        - containerPort: 3306
+        readinessProbe:
+          exec:
+            command:
+            - healthcheck.sh
+            - "--connect"
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          exec:
+            command:
+            - healthcheck.sh
+            - "--connect"
+          failureThreshold: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - mountPath: /var/lib/mysql
+          name: data
+          subPath: "mariadb-data"
       securityContext:
+        fsGroup: 999
+        runAsGroup: 999
         runAsNonRoot: true
         runAsUser: 999
-        runAsGroup: 999
-        fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
-      containers:
-        - name: mariadb
-          # 12.3 is the current LTS (GA 2026-05-28, supported to Jun 2029). MariaDB has
-          # no downgrade path, so dump before bumping this:
-          #   scripts/mariadb-major-upgrade.sh before signal signal   (then after)
-          image: mariadb:12.3
-          # No readOnlyRootFilesystem: mariadb writes /run/mysqld and its data dir.
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          env:
-            # Migrate the system tables on first start after a major bump.
-            - name: MARIADB_AUTO_UPGRADE
-              value: "1"
-            - name: MARIADB_DATABASE
-              value: signal
-            - name: MARIADB_USER
-              valueFrom:
-                secretKeyRef: { name: signal-secret, key: DB_USER }
-            - name: MARIADB_PASSWORD
-              valueFrom:
-                secretKeyRef: { name: signal-secret, key: DB_PASSWORD }
-            - name: MARIADB_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef: { name: signal-secret, key: DB_ROOT_PASSWORD }
-          ports:
-            - containerPort: 3306
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/mysql
-              subPath: mariadb-data
-          # startupProbe holds liveness off until the server accepts connections, so a
-          # major-version MARIADB_AUTO_UPGRADE (start->upgrade->shutdown->restart) can't be
-          # SIGKILLed mid-run the way health-db and life-db were on 2026-07-22/23. Small DB
-          # today, but this removes the timing-luck dependence before the next major bump.
-          startupProbe:
-            exec:
-              command: ["healthcheck.sh", "--connect"]
-            periodSeconds: 10
-            failureThreshold: 60
-            timeoutSeconds: 5
-          livenessProbe:
-            exec:
-              command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            # was implicit 1s; a busy server can miss that and get killed for being slow
-            timeoutSeconds: 5
-          readinessProbe:
-            exec:
-              command: ["healthcheck.sh", "--connect"]
-            initialDelaySeconds: 10
-            periodSeconds: 5
-          resources:
-            requests:
-              cpu: 50m
-              memory: 256Mi
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: signal-db-pvc
+      - name: data
+        persistentVolumeClaim:
+          claimName: "signal-db-pvc"
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: signal-db
+  name: "signal-db"
   namespace: signal
 spec:
-  clusterIP: None # headless; the archiver reaches it by the name "signal-db"
-  selector:
-    app: signal-db
+  clusterIP: None
   ports:
-    - port: 3306
-      targetPort: 3306
+  - port: 3306
+    targetPort: 3306
+  selector:
+    app: "signal-db"

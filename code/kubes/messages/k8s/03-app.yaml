@@ -1,0 +1,113 @@
+# GENERATED from dhall/apps/messages.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: messages
+  namespace: signal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: messages
+  template:
+    metadata:
+      labels:
+        app: messages
+    spec:
+      containers:
+      - env:
+        - name: DB_HOST
+          value: "signal-db"
+        - name: DB_NAME
+          value: signal
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              key: DB_USER
+              name: "signal-secret"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_PASSWORD
+              name: "signal-secret"
+        - name: NC_BASE_URL
+          value: "https://dash.xinutec.org"
+        - name: NC_REDIRECT_URI
+          value: "https://messages.xinutec.org/auth/callback"
+        - name: ALLOWED_USERS
+          value: pippijn
+        - name: SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: SESSION_SECRET
+              name: "messages-secret"
+        - name: NC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_ID
+              name: "messages-secret"
+        - name: NC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_SECRET
+              name: "messages-secret"
+        - name: ATTACHMENTS_DIR
+          value: /attachments
+        image: "xinutec/messages:latest"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 20
+        name: messages
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 10
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /attachments
+          name: attachments
+          readOnly: true
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: attachments
+        persistentVolumeClaim:
+          claimName: "signal-attachments-pvc"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: messages
+  namespace: signal
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: messages

@@ -1,36 +1,40 @@
+# GENERATED from dhall/apps/signal.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: signal-db-pvc
+  name: "signal-db-pvc"
   namespace: signal
 spec:
-  accessModes: ["ReadWriteOnce"]
+  accessModes:
+  - ReadWriteOnce
   resources:
     requests:
-      # Text messages are small; 10Gi covers years plus the history backfill.
       storage: 10Gi
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  # signal-cli's data dir: the linked-device keys + account state. SECRET-class
-  # (it can impersonate the linked device) — treat its odin backup as sensitive.
-  name: signal-cli-pvc
+  name: "signal-cli-pvc"
   namespace: signal
 spec:
-  accessModes: ["ReadWriteOnce"]
+  accessModes:
+  - ReadWriteOnce
   resources:
     requests:
       storage: 2Gi
+
 ---
+# dev-lint: allow-backup-coverage linked-device keys; re-link from the phone insteadre-downloadable from Signal while the messages remain
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  # Downloaded attachment blobs (images/voice/etc.), keyed by attachment id.
-  name: signal-attachments-pvc
+  name: "signal-attachments-pvc"
   namespace: signal
 spec:
-  accessModes: ["ReadWriteOnce"]
+  accessModes:
+  - ReadWriteOnce
   resources:
     requests:
       storage: 20Gi
