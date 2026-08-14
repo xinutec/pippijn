@@ -513,19 +513,24 @@ in  T.namespaceOf
               , schedule = "30 5 * * *"
               , command = [ "node", "dist/cli/refresh-bus-routes.js" ]
               , deadlineSeconds = 5400
-              , -- ⚠ SUSPENDED IN THE CLUSTER SINCE IT WAS CREATED, and it has never
-                -- run once in 62 days. Nothing in any repo said so before this line:
-                -- the suspend was applied with kubectl and left no trace, which is
-                -- why #760 could be filed claiming the job "exists only in the
-                -- cluster". Half of that was a search artefact — the manifest is
-                -- committed (`fbb73cb1`) and `rg` from ~/Code silently searches
-                -- nothing — but the suspend flag genuinely was cluster-only.
+              , -- RESUMED 2026-08-14 (Pippijn's call, #255). Suspended in the
+                -- cluster from creation and never run once in 62 days — a suspend
+                -- applied with kubectl that left no trace in any repo, which is how
+                -- #760 came to claim the job "exists only in the cluster". Half of
+                -- that was a search artefact (the manifest is committed, `fbb73cb1`,
+                -- and `rg` from ~/Code silently searches nothing); the flag being
+                -- cluster-only was real.
                 --
-                -- Stated as `True` to preserve what is running, NOT because the
-                -- state is endorsed. Whether a bus-route mirror that has never run
-                -- should be resumed or removed is a question about C-bus (#254,
-                -- #328), and it is Pippijn's.
-                suspended = True
+                -- What made resuming safe is not that the job now succeeds — it
+                -- often will not. Overpass 504s are routine: measured runs on
+                -- 2026-08-14 lost 1, 6 and 4 of 18 tiles. It is that the WRITE is
+                -- per tile (`refresh-bus-routes.ts`), so a run that loses tiles
+                -- replaces only the ones that answered and leaves the rest their
+                -- rows. A partial night cannot shrink the mirror, which is the
+                -- whole risk of running unattended.
+                --
+                -- The 4-of-18 run still took the mirror 995 -> 1000 routes.
+                suspended = False
               , volumes = [] : List T.Volume
               , mounts = [] : List T.VolumeMount
               , env = dbEnv
