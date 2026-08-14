@@ -22,11 +22,20 @@ let Meta =
 
 let Quantity = { cpu : Text, memory : Text }
 
+--| A limits block, where BOTH halves are Optional because the API's are: `limits`
+--  is a resource map, and a container may cap memory without capping CPU or the
+--  other way round. This file is the API's shape, so it says so.
+--
+-- Which containers may omit which half is a fleet policy rather than an API
+-- fact, and it lives on `T.Limits` — memory required, cpu not. Keeping the two
+-- apart is what lets `T.Limits` tighten without this file claiming the API
+-- forbids what it permits.
+let Limits = { cpu : Optional Text, memory : Optional Text }
+
 --| `limits` is Optional because the API's is: a container may reserve without
---  capping. Which containers MAY do that is not decided here — `T.Resources`
---  requires both halves for every workload the fleet builds, and only
---  `T.DbResources` relaxes it, for the one case that is argued.
-let Resources = { requests : Quantity, limits : Optional Quantity }
+--  capping. Which containers MAY do that is not decided here — see `T.Resources`,
+--  which leaves it to dev-lint's `image_profile`, a fact about the image.
+let Resources = { requests : Quantity, limits : Optional Limits }
 
 let SecretKeyRef = { name : Text, key : Text, optional : Optional Bool }
 
@@ -355,6 +364,7 @@ let NetworkPolicy =
 
 in  { Meta
     , Quantity
+    , Limits
     , Resources
     , SecretKeyRef
     , EnvVar

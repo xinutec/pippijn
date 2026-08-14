@@ -132,6 +132,25 @@ let standardTiming
 
 let Quantity = { cpu : Text, memory : Text }
 
+-- ⚠ A LIMIT IS NOT A REQUEST, and this is why `limits` is not a `Quantity`.
+-- `memory` is required and `cpu` is not, which states the fleet's actual policy
+-- rather than a symmetry:
+--
+--   * a memory limit is a KILL threshold. Exceeding it is an OOM-kill, which is
+--     abrupt and legible. Omitting it is what `DL-K8S-NO-MEM-LIMIT` exists to
+--     catch, so a `limits` block without one is a block that fails the check it
+--     appears to satisfy — not a state worth being able to write.
+--   * a CPU limit is a THROTTLE. Exceeding it does not kill anything; the CFS
+--     quota simply stalls the container until the period rolls over, which shows
+--     up as latency nobody can attribute. Whether that trade is worth making
+--     depends on the workload, so it stays optional.
+--
+-- `messages` is the case that forced it: `limits: {memory: 256Mi}` with no cpu,
+-- live and deliberate for months. Under `Quantity` the only way to model it was
+-- to invent a CPU limit for a running pod — changing the cluster to satisfy a
+-- type, which is backwards.
+let Limits = { cpu : Optional Text, memory : Text }
+
 --| `limits` is Optional, and WHICH containers may omit it is not a question
 --  this type can answer.
 --
@@ -153,7 +172,7 @@ let Quantity = { cpu : Text, memory : Text }
 -- and the second case (signal) proved the carve-out was never about databases.
 -- health-db's argument still stands and is now stated at `innodbBufferPoolGi`:
 -- ~4 GB with a 2 GB pool, where "a hard cap risks an OOM-kill mid-query".
-let Resources = { requests : Quantity, limits : Optional Quantity }
+let Resources = { requests : Quantity, limits : Optional Limits }
 
 --| `readOnly` is stated, not defaulted. A content mirror the app must never
 --  write and a scratch directory it must are the same three fields otherwise,
@@ -769,6 +788,7 @@ in  { Cluster
     , ProbeTiming
     , standardTiming
     , Quantity
+    , Limits
     , Resources
     , ConfigMapDoc
     , VolumeMount

@@ -28,7 +28,7 @@ in  T.namespaceOf
           storageGi = 5
         , resources =
           { requests = { cpu = "50m", memory = "256Mi" }
-          , limits = Some { cpu = "1", memory = "1Gi" }
+          , limits = Some { cpu = Some "1", memory = "1Gi" }
           }
         , keys =
           { user = keys.DB_USER
@@ -74,7 +74,7 @@ in  T.namespaceOf
         , probe = T.Probe.Http { path = "/health", port = 3000 }
         , resources =
           { requests = { cpu = "10m", memory = "128Mi" }
-          , limits = Some { cpu = "200m", memory = "256Mi" }
+          , limits = Some { cpu = Some "200m", memory = "256Mi" }
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount

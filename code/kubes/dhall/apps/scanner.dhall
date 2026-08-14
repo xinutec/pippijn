@@ -81,7 +81,7 @@ in  T.namespaceOf
           , -- Fusion is CPU-bound per post; two of isis's four cores is the
             -- ceiling, which leaves two for everything else on the node.
             limits =
-            Some { cpu = "2", memory = "1Gi" }
+            Some { cpu = Some "2", memory = "1Gi" }
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount

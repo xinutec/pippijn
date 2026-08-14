@@ -107,7 +107,7 @@ in  { name = "signal"
         storageGi = 10
       , resources =
         { requests = { cpu = "50m", memory = "256Mi" }
-        , limits = None T.Quantity
+        , limits = None T.Limits
         }
       , keys =
         { user = keys.DB_USER
@@ -150,7 +150,7 @@ in  { name = "signal"
           { requests = { cpu = "100m", memory = "384Mi" }
           , -- No limit, and dev-lint's image_profile is why this is allowed to
             -- say so: what a third-party JVM image needs is not ours to cap.
-            limits = None T.Quantity
+            limits = None T.Limits
           }
         , volumes = [ { name = "data", source = T.VolumeSource.Claim cliClaim } ]
         , mounts =
@@ -198,7 +198,7 @@ in  { name = "signal"
           probe = T.Probe.Unprobed
         , resources =
           { requests = { cpu = "50m", memory = "64Mi" }
-          , limits = None T.Quantity
+          , limits = None T.Limits
           }
         , volumes =
           [ { name = "attachments"

@@ -86,7 +86,7 @@ let leanCallTimeout
 let batchResources
     : T.Resources
     = { requests = { cpu = "100m", memory = "256Mi" }
-      , limits = Some { cpu = "1000m", memory = "1Gi" }
+      , limits = Some { cpu = Some "1000m", memory = "1Gi" }
       }
 
 -- The decode carries more memory than the refreshes: it holds a day's fixes and
@@ -94,7 +94,7 @@ let batchResources
 let decodeResources
     : T.Resources
     = { requests = { cpu = "100m", memory = "256Mi" }
-      , limits = Some { cpu = "1000m", memory = "1536Mi" }
+      , limits = Some { cpu = Some "1000m", memory = "1536Mi" }
       }
 
 -- C4 continuity flags (task #224). The auth pod does not READ them — it is the
@@ -302,7 +302,7 @@ in  T.namespaceOf
             -- agrees — `image_profile` sets `require_memory_limit = false` for
             -- every `is_db` container — so this is stating a position the
             -- linter already holds, not carving an exemption out of it.
-            limits = None T.Quantity
+            limits = None T.Limits
           }
         , keys =
           { user = keys.DB_USER
@@ -406,7 +406,7 @@ in  T.namespaceOf
               -- ~50 s wall-clock (measured: walkMatch 4 s of CPU → 40 s
               -- on-pod). 2 cores lets a compute finish in a few seconds; isis
               -- sits ~7%.
-              cpu = "2"
+              cpu = Some "2"
             , -- Headroom for the local-OSM-mirror cold start: multiple large
               -- Overpass responses (5-50 MB each) can be in flight while
               -- filling osm_points / osm_lines for a new bbox. Steady state
@@ -472,7 +472,7 @@ in  T.namespaceOf
                     ]
               , resources =
                 { requests = { cpu = "50m", memory = "128Mi" }
-                , limits = Some { cpu = "500m", memory = "512Mi" }
+                , limits = Some { cpu = Some "500m", memory = "512Mi" }
                 }
               }
             , { name = "health-focus-refresh"
@@ -484,7 +484,7 @@ in  T.namespaceOf
               , env = dbEnv # ncEnv
               , resources =
                 { requests = { cpu = "50m", memory = "128Mi" }
-                , limits = Some { cpu = "500m", memory = "512Mi" }
+                , limits = Some { cpu = Some "500m", memory = "512Mi" }
                 }
               }
             , { name = "health-rail-refresh"

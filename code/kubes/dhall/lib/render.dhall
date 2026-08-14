@@ -116,6 +116,25 @@ let clusterHost
           { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
           ns.cluster
 
+--| `T.Resources` → the API's shape.
+--
+-- These stopped being the same record once `T.Limits` made `cpu` Optional and
+-- kept `memory` required, so this is the one place the fleet's policy meets the
+-- API's permissiveness. `Some` on the way out: a memory limit that `T.Limits`
+-- required cannot go missing here.
+let k8sResources
+    : T.Resources → K.Resources
+    = λ(r : T.Resources) →
+          r.{ requests }
+        ⫽ { limits =
+              merge
+                { None = None K.Limits
+                , Some =
+                    λ(l : T.Limits) → Some { cpu = l.cpu, memory = Some l.memory }
+                }
+                r.limits
+          }
+
 --| The declared-unowned filenames, one per line, for the generator's `--check`.
 --
 -- A `List/fold` rather than a Prelude import, and `site.dhall`'s twin says why:
@@ -709,7 +728,7 @@ let dbDeployment
                                       , periodSeconds = Some 5
                                       }
                                   )
-                              , resources = Some d.resources
+                              , resources = Some (k8sResources d.resources)
                               }
                           ]
                         , volumes = Some
@@ -936,11 +955,11 @@ let deploymentFor
                                       )
                               }
                               (renderProbe w.probe)
-                        , -- `T.Resources` and `K.Resources` are the same shape
-                          -- now — `limits` Optional in both — because whether a
-                          -- container ought to state them is a fact about its
-                          -- image, which dev-lint knows and this does not.
-                          resources = Some w.resources
+                        , -- Whether a container ought to state limits is a
+                          -- fact about its image, which dev-lint knows and this
+                          -- does not. See `k8sResources` for why the two record
+                          -- types are no longer identical.
+                          resources = Some (k8sResources w.resources)
                         , volumeMounts =
                             L.nonEmpty
                               K.VolumeMount
@@ -1053,7 +1072,7 @@ let cronJobsFor
                                   (renderEnv (secretNameFor (slugOf ns)))
                                   t.env
                               )
-                          , resources = Some t.resources
+                          , resources = Some (k8sResources t.resources)
                           }
                       ]
                     }
