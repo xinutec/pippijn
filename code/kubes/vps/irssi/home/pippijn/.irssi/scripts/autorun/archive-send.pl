@@ -353,6 +353,24 @@ sub record_event {
         unless defined $settle_timer;
 }
 
+# Which conversation an incoming action belongs to.
+#
+# ⚠ A PRIVATE ACTION'S TARGET IS *ME*, WHICH IS NOT WHERE IT IS LOGGED. `message
+# irc action` carries the PRIVMSG target: a channel for `/me` in a channel, but
+# my own nick for `/me` in a query — and irssi writes that into the query named
+# after the SENDER. Taking the target at face value would file everybody's
+# private actions into one conversation named after Pippijn, which the importer
+# then treats as the status log and the app refuses to show.
+#
+# `message private` needs no equivalent because it does not carry a target at
+# all; the sender IS the conversation, which is what made this easy to miss.
+sub action_conversation {
+    my ($server, $nick, $target) = @_;
+    return $target if !defined $target || $target =~ /\A[#&]/;
+    return $nick   if defined $nick && lc $target eq lc $server->{nick};
+    return $target;
+}
+
 # Attach each new event's place in the log, then answer anybody waiting.
 sub settle_and_wake {
     $settle_timer = undef;
@@ -622,6 +640,22 @@ sub start {
         record_event($server, $msg, undef, $target, 1);
     });
     Irssi::signal_add_last('message own_private' => sub {
+        my ($server, $msg, $target, $orig_target) = @_;
+        record_event($server, $msg, undef, $target, 1);
+    });
+
+    # ⚠ ACTIONS ARE CONVERSATION AND THE ARCHIVE STORES THEM AS SUCH — `/me
+    # waves` is a `Kind::Action` row, not an event. They were left out of the
+    # first cut of this only because a signal signature is an assumption, and
+    # these two were verified rather than believed: `bitlbee_html.pl`, shipped
+    # with irssi and sitting in the scripts directory beside this, unpacks
+    # `message irc action` as ($server,$msg,$nick,$address,$target) and
+    # `message irc own_action` with the SAME handler as `message own_private`.
+    Irssi::signal_add_last('message irc action' => sub {
+        my ($server, $msg, $nick, $address, $target) = @_;
+        record_event($server, $msg, $nick, action_conversation($server, $nick, $target), 0);
+    });
+    Irssi::signal_add_last('message irc own_action' => sub {
         my ($server, $msg, $target, $orig_target) = @_;
         record_event($server, $msg, undef, $target, 1);
     });

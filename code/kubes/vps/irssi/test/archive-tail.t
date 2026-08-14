@@ -162,12 +162,60 @@ sub reply_from {
     is($ev->{line_no}, 3, 'and placed in the log');
 }
 
+# --------------------------------------------------------------- actions
+
+{
+    write_log($NET, $CHAN, '--- Log opened Thu Aug 14 00:00:00 2026',
+        '10:00 < friend> hello there', '10:01 < me> typed straight into irssi',
+        '10:02  * friend waves');
+    my $client = park(after => 2);
+    Irssi::deliver('message irc action', $server, 'waves', $NICK, 'friend@host', $CHAN);
+    settle();
+    my $reply = reply_from($client);
+
+    is(scalar @{ $reply->{events} }, 1, 'an action in a channel is pushed');
+    my $ev = $reply->{events}[0];
+    is($ev->{target}, $CHAN, 'in the channel it happened in');
+    is($ev->{nick}, $NICK, 'by whoever did it');
+    is($ev->{line_no}, 4, 'and placed in the log');
+}
+
+{
+    # ⚠ A PRIVATE ACTION'S TARGET IS THE RECIPIENT — me — but irssi logs it in
+    # the query named after the SENDER. Filed under the target it would land in
+    # a conversation with myself, which the importer marks as the status log and
+    # the app refuses to show, so the action would simply never appear.
+    write_log($NET, $NICK, '--- Log opened Thu Aug 14 00:00:00 2026',
+        '10:03  * friend prods you');
+    my $client = park(after => 3);
+    Irssi::deliver('message irc action', $server, 'prods you', $NICK, 'friend@host', 'me');
+    settle();
+    my $reply = reply_from($client);
+
+    is(scalar @{ $reply->{events} }, 1, 'a private action is pushed');
+    is($reply->{events}[0]{target}, $NICK,
+        'into the query with the SENDER, not the conversation with myself');
+    is($reply->{events}[0]{line_no}, 2, 'and found in that log');
+}
+
+{
+    write_log($NET, $CHAN, '--- Log opened Thu Aug 14 00:00:00 2026',
+        '10:04  * me waves back');
+    my $client = park(after => 4);
+    Irssi::deliver('message irc own_action', $server, 'waves back', $CHAN, $CHAN);
+    settle();
+    my $reply = reply_from($client);
+
+    is(scalar @{ $reply->{events} }, 1, 'his own action is pushed too');
+    ok($reply->{events}[0]{is_own}, 'marked as his');
+}
+
 # ------------------------------------------------------------ the cursor
 
 {
     # Nothing new since the client's cursor: it parks rather than being told
     # about lines it already has.
-    my $client = park(after => 2, timeout_ms => 150);
+    my $client = park(after => 5, timeout_ms => 150);
     Time::HiRes::sleep(0.25);
     Irssi::fire_timeouts();
     my $reply = reply_from($client);
@@ -176,7 +224,7 @@ sub reply_from {
     # ⚠ An empty answer is the point: it is what tells the puller the plugin is
     # alive. Holding the connection open for ever would make a wedged irssi look
     # exactly like a quiet afternoon.
-    is($reply->{seq}, 2, 'and reports where the sequence stands');
+    is($reply->{seq}, 5, 'and reports where the sequence stands');
 }
 
 {
@@ -185,7 +233,7 @@ sub reply_from {
     Time::HiRes::sleep(0.25);
     Irssi::fire_timeouts();
     my $reply = reply_from($client);
-    is($reply->{seq}, 2, 'a cursor from a previous life is reset, not replayed');
+    is($reply->{seq}, 5, 'a cursor from a previous life is reset, not replayed');
     is_deeply($reply->{events}, [], 'and nothing is re-sent');
 }
 
