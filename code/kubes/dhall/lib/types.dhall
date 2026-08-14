@@ -311,7 +311,19 @@ let Volume = { name : Text, source : VolumeSource }
 
 --| The file modes worth mounting a secret with, named because the API wants
 --  them in decimal and nobody reads 384 as `rw-------`.
-let fileMode = { ownerRead = 256, ownerReadWrite = 384 }
+--
+-- ⚠ `ownerRead` (0400) is a trap on a secret volume unless the pod also sets
+-- `fsGroup`: those files are owned by **root**, not by `runAsUser`, so 0400
+-- means the process cannot read its own secret. It surfaces as the file being
+-- silently empty — an unreadable `known_hosts` reads to ssh as "no host key
+-- known", not as a permissions error.
+--
+-- `anyoneRead` (0444) is the honest mode for a secret a non-root process must
+-- read, and it is not the exposure it looks like: the volume exists only inside
+-- that pod. Anything needing tighter (ssh refuses a private key with ANY group
+-- or other bit set) should copy the file and chmod it, which is what
+-- `signal-irclog-import` does.
+let fileMode = { ownerRead = 256, ownerReadWrite = 384, anyoneRead = 292 }
 
 --| How the internet sees an app's hostname, and therefore how its certificate
 --  can be issued.

@@ -1,0 +1,51 @@
+#!/bin/sh
+# The only thing the archive's key may do on this host: read one tree, by rsync.
+#
+# Pinned as `command="…",restrict` in ~/.ssh/authorized_keys for the key that
+# `signal-irclog-import` (isis, namespace `signal`) presents. That CronJob pulls
+# irssi's autologs into the message archive, because irssi runs here on amun and
+# the archive is on isis — two separate clusters, so the PVC cannot be mounted
+# across.
+#
+# ⚠ WHY NOT `rrsync`, which is exactly this and ships with rsync: it is a
+# python3 script and this image has no python3. The file exists at
+# /usr/bin/rrsync and every invocation dies with
+# "env: 'python3': No such file or directory" — so a key pinned to it is not
+# restricted, it is inert, and the failure reads as a broken sync rather than a
+# broken restriction. Installing an interpreter would mean rebuilding the image,
+# importing it into containerd by hand (the registry credentials live in CI, not
+# on the box) and downgrading imagePullPolicy: three lasting changes to ship a
+# script that this replaces in ten lines.
+#
+# What is enforced, and why each is enough:
+#
+#   * `rsync --server --sender` — rsync's OWN read-only direction. `--sender`
+#     means this end is the source; there is no protocol path by which it
+#     writes. Anything else, including an interactive shell, is refused.
+#   * no absolute path, no `..` — the client cannot walk out of the tree.
+#   * the working directory IS the tree, so every relative path lands inside it.
+#
+# The remaining way out would be a symlink pointing outside; there are none
+# (checked 2026-08-14, and only irssi writes here).
+set -eu
+
+case "${SSH_ORIGINAL_COMMAND:-}" in
+  "rsync --server --sender "*) ;;
+  *)
+    echo "denied: this key may only read the irclogs tree" >&2
+    exit 1
+    ;;
+esac
+
+case " $SSH_ORIGINAL_COMMAND " in
+  *" /"* | *..*)
+    echo "denied: absolute or traversing path" >&2
+    exit 1
+    ;;
+esac
+
+cd /home/irssi/irclogs
+# Deliberately unquoted: rsync's server arguments must be split into words. The
+# two guards above are what make that safe, and they run first.
+# shellcheck disable=SC2086
+exec $SSH_ORIGINAL_COMMAND

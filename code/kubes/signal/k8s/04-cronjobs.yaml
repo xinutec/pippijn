@@ -21,7 +21,7 @@ spec:
           - command:
             - /bin/sh
             - "-c"
-            - "rsync -a -e 'ssh -i /ssh/id_ed25519 -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -p 2230' irssi@10.100.0.1:xinutec irssi@10.100.0.1:xinutec2 /irclogs/ && import_irclogs --root /irclogs --network xinutec --network xinutec2 --map xinutec2=xinutec --self-nick \"$IRC_SELF_NICK\" --self-nick \"$IRC_SELF_NICK_ALT\" --apply"
+            - "install -m 400 /ssh/id_ed25519 /tmp/key && rsync -a -e 'ssh -i /tmp/key -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -p 2230' irssi@10.100.0.1:xinutec irssi@10.100.0.1:xinutec2 /irclogs/ && import_irclogs --root /irclogs --network xinutec --network xinutec2 --map xinutec2=xinutec --self-nick \"$IRC_SELF_NICK\" --self-nick \"$IRC_SELF_NICK_ALT\" --apply"
             env:
             - name: DB_HOST
               value: "signal-db"
@@ -80,7 +80,7 @@ spec:
               claimName: "signal-irclogs-pvc"
           - name: sshkey
             secret:
-              defaultMode: 256
+              defaultMode: 292
               secretName: "signal-irclog-sync"
   schedule: "17 * * * *"
   successfulJobsHistoryLimit: 3

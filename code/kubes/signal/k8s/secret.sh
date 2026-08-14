@@ -51,6 +51,14 @@ echo "  ssh-keyscan -p 2230 10.100.0.1 > /root/irclog_known_hosts"
 echo "  kubectl -n $NS create secret generic signal-irclog-sync \\"
 echo "    --from-file=id_ed25519=/root/irclog-sync \\"
 echo "    --from-file=known_hosts=/root/irclog_known_hosts"
-echo "Then authorise it on the far side, restricted to reading that one tree:"
-echo "  printf 'command=\"/usr/bin/rrsync -ro /home/irssi/irclogs\",restrict %s\\n' \\"
+echo
+# NOT `rrsync`, which is what a command= for this should normally be: it is a
+# python3 script and the irssi image has no python3, so a key pinned to it is
+# inert rather than restricted. See kubes/vps/irssi/home/pippijn/bin/irclog-pull.
+echo "Then authorise it on the far side, pinned to reading that one tree:"
+echo "  printf 'command=\"/home/irssi/bin/irclog-pull\",restrict %s\\n' \\"
 echo "    \"\$(cat /root/irclog-sync.pub)\" | ssh irc 'cat >> ~/.ssh/authorized_keys'"
+echo "Prove it before trusting it — each of these must be refused:"
+echo "  ssh -i /root/irclog-sync -p 2230 irssi@10.100.0.1 id        # a shell"
+echo "  rsync -e '...' irssi@10.100.0.1:/etc/passwd .               # out of the tree"
+echo "  rsync -e '...' ./anything irssi@10.100.0.1:xinutec/         # a write"

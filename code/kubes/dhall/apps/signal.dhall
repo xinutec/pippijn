@@ -233,7 +233,7 @@ in  { name = "signal"
               command =
               [ "/bin/sh"
               , "-c"
-              , "rsync -a -e 'ssh -i ${sshMount}/id_ed25519 -o UserKnownHostsFile=${sshMount}/known_hosts -o StrictHostKeyChecking=yes -p 2230' irssi@${amunTunnel}:xinutec irssi@${amunTunnel}:xinutec2 ${irclogMount}/ && import_irclogs --root ${irclogMount} --network xinutec --network xinutec2 --map xinutec2=xinutec --self-nick \"\$IRC_SELF_NICK\" --self-nick \"\$IRC_SELF_NICK_ALT\" --apply"
+              , "install -m 400 ${sshMount}/id_ed25519 /tmp/key && rsync -a -e 'ssh -i /tmp/key -o UserKnownHostsFile=${sshMount}/known_hosts -o StrictHostKeyChecking=yes -p 2230' irssi@${amunTunnel}:xinutec irssi@${amunTunnel}:xinutec2 ${irclogMount}/ && import_irclogs --root ${irclogMount} --network xinutec --network xinutec2 --map xinutec2=xinutec --self-nick \"\$IRC_SELF_NICK\" --self-nick \"\$IRC_SELF_NICK_ALT\" --apply"
               ]
             , -- 20 min. A first run walks the whole tree; every later one
               -- transfers almost nothing and the import is dedupe misses only.
@@ -255,10 +255,19 @@ in  { name = "signal"
                 , source =
                     T.VolumeSource.Secret
                       { name = irclogSecret
-                      , -- ssh refuses a private key any other user can read,
-                        -- and the API's default is 0644 — which fails as "load
-                        -- key: bad permissions", not as anything about modes.
-                        mode = Some T.fileMode.ownerRead
+                      , -- ⚠ 0444, NOT 0400, and the command copies the key to
+                        -- /tmp at 0400 before using it. A secret volume's files
+                        -- are owned by **root** — not by `runAsUser` — so 0400
+                        -- means this pod cannot read its own secret. It does
+                        -- not fail as a permissions error either: an unreadable
+                        -- `known_hosts` reads to ssh as "no host key known for
+                        -- [10.100.0.1]:2230", which is where an hour went.
+                        --
+                        -- The copy is still needed at any mode, because ssh
+                        -- refuses a key with any group or other bit set. The
+                        -- tighter alternative is 0440 plus `fsGroup`, which
+                        -- `T.ScheduledTask` cannot currently express.
+                        mode = Some T.fileMode.anyoneRead
                       }
                 }
               ]
