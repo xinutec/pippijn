@@ -4,7 +4,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: "signal-db-from-app-only"
+  name: "signal-db-from-namespace"
   namespace: signal
 spec:
   ingress:
@@ -68,6 +68,27 @@ spec:
   podSelector:
     matchLabels:
       app: "signal-cli-rest-api"
+  policyTypes:
+  - Egress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "signal-irclog-import-egress-amun"
+  namespace: signal
+spec:
+  egress:
+  - ports:
+    - port: 2230
+      protocol: TCP
+    to:
+    - ipBlock:
+        cidr: 10.100.0.1/32
+        except: []
+  podSelector:
+    matchLabels:
+      app: "signal-irclog-import"
   policyTypes:
   - Egress
 

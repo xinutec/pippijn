@@ -6,6 +6,8 @@
 # deploy               host                  port  expect
 
 # --- must stay open ---------------------------------------------------------
+signal-irclog-import   10.100.0.1            2230  open     # amun's sshd, over WireGuard: the irssi logs
+signal-irclog-import   signal-db             3306  open     # the archive it writes
 signal-ingester        signal-db             3306  open     # the archive it writes
 signal-ingester        signal-cli-rest-api   8080  open     # the receive websocket
 messages               signal-db             3306  open     # the archive it reads
@@ -21,3 +23,13 @@ messages               1.1.1.1                443  blocked  # nor the viewer
 signal-db              1.1.1.1                443  blocked  # nor the database
 signal-cli-rest-api    10.100.0.2             443  blocked  # not the WireGuard tunnel
 signal-cli-rest-api    188.165.200.180        443  blocked  # not isis's own ingress
+# The importer's reach is ONE address and ONE port. These three are what make
+# that a claim rather than a description: the same host on another port, another
+# host on the same port, and the open internet.
+signal-irclog-import   10.100.0.1              22  blocked  # amun's real sshd, not the irssi container's
+signal-irclog-import   10.100.0.2            2230  blocked  # not isis itself
+signal-irclog-import   1.1.1.1                443  blocked  # no internet for the importer
+# And nothing else in the namespace inherits it — the reason a CronJob's pods
+# carry labels at all.
+signal-ingester        10.100.0.1            2230  blocked  # the archiver has no business on amun
+messages               10.100.0.1            2230  blocked  # nor the viewer

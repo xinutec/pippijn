@@ -13,6 +13,9 @@ spec:
     spec:
       activeDeadlineSeconds: 3300
       template:
+        metadata:
+          labels:
+            app: "health-sync"
         spec:
           containers:
           - command:
@@ -98,6 +101,9 @@ spec:
     spec:
       activeDeadlineSeconds: 3300
       template:
+        metadata:
+          labels:
+            app: "health-focus-refresh"
         spec:
           containers:
           - command:
@@ -166,6 +172,9 @@ spec:
     spec:
       activeDeadlineSeconds: 5400
       template:
+        metadata:
+          labels:
+            app: "health-rail-refresh"
         spec:
           containers:
           - command:
@@ -238,6 +247,9 @@ spec:
     spec:
       activeDeadlineSeconds: 5400
       template:
+        metadata:
+          labels:
+            app: "health-bus-refresh"
         spec:
           containers:
           - command:
@@ -297,6 +309,9 @@ spec:
     spec:
       activeDeadlineSeconds: 1800
       template:
+        metadata:
+          labels:
+            app: "health-decode-recent"
         spec:
           containers:
           - command:
@@ -392,6 +407,9 @@ spec:
     spec:
       activeDeadlineSeconds: 5400
       template:
+        metadata:
+          labels:
+            app: "health-rail-stops-refresh"
         spec:
           containers:
           - command:

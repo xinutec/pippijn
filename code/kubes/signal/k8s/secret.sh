@@ -35,3 +35,22 @@ kubectl -n "$NS" create secret generic signal-secret \
 echo "Created signal-secret in namespace '$NS'."
 echo "After linking, add the account number:"
 echo "  kubectl -n $NS patch secret signal-secret -p '{\"stringData\":{\"SIGNAL_NUMBER\":\"+44...\"}}'"
+echo
+# Not generated, and not written down here: these are IDENTITIES rather than
+# credentials, and this repository is public. The importer needs them to know
+# which logged lines are yours — irssi records your own messages under your nick
+# exactly like anybody else's, so without them every line is somebody else's.
+echo "For the IRC importer, add the nicks whose lines are your own"
+echo "(the second is the one irssi falls back to on a second connection):"
+echo "  kubectl -n $NS patch secret signal-secret -p '{\"stringData\":{\"IRC_SELF_NICK\":\"...\",\"IRC_SELF_NICK_ALT\":\"...\"}}'"
+echo
+echo "And the key that pulls the logs, as its OWN secret — a credential to"
+echo "another cluster, with a different lifetime from the ones above:"
+echo "  ssh-keygen -t ed25519 -N '' -C irclog-sync -f /root/irclog-sync"
+echo "  ssh-keyscan -p 2230 10.100.0.1 > /root/irclog_known_hosts"
+echo "  kubectl -n $NS create secret generic signal-irclog-sync \\"
+echo "    --from-file=id_ed25519=/root/irclog-sync \\"
+echo "    --from-file=known_hosts=/root/irclog_known_hosts"
+echo "Then authorise it on the far side, restricted to reading that one tree:"
+echo "  printf 'command=\"/usr/bin/rrsync -ro /home/irssi/irclogs\",restrict %s\\n' \\"
+echo "    \"\$(cat /root/irclog-sync.pub)\" | ssh irc 'cat >> ~/.ssh/authorized_keys'"

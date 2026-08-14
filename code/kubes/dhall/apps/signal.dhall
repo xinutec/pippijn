@@ -43,7 +43,40 @@ let keys =
       , DB_PASSWORD = "DB_PASSWORD"
       , DB_ROOT_PASSWORD = "DB_ROOT_PASSWORD"
       , SIGNAL_NUMBER = "SIGNAL_NUMBER"
+      , -- The nicks whose lines are Pippijn's own. Secret-held rather than
+        -- written here because `kubes` is public and the second one is only
+        -- explicable as "the nick irssi fell back to on a second connection",
+        -- which says as much as the nick itself.
+        IRC_SELF_NICK = "IRC_SELF_NICK"
+      , IRC_SELF_NICK_ALT = "IRC_SELF_NICK_ALT"
       }
+
+let irclogImport = "signal-irclog-import"
+
+let irclogMount = "/irclogs"
+
+let sshMount = "/ssh"
+
+--| The ssh key that pulls the logs, as its OWN Secret rather than another entry
+--  in `signal-secret`.
+--
+-- Two lifetimes, not one: this is a credential to a machine in another cluster,
+-- rotated when that trust changes, and `signal-secret` holds the database
+-- password and the linked-device number. Folding them together would mean
+-- rotating an ssh key to change a database password. It is also mounted as
+-- FILES, and a volume mounts every key in a secret — putting the DB password on
+-- disk in this pod to get at an ssh key beside it.
+let irclogSecret = "signal-irclog-sync"
+
+--| amun over the WireGuard tunnel, not `amun.xinutec.org`.
+--
+-- ⚠ The public name resolves to 94.23.247.133 and routes out of the building
+-- and back; the tunnel address is a direct peer (isis 10.100.0.2 ↔ amun
+-- 10.100.0.1, measured 2026-08-14). Both work. This one keeps thirteen years of
+-- private conversation off the public path even in the seconds it would be
+-- inside an ssh session, and it is the address the NetworkPolicy names, so
+-- using the other would be blocked anyway.
+let amunTunnel = "10.100.0.1"
 
 let secret = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False }
 
@@ -79,7 +112,7 @@ in  { name = "signal"
         }
       }
     , configMap = None T.ConfigMapDoc
-    , claims = [ claims.cli, claims.attachments ]
+    , claims = [ claims.cli, claims.attachments, claims.irclogs ]
     , workloads =
       [ { name = restApiName
         , -- A ClusterIP the ingester and the viewer resolve. Not `NoService`:
@@ -175,7 +208,78 @@ in  { name = "signal"
             , readOnly = False
             }
           ]
-        , tasks = [] : List T.ScheduledTask
+        , tasks =
+          [ { name = irclogImport
+            , -- Hourly, off the hour. IRC is a conversation happening now, so
+              -- the phone wants it soon; hourly is the compromise against
+              -- waking a tunnel and re-walking 11,885 files for nothing.
+              schedule = "17 * * * *"
+            , -- ⚠ TWO STEPS, so a shell. The logs are on the OTHER CLUSTER —
+              -- irssi runs in `vps-pippijn` on amun — so they are pulled over
+              -- ssh into `${irclogMount}` and imported from there. The far side
+              -- pins this key to `rrsync -ro`, so what this command can do
+              -- there is read that one directory and nothing else.
+              --
+              -- ⚠ NO `--delete`, and not as an oversight. irssi's autolog only
+              -- ever appends, so there is nothing upstream to mirror away; and
+              -- `--delete` with two sources into one destination is a documented
+              -- way to remove files that the other source put there. A stale
+              -- file costs one re-read of rows the importer already has.
+              --
+              -- `--map` folds irssi's second-connection tag into one network,
+              -- and `--self-nick` is how a line is known to be Pippijn's; both
+              -- are arguments rather than constants because this repository is
+              -- public and a nick is not a thing to commit.
+              command =
+              [ "/bin/sh"
+              , "-c"
+              , "rsync -a -e 'ssh -i ${sshMount}/id_ed25519 -o UserKnownHostsFile=${sshMount}/known_hosts -o StrictHostKeyChecking=yes -p 2230' irssi@${amunTunnel}:xinutec irssi@${amunTunnel}:xinutec2 ${irclogMount}/ && import_irclogs --root ${irclogMount} --network xinutec --network xinutec2 --map xinutec2=xinutec --self-nick \"\$IRC_SELF_NICK\" --self-nick \"\$IRC_SELF_NICK_ALT\" --apply"
+              ]
+            , -- 20 min. A first run walks the whole tree; every later one
+              -- transfers almost nothing and the import is dedupe misses only.
+              deadlineSeconds = 1200
+            , suspended = False
+            , env =
+              [ { name = "DB_HOST", value = lit "signal-db" }
+              , { name = "DB_NAME", value = lit "signal" }
+              , { name = "DB_USER", value = secret keys.DB_USER }
+              , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
+              , { name = "IRC_SELF_NICK", value = secret keys.IRC_SELF_NICK }
+              , { name = "IRC_SELF_NICK_ALT"
+                , value = secret keys.IRC_SELF_NICK_ALT
+                }
+              ]
+            , volumes =
+              [ { name = "irclogs", source = T.VolumeSource.Claim claims.irclogs }
+              , { name = "sshkey"
+                , source =
+                    T.VolumeSource.Secret
+                      { name = irclogSecret
+                      , -- ssh refuses a private key any other user can read,
+                        -- and the API's default is 0644 — which fails as "load
+                        -- key: bad permissions", not as anything about modes.
+                        mode = Some T.fileMode.ownerRead
+                      }
+                }
+              ]
+            , mounts =
+              [ { name = "irclogs"
+                , mountPath = irclogMount
+                , subPath = None Text
+                , readOnly = False
+                }
+              , { name = "sshkey"
+                , mountPath = sshMount
+                , subPath = None Text
+                , readOnly = True
+                }
+              ]
+            , resources =
+              { requests = { cpu = "50m", memory = "128Mi" }
+              , limits = Some { cpu = Some "1", memory = "512Mi" }
+              }
+            }
+          ]
         }
       ]
     , secrets = toMap keys
@@ -225,6 +329,29 @@ in  { name = "signal"
                       }
                   ]
                 , ports = [ { port = 443, protocol = "TCP" } ]
+                }
+              ]
+            }
+          , { -- The IRC importer, and ONLY it, may reach amun's sshd. That is
+              -- the whole of its outside world: one address, one port, and the
+              -- key it presents is pinned to `rrsync -ro` on the far side, so
+              -- the reach this grants is "read one directory".
+              --
+              -- ⚠ This is why a CronJob's pods carry labels — see `K.JobSpec`.
+              -- Without them the only expressible rule would be namespace-wide,
+              -- which would hand the same reach to the bridge, the viewer and
+              -- the database, none of which have any business on that host.
+              name = "${irclogImport}-egress-amun"
+            , target = T.NetpolTarget.OneWorkload irclogImport
+            , egress =
+              [ { to =
+                  [ T.NetpolPeer.Host
+                      { cidr = "${amunTunnel}/32"
+                      , why =
+                          "amun over WireGuard: irssi's autologs live in vps-pippijn on that cluster and cannot be mounted from this one"
+                      }
+                  ]
+                , ports = [ { port = 2230, protocol = "TCP" } ]
                 }
               ]
             }

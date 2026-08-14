@@ -160,12 +160,19 @@ let Container =
 -- omitting it makes kubelet CREATE a missing path as a directory rather than
 -- fail, so a typo'd mirror path becomes an empty volume that serves 404s
 -- instead of an error anyone would see.
+-- `secret.defaultMode` is Optional and usually should not be: an ssh private
+-- key mounted at the API's default 0644 is refused by ssh itself ("permissions
+-- are too open"), which surfaces as a job that cannot connect rather than as
+-- anything about file modes. It is decimal in the API and octal everywhere a
+-- person writes it, so `T.VolumeSource.Secret` takes the octal and converts.
 let Volume =
       { name : Text
       , persistentVolumeClaim : Optional { claimName : Text }
       , configMap : Optional { name : Text }
       , emptyDir : Optional {}
       , hostPath : Optional { path : Text, type : Text }
+      , secret :
+          Optional { secretName : Text, defaultMode : Optional Natural }
       }
 
 --| Files served or mounted as configuration. `data` is a map, so the KEY is the
@@ -194,10 +201,30 @@ let PodSpec =
 -- batch pod — there is no Service and no probe — so the failure is a job that is
 -- still "running" days later with `concurrencyPolicy: Forbid` suppressing every
 -- scheduled successor. That is silent, and it is why the field is not Optional.
+--| The labels that tie a pod template, its Service and its policies together.
+--
+-- A free-form map rather than a fixed `{ app : Text }` record, because the fleet
+-- has two conventions and neither can be changed: the apps select on `app`, and
+-- the static sites under `web/` select on `run`. **A Deployment's
+-- `spec.selector` is immutable** — the API rejects an edit — so rewriting the
+-- sites to `app` would mean deleting and recreating four live Deployments.
+--
+-- What stops a Service selector disagreeing with its pod template is NOT the
+-- record shape: it is that one expression (`render.dhall`'s `appLabels`,
+-- `site.dhall`'s `runLabels`) produces the value everywhere it is needed. The
+-- shape only ever documented the convention; the derivation is the guarantee.
+let Labels = List { mapKey : Text, mapValue : Text }
+
+-- `template.metadata.labels` exists so a job's pods can be SELECTED — by a
+-- NetworkPolicy above all. A CronJob pod otherwise carries only the labels the
+-- API generates (`job-name`, `controller-uid`), none of which name the work, so
+-- the only expressible egress rule for a job is one that covers the whole
+-- namespace. That is how a job that needs to reach one host ends up granting
+-- every pod beside it the same reach.
 let JobSpec =
       { activeDeadlineSeconds : Natural
       , backoffLimit : Optional Natural
-      , template : { spec : PodSpec }
+      , template : { metadata : { labels : Labels }, spec : PodSpec }
       }
 
 --| A CronJob. The three policy fields are required rather than defaulted
@@ -221,20 +248,6 @@ let CronJob =
           , jobTemplate : { spec : JobSpec }
           }
       }
-
---| The labels that tie a pod template, its Service and its policies together.
---
--- A free-form map rather than a fixed `{ app : Text }` record, because the fleet
--- has two conventions and neither can be changed: the apps select on `app`, and
--- the static sites under `web/` select on `run`. **A Deployment's
--- `spec.selector` is immutable** — the API rejects an edit — so rewriting the
--- sites to `app` would mean deleting and recreating four live Deployments.
---
--- What stops a Service selector disagreeing with its pod template is NOT the
--- record shape: it is that one expression (`render.dhall`'s `appLabels`,
--- `site.dhall`'s `runLabels`) produces the value everywhere it is needed. The
--- shape only ever documented the convention; the derivation is the guarantee.
-let Labels = List { mapKey : Text, mapValue : Text }
 
 let Deployment =
       { apiVersion : Text

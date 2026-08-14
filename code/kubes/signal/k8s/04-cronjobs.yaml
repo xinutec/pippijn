@@ -1,0 +1,86 @@
+# GENERATED from dhall/apps/signal.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "signal-irclog-import"
+  namespace: signal
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1200
+      template:
+        metadata:
+          labels:
+            app: "signal-irclog-import"
+        spec:
+          containers:
+          - command:
+            - /bin/sh
+            - "-c"
+            - "rsync -a -e 'ssh -i /ssh/id_ed25519 -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -p 2230' irssi@10.100.0.1:xinutec irssi@10.100.0.1:xinutec2 /irclogs/ && import_irclogs --root /irclogs --network xinutec --network xinutec2 --map xinutec2=xinutec --self-nick \"$IRC_SELF_NICK\" --self-nick \"$IRC_SELF_NICK_ALT\" --apply"
+            env:
+            - name: DB_HOST
+              value: "signal-db"
+            - name: DB_NAME
+              value: signal
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: DB_USER
+                  name: "signal-secret"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: "signal-secret"
+            - name: IRC_SELF_NICK
+              valueFrom:
+                secretKeyRef:
+                  key: IRC_SELF_NICK
+                  name: "signal-secret"
+            - name: IRC_SELF_NICK_ALT
+              valueFrom:
+                secretKeyRef:
+                  key: IRC_SELF_NICK_ALT
+                  name: "signal-secret"
+            image: "xinutec/signal-archiver:latest"
+            name: "signal-irclog-import"
+            resources:
+              limits:
+                cpu: '1'
+                memory: 512Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+            volumeMounts:
+            - mountPath: /irclogs
+              name: irclogs
+            - mountPath: /ssh
+              name: sshkey
+              readOnly: true
+          restartPolicy: OnFailure
+          securityContext:
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+          - name: irclogs
+            persistentVolumeClaim:
+              claimName: "signal-irclogs-pvc"
+          - name: sshkey
+            secret:
+              defaultMode: 256
+              secretName: "signal-irclog-sync"
+  schedule: "17 * * * *"
+  successfulJobsHistoryLimit: 3

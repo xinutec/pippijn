@@ -58,4 +58,30 @@ let attachments
         chown = T.FsGroupChange.OnRootMismatch
       }
 
-in  { cli, attachments }
+--| A staging copy of irssi's autologs, pulled from the other cluster.
+--
+-- ⚠ THE LOGS ARE ON A DIFFERENT CLUSTER, which is the whole reason this claim
+-- exists. irssi runs in `vps-pippijn` on **amun**; the archive is on **isis**.
+-- Its PVC cannot be mounted across that boundary, so the importer pulls the
+-- tree over ssh before each run and imports from here.
+--
+-- `LossAccepted` without hesitation: every byte is a copy, amun holds the
+-- original, and losing it costs one longer rsync. Backing it up would be
+-- backing up somebody else's backup.
+--
+-- The size is the reason it is a claim rather than an `EmptyDir`. The tree is
+-- ~150 MiB for one network and 2.3 GiB for all of them; on an emptyDir the
+-- whole thing would be re-fetched every run, and rsync's entire value here is
+-- that the second run transfers almost nothing.
+let irclogs
+    : T.Claim
+    = { name = "signal-irclogs-pvc"
+      , storageGi = 5
+      , durability =
+          T.Durability.LossAccepted
+            { why = "a staging copy; amun holds the originals" }
+      , writers = T.Writers.Exclusive
+      , chown = T.FsGroupChange.OnRootMismatch
+      }
+
+in  { cli, attachments, irclogs }

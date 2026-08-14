@@ -290,14 +290,28 @@ let Storage =
 -- Exactly one source per volume, which the API cannot say and this does: the
 -- API shape is four optional keys, and a record with two of them set is
 -- writable there and rejected by the cluster.
+-- `Secret` mounts an app's own secret as FILES rather than environment. It
+-- exists for material a program insists on reading from a path, with modes it
+-- approves of — an ssh private key is the case that forced it: ssh refuses a
+-- key any other user could read, and the API's default is 0644.
+--
+-- ⚠ `mode` is the API's DECIMAL, because Dhall has no integer division and an
+-- octal-to-decimal conversion here would be several lines of arithmetic doing
+-- the work a name does better. Use [`fileMode`](#fileMode) rather than writing
+-- 384 and hoping the next reader recognises it.
 let VolumeSource =
       < EmptyDir
       | ConfigMap : { name : Text }
       | HostPath : { path : Text, why : Text }
       | Claim : Claim
+      | Secret : { name : Text, mode : Optional Natural }
       >
 
 let Volume = { name : Text, source : VolumeSource }
+
+--| The file modes worth mounting a secret with, named because the API wants
+--  them in decimal and nobody reads 384 as `rw-------`.
+let fileMode = { ownerRead = 256, ownerReadWrite = 384 }
 
 --| How the internet sees an app's hostname, and therefore how its certificate
 --  can be issued.
@@ -371,6 +385,16 @@ let ScheduledTask =
         suspended : Bool
       , env : List EnvVar
       , resources : Resources
+      , -- A task's OWN storage, not the workload's.
+        --
+        -- ⚠ These are separate from the workload's `volumes`/`mounts` on
+        -- purpose, and the CronJob renderer used to emit no volumes at all.
+        -- Inheriting the workload's would give a batch job write access to the
+        -- long-running pod's data — the ingester's attachment store, say — to
+        -- get at a scratch directory it wanted for something else entirely. A
+        -- job that needs storage should have to say which.
+        volumes : List Volume
+      , mounts : List VolumeMount
       }
 
 --| Whether this pod can be run as a non-root user.
@@ -526,6 +550,18 @@ let NetpolPeer =
       | NamespacedWorkload :
           { namespace : Text, labels : List { mapKey : Text, mapValue : Text } }
       | Internet : { except : List Text }
+      | --| ONE address, as a CIDR.
+        --
+        -- `Internet` is the wrong shape for reaching a known host: it can only
+        -- say "everything except", so a rule that needs one address ends up
+        -- granting the whole internet minus a denylist, and reads to a reviewer
+        -- as though that breadth were intended.
+        --
+        -- ⚠ `why` is required, as it is for `HostPath` and `Unhardened`. An IP
+        -- literal in a policy is the one thing here that cannot be read back to
+        -- what it means — a hostname would be resolved at render time and frozen
+        -- anyway — so the address has to arrive with its reason attached.
+        Host : { cidr : Text, why : Text }
       >
 
 let NetpolRule =
@@ -794,6 +830,7 @@ in  { Cluster
     , VolumeMount
     , VolumeSource
     , Volume
+    , fileMode
     , FsGroupChange
     , Claim
     , Writers

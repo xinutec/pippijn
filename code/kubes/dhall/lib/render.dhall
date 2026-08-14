@@ -347,6 +347,8 @@ let k8sVolume
               , configMap = None { name : Text }
               , emptyDir = None {}
               , hostPath = None { path : Text, type : Text }
+              , secret =
+                  None { secretName : Text, defaultMode : Optional Natural }
               }
 
         in  merge
@@ -361,6 +363,12 @@ let k8sVolume
                   λ(c : T.Claim) →
                       empty
                     ⫽ { persistentVolumeClaim = Some { claimName = c.name } }
+              , Secret =
+                  λ(s : { name : Text, mode : Optional Natural }) →
+                      empty
+                    ⫽ { secret = Some
+                        { secretName = s.name, defaultMode = s.mode }
+                      }
               }
               v.source
 
@@ -377,6 +385,9 @@ let mountedClaims
                 , HostPath =
                     λ(_ : { path : Text, why : Text }) → [] : List T.Claim
                 , Claim = λ(c : T.Claim) → [ c ]
+                , Secret =
+                    λ(_ : { name : Text, mode : Optional Natural }) →
+                      [] : List T.Claim
                 }
                 v.source
           )
@@ -538,6 +549,9 @@ let hostPathWaiver
                         , HostPath =
                             λ(h : { path : Text, why : Text }) → [ h.why ]
                         , Claim = λ(_ : T.Claim) → [] : List Text
+                        , Secret =
+                            λ(_ : { name : Text, mode : Optional Natural }) →
+                              [] : List Text
                         }
                         v.source
                   )
@@ -738,6 +752,11 @@ let dbDeployment
                             , configMap = None { name : Text }
                             , emptyDir = None {}
                             , hostPath = None { path : Text, type : Text }
+                            , secret =
+                                None
+                                  { secretName : Text
+                                  , defaultMode : Optional Natural
+                                  }
                             }
                           ]
                         }
@@ -1045,11 +1064,22 @@ let cronJobsFor
                   =
                   { activeDeadlineSeconds = t.deadlineSeconds
                   , backoffLimit = None Natural
+                  , -- Named after the task, so a policy can select this job's
+                    -- pods and only this job's. See `K.JobSpec`.
+                    template.metadata.labels
+                    = appLabels t.name
                   , template.spec
                     =
                     { securityContext = podSecurityContext w.uid (None Natural) w.hardening
                     , restartPolicy = Some "OnFailure"
-                    , volumes = None (List K.Volume)
+                    , -- The TASK's volumes, not the workload's. A batch job that
+                      -- inherited the long-running pod's mounts would get write
+                      -- access to that pod's data as a side effect of wanting a
+                      -- scratch directory; see `T.ScheduledTask`.
+                      volumes =
+                        L.nonEmpty
+                          K.Volume
+                          (L.map T.Volume K.Volume k8sVolume t.volumes)
                     , containers =
                       [   baseContainer
                         ⫽ { name = t.name
@@ -1073,6 +1103,15 @@ let cronJobsFor
                                   t.env
                               )
                           , resources = Some (k8sResources t.resources)
+                          , volumeMounts =
+                              L.nonEmpty
+                                K.VolumeMount
+                                ( L.map
+                                    T.VolumeMount
+                                    K.VolumeMount
+                                    k8sMount
+                                    t.mounts
+                                )
                           }
                       ]
                     }
@@ -1386,6 +1425,12 @@ let renderPolicy
                             emptyPeer
                         ⫽ { ipBlock = Some
                             { cidr = "0.0.0.0/0", except = x.except }
+                          }
+                  , Host =
+                      λ(x : { cidr : Text, why : Text }) →
+                            emptyPeer
+                        ⫽ { ipBlock = Some
+                            { cidr = x.cidr, except = [] : List Text }
                           }
                   }
                   t

@@ -343,6 +343,8 @@ let volumes
                         , configMap = None { name : Text }
                         , emptyDir = None {}
                         , hostPath = None { path : Text, type : Text }
+                        , secret =
+                            None { secretName : Text, defaultMode : Optional Natural }
                         }
                       ]
                 }
@@ -358,6 +360,8 @@ let volumes
                         , configMap = Some { name = configName site }
                         , emptyDir = None {}
                         , hostPath = None { path : Text, type : Text }
+                        , secret =
+                            None { secretName : Text, defaultMode : Optional Natural }
                         }
                       ]
                 }
@@ -373,6 +377,8 @@ let volumes
                     , configMap = Some { name = o.name }
                     , emptyDir = None {}
                     , hostPath = None { path : Text, type : Text }
+                    , secret =
+                        None { secretName : Text, defaultMode : Optional Natural }
                     }
                 )
                 site.overlays
@@ -387,6 +393,8 @@ let volumes
                         , configMap = Some { name = nginxConfName site }
                         , emptyDir = None {}
                         , hostPath = None { path : Text, type : Text }
+                        , secret =
+                            None { secretName : Text, defaultMode : Optional Natural }
                         }
                       ]
                 }

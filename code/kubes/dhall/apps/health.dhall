@@ -441,6 +441,8 @@ in  T.namespaceOf
                 -- started.
                 deadlineSeconds = 3300
               , suspended = False
+              , volumes = [] : List T.Volume
+              , mounts = [] : List T.VolumeMount
               , env =
                     dbEnv
                   # [ { name = "FITBIT_CLIENT_ID"
@@ -481,6 +483,8 @@ in  T.namespaceOf
               , command = [ "node", "dist/cli/refresh-focus-places.js" ]
               , deadlineSeconds = 3300
               , suspended = False
+              , volumes = [] : List T.Volume
+              , mounts = [] : List T.VolumeMount
               , env = dbEnv # ncEnv
               , resources =
                 { requests = { cpu = "50m", memory = "128Mi" }
@@ -495,6 +499,8 @@ in  T.namespaceOf
                 -- job filled.
                 deadlineSeconds = 5400
               , suspended = False
+              , volumes = [] : List T.Volume
+              , mounts = [] : List T.VolumeMount
               , env =
                     [ { name = "LEAN_RAIL", value = lit "on" }
                     , leanCallTimeout
@@ -520,6 +526,8 @@ in  T.namespaceOf
                 -- should be resumed or removed is a question about C-bus (#254,
                 -- #328), and it is Pippijn's.
                 suspended = True
+              , volumes = [] : List T.Volume
+              , mounts = [] : List T.VolumeMount
               , env = dbEnv
               , resources = batchResources
               }
@@ -537,6 +545,8 @@ in  T.namespaceOf
                 -- Lean `Int` to `Nat` was forced by a run that missed it.
                 deadlineSeconds = 1800
               , suspended = False
+              , volumes = [] : List T.Volume
+              , mounts = [] : List T.VolumeMount
               , env =
                     dbEnv
                   # ncEnv
@@ -553,6 +563,8 @@ in  T.namespaceOf
               , command = [ "node", "dist/cli/refresh-rail-stops.js" ]
               , deadlineSeconds = 5400
               , suspended = False
+              , volumes = [] : List T.Volume
+              , mounts = [] : List T.VolumeMount
               , env = dbEnv
               , resources = batchResources
               }

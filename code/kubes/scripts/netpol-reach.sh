@@ -23,9 +23,48 @@ set -euo pipefail
 ns=${1:?usage: netpol-reach.sh <namespace> [table-file]}
 table=${2:-}
 
+# Where to exec the probe for a workload name.
+#
+# ⚠ NOT EVERY WORKLOAD IS A DEPLOYMENT. A CronJob has no long-running pod to
+# exec into, and its policy selects on `app=<name>` like any other — so the
+# probe needs *a* pod carrying that label. One is created on demand and removed
+# on exit. Without this a batch job's rows cannot be probed at all, and a reach
+# table row nobody can check is the drift this file exists to prevent.
+#
+# The image is the fleet archiver's because it is already on the node and has
+# bash; the pod runs `sleep` and never the real command.
+declare -A ephemeral=()
+
+cleanup() {
+	local name
+	for name in "${!ephemeral[@]}"; do
+		kubectl -n "$ns" delete pod "netpol-probe-$name" --now >/dev/null 2>&1 || true
+	done
+}
+trap cleanup EXIT
+
+target_for() {
+	local name=$1
+	if kubectl -n "$ns" get deploy "$name" >/dev/null 2>&1; then
+		printf 'deploy/%s' "$name"
+		return
+	fi
+	if [[ -z ${ephemeral[$name]:-} ]]; then
+		kubectl -n "$ns" run "netpol-probe-$name" \
+			--image=xinutec/signal-archiver:latest \
+			--labels="app=$name" --restart=Never \
+			--command -- sleep 900 >/dev/null
+		kubectl -n "$ns" wait --for=condition=Ready \
+			"pod/netpol-probe-$name" --timeout=90s >/dev/null
+		ephemeral[$name]=1
+	fi
+	printf 'pod/netpol-probe-%s' "$name"
+}
+
 probe() {
-	local deploy=$1 host=$2 port=$3 expect=$4 state
-	if kubectl -n "$ns" exec "deploy/$deploy" -- \
+	local deploy=$1 host=$2 port=$3 expect=$4 state target
+	target=$(target_for "$deploy")
+	if kubectl -n "$ns" exec "$target" -- \
 		timeout 6 bash -c "exec 3<>/dev/tcp/$host/$port" >/dev/null 2>&1; then
 		state=open
 	else
