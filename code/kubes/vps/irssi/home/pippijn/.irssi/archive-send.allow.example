@@ -1,0 +1,27 @@
+# Who the messages archive may send to, one `network target` per line.
+#
+# Copy this to `archive-send.allow` beside it and fill it in. The real file is
+# NOT in this repository and must not be: xinutec/pippijn is public, and who
+# Pippijn talks to is not something it should record. The example is here for
+# the format only.
+#
+# ⚠ FAIL-CLOSED. A missing, unreadable or empty file refuses everything — the
+# plugin treats "cannot read the list" as "nobody is on it". So the send path
+# is inert until this file exists, which is the right state for it to be in
+# after a fresh volume.
+#
+# `network` is irssi's server TAG, exactly as `/server list` shows it — not a
+# hostname. `target` is a nick, or a channel including its leading `#`.
+#
+# Read fresh on every request, so adding a line takes effect immediately: no
+# `/script load`, no restart, nothing to redeploy.
+#
+# Matching is case-insensitive on both fields, as IRC's own comparison is.
+#
+# A line whose first non-blank character is `#` is a comment. That is a
+# whole-line rule rather than strip-to-end-of-line precisely because channel
+# names begin with `#` — the obvious implementation deletes every channel entry
+# and refuses them all, silently.
+
+# examplenet somenick
+# examplenet #somechannel

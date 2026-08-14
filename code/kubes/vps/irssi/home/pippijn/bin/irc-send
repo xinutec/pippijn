@@ -1,0 +1,63 @@
+#!/usr/bin/perl
+# The only thing the archive's SEND key may do on this host: hand one request to
+# the running irssi and hand one answer back.
+#
+# Pinned as `command="/home/irssi/bin/irc-send",restrict` in
+# ~/.ssh/authorized_keys, alongside the read key that runs `irclog-pull`. Two
+# keys, two verbs, neither able to do the other's job.
+#
+# ⚠ SSH_ORIGINAL_COMMAND IS NOT READ, AT ALL. Under a forced command the client
+# still gets to propose one, and it arrives here in that variable. `irclog-pull`
+# has to inspect it because rsync's protocol lives there; this does not, because
+# the entire request travels on stdin. Ignoring it outright is a stronger
+# property than validating it, and costs nothing here.
+#
+# What this deliberately does NOT do is understand the request. It does not
+# parse the JSON, know what a network is, or hold the allow-list. Every decision
+# about whether to send belongs to the irssi plugin on the other end of the
+# socket, where the message can be handed to irssi as data. If this script grew
+# an opinion about the payload there would be two places that decide, and they
+# would drift.
+
+use strict;
+use warnings;
+
+use IO::Socket::UNIX;
+
+my $SOCK    = "$ENV{HOME}/.irssi/archive-send.sock";
+my $MAX     = 8192;    # far above any legal request; a client cannot grow it
+my $TIMEOUT = 15;      # irssi is single-threaded, so a wedged one must not hang ssh
+
+# `restrict` already removes port forwarding, agent forwarding, X11 and a pty.
+# This covers the remaining case: a client that opens the session and then sends
+# nothing, which would otherwise hold the connection open indefinitely.
+$SIG{ALRM} = sub { die "irc-send: timed out after ${TIMEOUT}s\n" };
+alarm $TIMEOUT;
+
+my $request = '';
+while (my $n = sysread(STDIN, my $chunk, 4096)) {
+    $request .= $chunk;
+    die "irc-send: request too large\n" if length $request > $MAX;
+    last if $request =~ /\n/;
+}
+die "irc-send: empty request\n" unless length $request;
+
+# Exactly one line goes on, whatever arrived. A client that sent two requests in
+# one connection gets the first honoured and the rest dropped, rather than the
+# plugin seeing a frame it did not expect.
+my ($line) = $request =~ /\A([^\n]*)/;
+
+my $sock = IO::Socket::UNIX->new(Type => SOCK_STREAM, Peer => $SOCK)
+    or die "irc-send: irssi is not listening on $SOCK ($!)\n";
+
+print {$sock} "$line\n";
+$sock->flush;
+
+my $reply = <$sock>;
+close $sock;
+alarm 0;
+
+die "irc-send: irssi closed the connection without answering\n" unless defined $reply;
+
+print $reply;
+exit 0;
