@@ -250,6 +250,23 @@ sub handle_request {
 
     my ($network, $target, $text) = @{$req}{qw(network target text)};
 
+    # ⚠ A FLAG, NOT FRAMING FROM THE CALLER. An IRC action is a PRIVMSG whose
+    # body is wrapped in `\x01ACTION …\x01`, and the tempting shortcut is to let
+    # the caller send those bytes. It must not: `validate_text` refuses control
+    # characters precisely because CR and LF end a protocol line, and opening a
+    # hole for `\x01` would mean deciding which control characters are safe —
+    # the allow-list judgement this whole design exists to avoid. The caller says
+    # WHAT it is; the wrapping is built here, from a boolean.
+    # ⚠ A DECODED JSON `true` IS A BLESSED REF, not a plain scalar — `JSON::PP`
+    # returns `JSON::PP::Boolean` objects. A bare `ref` test therefore rejects
+    # every legitimate boolean, which is how this was first written and why the
+    # tests refused to send anything at all. `is_bool` is the distinction that
+    # was actually meant: a boolean, however it arrived, versus a structure
+    # somebody put in a field that takes a yes or a no.
+    return err('action is not a boolean')
+        if ref $req->{action} && !JSON::PP::is_bool($req->{action});
+    my $is_action = $req->{action} ? 1 : 0;
+
     return err('bad network') unless valid_network($network);
     return err('bad target')  unless valid_target($target);
     if (my $why = validate_text($text)) {
@@ -264,7 +281,7 @@ sub handle_request {
         unless may_send_to($server, $target);
     return err('network not connected') unless $server->{connected};
 
-    send_message($server, $target, $text);
+    send_message($server, $target, $text, $is_action);
 
     # irssi writes its timestamp with minute precision, so the echo is looked
     # for against the local clock's minute. Taking the time before the send
@@ -488,18 +505,36 @@ sub handle_wait {
 # to avoid — a narrower parser than the input line, but still a parser, and
 # still one that reads `$` and a leading `-` as meaning something.
 sub send_message {
-    my ($server, $target, $text) = @_;
+    my ($server, $target, $text, $is_action) = @_;
 
     my $is_channel = $target =~ /\A[#&]/;
 
-    # 0 is a channel and 1 is a nick, from irssi's own SEND_TARGET_ constants.
-    $server->send_message($target, $text, $is_channel ? 0 : 1);
+    # ⚠ AN ACTION IS AN ORDINARY PRIVMSG IN A CTCP WRAPPER, which is what lets
+    # `/me` work from the app without a command parser anywhere. `\x01ACTION
+    # text\x01` on the wire; the text inside has already passed `validate_text`,
+    # so the only control characters in the line are the two this puts there.
+    my $wire = $is_action ? "\001ACTION $text\001" : $text;
 
+    # 0 is a channel and 1 is a nick, from irssi's own SEND_TARGET_ constants.
+    $server->send_message($target, $wire, $is_channel ? 0 : 1);
+
+    # ⚠ THE SIGNAL IS WHAT MAKES IRSSI LOG IT — see the note above — and an
+    # action has ONE signal for both channels and queries, where a message has
+    # two. It also carries the UNWRAPPED text: the handlers that display and log
+    # it add the ` * nick ` form themselves, so passing the CTCP bytes here would
+    # put them in the log and then in the archive.
+    #
     # `own_private` carries the target twice: what was typed and what it
     # resolved to. They are the same here — nothing in this path rewrites it.
-    $is_channel
-        ? Irssi::signal_emit('message own_public',  $server, $text, $target)
-        : Irssi::signal_emit('message own_private', $server, $text, $target, $target);
+    if ($is_action) {
+        Irssi::signal_emit('message irc own_action', $server, $text, $target);
+    }
+    elsif ($is_channel) {
+        Irssi::signal_emit('message own_public', $server, $text, $target);
+    }
+    else {
+        Irssi::signal_emit('message own_private', $server, $text, $target, $target);
+    }
 }
 
 # ------------------------------------------------------------------- plumbing

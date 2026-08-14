@@ -225,4 +225,53 @@ sub mkdir_p {
     is(sent_count(), $before + 1, 'and the message goes');
 }
 
+# ---------------------------------------------------------------- /me
+
+# ⚠ MEASURED FIRST, NOT DESIGNED: `/me waves` typed into the app's composer
+# reached #linux as the four literal characters `/me` followed by the words,
+# because this script hands the composer's text to irssi as DATA and never lets
+# it near a command parser. That property is the whole point — it is what makes
+# `/exec` and an embedded newline harmless from a web request — so the fix could
+# not be "parse one command". An action is a PRIVMSG in a CTCP wrapper, so it is
+# expressible as DATA plus a flag, and the wrapper is built HERE.
+{
+    my $reply = ask({ network => $NET, target => $CHAN, text => 'waves', action => JSON::PP::true });
+    ok($reply->{ok}, 'an action is accepted');
+    my $last = $server->{sent}[-1];
+    is($last->{text}, "\001ACTION waves\001", 'the CTCP wrapper is on the WIRE');
+    is($last->{type}, 0, 'and a channel is still addressed as a channel');
+    # ⚠ One signal for actions, where a message has two — and it carries the
+    # UNWRAPPED text, because the display and logging handlers add the ` * nick `
+    # form themselves. Emitting the wrapped bytes would put \001 in the autolog
+    # and from there into the archive.
+    is($Irssi::SIGNALS[-1][0], 'message irc own_action', 'the action signal, not own_public');
+    is($Irssi::SIGNALS[-1][2], 'waves', 'the signal carries the text without the wrapper');
+}
+
+{
+    my $reply = ask({ network => $NET, target => $NICK, text => 'prods', action => JSON::PP::true });
+    ok($reply->{ok}, 'an action in a query is accepted');
+    is($server->{sent}[-1]{text}, "\001ACTION prods\001", 'wrapped');
+    is($server->{sent}[-1]{type}, 1, 'and a nick is addressed as a nick');
+    is($Irssi::SIGNALS[-1][0], 'message irc own_action', 'the same signal as in a channel');
+}
+
+# ⚠ THE CALLER MAY NOT SEND THE WRAPPER ITSELF. `validate_text` refuses control
+# characters because CR and LF end an IRC protocol line; \001 is refused by the
+# same rule, and that is deliberate rather than incidental. Opening a hole for
+# it would mean deciding which control characters are safe — the allow-list
+# judgement this design exists to remove.
+{
+    my $reply = ask({ network => $NET, target => $CHAN, text => "\001ACTION sneaks\001" });
+    ok(!$reply->{ok}, 'raw CTCP framing from the caller is refused');
+    like($reply->{error}, qr/control character/, 'by the control-character rule, not a special case');
+}
+
+{
+    my $before = scalar @{ $server->{sent} };
+    my $reply = ask({ network => $NET, target => $CHAN, text => 'waves', action => { yes => 1 } });
+    ok(!$reply->{ok}, 'a non-boolean action is refused');
+    is(scalar @{ $server->{sent} }, $before, 'and nothing was sent');
+}
+
 done_testing();
