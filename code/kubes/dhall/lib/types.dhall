@@ -601,8 +601,62 @@ let ConfigMapDoc = { name : Text, files : List { mapKey : Text, mapValue : Text 
 -- to "how is this reached"), and `storage` became `claims` plus an ordinary
 -- volume/mount pair — `namespaceOf` performs that translation, so `App` keeps
 -- its single-`Storage` sugar and no model file changed for it.
+--| Who creates the namespace this tree deploys into.
+--
+-- `Own` is every tree but one. `Elsewhere` exists because `messages` is a pod in
+-- the `signal` namespace — a `secretKeyRef` cannot cross namespaces and it reads
+-- `signal-secret` — so `kubes/signal/k8s` creates the namespace and
+-- `kubes/messages/k8s` deploys into it.
+--
+-- ⚠ ONE STATEMENT, FOUR CONSEQUENCES, which is why this is a field rather than
+-- four. Saying "the namespace is someone else's" settles all of them at once:
+--
+--   1. no Namespace object is rendered — a second copy of a shared object is how
+--      two trees start fighting over it (`site.dhall` says the same for `web`);
+--   2. no `allow-no-netpol` waiver — the namespace IS policed, by the owner's
+--      tree, and dev-lint fails a waiver that waives nothing;
+--   3. nothing may be named after `name`, because `name` is someone else's;
+--   4. so the names that would have been derived are carried HERE instead.
+--
+-- The payload is not a bundle of unrelated fields: it is exactly what losing
+-- ownership of the name takes away.
+let Owner =
+      < --| This tree creates the namespace, and every object named after it.
+        Own
+      | Elsewhere :
+          { --| The tree that does create it, relative to `kubes/`. Documentation
+            --  — nothing resolves it — but a reviewer reading a manifest with no
+            --  Namespace in it needs to know where the Namespace went.
+            tree : Text
+          , --| This app's own identity, which for an owned namespace IS the
+            --  namespace name. Names the Secret and the TLS secret: `messages`
+            --  reads `messages-secret` while living in `signal`.
+            slug : Text
+          , --| The Ingress object's name, stated because it cannot be derived:
+            --  the live object is `messages`, with no `-ingress` suffix, and
+            --  every other tree's is `${name}-ingress`.
+            --
+            -- ⚠ Renaming a live Ingress is delete-then-create rather than
+            -- apply — the nginx admission webhook refuses the overlap — so this
+            -- name predates the model and outlives it. Same reason
+            -- `signal-cli-egress-internet` and `site.dhall`'s `Overlay.name` are
+            -- stated: an object that exists has a name already.
+            ingressName : Text
+          }
+      >
+
+--| A file in the live tree this model does NOT produce, with the reason.
+--
+-- Stating them is what keeps `--check` honest: a manifest the model has never
+-- heard of is a failure, and the only way to make one not a failure is to say so
+-- here, where a reviewer sees it. Same escape hatch as `Durability.LossAccepted`
+-- and it costs the same sentence. Lifted from `site.dhall`, which needed it
+-- first and for the same reason.
+let Unowned = { file : Text, why : Text }
+
 let Namespace =
       { name : Text
+      , owner : Owner
       , cluster : Cluster
       , db : Optional Database
       , configMap : Optional ConfigMapDoc
@@ -610,6 +664,7 @@ let Namespace =
       , workloads : List Workload
       , secrets : List SecretKey
       , netpol : Netpol
+      , unowned : List Unowned
       }
 
 let App =
@@ -688,7 +743,13 @@ let namespaceOf
                 a.storage
 
         in    a.{ name, cluster, db, configMap, secrets, netpol }
-            ⫽ { claims
+            ⫽ { -- An app IS its namespace: it creates the object and every name
+                -- derives from it. So the embedding fills both new fields and no
+                -- model file changes, which is what keeps `--check` a proof
+                -- about ι rather than a regression test.
+                owner = Owner.Own
+              , unowned = [] : List Unowned
+              , claims
               , workloads =
                 [   a.workload
                   ⫽ { volumes = a.workload.volumes # extraVolumes
@@ -720,6 +781,8 @@ in  { Cluster
     , Hardening
     , Workload
     , ScheduledTask
+    , Owner
+    , Unowned
     , Namespace
     , namespaceOf
     , Database

@@ -95,6 +95,10 @@ let attachmentsClaim
       }
 
 in  { name = "signal"
+    , -- This tree creates the namespace — including the one `messages` runs in.
+      -- See `T.Owner`, and `messages.dhall`'s `Elsewhere` pointing back here.
+      owner = T.Owner.Own
+    , unowned = [] : List T.Unowned
     , cluster = T.Cluster.isis
     , db = Some
       { dbName = "signal"

@@ -46,16 +46,29 @@ let Annotations = List { mapKey : Text, mapValue : Text }
 -- `IngressFromNginx` counts as NO: it renders to a `-held.yaml` that is
 -- deliberately outside the applied set, so the namespace is still undefended
 -- and the waiver is still the honest record.
+--
+-- ⚠ A namespace owned ELSEWHERE also counts as YES, and this is the second half
+-- of `T.Owner`'s point rather than a special case bolted on. `messages` renders
+-- no policy — its egress rule is declared in signal's tree, where the namespace's
+-- policies live — but the namespace it runs in has a default-deny all the same.
+-- Asking only `ns.netpol` would read `Unpoliced` and emit a waiver for a
+-- namespace that IS defended, which dev-lint fails as ineffective, correctly.
 let hasAppliedNetpol
     : T.Namespace → Bool
     = λ(ns : T.Namespace) →
         merge
-          { Unpoliced = False
-          , IngressFromNginx = False
-          , Egress = λ(_ : List T.EgressTo) → True
-          , Policies = λ(_ : List T.NetpolPolicy) → True
+          { Own =
+              merge
+                { Unpoliced = False
+                , IngressFromNginx = False
+                , Egress = λ(_ : List T.EgressTo) → True
+                , Policies = λ(_ : List T.NetpolPolicy) → True
+                }
+                ns.netpol
+          , Elsewhere =
+              λ(_ : { tree : Text, slug : Text, ingressName : Text }) → True
           }
-          ns.netpol
+          ns.owner
 
 --| Does this app's Deployment carry a `hostPort`?
 --
@@ -103,6 +116,71 @@ let clusterHost
           { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
           ns.cluster
 
+--| The declared-unowned filenames, one per line, for the generator's `--check`.
+--
+-- A `List/fold` rather than a Prelude import, and `site.dhall`'s twin says why:
+-- this directory vendors the two list helpers it needs instead of pulling a
+-- package over the network, so that rendering never depends on being online.
+--
+-- Empty for every tree that owns all of its manifests, which is thirteen of
+-- them. `--check` excludes exactly these files and nothing else, so a manifest
+-- appearing in a live tree without a line here is still a failure.
+let unownedFiles
+    : T.Namespace → Text
+    = λ(ns : T.Namespace) →
+        List/fold
+          T.Unowned
+          ns.unowned
+          Text
+          ( λ(u : T.Unowned) →
+            λ(acc : Text) →
+              ''
+              ${u.file}
+              ${acc}''
+          )
+          ""
+
+--| The name every object in this tree is named AFTER.
+--
+-- ⚠ NOT `ns.name`, and the difference is the whole of `T.Owner`. For thirteen of
+-- fourteen trees the two coincide and this is the identity; for `messages` they
+-- do not, and `secretNameFor ns.name` would ask a pod in the `signal` namespace
+-- to read `signal-secret` for its OWN session keys.
+--
+-- Every derivation below goes through this, including the database and claim
+-- names that no `Elsewhere` tree currently uses. That is deliberate: a second
+-- one, with a database of its own, would otherwise render `signal-db` into a
+-- namespace that already has a `signal-db`, and the collision would appear as
+-- one Service selecting two different pods. Closing it now costs nothing —
+-- `Own` makes every one of these the identity — and it cannot be closed later by
+-- anyone who has not just read this comment.
+--
+-- `ns.name` survives in exactly one role: the namespace a resource lives IN,
+-- which is `meta`'s second argument.
+let slugOf
+    : T.Namespace → Text
+    = λ(ns : T.Namespace) →
+        merge
+          { Own = ns.name
+          , Elsewhere =
+              λ(o : { tree : Text, slug : Text, ingressName : Text }) → o.slug
+          }
+          ns.owner
+
+--| The Ingress object's own name. Derived where the tree owns its namespace,
+--  stated where it does not — see `T.Owner.Elsewhere.ingressName` for why an
+--  Ingress name is not free to change.
+let ingressNameOf
+    : T.Namespace → Text
+    = λ(ns : T.Namespace) →
+        merge
+          { Own = "${ns.name}-ingress"
+          , Elsewhere =
+              λ(o : { tree : Text, slug : Text, ingressName : Text }) →
+                o.ingressName
+          }
+          ns.owner
+
 -- Keyed on the NAMESPACE NAME rather than on an `App`, because both `T.App` and
 -- `T.Namespace` need them and Dhall has no subtyping — a function taking one
 -- record type will not accept a wider one. The `App`-shaped versions below are
@@ -115,13 +193,13 @@ let pvcNameFor = λ(name : Text) → "${name}-db-pvc"
 
 let dataPvcNameFor = λ(name : Text) → "${name}-data-pvc"
 
-let secretName = λ(ns : T.Namespace) → secretNameFor ns.name
+let secretName = λ(ns : T.Namespace) → secretNameFor (slugOf ns)
 
-let dbName = λ(ns : T.Namespace) → dbNameFor ns.name
+let dbName = λ(ns : T.Namespace) → dbNameFor (slugOf ns)
 
-let pvcName = λ(ns : T.Namespace) → pvcNameFor ns.name
+let pvcName = λ(ns : T.Namespace) → pvcNameFor (slugOf ns)
 
-let dataPvcName = λ(ns : T.Namespace) → dataPvcNameFor ns.name
+let dataPvcName = λ(ns : T.Namespace) → dataPvcNameFor (slugOf ns)
 
 --| The pod-local name of the app's own volume. Distinct from the database's
 --  `data` volume, which lives in a different pod entirely.
@@ -344,14 +422,26 @@ let containerSecurityContext
         , capabilities.drop = [ "ALL" ]
         }
 
+--| The Namespace object — rendered only by the tree that owns it.
+--
+-- An empty list where it does not, which is the same "renderer opts out" shape
+-- as `pvc` and `configMap`: no document, so `generate.sh` writes no file and
+-- there is no `00-namespace.yaml` to disagree with signal's.
 let namespace
     : T.Namespace → List K.Namespace
     = λ(ns : T.Namespace) →
-        [ { apiVersion = "v1"
-          , kind = "Namespace"
-          , metadata = clusterMeta ns.name
+        merge
+          { Own =
+            [ { apiVersion = "v1"
+              , kind = "Namespace"
+              , metadata = clusterMeta ns.name
+              }
+            ]
+          , Elsewhere =
+              λ(_ : { tree : Text, slug : Text, ingressName : Text }) →
+                [] : List K.Namespace
           }
-        ]
+          ns.owner
 
 --| The app's own ConfigMap, if it declares one.
 --
@@ -449,7 +539,7 @@ let pvc
               λ(d : T.Database) →
                 [ { apiVersion = "v1"
                   , kind = "PersistentVolumeClaim"
-                  , metadata = meta (pvcNameFor ns.name) ns.name
+                  , metadata = meta (pvcNameFor (slugOf ns)) ns.name
                   , spec =
                     { accessModes = [ "ReadWriteOnce" ]
                     , resources.requests.storage
@@ -494,15 +584,15 @@ let dbDeployment
               λ(d : T.Database) →
                 [ { apiVersion = "apps/v1"
                   , kind = "Deployment"
-                  , metadata = meta (dbNameFor ns.name) ns.name
+                  , metadata = meta (dbNameFor (slugOf ns)) ns.name
                   , spec =
                     { replicas = 1
                     , -- Single RWO PVC: never run two DB pods at once.
                       strategy = Some
                       { type = "Recreate" }
-                    , selector.matchLabels = appLabels (dbNameFor ns.name)
+                    , selector.matchLabels = appLabels (dbNameFor (slugOf ns))
                     , template =
-                      { metadata.labels = appLabels (dbNameFor ns.name)
+                      { metadata.labels = appLabels (dbNameFor (slugOf ns))
                       , spec =
                         { -- The official image runs as uid 999 (mysql) when
                           -- started unprivileged; fsGroup keeps the data dir
@@ -540,7 +630,7 @@ let dbDeployment
                                   ( L.map
                                       T.EnvVar
                                       K.EnvVar
-                                      (renderEnv (secretNameFor ns.name))
+                                      (renderEnv (secretNameFor (slugOf ns)))
                                       [ { name = "MARIADB_AUTO_UPGRADE"
                                         , -- Migrate system tables on first start
                                           -- after a major bump.
@@ -625,7 +715,7 @@ let dbDeployment
                         , volumes = Some
                           [ { name = "data"
                             , persistentVolumeClaim = Some
-                              { claimName = pvcNameFor ns.name }
+                              { claimName = pvcNameFor (slugOf ns) }
                             , configMap = None { name : Text }
                             , emptyDir = None {}
                             , hostPath = None { path : Text, type : Text }
@@ -648,12 +738,12 @@ let dbService
               λ(_ : T.Database) →
                 [ { apiVersion = "v1"
                   , kind = "Service"
-                  , metadata = meta (dbNameFor ns.name) ns.name
+                  , metadata = meta (dbNameFor (slugOf ns)) ns.name
                   , spec =
                     { -- headless; the app reaches it by name
                       clusterIP = Some
                         "None"
-                    , selector = appLabels (dbNameFor ns.name)
+                    , selector = appLabels (dbNameFor (slugOf ns))
                     , ports =
                       [ { port = 3306
                         , targetPort = Some 3306
@@ -813,7 +903,7 @@ let deploymentFor
                               ( L.map
                                   T.EnvVar
                                   K.EnvVar
-                                  (renderEnv (secretNameFor ns.name))
+                                  (renderEnv (secretNameFor (slugOf ns)))
                                   w.env
                               )
                         , readinessProbe =
@@ -960,7 +1050,7 @@ let cronJobsFor
                               ( L.map
                                   T.EnvVar
                                   K.EnvVar
-                                  (renderEnv (secretNameFor ns.name))
+                                  (renderEnv (secretNameFor (slugOf ns)))
                                   t.env
                               )
                           , resources = Some t.resources
@@ -1038,7 +1128,7 @@ let ingressFor
                 in  [ { apiVersion = "networking.k8s.io/v1"
                       , kind = "Ingress"
                       , metadata =
-                            meta "${ns.name}-ingress" ns.name
+                            meta (ingressNameOf ns) ns.name
                           ⫽ { annotations = Some
                                 ( toMap
                                     { `cert-manager.io/cluster-issuer` =
@@ -1049,7 +1139,7 @@ let ingressFor
                       , spec =
                         { ingressClassName = "nginx"
                         , tls =
-                          [ { hosts = [ host ], secretName = "${ns.name}-tls" }
+                          [ { hosts = [ host ], secretName = "${slugOf ns}-tls" }
                           ]
                         , rules =
                           [ { host
@@ -1114,7 +1204,7 @@ let netpolDb
                         )
                         ns.name
                   , spec =
-                    { podSelector.matchLabels = Some (appLabels (dbNameFor ns.name))
+                    { podSelector.matchLabels = Some (appLabels (dbNameFor (slugOf ns)))
                     , policyTypes = [ "Ingress" ]
                     , ingress = Some
                       [ { from =
@@ -1188,7 +1278,7 @@ let ingressFromNginx
       λ(w : T.Workload) →
         { apiVersion = "networking.k8s.io/v1"
         , kind = "NetworkPolicy"
-        , metadata = meta "${ns.name}-app-from-ingress-only" ns.name
+        , metadata = meta "${slugOf ns}-app-from-ingress-only" ns.name
         , spec =
           { podSelector.matchLabels = Some (appLabels w.name)
           , policyTypes = [ "Ingress" ]
@@ -1357,7 +1447,7 @@ let ingressFromNginx
       λ(w : T.Workload) →
         { apiVersion = "networking.k8s.io/v1"
         , kind = "NetworkPolicy"
-        , metadata = meta "${ns.name}-app-from-ingress-only" ns.name
+        , metadata = meta "${slugOf ns}-app-from-ingress-only" ns.name
         , spec =
           { podSelector.matchLabels = Some (appLabels w.name)
           , policyTypes = [ "Ingress" ]
@@ -1505,4 +1595,5 @@ in  { storageWaiver
     , hasDb
     , hasAppliedNetpol
     , usesHostPort
+    , unownedFiles
     }
