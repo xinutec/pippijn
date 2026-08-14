@@ -12,6 +12,7 @@ signal-ingester        signal-db             3306  open     # the archive it wri
 signal-ingester        signal-cli-rest-api   8080  open     # the receive websocket
 messages               signal-db             3306  open     # the archive it reads
 messages               188.165.200.180        443  open     # NC token exchange, hairpinned
+messages               10.100.0.1            2230  open     # amun's sshd: sending as Pippijn, through irssi
 signal-cli-rest-api    chat.signal.org        443  open     # Signal itself
 signal-cli-rest-api    cdn.signal.org         443  open     # attachment blobs
 
@@ -32,4 +33,8 @@ signal-irclog-import   1.1.1.1                443  blocked  # no internet for th
 # And nothing else in the namespace inherits it — the reason a CronJob's pods
 # carry labels at all.
 signal-ingester        10.100.0.1            2230  blocked  # the archiver has no business on amun
-messages               10.100.0.1            2230  blocked  # nor the viewer
+# The viewer's own reach to that host is bounded the same way the importer's is.
+# It reaches 2230 because it sends IRC through irssi; what stops that from being
+# "the viewer may reach amun" is these two.
+messages               10.100.0.1              22  blocked  # amun's real sshd, not the irssi container's
+messages               10.100.0.2            2230  blocked  # not isis itself

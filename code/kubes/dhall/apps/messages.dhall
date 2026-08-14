@@ -38,6 +38,28 @@ let port = 8080
 
 let attachmentsPath = "/attachments"
 
+-- The send path. `messages` is a reader everywhere else; this is the one thing
+-- it does that leaves the cluster and the one thing it does that another person
+-- sees.
+--
+-- ⚠ THE KEY IS ITS OWN SECRET, not a field in `messages-secret`, for the same
+-- reason the importer's is: it is a credential to a DIFFERENT CLUSTER with a
+-- different lifetime. Rotating the session secret should not mean touching a
+-- key that is authorised on amun, and vice versa.
+let sendKeySecret = "messages-irc-send"
+
+let sendKeyMount = "/ssh-irc"
+
+-- ⚠ A WRITABLE SCRATCH DIRECTORY IS REQUIRED, and only because of how ssh reads
+-- key permissions. The secret volume is mounted 0444 — 0400 would be unreadable,
+-- since a secret volume's files belong to root rather than to `runAsUser`, and
+-- it fails wearing an unrelated error ("no host key known") because an
+-- unreadable known_hosts is indistinguishable from an empty one. But ssh then
+-- refuses a key carrying any group or other bit, whatever the volume says. So
+-- the key is copied to 0400 before use, and `readOnlyRootFs` means there is
+-- nowhere to copy it to without this.
+let sendWorkMount = "/run/irc"
+
 -- This app's OWN secret, `messages-secret`. The archive's DB credentials are
 -- NOT here: they live in `signal-secret`, which this model does not manage, and
 -- `T.EnvValue.FromUnmanagedSecret` is how a model says it expects to find a key
@@ -128,6 +150,15 @@ in  { name = "signal"
           , { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
           , { name = "NC_CLIENT_SECRET", value = secret keys.NC_CLIENT_SECRET }
           , { name = "ATTACHMENTS_DIR", value = lit attachmentsPath }
+          , { -- irssi over WireGuard, by address rather than by name: the same
+              -- host and port the importer pulls the logs from, reached with a
+              -- different key that may only send.
+              name = "IRC_SEND_HOST"
+            , value = lit "10.100.0.1"
+            }
+          , { name = "IRC_SEND_PORT", value = lit "2230" }
+          , { name = "IRC_SEND_KEY_DIR", value = lit sendKeyMount }
+          , { name = "IRC_SEND_WORK_DIR", value = lit sendWorkMount }
           ]
         , probeTiming =
             { readiness = { initialDelaySeconds = 2, periodSeconds = 10 }
@@ -150,6 +181,16 @@ in  { name = "signal"
               -- for why a name would not do.
               source = T.VolumeSource.Claim claims.attachments
             }
+          , { name = "sendkey"
+            , source =
+                T.VolumeSource.Secret
+                  { name = sendKeySecret
+                  , -- 0444 rather than 0400; see `sendWorkMount` above for why
+                    -- the tighter mode is the unreadable one.
+                    mode = Some T.fileMode.anyoneRead
+                  }
+            }
+          , { name = "sendwork", source = T.VolumeSource.EmptyDir }
           ]
         , mounts =
           [ { name = "attachments"
@@ -158,6 +199,16 @@ in  { name = "signal"
             , -- The ingester writes these; this pod only shows them. RWO is
               -- satisfied because both pods land on the one node.
               readOnly = True
+            }
+          , { name = "sendkey"
+            , mountPath = sendKeyMount
+            , subPath = None Text
+            , readOnly = True
+            }
+          , { name = "sendwork"
+            , mountPath = sendWorkMount
+            , subPath = None Text
+            , readOnly = False
             }
           ]
         , tasks = [] : List T.ScheduledTask

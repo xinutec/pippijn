@@ -217,8 +217,13 @@ in  { name = "signal"
             , -- ⚠ TWO STEPS, so a shell. The logs are on the OTHER CLUSTER —
               -- irssi runs in `vps-pippijn` on amun — so they are pulled over
               -- ssh into `${irclogMount}` and imported from there. The far side
-              -- pins this key to `rrsync -ro`, so what this command can do
+              -- pins this key to `irclog-pull`, so what this command can do
               -- there is read that one directory and nothing else.
+              --
+              -- NOT `rrsync`, which is what a `command=` for this should be and
+              -- is what this said until the send path was built: it is a python3
+              -- script in an image with no python3, so a key pinned to it is
+              -- inert rather than restricted.
               --
               -- ⚠ NO `--delete`, and not as an oversight. irssi's autolog only
               -- ever appends, so there is nothing upstream to mirror away; and
@@ -343,7 +348,7 @@ in  { name = "signal"
             }
           , { -- The IRC importer, and ONLY it, may reach amun's sshd. That is
               -- the whole of its outside world: one address, one port, and the
-              -- key it presents is pinned to `rrsync -ro` on the far side, so
+              -- key it presents is pinned to `irclog-pull` on the far side, so
               -- the reach this grants is "read one directory".
               --
               -- ⚠ This is why a CronJob's pods carry labels — see `K.JobSpec`.
@@ -388,6 +393,33 @@ in  { name = "signal"
                       }
                   ]
                 , ports = [ { port = 443, protocol = "TCP" } ]
+                }
+              ]
+            }
+          , { -- The viewer may reach amun's sshd too, and for the opposite
+              -- reason to the importer: to SEND. This is the only egress in the
+              -- namespace that exists so something can leave rather than arrive.
+              --
+              -- ⚠ SAME ADDRESS AND PORT AS THE IMPORTER'S RULE, DIFFERENT KEY,
+              -- AND THAT IS WHERE THE LIMIT LIVES. A network policy cannot say
+              -- "may send an IRC message"; it can only say "may open 2230". What
+              -- makes this narrow is the far side: the key this pod presents is
+              -- pinned to `command="/home/irssi/bin/irc-send",restrict`, which
+              -- copies one line to a unix socket and one line back. The
+              -- importer's key on the same port is pinned to `irclog-pull` and
+              -- can only read. Neither can do the other's job, and neither can
+              -- get a shell.
+              name = "messages-egress-irssi"
+            , target = T.NetpolTarget.OneWorkload "messages"
+            , egress =
+              [ { to =
+                  [ T.NetpolPeer.Host
+                      { cidr = "${amunTunnel}/32"
+                      , why =
+                          "amun over WireGuard: irssi holds the IRC connections and lives in vps-pippijn on that cluster, so sending as Pippijn means reaching that host"
+                      }
+                  ]
+                , ports = [ { port = 2230, protocol = "TCP" } ]
                 }
               ]
             }

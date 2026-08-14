@@ -34,3 +34,37 @@ kubectl create secret -n signal generic messages-secret \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "messages-secret created/updated in namespace signal."
+echo
+
+# NOT generated here, and NOT part of messages-secret. This is a credential to
+# another cluster with a different lifetime: rotating the session secret should
+# not mean touching a key that is authorised on amun. The importer's read key is
+# separate for the same reason — see signal/k8s/secret.sh.
+#
+# ⚠ THE POD WILL NOT START WITHOUT THIS SECRET. A missing secret volume leaves it
+# Pending, so this runs BEFORE the manifest that mounts it, not after. That is
+# the opposite order from the importer, where a missing key only meant an hourly
+# job that failed.
+cat <<'EOF'
+The send path needs its own key, authorised on amun to do one thing:
+
+  ssh-keygen -t ed25519 -N '' -C messages-irc-send -f /root/messages-irc-send
+  ssh-keyscan -p 2230 10.100.0.1 > /root/messages_irc_known_hosts
+  kubectl -n signal create secret generic messages-irc-send \
+    --from-file=id_ed25519=/root/messages-irc-send \
+    --from-file=known_hosts=/root/messages_irc_known_hosts
+
+Then authorise it on the far side, pinned to sending and nothing else:
+
+  printf 'command="/home/irssi/bin/irc-send",restrict %s\n' \
+    "$(cat /root/messages-irc-send.pub)" | ssh irc 'cat >> ~/.ssh/authorized_keys'
+
+And say who it may talk to. The list is a file on irssi's volume rather than a
+constant, because this repository is public and who Pippijn talks to is not
+something it should record. It is read fresh on every request, so adding a line
+takes effect at once — no reload, no restart:
+
+  ssh irc 'echo "<network> <nick>" >> ~/.irssi/archive-send.allow'
+
+⚠ Fail-closed: with no such file, every send is refused.
+EOF

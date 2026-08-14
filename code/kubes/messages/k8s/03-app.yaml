@@ -55,6 +55,14 @@ spec:
               name: "messages-secret"
         - name: ATTACHMENTS_DIR
           value: /attachments
+        - name: IRC_SEND_HOST
+          value: '10.100.0.1'
+        - name: IRC_SEND_PORT
+          value: '2230'
+        - name: IRC_SEND_KEY_DIR
+          value: "/ssh-irc"
+        - name: IRC_SEND_WORK_DIR
+          value: /run/irc
         image: "xinutec/messages:latest"
         livenessProbe:
           httpGet:
@@ -87,6 +95,11 @@ spec:
         - mountPath: /attachments
           name: attachments
           readOnly: true
+        - mountPath: "/ssh-irc"
+          name: sendkey
+          readOnly: true
+        - mountPath: /run/irc
+          name: sendwork
       securityContext:
         fsGroup: 65532
         fsGroupChangePolicy: OnRootMismatch
@@ -99,6 +112,12 @@ spec:
       - name: attachments
         persistentVolumeClaim:
           claimName: "signal-attachments-pvc"
+      - name: sendkey
+        secret:
+          defaultMode: 292
+          secretName: "messages-irc-send"
+      - emptyDir: {}
+        name: sendwork
 ---
 apiVersion: v1
 kind: Service

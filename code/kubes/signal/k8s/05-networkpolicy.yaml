@@ -116,3 +116,24 @@ spec:
       app: messages
   policyTypes:
   - Egress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "messages-egress-irssi"
+  namespace: signal
+spec:
+  egress:
+  - ports:
+    - port: 2230
+      protocol: TCP
+    to:
+    - ipBlock:
+        cidr: 10.100.0.1/32
+        except: []
+  podSelector:
+    matchLabels:
+      app: messages
+  policyTypes:
+  - Egress
