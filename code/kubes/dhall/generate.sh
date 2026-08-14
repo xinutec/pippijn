@@ -66,38 +66,122 @@ site_tree() { # site -> its live manifest directory, relative to kubes/
   printf 'web/org/xinutec/%s/k8s' "$1"
 }
 
+# ⚠ A FAILED `ask` IS WORSE THAN A FAILED RENDER, and needs its own mechanism.
+#
+# `die_render`'s `exit` works because every renderer is called where a non-zero
+# substitution aborts the assignment. These are not: `hasDb` and
+# `hasAppliedNetpol` are read inside `[[ ]]`, which swallows the status, and
+# `unownedFiles` through a process substitution, which does the same. An `exit`
+# there kills the subshell and the script carries on.
+#
+# And carrying on is not merely untidy here, because these answers DECIDE things
+# rather than describe them. A failed `hasDb` reads as `False`, which puts the
+# DL-K8S-NP-DEFAULT-DENY waiver on `03-app.yaml` instead of `02-db.yaml` — a
+# waiver that then waives nothing, silently, in a file that renders perfectly.
+# That exact shape (the anchor decided outside the model) is what left utterance
+# unwaived from the day it was deployed; the comment at `header` tells that story.
+#
+# A render failure would usually take the run down first, since both evaluate the
+# same model — but not always. A typo'd EXPRESSION name fails `ask` while every
+# renderer still succeeds, and that is precisely the case with no other symptom.
+#
+# So failure is recorded in a file, which a subshell CAN do, and the loop below
+# refuses to write anything once it exists.
+ask_failed="" # set once $tmp exists
+
+die_ask() { # app expr rc
+  {
+    printf 'generate.sh: asking %s for R.%s FAILED — dhall exited %s\n' \
+      "$1" "$2" "$3"
+    printf '\n'
+    cat "$render_err"
+    printf '\n'
+    printf 'This answer DECIDES a waiver placement, so nothing is written.\n'
+  } >&2
+  : > "$ask_failed"
+  exit 1
+}
+
 ask() { # app expr -> the model's normalised answer
   # Evaluate a plain (non-manifest) expression against an app model, for facts
   # the generator needs that do not appear in the rendered YAML. Typechecked like
   # any other expression: a misspelled field here fails, it does not default.
-  printf 'let R = %s/lib/render.dhall in R.%s %s/apps/%s.dhall\n' \
-    "$here" "$2" "$here" "$1" | dhall
+  local out rc=0
+  out=$(printf 'let R = %s/lib/render.dhall in R.%s %s/apps/%s.dhall\n' \
+    "$here" "$2" "$here" "$1" | dhall 2>"$render_err") || rc=$?
+  (( rc == 0 )) || die_ask "$1" "$2" "$rc"
+  printf '%s' "$out"
 }
 
 ask_text() { # app expr -> the model's answer, as raw text
   # `dhall` renders a Text value with its quotes and escapes; `dhall text`
   # gives the string itself, which is what gets embedded in a comment.
-  printf 'let R = %s/lib/render.dhall in R.%s %s/apps/%s.dhall\n' \
-    "$here" "$2" "$here" "$1" | dhall text
+  local out rc=0
+  out=$(printf 'let R = %s/lib/render.dhall in R.%s %s/apps/%s.dhall\n' \
+    "$here" "$2" "$here" "$1" | dhall text 2>"$render_err") || rc=$?
+  (( rc == 0 )) || die_ask "$1" "$2" "$rc"
+  printf '%s' "$out"
+}
+
+# ⚠ A FAILED RENDER MUST STOP THE SCRIPT, and neither `set -e` nor a return code
+# will do it. Every renderer below is called inside `$( )`, and the substitution's
+# status is whatever its LAST command returned — `printf "%s" "$out"`, which
+# succeeds on the empty string. Measured 2026-08-14: with `set -euo pipefail` in
+# force, `body+=$(render ...)` over a model with a type error carried on with rc=0.
+#
+# What that produced was not a visible failure. In WRITE mode the app's directory
+# had already been emptied, so the run wrote nothing into it and printed
+# "rendered to ..." — and copying that directory over a live tree deletes every
+# manifest in it. In CHECK mode it printed `@@ -1,254 +0,0 @@`, the whole live
+# tree removed and nothing on the model side, which reads exactly like a tree
+# nobody has modelled yet: the ONE state a reader is trained to ignore. Three
+# sites regressed that way at once (#815), and three apps did it again on
+# 2026-08-14 while `T.Limits` was landing.
+#
+# `exit` DOES propagate: it kills the substitution's subshell with a non-zero
+# status, and `set -e` then aborts the assignment in the caller. Also measured,
+# because the whole point here is that the obvious mechanism was not working.
+die_render() { # what expr rc  (stderr file at $render_err)
+  {
+    printf 'generate.sh: rendering %s through %s FAILED — dhall exited %s\n' \
+      "$1" "$2" "$3"
+    printf '\n'
+    cat "$render_err"
+    printf '\n'
+    printf 'Nothing was written for this tree. Fix the model and re-run;\n'
+    printf 'do NOT copy generated/ over a live tree until this renders.\n'
+  } >&2
+  exit 1
 }
 
 site_render() { # site renderer -> YAML documents (nothing if the renderer opts out)
-  local out
+  local out rc=0
   out=$(printf 'let S = %s/lib/site.dhall in S.%s %s/sites/%s.dhall\n' \
     "$here" "$2" "$here" "$1" |
-    dhall-to-yaml-ng --omit-empty --documents)
+    dhall-to-yaml-ng --omit-empty --documents 2>"$render_err") || rc=$?
+  (( rc == 0 )) || die_render "$1" "S.$2" "$rc"
   [[ $out == "---"$'\n'"null" ]] && return 0
   printf '%s' "$out"
 }
 
 site_ask() { # site expr -> the model's normalised answer
-  printf 'let S = %s/lib/site.dhall in S.%s %s/sites/%s.dhall\n' \
-    "$here" "$2" "$here" "$1" | dhall
+  # Guarded exactly as `ask` is, and `netpolWaiver` is why it matters: all four
+  # sites share the `web` namespace, so exactly ONE may carry the no-netpol
+  # waiver. A silent `False` there drops it entirely and the namespace goes
+  # unwaived — the same failure as utterance's, one type up.
+  local out rc=0
+  out=$(printf 'let S = %s/lib/site.dhall in S.%s %s/sites/%s.dhall\n' \
+    "$here" "$2" "$here" "$1" | dhall 2>"$render_err") || rc=$?
+  (( rc == 0 )) || die_ask "site $1" "$2" "$rc"
+  printf '%s' "$out"
 }
 
 site_ask_text() { # site expr -> the model's answer, as raw text
-  printf 'let S = %s/lib/site.dhall in S.%s %s/sites/%s.dhall\n' \
-    "$here" "$2" "$here" "$1" | dhall text
+  local out rc=0
+  out=$(printf 'let S = %s/lib/site.dhall in S.%s %s/sites/%s.dhall\n' \
+    "$here" "$2" "$here" "$1" | dhall text 2>"$render_err") || rc=$?
+  (( rc == 0 )) || die_ask "site $1" "$2" "$rc"
+  printf '%s' "$out"
 }
 
 compare() { # label live-dir model-file [unowned-file ...]
@@ -145,7 +229,7 @@ netpol_anchor_file() { # app -> the manifest that carries the namespace's first 
 }
 
 render() { # app renderer -> YAML documents (nothing if the renderer opts out)
-  local out
+  local out rc=0
   # `--omit-empty` everywhere EXCEPT the NetworkPolicies, and the exception is
   # load-bearing rather than cosmetic. A default-deny selects the whole namespace
   # with `podSelector: {}` and denies a direction with an empty rule list — both
@@ -162,7 +246,9 @@ render() { # app renderer -> YAML documents (nothing if the renderer opts out)
   esac
   out=$(printf 'let R = %s/lib/render.dhall in R.%s %s/apps/%s.dhall\n' \
     "$here" "$2" "$here" "$1" |
-    dhall-to-yaml-ng "${flags[@]}")
+    dhall-to-yaml-ng "${flags[@]}" 2>"$render_err") || rc=$?
+  # See `die_render`: the status has to be read here, because the caller cannot.
+  (( rc == 0 )) || die_render "$1" "R.$2" "$rc"
   # A renderer that does not apply returns an empty list, which --omit-empty
   # serialises as one null document. That means "no file", not "a file
   # containing null".
@@ -406,12 +492,25 @@ status=0
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
+# Where a renderer's stderr lands, so a dhall type error can be printed WITH the
+# name of the tree and the renderer that hit it. Left un-redirected it still
+# reached the terminal, but sixteen trees up from the diff that it caused, which
+# is how it kept being read as noise.
+render_err="$tmp/render.err"
+
+# See `die_ask`: a subshell cannot abort this script, but it can leave a mark.
+ask_failed="$tmp/ask.failed"
+
 for src in "$here"/apps/*.dhall; do
   app=$(basename "$src" .dhall)
   outdir="$here/generated/$app"
   [[ $mode == write ]] && { rm -rf "$outdir"; mkdir -p "$outdir"; }
   : > "$tmp/$app.model.yaml"
   netpol_anchor=$(netpol_anchor_file "$app")
+  # `netpol_anchor_file` reads `hasDb` inside `[[ ]]`, so a failure there could
+  # not stop itself. This is where it stops. Repeated after the manifest loop
+  # because `header` and `host_port_waiver` ask again, from inside `[[ ]]` too.
+  if [[ -e $ask_failed ]]; then exit 1; fi
 
   for entry in "${manifests[@]}"; do
     file=${entry%%:*}
@@ -436,6 +535,26 @@ for src in "$here"/apps/*.dhall; do
     } > "$outdir/$file"
   done
 
+  if [[ -e $ask_failed ]]; then exit 1; fi
+
+  # ⚠ SECOND LINE OF DEFENCE, and it catches what the first cannot: a renderer
+  # that SUCCEEDS and returns nothing. `die_render` covers a dhall error, but an
+  # expression that legitimately evaluates to an empty list renders no document
+  # — that is the design (`pvc` on an app with no volume), and it is
+  # indistinguishable per-renderer from a mistake. Across the WHOLE tree it is
+  # not: no app in this fleet renders zero documents, so an empty model file
+  # means something went wrong that nobody has named yet.
+  #
+  # Stated as its own check rather than folded into `compare`, because write mode
+  # needs it just as much — that is the mode that empties a directory first.
+  if [[ ! -s $tmp/$app.model.yaml ]]; then
+    printf 'generate.sh: %s rendered NO documents at all.\n' "$app" >&2
+    printf 'Every app renders at least a Namespace and a Deployment, so this is\n' >&2
+    printf 'a fault rather than an empty app. Do NOT copy generated/%s over the\n' "$app" >&2
+    printf 'live tree — in check mode this appears as the whole tree deleted.\n' >&2
+    exit 1
+  fi
+
   if [[ $mode == check ]]; then
     # The model states which files it does NOT own, and only those are excluded
     # — the same contract the site loop has had since the sites landed. An app
@@ -443,6 +562,7 @@ for src in "$here"/apps/*.dhall; do
     # cluster-scoped cert-manager ClusterIssuer, one-time isis setup rather than
     # part of any app, and the model has no type for it.
     mapfile -t unowned < <(ask_text "$app" unownedFiles | grep -v '^$' || true)
+    if [[ -e $ask_failed ]]; then exit 1; fi
     compare "$app" "$kubes/$app/k8s" "$tmp/$app.model.yaml" "${unowned[@]}"
   fi
 done
@@ -468,9 +588,18 @@ for src in "$here"/sites/*.dhall; do
     [[ $mode == write ]] && { site_header "$site" "$file"; site_waiver "$site" "$file" "$body"; } > "$outdir/$file"
   done
 
+  if [[ -e $ask_failed ]]; then exit 1; fi
+
+  if [[ ! -s $tmp/$site.model.yaml ]]; then
+    printf 'generate.sh: site %s rendered NO documents at all.\n' "$site" >&2
+    printf 'A site renders at least a Deployment, a Service and an Ingress.\n' >&2
+    exit 1
+  fi
+
   if [[ $mode == check ]]; then
     # The model states which files it does NOT own, and only those are excluded.
     mapfile -t unowned < <(site_ask_text "$site" unownedFiles | grep -v '^$' || true)
+    if [[ -e $ask_failed ]]; then exit 1; fi
     compare "$site" "$kubes/$(site_tree "$site")" "$tmp/$site.model.yaml" "${unowned[@]}"
   fi
 done
