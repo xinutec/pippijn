@@ -14,8 +14,10 @@ spec:
           app: "fleetwatch-app"
     ports:
     - port: 3306
+      protocol: TCP
   podSelector:
     matchLabels:
       app: "fleetwatch-db"
   policyTypes:
   - Ingress
+

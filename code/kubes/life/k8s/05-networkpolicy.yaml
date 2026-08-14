@@ -14,8 +14,10 @@ spec:
           app: "life-app"
     ports:
     - port: 3306
+      protocol: TCP
   podSelector:
     matchLabels:
       app: "life-db"
   policyTypes:
   - Ingress
+

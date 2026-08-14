@@ -1305,7 +1305,17 @@ let netpolDb
                                 None { matchLabels : K.Labels }
                             }
                           ]
-                        , ports = [ { port = 3306, protocol = None Text } ]
+                        , -- `TCP` STATED, though it is the API's default, and
+                          -- this is not tidiness. A NetworkPolicy's `ports` is
+                          -- an ATOMIC list — no patch merge key — so `kubectl
+                          -- apply` replaces it wholesale. Omit the protocol and
+                          -- the patch drops the `TCP` the API defaulted in, the
+                          -- API puts it back, and the object reports
+                          -- `configured` on every apply for ever. Measured
+                          -- 2026-08-14: every db policy in the fleet did this,
+                          -- so `apply.sh`'s "no changes" verdict was false about
+                          -- netpols everywhere.
+                          ports = [ { port = 3306, protocol = Some "TCP" } ]
                         }
                       ]
                     , -- Says nothing about egress, as opposed to denying it:

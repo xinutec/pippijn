@@ -12,6 +12,7 @@ spec:
     - podSelector: {}
     ports:
     - port: 3306
+      protocol: TCP
   podSelector:
     matchLabels:
       app: "health-db"

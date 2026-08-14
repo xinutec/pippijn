@@ -14,8 +14,10 @@ spec:
           app: "coach-app"
     ports:
     - port: 3306
+      protocol: TCP
   podSelector:
     matchLabels:
       app: "coach-db"
   policyTypes:
   - Ingress
+

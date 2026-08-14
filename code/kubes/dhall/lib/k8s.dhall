@@ -331,9 +331,15 @@ let NetworkPolicyPeer =
             { matchLabels : List { mapKey : Text, mapValue : Text } }
       }
 
---| A port in a NetworkPolicy rule. `protocol` is absent for TCP, which is the
---  API's default; DNS needs both UDP and TCP named explicitly, so it cannot be
---  left implicit everywhere.
+--| A port in a NetworkPolicy rule.
+--
+-- ⚠ STATE THE PROTOCOL, even for TCP. It reads like a default worth leaving
+-- implicit and it is not: this list is ATOMIC in the API (no patch merge key),
+-- so `kubectl apply` replaces it whole. A manifest omitting `protocol` sends a
+-- patch that drops the `TCP` the API defaulted in, the API defaults it back, and
+-- the object is reported `configured` on every apply for ever — drift that never
+-- converges and never means anything. `Optional` remains only because UDP has to
+-- be sayable; nothing here should choose `None`.
 let NetworkPolicyPort = { port : Natural, protocol : Optional Text }
 
 --| `podSelector` is `Optional` so an empty selector — the whole namespace, which
