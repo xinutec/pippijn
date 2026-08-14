@@ -461,10 +461,20 @@ sub handle_wait {
 
     my $after = $req->{after};
     $after = 0 unless defined $after && !ref $after && $after =~ /\A[0-9]{1,19}\z/;
-    # A cursor ahead of ours means the plugin restarted and the sequence began
-    # again. Starting from here is right: the lines it names are already in the
-    # archive or will be, and the alternative is replaying the whole ring.
-    $after = $seq if $after > $seq;
+    # ⚠ A CURSOR AHEAD OF OURS MEANS THE PLUGIN RESTARTED, AND THE RING IS
+    # REPLAYED RATHER THAN SKIPPED. This first said "start from here, the lines
+    # are already in the archive or will be" — which is wrong in one window, and
+    # watching a live reload is what showed it: the puller's cursor was 13 while
+    # a freshly loaded script was at 2, so `$after = $seq` would have silently
+    # dropped every line logged between the reload and the next poll. Only the
+    # reconciler would have placed them.
+    #
+    # Replaying costs nothing. Every line the puller receives is written on the
+    # archive's dedupe key, so one it already has is refused rather than
+    # duplicated — which the live log shows as "1 line(s) offered, 0 written".
+    # Given a choice between re-offering a line and losing one, the dedupe key
+    # makes the first free and nothing makes the second cheap.
+    $after = 0 if $after > $seq;
 
     my $timeout = $req->{timeout_ms};
     $timeout = $MAX_WAIT_MS

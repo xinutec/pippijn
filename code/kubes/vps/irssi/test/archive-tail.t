@@ -228,13 +228,22 @@ sub reply_from {
 }
 
 {
-    # A cursor ahead of ours — the plugin restarted and began counting again.
+    # ⚠ A cursor ahead of ours means the plugin restarted and began counting
+    # again — and the whole ring is REPLAYED rather than skipped. Watching a
+    # live reload is what showed why: the puller's cursor was 13 while the fresh
+    # script was at 2, and "start from here" would have silently dropped every
+    # line logged between the reload and the next poll.
+    #
+    # Replaying costs nothing, because every line is written on the archive's
+    # dedupe key and one it already has is refused. Given a choice between
+    # re-offering a line and losing one, only the first is free.
     my $client = park(after => 9999, timeout_ms => 150);
     Time::HiRes::sleep(0.25);
     Irssi::fire_timeouts();
     my $reply = reply_from($client);
-    is($reply->{seq}, 5, 'a cursor from a previous life is reset, not replayed');
-    is_deeply($reply->{events}, [], 'and nothing is re-sent');
+    is($reply->{seq}, 5, 'the sequence is reported as it now stands');
+    is(scalar @{ $reply->{events} }, 5,
+        'and the ring is replayed, because a duplicate is free and a gap is not');
 }
 
 done_testing();
