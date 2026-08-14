@@ -53,46 +53,9 @@ let restApiName = "signal-cli-rest-api"
 
 let restApiPort = 8080
 
--- The claim holding signal-cli's linked-device keys and account state.
---
--- ⚠ SECRET-CLASS: whoever holds it can impersonate the linked device, so its
--- odin backup is sensitive. `LossAccepted` anyway, and the reason is not
--- indifference — the device can be re-linked from the phone, where a restore
--- of these keys onto a second running instance would be a second device
--- claiming to be the same one.
-let cliClaim
-    : T.Claim
-    = { name = "signal-cli-pvc"
-      , storageGi = 2
-      , durability =
-          T.Durability.LossAccepted
-            { why = "linked-device keys; re-link from the phone instead" }
-      , writers = T.Writers.Exclusive
-      , chown = T.FsGroupChange.Always
-      }
-
--- Downloaded attachment blobs, keyed by attachment id.
---
--- ⚠ MOUNTED BY TWO WORKLOADS AND TWO TREES: the ingester writes it, and the
--- `messages` viewer in another repo mounts it read-only. That is why `Writers`
--- is `Concurrent` and why claims belong to the NAMESPACE rather than to a
--- workload. RWO holds because both pods land on the one node.
-let attachmentsClaim
-    : T.Claim
-    = { name = "signal-attachments-pvc"
-      , storageGi = 20
-      , durability =
-          T.Durability.LossAccepted
-            { why = "re-downloadable from Signal while the messages remain" }
-      , writers =
-          T.Writers.Concurrent
-            { why =
-                "one writer (ingester) and one reader (messages, readOnly)"
-            }
-      , -- 20 Gi of blobs. Re-chowning them at every pod start buys nothing —
-        -- the root already carries the right group after the first mount.
-        chown = T.FsGroupChange.OnRootMismatch
-      }
+-- The claims this namespace owns. In their own file because `kubes/messages`
+-- mounts one of them — see `signal-claims.dhall`.
+let claims = ../signal-claims.dhall
 
 in  { name = "signal"
     , -- This tree creates the namespace — including the one `messages` runs in.
@@ -116,7 +79,7 @@ in  { name = "signal"
         }
       }
     , configMap = None T.ConfigMapDoc
-    , claims = [ cliClaim, attachmentsClaim ]
+    , claims = [ claims.cli, claims.attachments ]
     , workloads =
       [ { name = restApiName
         , -- A ClusterIP the ingester and the viewer resolve. Not `NoService`:
@@ -152,7 +115,7 @@ in  { name = "signal"
             -- say so: what a third-party JVM image needs is not ours to cap.
             limits = None T.Limits
           }
-        , volumes = [ { name = "data", source = T.VolumeSource.Claim cliClaim } ]
+        , volumes = [ { name = "data", source = T.VolumeSource.Claim claims.cli } ]
         , mounts =
           [ { name = "data"
             , mountPath = "/home/.local/share/signal-cli"
@@ -202,7 +165,7 @@ in  { name = "signal"
           }
         , volumes =
           [ { name = "attachments"
-            , source = T.VolumeSource.Claim attachmentsClaim
+            , source = T.VolumeSource.Claim claims.attachments
             }
           ]
         , mounts =
