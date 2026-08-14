@@ -43,28 +43,60 @@ cleanup() {
 }
 trap cleanup EXIT
 
-target_for() {
+# Sets $TARGET rather than printing it. ⚠ NOT a command substitution: that runs
+# in a subshell, so `ephemeral` would be recorded in a child and lost — the pod
+# gets created once, "already exists" on every row after, and the cleanup trap
+# never learns it is there. Which is to say the probe would leak a pod into the
+# namespace it is checking.
+TARGET=
+ensure_target() {
 	local name=$1
 	if kubectl -n "$ns" get deploy "$name" >/dev/null 2>&1; then
-		printf 'deploy/%s' "$name"
+		TARGET="deploy/$name"
 		return
 	fi
 	if [[ -z ${ephemeral[$name]:-} ]]; then
+		ephemeral[$name]=1
+		kubectl -n "$ns" delete pod "netpol-probe-$name" --now >/dev/null 2>&1 || true
 		kubectl -n "$ns" run "netpol-probe-$name" \
 			--image=xinutec/signal-archiver:latest \
 			--labels="app=$name" --restart=Never \
 			--command -- sleep 900 >/dev/null
 		kubectl -n "$ns" wait --for=condition=Ready \
 			"pod/netpol-probe-$name" --timeout=90s >/dev/null
-		ephemeral[$name]=1
+		wait_for_policy "$name"
 	fi
-	printf 'pod/netpol-probe-%s' "$name"
+	TARGET="pod/netpol-probe-$name"
+}
+
+# ⚠ READY IS NOT ENFORCED. kube-router programmes its ipsets from pod events, so
+# for a second or two a brand-new pod egresses as though no policy existed — and
+# the FIRST row probed against it comes back `open` whatever the policy says.
+#
+# That is not hypothetical: the first run of this against a fresh probe pod
+# reported 10.100.0.1:2230 open while :22 on the same host, from the same pod,
+# was correctly blocked. The difference was which row ran first.
+#
+# So: poll a destination nothing should ever reach until it is actually blocked,
+# and only then start believing the answers. A namespace with no default-deny
+# never satisfies this, hence the warning rather than a hang.
+wait_for_policy() {
+	local name=$1 i
+	for i in $(seq 1 30); do
+		if ! kubectl -n "$ns" exec "pod/netpol-probe-$name" -- \
+			timeout 3 bash -c 'exec 3<>/dev/tcp/1.1.1.1/443' >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep 1
+	done
+	printf '⚠ %s: egress to 1.1.1.1 never became blocked — either this namespace has no default-deny, or policy is not being enforced. Every `open` below is unproven.\n' \
+		"$name" >&2
 }
 
 probe() {
-	local deploy=$1 host=$2 port=$3 expect=$4 state target
-	target=$(target_for "$deploy")
-	if kubectl -n "$ns" exec "$target" -- \
+	local deploy=$1 host=$2 port=$3 expect=$4 state
+	ensure_target "$deploy"
+	if kubectl -n "$ns" exec "$TARGET" -- \
 		timeout 6 bash -c "exec 3<>/dev/tcp/$host/$port" >/dev/null 2>&1; then
 		state=open
 	else
