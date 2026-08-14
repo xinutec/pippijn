@@ -514,30 +514,29 @@ in  T.namespaceOf
               , schedule = "30 5 * * *"
               , command = [ "node", "dist/cli/refresh-bus-routes.js" ]
               , deadlineSeconds = 5400
-              , -- SUSPENDED, and the reason is now a DEPLOY dependency rather than
-                -- an open question. Resume this the moment the health image ships
-                -- the per-tile write; nothing else is outstanding.
+              , -- RESUMED 2026-08-14 21:xx, and this time the deploy dependency is
+                -- actually met: the running image was built 19:04:25Z from
+                -- `1994da1`, which has `8638516` (the per-tile write) as an
+                -- ancestor. Checked with `git merge-base --is-ancestor` before
+                -- flipping, not assumed.
                 --
-                -- Resumed on 2026-08-14 and re-suspended the same hour. The fix
-                -- that makes unattended running safe — a partial run replaces only
-                -- the tiles that ANSWERED and leaves the rest their rows
-                -- (`refresh-bus-routes.ts`) — was verified against the prod DB from
-                -- a LOCAL build: 4 of 18 tiles lost, mirror 995 -> 1000 routes.
-                -- The cluster runs the deployed image, which predates it, so the
-                -- catch-up run this un-suspend triggered used the OLD count
-                -- threshold, refused (`1000 -> 652`), exited 1 and crashlooped.
+                -- Why that check and not a smoke test: this was un-suspended
+                -- earlier the same day and crashlooped within the hour. The fix
+                -- had been verified against the prod DB from a LOCAL build (4 of
+                -- 18 tiles lost, mirror 995 -> 1000), but the cluster ran an older
+                -- image, so the catch-up run used the OLD count threshold, refused
+                -- (`1000 -> 652`) and exited 1. Nothing was damaged — that guard
+                -- refuses rather than overwrites — and the lesson is worth keeping
+                -- past the fix: verifying against the prod DATABASE says nothing
+                -- about what the prod IMAGE will do.
                 --
-                -- Nothing was damaged — the old guard refuses rather than
-                -- overwrites, and the mirror still holds its 1000 rows. The lesson
-                -- is narrower and worth keeping: verifying a fix against the prod
-                -- DATABASE says nothing about what the prod IMAGE will do. health
-                -- is 30+ commits ahead of origin and blocked behind its golden
-                -- gates (#813), so this cannot resume until that ships.
-                --
+                -- What makes unattended running safe now: a partial run replaces
+                -- only the tiles that ANSWERED and leaves every other tile its rows
+                -- (`refresh-bus-routes.ts`), so a 504 cannot shrink the mirror.
                 -- Overpass 504s are routine, not a fault: runs on 2026-08-14 lost
                 -- 1, 6, 4 and 8 of 18 tiles. Under the per-tile write that is a
-                -- normal night; under the count threshold it is a refusal.
-                suspended = True
+                -- normal night; under the count threshold it was a refusal.
+                suspended = False
               , volumes = [] : List T.Volume
               , mounts = [] : List T.VolumeMount
               , env = dbEnv
