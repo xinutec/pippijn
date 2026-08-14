@@ -428,6 +428,21 @@ in  { name = "signal"
           , { name = "DB_NAME", value = lit "signal" }
           , { name = "DB_USER", value = secret keys.DB_USER }
           , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
+          , -- ⚠ WITHOUT THESE EVERY LINE IS SOMEBODY ELSE'S, INCLUDING HIS OWN,
+            -- and this shipped without them. The first message the live tier
+            -- pushed was Pippijn's and the app drew it as another person's —
+            -- silently, because `is_self` has no wrong value, only a wrong one.
+            --
+            -- The binary now refuses to start without `IRC_SELF_NICK`, so the
+            -- next omission is a CrashLoopBackOff rather than a conversation
+            -- attributed to a stranger. Read from the environment rather than
+            -- passed as arguments because, unlike the importer, this needs no
+            -- shell and adding one to expand a variable is machinery for its
+            -- own sake.
+            { name = "IRC_SELF_NICK", value = secret keys.IRC_SELF_NICK }
+          , { name = "IRC_SELF_NICK_ALT"
+            , value = secret keys.IRC_SELF_NICK_ALT
+            }
           ]
         , probeTiming = T.standardTiming
         , -- ⚠ THE POINT OF THE HEARTBEAT, and the reason this is not

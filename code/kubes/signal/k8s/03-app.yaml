@@ -168,6 +168,16 @@ spec:
             secretKeyRef:
               key: DB_PASSWORD
               name: "signal-secret"
+        - name: IRC_SELF_NICK
+          valueFrom:
+            secretKeyRef:
+              key: IRC_SELF_NICK
+              name: "signal-secret"
+        - name: IRC_SELF_NICK_ALT
+          valueFrom:
+            secretKeyRef:
+              key: IRC_SELF_NICK_ALT
+              name: "signal-secret"
         image: "xinutec/signal-archiver:latest"
         livenessProbe:
           exec:
