@@ -315,7 +315,16 @@ let Ingress =
 let NetworkPolicyPeer =
       { -- CIDR minus exceptions. The only way to say "the public internet",
         -- and NOT a way to say "this node" — see `T.NetpolPeer.Internet`.
-        ipBlock : Optional { cidr : Text, except : List Text }
+        --
+        -- ⚠ `except` is Optional, NOT an empty list, and the reason is the same
+        -- one that makes this file's rule lists Optional: the NetworkPolicy
+        -- renderers run WITHOUT `--omit-empty`, so `[]` serialises as `except: []`
+        -- — which the API server then strips. The stored object and the manifest
+        -- disagree for ever after, so every `apply.sh` run reports the policy as
+        -- `configured` and the drift check cries wolf on an unchanged cluster.
+        -- Measured on `messages-egress-irssi` and
+        -- `signal-irclog-import-egress-amun`, 2026-08-14.
+        ipBlock : Optional { cidr : Text, except : Optional (List Text) }
       , podSelector : Optional { matchLabels : Optional Labels }
       , namespaceSelector :
           Optional

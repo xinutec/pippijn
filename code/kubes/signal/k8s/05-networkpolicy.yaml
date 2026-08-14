@@ -85,7 +85,6 @@ spec:
     to:
     - ipBlock:
         cidr: 10.100.0.1/32
-        except: []
   podSelector:
     matchLabels:
       app: "signal-irclog-import"
@@ -131,7 +130,6 @@ spec:
     to:
     - ipBlock:
         cidr: 10.100.0.1/32
-        except: []
   podSelector:
     matchLabels:
       app: messages

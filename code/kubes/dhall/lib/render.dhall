@@ -1266,7 +1266,7 @@ let netpolDb
                     , policyTypes = [ "Ingress" ]
                     , ingress = Some
                       [ { from =
-                          [ { ipBlock = None { cidr : Text, except : List Text }
+                          [ { ipBlock = None { cidr : Text, except : Optional (List Text) }
                             , -- ⚠ AN APP WITH BATCH TASKS OPENS THIS TO THE
                               -- WHOLE NAMESPACE, and the narrower rule is not
                               -- available: a CronJob's pods carry only the
@@ -1342,7 +1342,7 @@ let ingressFromNginx
           , policyTypes = [ "Ingress" ]
           , ingress = Some
             [ { from =
-                [ { ipBlock = None { cidr : Text, except : List Text }
+                [ { ipBlock = None { cidr : Text, except : Optional (List Text) }
                   , podSelector = None { matchLabels : Optional K.Labels }
                   , -- Selected by the namespace's automatic
                     -- kubernetes.io/metadata.name label rather than chart pod
@@ -1379,7 +1379,7 @@ let renderPolicy
     = λ(ns : T.Namespace) →
       λ(pol : T.NetpolPolicy) →
         let emptyPeer =
-              { ipBlock = None { cidr : Text, except : List Text }
+              { ipBlock = None { cidr : Text, except : Optional (List Text) }
               , podSelector = None { matchLabels : Optional K.Labels }
               , namespaceSelector = None { matchLabels : K.Labels }
               }
@@ -1424,13 +1424,13 @@ let renderPolicy
                       λ(x : { except : List Text }) →
                             emptyPeer
                         ⫽ { ipBlock = Some
-                            { cidr = "0.0.0.0/0", except = x.except }
+                            { cidr = "0.0.0.0/0", except = L.nonEmpty Text x.except }
                           }
                   , Host =
                       λ(x : { cidr : Text, why : Text }) →
                             emptyPeer
                         ⫽ { ipBlock = Some
-                            { cidr = x.cidr, except = [] : List Text }
+                            { cidr = x.cidr, except = None (List Text) }
                           }
                   }
                   t
@@ -1517,7 +1517,7 @@ let ingressFromNginx
           , policyTypes = [ "Ingress" ]
           , ingress = Some
             [ { from =
-                [ { ipBlock = None { cidr : Text, except : List Text }
+                [ { ipBlock = None { cidr : Text, except : Optional (List Text) }
                   , podSelector = None { matchLabels : Optional K.Labels }
                   , -- Selected by the namespace's automatic
                     -- kubernetes.io/metadata.name label rather than chart pod
@@ -1576,7 +1576,7 @@ let egressDefaultDeny
                   }
                   ( λ(e : T.EgressTo) →
                       { to =
-                        [ { ipBlock = None { cidr : Text, except : List Text }
+                        [ { ipBlock = None { cidr : Text, except : Optional (List Text) }
                           , podSelector =
                               None { matchLabels : Optional K.Labels }
                           , namespaceSelector = Some
