@@ -55,6 +55,29 @@ let irclogImport = "signal-irclog-import"
 
 let irclogMount = "/irclogs"
 
+--| Which of irssi's log trees the archive holds.
+--
+-- ⚠ **THE NETWORKS PIPPIJN STILL HAS TABS OPEN ON**, and that is the rule rather
+-- than a list somebody curated. It is the same rule the send path uses — an open
+-- window item is what may be sent to — so the two halves cannot disagree about
+-- what a live conversation is.
+--
+-- Measured 2026-08-14: the whole tree is ~89,000 files and 2.3G across twenty
+-- tags, and these five are ~36,000 files and ~507M. What the rule leaves out is
+-- the point:
+--
+--   * `freenode` — 25,007 files, 1.4G, and a network nobody has been on for
+--     years. Two thirds of the bytes for none of the conversations.
+--   * `minbif` — 21,037 files that are not IRC at all: it is an IM gateway, so
+--     those are Facebook- and MSN-era contacts bridged through it. Private
+--     conversations with a great many named people, and both repositories here
+--     are public.
+--
+-- `xinutec2` is not a network. It is the tag irssi invents for a second
+-- simultaneous connection, dead since 2022-01-25, and `--map` folds it back into
+-- `xinutec` so the app shows one conversation per person rather than two.
+let irclogNetworks = [ "euirc", "libera", "schmorp", "teranova", "xinutec" ]
+
 let sshMount = "/ssh"
 
 --| The ssh key that pulls the logs, as its OWN Secret rather than another entry
@@ -77,6 +100,19 @@ let irclogSecret = "signal-irclog-sync"
 -- inside an ssh session, and it is the address the NetworkPolicy names, so
 -- using the other would be blocked anyway.
 let amunTunnel = "10.100.0.1"
+
+-- Spelled out rather than folded from `irclogNetworks`: there is no Prelude
+-- import here, and a hand-rolled fold would be more machinery than six names
+-- deserve. That list is the statement of the rule; these two are its
+-- consequences, and `generate.sh --check` is what keeps them level.
+--
+-- Each source names the host again rather than using rsync's `host:a :b` short
+-- form, which works and reads like a typo.
+let irclogSources =
+      "irssi@${amunTunnel}:xinutec irssi@${amunTunnel}:xinutec2 irssi@${amunTunnel}:euirc irssi@${amunTunnel}:libera irssi@${amunTunnel}:schmorp irssi@${amunTunnel}:teranova"
+
+let irclogNetworkArgs =
+      "--network xinutec --network xinutec2 --network euirc --network libera --network schmorp --network teranova"
 
 let secret = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False }
 
@@ -238,11 +274,16 @@ in  { name = "signal"
               command =
               [ "/bin/sh"
               , "-c"
-              , "install -m 400 ${sshMount}/id_ed25519 /tmp/key && rsync -a -e 'ssh -i /tmp/key -o UserKnownHostsFile=${sshMount}/known_hosts -o StrictHostKeyChecking=yes -p 2230' irssi@${amunTunnel}:xinutec irssi@${amunTunnel}:xinutec2 ${irclogMount}/ && import_irclogs --root ${irclogMount} --network xinutec --network xinutec2 --map xinutec2=xinutec --self-nick \"\$IRC_SELF_NICK\" --self-nick \"\$IRC_SELF_NICK_ALT\" --apply"
+              , "install -m 400 ${sshMount}/id_ed25519 /tmp/key && rsync -a -e 'ssh -i /tmp/key -o UserKnownHostsFile=${sshMount}/known_hosts -o StrictHostKeyChecking=yes -p 2230' ${irclogSources} ${irclogMount}/ && import_irclogs --root ${irclogMount} ${irclogNetworkArgs} --map xinutec2=xinutec --self-nick \"\$IRC_SELF_NICK\" --self-nick \"\$IRC_SELF_NICK_ALT\" --apply"
               ]
-            , -- 20 min. A first run walks the whole tree; every later one
-              -- transfers almost nothing and the import is dedupe misses only.
-              deadlineSeconds = 1200
+            , -- 45 min. A first run walks every file in six trees and transfers
+              -- ~507M; every later one transfers almost nothing and the import
+              -- is dedupe misses only. Raised from 20 when the scope went from
+              -- one network to the five with open tabs — 11,885 files to
+              -- ~36,000 — because a deadline that fits the steady state and not
+              -- the first run fails exactly once, on the run that matters, and
+              -- leaves a half-imported archive to explain.
+              deadlineSeconds = 2700
             , suspended = False
             , env =
               [ { name = "DB_HOST", value = lit "signal-db" }

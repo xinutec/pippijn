@@ -59,12 +59,12 @@ Then authorise it on the far side, pinned to sending and nothing else:
   printf 'command="/home/irssi/bin/irc-send",restrict %s\n' \
     "$(cat /root/messages-irc-send.pub)" | ssh irc 'cat >> ~/.ssh/authorized_keys'
 
-And say who it may talk to. The list is a file on irssi's volume rather than a
-constant, because this repository is public and who Pippijn talks to is not
-something it should record. It is read fresh on every request, so adding a line
-takes effect at once — no reload, no restart:
+There is nothing to say about who it may talk to. An OPEN TAB IS THE PERMISSION:
+the plugin asks irssi whether it has a window item for the target, so what the
+app can message is exactly what Pippijn could have typed into. Closing a tab
+revokes and opening a query grants, with nothing to edit and nothing to reload.
 
-  ssh irc 'echo "<network> <nick>" >> ~/.irssi/archive-send.allow'
-
-⚠ Fail-closed: with no such file, every send is refused.
+⚠ Fail-closed twice over: a target with no open tab is refused by irssi, and the
+app addresses conversations by their id in the ARCHIVE, so one that no import
+has seen yet cannot be named at all.
 EOF

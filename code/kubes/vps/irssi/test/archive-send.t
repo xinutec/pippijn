@@ -30,13 +30,12 @@ my $NET    = 'testnet';
 my $NICK   = 'friend';
 my $CHAN   = '#room';
 
-open my $allow, '>', "$home/.irssi/archive-send.allow" or die $!;
-print $allow "# who the archive may talk to\n";
-print $allow "$NET $NICK\n";
-print $allow "$NET $CHAN\n";
-close $allow;
-
 my $server = Irssi::Test::Server->new(tag => $NET);
+# ⚠ THE OPEN TABS ARE THE PERMISSION. There is no allow-list file any more: what
+# may be sent to is what irssi has a window item for, so the fixture opens the
+# two tabs the happy-path tests use and nothing else.
+$server->open_tab($NICK);
+$server->open_tab($CHAN);
 $Irssi::SERVERS{$NET} = $server;
 
 do "$FindBin::Bin/../home/pippijn/.irssi/scripts/autorun/archive-send.pl"
@@ -69,7 +68,7 @@ sub sent_count { scalar @{ $server->{sent} } }
 {
     my $before = sent_count();
     my $r = ask({ network => $NET, target => $NICK, text => 'hello there' });
-    ok($r->{ok}, 'an allow-listed nick is accepted');
+    ok($r->{ok}, 'a nick with an open query is accepted');
     is(sent_count(), $before + 1, 'exactly one message was sent');
     my $last = $server->{sent}[-1];
     is($last->{target}, $NICK, 'sent to the nick asked for');
@@ -77,12 +76,17 @@ sub sent_count { scalar @{ $server->{sent} } }
     is($last->{type}, 1, 'a nick is addressed as a nick, not as a channel');
     is($Irssi::SIGNALS[-1][0], 'message own_private',
         'the own-message signal is emitted, which is what makes irssi log it');
+
+    # Both are half the archive's dedupe key. They come from irssi so that the
+    # caller cannot guess them wrong and file the message twice.
+    is($r->{tag}, $NET, 'the reply reports the server tag irssi logs under');
+    is($r->{nick}, 'me', 'and the nick the line will be attributed to');
 }
 
 {
     my $before = sent_count();
     my $r = ask({ network => $NET, target => $CHAN, text => 'hello room' });
-    ok($r->{ok}, 'an allow-listed channel is accepted');
+    ok($r->{ok}, 'a joined channel is accepted');
     is($server->{sent}[-1]{type}, 0, 'a channel is addressed as a channel');
     is($Irssi::SIGNALS[-1][0], 'message own_public', 'the public own-message signal');
     is(sent_count(), $before + 1, 'exactly one message was sent');
@@ -118,8 +122,8 @@ my @refused = (
     ['empty text',            { network => $NET, target => $NICK, text => '' }],
     ['missing text',          { network => $NET, target => $NICK }],
     ['overlong text',         { network => $NET, target => $NICK, text => 'x' x 401 }],
-    ['a nick not on the list', { network => $NET, target => 'stranger', text => 'hi' }],
-    ['a channel not on the list', { network => $NET, target => '#elsewhere', text => 'hi' }],
+    ['a nick with no tab open',  { network => $NET, target => 'stranger', text => 'hi' }],
+    ['a channel not joined',     { network => $NET, target => '#elsewhere', text => 'hi' }],
     ['an unknown network',    { network => 'othernet', target => $NICK, text => 'hi' }],
     ['a target with a comma', { network => $NET, target => "$NICK,stranger", text => 'hi' }],
     ['a target with a space', { network => $NET, target => "$NICK stranger", text => 'hi' }],
@@ -142,12 +146,12 @@ for my $case (@refused) {
     is(sent_count(), $before, 'nothing was sent for a non-JSON request');
 }
 
-# ⚠ A comma in the target would address two people, only one of whom the
-# allow-list was checked against. The refusal above covers it; this states why.
+# ⚠ A comma in the target would address two people, only one of whom the tab
+# lookup was performed for. The refusal above covers it; this states why.
 {
     my $before = sent_count();
     my $r = ask({ network => $NET, target => uc($NICK), text => 'hi' });
-    ok($r->{ok}, 'the allow-list matches case-insensitively, as IRC does');
+    ok($r->{ok}, 'the tab lookup matches case-insensitively, as IRC does');
     is(sent_count(), $before + 1, 'and the message is sent');
 }
 
@@ -203,6 +207,22 @@ sub mkdir_p {
         $so_far .= "$part/";
         mkdir $so_far;
     }
+}
+
+# ⚠ CLOSING A TAB REVOKES, WITHOUT ANYTHING BEING EDITED OR RELOADED. This is the
+# whole reason the open-window set replaced a file: it cannot go stale, because
+# it is not a description of the live state but the live state itself.
+{
+    $server->close_tab($NICK);
+    my $before = sent_count();
+    my $r = ask({ network => $NET, target => $NICK, text => 'after the tab closed' });
+    ok(!$r->{ok}, 'a closed query is refused');
+    is(sent_count(), $before, 'and nothing was sent');
+
+    $server->open_tab($NICK);
+    $r = ask({ network => $NET, target => $NICK, text => 'after reopening' });
+    ok($r->{ok}, 'reopening it grants again, with no reload');
+    is(sent_count(), $before + 1, 'and the message goes');
 }
 
 done_testing();

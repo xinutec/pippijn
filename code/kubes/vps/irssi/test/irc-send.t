@@ -27,10 +27,6 @@ my $home = tempdir(CLEANUP => 1);
 $ENV{HOME} = $home;
 mkdir "$home/.irssi";
 
-open my $allow, '>', "$home/.irssi/archive-send.allow" or die $!;
-print $allow "testnet friend\n";
-close $allow;
-
 my $sock_path = "$home/.irssi/archive-send.sock";
 my $sender    = "$FindBin::Bin/../home/pippijn/bin/irc-send";
 
@@ -43,6 +39,8 @@ if (!$pid) {
     require Irssi;
     no warnings 'once';    # %Irssi::SERVERS is only touched here, in the child
     my $server = Irssi::Test::Server->new(tag => 'testnet');
+    # The open tab is the permission; 'stranger' below has none.
+    $server->open_tab('friend');
     $Irssi::SERVERS{testnet} = $server;
     do "$FindBin::Bin/../home/pippijn/.irssi/scripts/autorun/archive-send.pl";
     Irssi::run(5) for 1 .. 6;
@@ -95,7 +93,7 @@ sub via_ssh {
     my ($r, $status) = via_ssh({ network => 'testnet', target => 'stranger', text => 'hi' });
     is($status, 0, 'a refusal is still a working transport, so it exits 0');
     ok($r && !$r->{ok}, 'and the refusal is carried in the reply');
-    like($r->{error}, qr/allow-list/, 'the reply says why');
+    like($r->{error}, qr/no conversation open/, 'the reply says why');
 }
 
 # A second request in one connection must not be smuggled through behind the

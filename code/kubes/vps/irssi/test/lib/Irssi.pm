@@ -91,7 +91,28 @@ package Irssi::Test::Server;
 
 sub new {
     my ($class, %args) = @_;
-    return bless { connected => 1, sent => [], %args }, $class;
+    # `open` is the set of window items this server has: a joined channel or an
+    # open query. It IS the send permission, so a test that wants a send refused
+    # simply does not open that tab.
+    return bless { connected => 1, nick => 'me', sent => [], open => {}, %args }, $class;
+}
+
+# irssi compares nicks and channel names case-insensitively; so does this, or a
+# test would pass while the real lookup behaved differently.
+sub window_item_find {
+    my ($self, $name) = @_;
+    my $key = lc $name;
+    return exists $self->{open}{$key} ? { name => $self->{open}{$key} } : undef;
+}
+
+sub open_tab {
+    my ($self, $name) = @_;
+    $self->{open}{ lc $name } = $name;
+}
+
+sub close_tab {
+    my ($self, $name) = @_;
+    delete $self->{open}{ lc $name };
 }
 
 sub send_message {

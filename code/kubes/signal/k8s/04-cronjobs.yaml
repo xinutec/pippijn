@@ -11,7 +11,7 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      activeDeadlineSeconds: 1200
+      activeDeadlineSeconds: 2700
       template:
         metadata:
           labels:
@@ -21,7 +21,7 @@ spec:
           - command:
             - /bin/sh
             - "-c"
-            - "install -m 400 /ssh/id_ed25519 /tmp/key && rsync -a -e 'ssh -i /tmp/key -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -p 2230' irssi@10.100.0.1:xinutec irssi@10.100.0.1:xinutec2 /irclogs/ && import_irclogs --root /irclogs --network xinutec --network xinutec2 --map xinutec2=xinutec --self-nick \"$IRC_SELF_NICK\" --self-nick \"$IRC_SELF_NICK_ALT\" --apply"
+            - "install -m 400 /ssh/id_ed25519 /tmp/key && rsync -a -e 'ssh -i /tmp/key -o UserKnownHostsFile=/ssh/known_hosts -o StrictHostKeyChecking=yes -p 2230' irssi@10.100.0.1:xinutec irssi@10.100.0.1:xinutec2 irssi@10.100.0.1:euirc irssi@10.100.0.1:libera irssi@10.100.0.1:schmorp irssi@10.100.0.1:teranova /irclogs/ && import_irclogs --root /irclogs --network xinutec --network xinutec2 --network euirc --network libera --network schmorp --network teranova --map xinutec2=xinutec --self-nick \"$IRC_SELF_NICK\" --self-nick \"$IRC_SELF_NICK_ALT\" --apply"
             env:
             - name: DB_HOST
               value: "signal-db"

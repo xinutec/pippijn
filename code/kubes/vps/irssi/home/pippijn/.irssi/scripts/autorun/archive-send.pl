@@ -51,7 +51,6 @@ our %IRSSI = (
 );
 
 my $SOCK_PATH  = "$ENV{HOME}/.irssi/archive-send.sock";
-my $ALLOW_PATH = "$ENV{HOME}/.irssi/archive-send.allow";
 
 # IRC gives a message about 512 bytes for the whole line including the `:nick!
 # user@host PRIVMSG target :` prefix, which is not knowable here with certainty.
@@ -113,37 +112,33 @@ sub validate_text {
     return undef;
 }
 
-# ------------------------------------------------------------------ allow-list
+# --------------------------------------------------------------- who may be sent to
 #
-# Read fresh on every request, deliberately: widening it is then a one-line edit
-# to a file on the volume, with no reload and no restart. It is a file rather
-# than a constant here because who Pippijn talks to is not something this public
-# repository should record.
+# ⚠ **AN OPEN TAB IS THE PERMISSION.** There is no allow-list file: what this may
+# say something to is exactly what irssi has a window item for — a channel that
+# is joined, or a query that is open.
 #
-# Format: `network target`, one per line. Blank lines are ignored, and a line
-# whose first non-blank character is `#` is a comment.
+# This replaced a hand-maintained `network target` file, and it is better on
+# every axis that matters. It cannot go stale, because it IS the live state
+# rather than a description of it. It is maintained by ordinary use: closing a
+# tab revokes, opening a query grants, and neither is a thing to remember. And it
+# is the same rule as the one the keyboard already obeys — this can say something
+# to precisely the conversations Pippijn could have typed into.
 #
-# ⚠ A COMMENT IS ONLY A WHOLE LINE, and that is not a stylistic choice. Stripping
-# `#` to end-of-line anywhere — the obvious way to write this — deletes the `#`
-# and everything after it from `testnet #room`, leaving `testnet`, which parses
-# as nothing and silently refuses every channel there is. IRC channel names
-# begin with the comment character.
-sub allowed {
-    my ($network, $target) = @_;
-    open my $fh, '<', $ALLOW_PATH or return 0;
-    my $ok = 0;
-    while (my $line = <$fh>) {
-        next if $line =~ /\A\s*(?:#|\z)/;
-        my ($n, $t) = $line =~ /\A\s*(\S+)\s+(\S+)\s*\z/ or next;
-        # IRC compares nicks and channels case-insensitively, so this must too,
-        # or an allow-list entry could be bypassed by changing one letter's case.
-        next unless lc $n eq lc $network;
-        next unless lc $t eq lc $target;
-        $ok = 1;
-        last;
-    }
-    close $fh;
-    return $ok;
+# The lookup is per-server, so the network is not a second thing to check: a
+# window item found on this server's object is on this network by construction.
+#
+# ⚠ IT IS NOT PURELY CURATED, and that is worth knowing rather than assuming
+# away. `autocreate_query_level` is `MSGS DCCMSGS`, so a private message from
+# anybody opens a query and widens this set by somebody else's action. Two things
+# bound it: Pippijn sees the tab appear, and the app addresses conversations by
+# their id in the ARCHIVE, so a query created a minute ago is not addressable
+# until an import has seen it. Open tab and archived conversation, not either.
+sub may_send_to {
+    my ($server, $target) = @_;
+    # Comparison is irssi's own, which is IRC's: case-insensitive, and aware that
+    # a channel and a nick of the same name are different things.
+    return defined $server->window_item_find($target);
 }
 
 # ------------------------------------------------------------------------ log
@@ -210,13 +205,12 @@ sub handle_request {
         return err($why);
     }
 
-    # The allow-list is checked before anything is looked up, so a refusal
-    # cannot be told apart from a network that does not exist by timing or by
-    # the error text: both are just "refused".
-    return err('refused: not on the allow-list') unless allowed($network, $target);
-
     my $server = Irssi::server_find_tag($network);
-    return err('refused: not on the allow-list') unless $server;
+    # One refusal for "no such network" and for "no tab open there", so the
+    # answer does not tell a caller which networks exist.
+    return err('refused: no conversation open with that target') unless $server;
+    return err('refused: no conversation open with that target')
+        unless may_send_to($server, $target);
     return err('network not connected') unless $server->{connected};
 
     send_message($server, $target, $text);
@@ -232,11 +226,23 @@ sub handle_request {
     # otherwise would be a lie. What is missing is only the app's ability to
     # show it immediately; the hourly import will still find it.
     return {
-        ok       => JSON::PP::true,
-        network  => $network,
-        target   => $target,
-        text     => $text,
-        logged   => $hit ? JSON::PP::true : JSON::PP::false,
+        ok      => JSON::PP::true,
+        network => $network,
+        target  => $target,
+        text    => $text,
+        # ⚠ REPORTED BY IRSSI, NOT ASSUMED BY THE CALLER, because both are half
+        # of the archive's dedupe key and a caller's guess that drifts would put
+        # the message in twice.
+        #
+        # `tag` is what irssi writes the log directory as, which is what the
+        # importer stores as `source_tag` — the RAW tag, before any --map that
+        # folds a second connection's tag into one network. `nick` is who the
+        # line will be attributed to, which is the server's current nick and not
+        # necessarily the one in the config: a nick collision on connect leaves
+        # you on the alternate.
+        tag    => $server->{tag},
+        nick   => $server->{nick},
+        logged => $hit ? JSON::PP::true : JSON::PP::false,
         $hit
         ? (
             file_date => sprintf('%04d-%02d-%02d', $tm[5] + 1900, $tm[4] + 1, $tm[3]),
