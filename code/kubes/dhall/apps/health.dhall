@@ -513,24 +513,30 @@ in  T.namespaceOf
               , schedule = "30 5 * * *"
               , command = [ "node", "dist/cli/refresh-bus-routes.js" ]
               , deadlineSeconds = 5400
-              , -- RESUMED 2026-08-14 (Pippijn's call, #255). Suspended in the
-                -- cluster from creation and never run once in 62 days — a suspend
-                -- applied with kubectl that left no trace in any repo, which is how
-                -- #760 came to claim the job "exists only in the cluster". Half of
-                -- that was a search artefact (the manifest is committed, `fbb73cb1`,
-                -- and `rg` from ~/Code silently searches nothing); the flag being
-                -- cluster-only was real.
+              , -- SUSPENDED, and the reason is now a DEPLOY dependency rather than
+                -- an open question. Resume this the moment the health image ships
+                -- the per-tile write; nothing else is outstanding.
                 --
-                -- What made resuming safe is not that the job now succeeds — it
-                -- often will not. Overpass 504s are routine: measured runs on
-                -- 2026-08-14 lost 1, 6 and 4 of 18 tiles. It is that the WRITE is
-                -- per tile (`refresh-bus-routes.ts`), so a run that loses tiles
-                -- replaces only the ones that answered and leaves the rest their
-                -- rows. A partial night cannot shrink the mirror, which is the
-                -- whole risk of running unattended.
+                -- Resumed on 2026-08-14 and re-suspended the same hour. The fix
+                -- that makes unattended running safe — a partial run replaces only
+                -- the tiles that ANSWERED and leaves the rest their rows
+                -- (`refresh-bus-routes.ts`) — was verified against the prod DB from
+                -- a LOCAL build: 4 of 18 tiles lost, mirror 995 -> 1000 routes.
+                -- The cluster runs the deployed image, which predates it, so the
+                -- catch-up run this un-suspend triggered used the OLD count
+                -- threshold, refused (`1000 -> 652`), exited 1 and crashlooped.
                 --
-                -- The 4-of-18 run still took the mirror 995 -> 1000 routes.
-                suspended = False
+                -- Nothing was damaged — the old guard refuses rather than
+                -- overwrites, and the mirror still holds its 1000 rows. The lesson
+                -- is narrower and worth keeping: verifying a fix against the prod
+                -- DATABASE says nothing about what the prod IMAGE will do. health
+                -- is 30+ commits ahead of origin and blocked behind its golden
+                -- gates (#813), so this cannot resume until that ships.
+                --
+                -- Overpass 504s are routine, not a fault: runs on 2026-08-14 lost
+                -- 1, 6, 4 and 8 of 18 tiles. Under the per-tile write that is a
+                -- normal night; under the count threshold it is a refusal.
+                suspended = True
               , volumes = [] : List T.Volume
               , mounts = [] : List T.VolumeMount
               , env = dbEnv

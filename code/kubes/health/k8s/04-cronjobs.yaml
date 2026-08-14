@@ -294,6 +294,7 @@ spec:
               type: RuntimeDefault
   schedule: "30 5 * * *"
   successfulJobsHistoryLimit: 3
+  suspend: true
 
 ---
 apiVersion: batch/v1
