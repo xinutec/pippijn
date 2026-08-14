@@ -31,6 +31,8 @@ spec:
           value: /state/agents.json
         - name: DOING_FILE
           value: /state/doing.json
+        - name: EFFECTS_FILE
+          value: /state/effects.json
         - name: SESSION_SECRET
           valueFrom:
             secretKeyRef:

@@ -114,6 +114,18 @@ in  T.namespaceOf
               name = "DOING_FILE"
             , value = lit "${statePath}/doing.json"
             }
+          , { -- What each turn did to which file, with the command that did it
+              -- — the evidence a reader wants standing on a timeline row.
+              -- Optional in the same way: absent, a turn opens to nothing
+              -- rather than erroring.
+              --
+              -- ⚠ The first artefact carrying COMMAND TEXT. Pippijn settled
+              -- that on 2026-08-13 ("Isis should be trusted. Everything can go
+              -- there."). It is owner-only at /api/effects, never behind a
+              -- share token, and 35 MB — the largest thing the sync pushes.
+              name = "EFFECTS_FILE"
+            , value = lit "${statePath}/effects.json"
+            }
           , { -- All three of these must be set or the app serves the corpus to
               -- anyone who can reach it. Required references, not optional ones:
               -- a pod that will not start is the safe failure here.
