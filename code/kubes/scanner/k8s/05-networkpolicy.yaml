@@ -8,7 +8,6 @@ metadata:
   name: "default-deny-egress"
   namespace: scanner
 spec:
-  egress: []
   podSelector: {}
   policyTypes:
   - Egress

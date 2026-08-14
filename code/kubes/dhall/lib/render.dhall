@@ -1466,9 +1466,21 @@ let renderPolicy
                         , ports : List K.NetworkPolicyPort
                         }
                     )
-              , -- `Some`, and an EMPTY list is the whole point when nothing is
-                -- allowed: with Egress in policyTypes it denies all outbound.
-                egress = Some
+              , -- ⚠ `L.nonEmpty`, and an empty list renders ABSENT. This used
+                -- to read "an EMPTY list is the whole point when nothing is
+                -- allowed", which mistook where the denial lives: with `Egress`
+                -- in `policyTypes` and no rules, outbound is denied whether the
+                -- key is `[]` or missing. The API agrees so firmly that it
+                -- STRIPS the empty list on write — so a manifest sending one
+                -- disagrees with the stored object for ever, and `apply.sh`
+                -- reported observe's and scanner's default-deny as `configured`
+                -- on every run. observe's was at generation 6 from re-applying
+                -- a policy that never changed.
+                egress =
+                  L.nonEmpty
+                    { to : List K.NetworkPolicyPeer
+                    , ports : List K.NetworkPolicyPort
+                    }
                   ( L.map
                       T.NetpolRule
                       { to : List K.NetworkPolicyPeer
