@@ -266,10 +266,24 @@ in  { name = "signal"
           ]
         , tasks =
           [ { name = irclogImport
-            , -- Hourly, off the hour. IRC is a conversation happening now, so
-              -- the phone wants it soon; hourly is the compromise against
-              -- waking a tunnel and re-walking 11,885 files for nothing.
-              schedule = "17 * * * *"
+            , -- ⚠ EVERY MINUTE, and hourly was never a judgement about latency —
+              -- it was the price of a run that cost the same whatever had
+              -- happened. MEASURED 2026-08-14: the importer re-read all 36,201
+              -- staged files and re-issued `INSERT IGNORE` for all 3.68M lines
+              -- every time, taking 10m34s to write 14 rows. Running that more
+              -- often was not a trade-off anybody could make.
+              --
+              -- `signal`'s `irc_import_state` made a run cost what ARRIVED: the
+              -- next one was **20 seconds** end to end — pod start, the rsync of
+              -- all 36,201 files, statting them, reading the state — with zero
+              -- files opened. At that price the cadence is just a number, and
+              -- the long-poll tier #880 was designed around is not needed.
+              --
+              -- ⚠ Safe to overlap-proof rather than by luck: `concurrencyPolicy`
+              -- is `Forbid` for every task in this model (see `render.dhall`), so
+              -- a run that ever outlasts its minute delays the next rather than
+              -- racing it into the same rows.
+              schedule = "* * * * *"
             , -- ⚠ TWO STEPS, so a shell. The logs are on the OTHER CLUSTER —
               -- irssi runs in `vps-pippijn` on amun — so they are pulled over
               -- ssh into `${irclogMount}` and imported from there. The far side
