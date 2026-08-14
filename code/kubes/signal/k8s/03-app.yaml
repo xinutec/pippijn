@@ -121,6 +121,99 @@ spec:
       - name: attachments
         persistentVolumeClaim:
           claimName: "signal-attachments-pvc"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "signal-irc-tail"
+  namespace: signal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "signal-irc-tail"
+  template:
+    metadata:
+      labels:
+        app: "signal-irc-tail"
+    spec:
+      containers:
+      - command:
+        - /usr/local/bin/irc_tail
+        - "--host"
+        - '10.100.0.1'
+        - "--port"
+        - '2230'
+        - "--key"
+        - /ssh/id_ed25519
+        - "--known-hosts"
+        - /ssh/known_hosts
+        - "--map"
+        - xinutec2=xinutec
+        - "--heartbeat"
+        - "/run/irc-tail/alive"
+        env:
+        - name: DB_HOST
+          value: "signal-db"
+        - name: DB_NAME
+          value: signal
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              key: DB_USER
+              name: "signal-secret"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_PASSWORD
+              name: "signal-secret"
+        image: "xinutec/signal-archiver:latest"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - "-c"
+            - "test -n \"$(find /run/irc-tail/alive -mmin -5 2>/dev/null)\""
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: "signal-irc-tail"
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - "-c"
+            - "test -n \"$(find /run/irc-tail/alive -mmin -5 2>/dev/null)\""
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /ssh
+          name: sshkey
+          readOnly: true
+        - mountPath: "/run/irc-tail"
+          name: heartbeat
+      securityContext:
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: sshkey
+        secret:
+          defaultMode: 292
+          secretName: "signal-irc-tail"
+      - emptyDir: {}
+        name: heartbeat
 ---
 apiVersion: v1
 kind: Service

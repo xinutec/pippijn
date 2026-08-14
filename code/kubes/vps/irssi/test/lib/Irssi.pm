@@ -20,6 +20,8 @@ package Irssi;
 use strict;
 use warnings;
 
+use Time::HiRes ();
+
 our @INPUTS;      # { fd, func }
 our @TIMEOUTS;    # { id, at, func }
 our @PRINTS;
@@ -43,10 +45,15 @@ sub input_remove {
     @INPUTS = grep { $_->{id} != $id } @INPUTS;
 }
 
+# ⚠ Sub-second deadlines, so `Time::HiRes` rather than `time`. The script's log
+# settle is 120ms; against integer seconds it would land in the same tick as a
+# 60-second parking timer and the two would be indistinguishable to
+# `fire_timeouts`, which would then answer a waiting client "nothing yet" instead
+# of handing it the line.
 sub timeout_add_once {
     my ($ms, $func, $data) = @_;
     my $id = $next_id++;
-    push @TIMEOUTS, { id => $id, at => time + $ms / 1000, func => $func };
+    push @TIMEOUTS, { id => $id, at => Time::HiRes::time() + $ms / 1000, func => $func };
     return $id;
 }
 
@@ -60,9 +67,37 @@ sub server_find_tag  { return $SERVERS{ $_[0] } }
 sub print            { push @PRINTS, $_[0] }
 sub signal_add_first { }
 
+our %HANDLERS;    # signal name => [ code, … ]
+
+sub signal_add_last {
+    my ($name, $func) = @_;
+    push @{ $HANDLERS{$name} }, $func;
+}
+
 sub signal_emit {
     my ($name, @args) = @_;
     push @SIGNALS, [ $name, @args ];
+}
+
+# What irssi does when a message arrives, as far as this script is concerned:
+# call the handlers registered for that signal. Kept separate from `signal_emit`
+# because the script EMITS its own echo signals and would otherwise re-enter its
+# own handler — which is a real hazard in irssi too, and not one this stub should
+# invent an answer to.
+sub deliver {
+    my ($name, @args) = @_;
+    $_->(@args) for @{ $HANDLERS{$name} || [] };
+}
+
+# Run every timeout whose deadline has passed. The real irssi does this in its
+# own loop; tests drive it so a deferred log read is deterministic rather than a
+# sleep somebody has to guess the length of.
+sub fire_timeouts {
+    my $now = Time::HiRes::time();
+    my @due = grep { $_->{at} <= $now } @TIMEOUTS;
+    @TIMEOUTS = grep { $_->{at} > $now } @TIMEOUTS;
+    $_->{func}->() for @due;
+    return scalar @due;
 }
 
 # Run the registered callbacks until nothing is readable for $quiet seconds.

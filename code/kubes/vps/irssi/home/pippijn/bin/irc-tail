@@ -1,0 +1,61 @@
+#!/usr/bin/perl
+# The only thing the archive's TAIL key may do on this host: ask the running
+# irssi what has been said, and wait for the answer.
+#
+# Pinned as `command="/home/irssi/bin/irc-tail",restrict` in
+# ~/.ssh/authorized_keys, alongside `irclog-pull` (the read key) and `irc-send`
+# (the send key). Three keys, three verbs, none able to do another's job.
+#
+# ⚠ IT CANNOT SEND, AND NOT BECAUSE IT CHECKS. This connects to
+# `archive-tail.sock`; the send path lives on `archive-send.sock`. The plugin
+# decides the verb from the socket a client arrived on, so a request naming the
+# send op arrives here as a malformed tail request and is answered as one. The
+# alternative — one socket, an `op` field, and this script inspecting it — would
+# put the security boundary in a string comparison in a copy script, which is
+# exactly the understanding `irc-send`'s header explains it is better off
+# without.
+#
+# ⚠ THE TIMEOUT IS LONGER THAN `irc-send`'S BY DESIGN. This is a long poll: the
+# plugin holds the request until somebody speaks or until its own deadline
+# (120s), and answers with an empty list in the second case. The alarm here sits
+# ABOVE that, so under normal quiet the *plugin* is what ends the exchange and
+# the puller learns "still alive, nothing new". If the alarm fired first, a quiet
+# channel and a wedged irssi would look identical from isis — which is the
+# failure this whole tier is supposed to make visible rather than silent.
+
+use strict;
+use warnings;
+
+use IO::Socket::UNIX;
+
+my $SOCK    = "$ENV{HOME}/.irssi/archive-tail.sock";
+my $MAX     = 8192;
+my $TIMEOUT = 150;    # above the plugin's 120s park, so the plugin answers first
+
+$SIG{ALRM} = sub { die "irc-tail: timed out after ${TIMEOUT}s\n" };
+alarm $TIMEOUT;
+
+my $request = '';
+while (my $n = sysread(STDIN, my $chunk, 4096)) {
+    $request .= $chunk;
+    die "irc-tail: request too large\n" if length $request > $MAX;
+    last if $request =~ /\n/;
+}
+die "irc-tail: empty request\n" unless length $request;
+
+my ($line) = $request =~ /\A([^\n]*)/;
+
+my $sock = IO::Socket::UNIX->new(Type => SOCK_STREAM, Peer => $SOCK)
+    or die "irc-tail: irssi is not listening on $SOCK ($!)\n";
+
+print {$sock} "$line\n";
+$sock->flush;
+
+my $reply = <$sock>;
+close $sock;
+alarm 0;
+
+die "irc-tail: irssi closed the connection without answering\n" unless defined $reply;
+
+print $reply;
+exit 0;

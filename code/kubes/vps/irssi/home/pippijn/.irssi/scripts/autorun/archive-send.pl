@@ -1,10 +1,30 @@
-# The one thing the messages archive may ask this irssi to do: say something,
-# as Pippijn, to somebody already on a list.
+# The two things the messages archive may ask this irssi to do: say something as
+# Pippijn, and tell it when somebody says something back.
 #
-# It listens on a pod-local unix socket. Nothing outside the pod can reach that
-# socket; the archive gets to it through an ssh key on this host pinned to
-# `command="/home/irssi/bin/irc-send",restrict`, whose whole job is to copy one
-# line in and one line back. Two layers, one job each.
+# It listens on TWO pod-local unix sockets, and which socket a request arrives on
+# IS the verb. Nothing outside the pod can reach either; the archive gets to them
+# through ssh keys on this host pinned to `command="…/irc-send",restrict` and
+# `command="…/irc-tail",restrict`, each of whose whole job is to copy one line in
+# and one line back.
+#
+# ⚠ THE SOCKET IS THE VERB, AND THAT IS WHY THERE ARE TWO. The obvious design is
+# one socket with an `op` field — and then the tail key, which should only ever
+# be able to LISTEN, can send a message by naming the other op. The forced
+# command would have to inspect the payload to stop it, which is exactly the
+# understanding `irc-send` is careful not to have (see its header). Splitting the
+# sockets keeps both scripts dumb: each connects to one path and copies bytes,
+# and the separation is structural rather than a check somebody has to keep
+# right.
+#
+# ⚠ WHY A PUSH AT ALL, when a periodic import already collects everything.
+# Because the import is a RECONCILER and this is the live path. Sending was
+# always synchronous — the app posts, irssi sends, the line comes back, the row
+# is written in under a second — while receiving waited for the next import, so
+# one conversation had two architectures. Now both directions are the same
+# shape: irssi logged a line, the plugin reports where, one row lands on the
+# importer's own dedupe key. The import still runs, and its job is to catch what
+# this missed. A push that fails is slow, not lost — which is the whole reason
+# the fast tier is allowed to be the simpler one.
 #
 # ⚠ WHY A PLUGIN RATHER THAN `screen -X stuff`, which is how a human would
 # automate this and is what the design started as. `stuff` synthesises
@@ -50,7 +70,38 @@ our %IRSSI = (
     license     => 'MIT',
 );
 
-my $SOCK_PATH  = "$ENV{HOME}/.irssi/archive-send.sock";
+my $SOCK_PATH      = "$ENV{HOME}/.irssi/archive-send.sock";
+my $TAIL_SOCK_PATH = "$ENV{HOME}/.irssi/archive-tail.sock";
+
+# How many recent lines are held for a client that is not currently connected.
+#
+# ⚠ THIS IS THE RECONNECT WINDOW, not a buffer for reliability. The puller
+# reconnects in well under a second, so 256 covers any realistic gap; what it
+# cannot cover — a puller down for minutes on a busy channel — is precisely what
+# the periodic import is for. When the ring has overrun a client's cursor the
+# reply says `gap`, so "you have missed things, wait for the reconciler" is
+# stated rather than inferred from a silence.
+my $RING = 256;
+
+# irssi writes the autolog from its own handler on the same signal this one
+# watches, and handler order is not something to depend on. Reading the file a
+# moment later sidesteps the question entirely, and 120ms is invisible next to
+# the round trip this saves.
+#
+# ⚠ NOT a guess dressed as a constant: if the line is not there yet the event is
+# still delivered, with `logged` false, and the reconciler supplies it. The delay
+# buys the common case; it is not load-bearing for correctness.
+my $LOG_SETTLE_MS = 120;
+
+# The longest a tail client may be parked. Above this it is told "nothing yet"
+# and asks again — which is what proves the connection is still alive.
+my $MAX_WAIT_MS = 120_000;
+
+my @events;        # the ring: { seq, tag, target, nick, text, is_own, … }
+my $seq     = 0;   # last assigned sequence number
+my $oldest  = 1;   # lowest seq still in @events
+my %waiters;       # fd => { after, timer }
+my $settle_timer;  # pending deferred log lookup, if any
 
 # IRC gives a message about 512 bytes for the whole line including the `:nick!
 # user@host PRIVMSG target :` prefix, which is not knowable here with certainty.
@@ -68,9 +119,9 @@ my $MAX_REQUEST = 8192;
 # A client that connects and then says nothing must not hold a slot for ever.
 my $CLIENT_TIMEOUT_MS = 5000;
 
-my $listener;
-my $listen_tag;
-my %clients;    # fd => { sock, tag, timer, buf }
+my ($listener, $tail_listener);
+my ($listen_tag, $tail_listen_tag);
+my %clients;    # fd => { sock, tag, timer, buf, kind }
 
 my $json = JSON::PP->new->utf8->canonical;
 
@@ -258,6 +309,144 @@ sub err {
     return { ok => JSON::PP::false, error => $why };
 }
 
+# ------------------------------------------------------------------ the tail
+#
+# Every line irssi logs as conversation, offered to whoever is waiting.
+#
+# ⚠ WHAT IS RECORDED IS WHERE THE LINE IS, NOT WHAT THE SIGNAL SAID. The archive
+# keys a message on `(conversation, source_tag, file_date, line_no)`, so an event
+# is only useful if it carries that key — and the only authority for `line_no` is
+# the log file irssi just wrote. The signal supplies the text to find it BY. This
+# is the same trick the send path uses for its echo, and reusing it is the point:
+# one way of turning "irssi logged something" into the archive's key, so the two
+# directions cannot disagree about where a line is.
+sub record_event {
+    my ($server, $text, $nick, $target, $is_own) = @_;
+
+    # ⚠ DEFENSIVE, BECAUSE A SIGNAL SIGNATURE IS AN ASSUMPTION. These handlers
+    # unpack positional arguments from irssi's own event; if a signature is not
+    # what this believes, the wrong string lands in the wrong variable. Validated
+    # here, a mistake becomes a line that is not pushed — which the reconciler
+    # collects within the hour — instead of a row filed under a nonsense target.
+    return unless $server && !ref $text && defined $text && length $text;
+    return unless valid_target($target);
+    return unless !defined $nick || valid_target($nick);
+
+    $seq++;
+    push @events, {
+        seq     => $seq,
+        tag     => $server->{tag},
+        target  => $target,
+        nick    => defined $nick ? $nick : $server->{nick},
+        text    => $text,
+        is_own  => $is_own ? JSON::PP::true : JSON::PP::false,
+        settled => 0,
+    };
+    while (@events > $RING) {
+        shift @events;
+        $oldest++;
+    }
+
+    # One deferred pass settles every event that has arrived since the last one,
+    # so a busy channel costs one timer rather than one per line.
+    $settle_timer = Irssi::timeout_add_once($LOG_SETTLE_MS, \&settle_and_wake, undef)
+        unless defined $settle_timer;
+}
+
+# Attach each new event's place in the log, then answer anybody waiting.
+sub settle_and_wake {
+    $settle_timer = undef;
+    my @tm = localtime(time);
+    my $file_date = sprintf '%04d-%02d-%02d', $tm[5] + 1900, $tm[4] + 1, $tm[3];
+
+    for my $ev (@events) {
+        next if $ev->{settled};
+        $ev->{settled} = 1;
+        my $hit = find_logged_line(log_path_for($ev->{tag}, $ev->{target}, @tm), $ev->{text});
+        # ⚠ Not an error, and not a reason to withhold the event: the line exists
+        # and the reconciler will place it. Saying `logged: false` lets the
+        # puller show it without inventing a key for it.
+        $ev->{logged} = $hit ? JSON::PP::true : JSON::PP::false;
+        if ($hit) {
+            $ev->{file_date} = $file_date;
+            $ev->{line_no}   = $hit->{line_no};
+            $ev->{line}      = $hit->{line};
+        }
+    }
+    wake_waiters();
+}
+
+# The wire form. `settled` is bookkeeping and does not leave the plugin.
+sub event_for_wire {
+    my ($ev) = @_;
+    return { map { $_ => $ev->{$_} } grep { $_ ne 'settled' } keys %$ev };
+}
+
+sub events_after {
+    my ($after) = @_;
+    return grep { $_->{seq} > $after && $_->{settled} } @events;
+}
+
+sub reply_to_waiter {
+    my ($fd, $after) = @_;
+    my @out = events_after($after);
+    return 0 unless @out;
+    send_reply($fd, {
+        ok     => JSON::PP::true,
+        seq    => $seq,
+        events => [ map { event_for_wire($_) } @out ],
+        # ⚠ The client's cursor has fallen off the back of the ring, so there are
+        # lines it will never be handed. Stated, not implied by a short list:
+        # this is the one case where the fast path is knowingly incomplete and
+        # the reconciler is the only thing that will close it.
+        ($after > 0 && $after < $oldest - 1) ? (gap => JSON::PP::true) : (),
+    });
+    return 1;
+}
+
+sub wake_waiters {
+    for my $fd (keys %waiters) {
+        my $w = $waiters{$fd} or next;
+        next unless events_after($w->{after});
+        Irssi::timeout_remove($w->{timer}) if defined $w->{timer};
+        delete $waiters{$fd};
+        reply_to_waiter($fd, $w->{after});
+    }
+}
+
+# A tail request parks until there is something to say, or until its own
+# deadline. Answering an empty list on timeout is deliberate: it is what tells
+# the puller the connection is still good, so a wedged plugin looks different
+# from a quiet channel.
+sub handle_wait {
+    my ($fd, $raw) = @_;
+
+    my $req = eval { $json->decode($raw) };
+    return send_reply($fd, err('request is not JSON')) if $@ || ref $req ne 'HASH';
+
+    my $after = $req->{after};
+    $after = 0 unless defined $after && !ref $after && $after =~ /\A[0-9]{1,19}\z/;
+    # A cursor ahead of ours means the plugin restarted and the sequence began
+    # again. Starting from here is right: the lines it names are already in the
+    # archive or will be, and the alternative is replaying the whole ring.
+    $after = $seq if $after > $seq;
+
+    my $timeout = $req->{timeout_ms};
+    $timeout = $MAX_WAIT_MS
+        unless defined $timeout && !ref $timeout && $timeout =~ /\A[0-9]{1,7}\z/;
+    $timeout = $MAX_WAIT_MS if $timeout > $MAX_WAIT_MS;
+
+    return if reply_to_waiter($fd, $after);
+
+    $waiters{$fd} = {
+        after => $after,
+        timer => Irssi::timeout_add_once($timeout, sub {
+            my $w = delete $waiters{$fd} or return;
+            send_reply($fd, { ok => JSON::PP::true, seq => $seq, events => [] });
+        }, undef),
+    };
+}
+
 # ⚠ TWO STEPS, AND BOTH ARE NEEDED — this is the part that is easy to get
 # half-right. `send_message` puts the PRIVMSG on the wire and does nothing else:
 # it emits no signal, so irssi neither shows the line in the window nor writes
@@ -299,11 +488,25 @@ sub send_message {
 
 sub drop {
     my ($fd, $why) = @_;
+    my $w = delete $waiters{$fd};
+    Irssi::timeout_remove($w->{timer}) if $w && defined $w->{timer};
     my $st = delete $clients{$fd} or return;
     Irssi::input_remove($st->{tag})    if defined $st->{tag};
     Irssi::timeout_remove($st->{timer}) if defined $st->{timer};
     close $st->{sock};
     Irssi::print("archive-send: dropped a client ($why)") if defined $why;
+}
+
+# One reply, then the connection is over. Best effort: a client that has gone
+# away cannot be told anything, and whatever the request did has been done.
+sub send_reply {
+    my ($fd, $reply) = @_;
+    my $st = $clients{$fd} or return;
+    eval {
+        local $SIG{PIPE} = 'IGNORE';
+        syswrite($st->{sock}, $json->encode($reply) . "\n");
+    };
+    drop($fd);
 }
 
 sub on_client_readable {
@@ -323,58 +526,119 @@ sub on_client_readable {
     return unless $st->{buf} =~ /\n/;
 
     my ($line) = $st->{buf} =~ /\A([^\n]*)\n/;
+
+    # The socket decided the verb at accept time. A tail client cannot reach the
+    # send path by asking for it, because nothing here reads what it asked for.
+    if ($st->{kind} eq 'tail') {
+        # The parking timer is the wait's own; the connect timer has done its job.
+        Irssi::timeout_remove($st->{timer}) if defined $st->{timer};
+        $st->{timer} = undef;
+        return handle_wait($fd, $line);
+    }
+
     my $reply = eval { handle_request($line) } || err('internal error');
-    # Best effort: a client that has gone away cannot be told anything, and the
-    # message has already been sent either way.
-    eval {
-        local $SIG{PIPE} = 'IGNORE';
-        syswrite($st->{sock}, $json->encode($reply) . "\n");
-    };
-    drop($fd);
+    send_reply($fd, $reply);
 }
 
-sub on_listener_readable {
-    my $sock = $listener->accept() or return;
+sub accept_client {
+    my ($sock, $kind) = @_;
     $sock->blocking(0);
     my $fd = fileno($sock);
     $clients{$fd} = {
         sock  => $sock,
         buf   => '',
+        kind  => $kind,
         tag   => Irssi::input_add($fd, Irssi::INPUT_READ, sub { on_client_readable($fd) }, undef),
         timer => Irssi::timeout_add_once($CLIENT_TIMEOUT_MS, sub { drop($fd, 'timed out') }, undef),
     };
 }
 
-sub start {
+sub on_listener_readable {
+    my $sock = $listener->accept() or return;
+    accept_client($sock, 'send');
+}
+
+sub on_tail_listener_readable {
+    my $sock = $tail_listener->accept() or return;
+    accept_client($sock, 'tail');
+}
+
+sub listen_on {
+    my ($path) = @_;
+
     # A stale socket file survives an unclean exit and would make bind fail, so
     # the script would refuse to load after any crash. Removing it is safe: the
     # only writer is this script, running as this user, inside this pod.
-    unlink $SOCK_PATH if -S $SOCK_PATH;
+    unlink $path if -S $path;
 
     # 0600 before anything can connect: created with a restrictive umask rather
     # than chmod'ed afterwards, so there is no window in which it is open.
     my $umask = umask 0177;
-    $listener = IO::Socket::UNIX->new(
+    my $sock = IO::Socket::UNIX->new(
         Type   => SOCK_STREAM(),
-        Local  => $SOCK_PATH,
+        Local  => $path,
         Listen => 5,
     );
     umask $umask;
 
-    if (!$listener) {
-        Irssi::print("archive-send: could not listen on $SOCK_PATH: $!");
-        return;
-    }
-    $listener->blocking(0);
+    Irssi::print("archive-send: could not listen on $path: $!") unless $sock;
+    $sock->blocking(0) if $sock;
+    return $sock;
+}
+
+sub start {
+    $listener = listen_on($SOCK_PATH) or return;
     $listen_tag = Irssi::input_add(fileno($listener), Irssi::INPUT_READ, \&on_listener_readable, undef);
-    Irssi::print("archive-send: listening on $SOCK_PATH");
+
+    $tail_listener = listen_on($TAIL_SOCK_PATH);
+    if ($tail_listener) {
+        $tail_listen_tag = Irssi::input_add(
+            fileno($tail_listener), Irssi::INPUT_READ, \&on_tail_listener_readable, undef);
+    }
+
+    # ⚠ `signal_add_last`, so irssi's own logging handler has run by the time
+    # this one does. It is not enough on its own — see `$LOG_SETTLE_MS`, which is
+    # what actually makes the ordering irrelevant — but asking to be last costs
+    # nothing and makes the common case immediate.
+    #
+    # The four signatures below are irssi's, and `record_event` validates what it
+    # unpacks rather than trusting them: a signature that is not what this
+    # believes turns into a line the reconciler collects, not a bad row.
+    Irssi::signal_add_last('message public' => sub {
+        my ($server, $msg, $nick, $address, $target) = @_;
+        record_event($server, $msg, $nick, $target, 0);
+    });
+    Irssi::signal_add_last('message private' => sub {
+        my ($server, $msg, $nick, $address) = @_;
+        # A private message's conversation is the sender, which is where irssi
+        # logs it — `$0` in `autolog_path` is the query's name.
+        record_event($server, $msg, $nick, $nick, 0);
+    });
+    # ⚠ Pippijn typing in irssi directly counts. Before this, his own messages
+    # reached the archive only via the import, so the app showed his side of a
+    # conversation minutes behind the other person's.
+    Irssi::signal_add_last('message own_public' => sub {
+        my ($server, $msg, $target) = @_;
+        record_event($server, $msg, undef, $target, 1);
+    });
+    Irssi::signal_add_last('message own_private' => sub {
+        my ($server, $msg, $target, $orig_target) = @_;
+        record_event($server, $msg, undef, $target, 1);
+    });
+
+    Irssi::print("archive-send: listening on $SOCK_PATH"
+        . ($tail_listener ? " and $TAIL_SOCK_PATH" : ''));
 }
 
 sub stop {
     drop($_, undef) for keys %clients;
-    Irssi::input_remove($listen_tag) if defined $listen_tag;
-    close $listener if $listener;
-    unlink $SOCK_PATH if -S $SOCK_PATH;
+    Irssi::timeout_remove($settle_timer) if defined $settle_timer;
+    Irssi::input_remove($listen_tag)      if defined $listen_tag;
+    Irssi::input_remove($tail_listen_tag) if defined $tail_listen_tag;
+    close $listener      if $listener;
+    close $tail_listener if $tail_listener;
+    unlink $SOCK_PATH      if -S $SOCK_PATH;
+    unlink $TAIL_SOCK_PATH if -S $TAIL_SOCK_PATH;
 }
 
 # Reloading the script must not leave the old listener holding the socket.

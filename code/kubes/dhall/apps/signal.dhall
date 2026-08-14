@@ -91,6 +91,18 @@ let sshMount = "/ssh"
 -- disk in this pod to get at an ssh key beside it.
 let irclogSecret = "signal-irclog-sync"
 
+let ircTail = "signal-irc-tail"
+
+--| The tail key's own Secret, for the same two-lifetimes reason as
+--  `irclogSecret`: a third credential to the same host, pinned to a third forced
+--  command, rotated when that trust changes rather than when a password does.
+let tailSecret = ircTail
+
+--| Where the long poll records that it completed a cycle. An `emptyDir`, not a
+--  claim: it says only "this process was alive a moment ago", which is worthless
+--  across a restart and is exactly what the liveness probe reads.
+let heartbeatMount = "/run/irc-tail"
+
 --| amun over the WireGuard tunnel, not `amun.xinutec.org`.
 --
 -- ⚠ The public name resolves to 94.23.247.133 and routes out of the building
@@ -370,7 +382,106 @@ in  { name = "signal"
             }
           ]
         }
-      ]
+      , { name = ircTail
+        , -- ⚠ NOTHING DIALS THIS EITHER, for the same reason as the ingester: it
+          -- connects OUT and holds a long poll open.
+          reach = T.Reach.NoService
+        , image = T.Image.Fleet "signal-archiver"
+        , -- ⚠ THE LIVE TIER, and the CronJob above is its reconciler. This holds
+          -- one request open to irssi's plugin, which answers with the lines it
+          -- has just logged AND WHERE THEY ARE — so the row written here is the
+          -- row the next import would write, on the same dedupe key. A line
+          -- reaches the archive in under a second instead of within the minute.
+          --
+          -- Why this exists at all, when the import already collects everything:
+          -- SENDING was always synchronous, so one conversation had two
+          -- architectures — sub-second out, up to a minute back. Now both
+          -- directions are the same shape.
+          --
+          -- ⚠ WHAT MAKES IT SAFE TO BE THE SIMPLE ONE is that the reconciler is
+          -- still running. A missed line here is LATE, not lost.
+          command = Some
+          [ "/usr/local/bin/irc_tail"
+          , "--host"
+          , amunTunnel
+          , "--port"
+          , "2230"
+          , "--key"
+          , "${sshMount}/id_ed25519"
+          , "--known-hosts"
+          , "${sshMount}/known_hosts"
+          , "--map"
+          , "xinutec2=xinutec"
+          , "--heartbeat"
+          , "${heartbeatMount}/alive"
+          ]
+        , -- Not reachable; required by `T.Workload`, and the port it polls is
+          -- the honest value to carry.
+          port = 2230
+        , uid = 65532
+        , hardening = T.Hardening.NonRoot
+        , -- It copies the ssh key to /tmp at 0400 before use, for the reason the
+          -- CronJob's `sshkey` note gives: a secret volume is root-owned.
+          readOnlyRootFs = False
+        , env =
+          [ { name = "DB_HOST", value = lit "signal-db" }
+          , { name = "DB_NAME", value = lit "signal" }
+          , { name = "DB_USER", value = secret keys.DB_USER }
+          , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
+          ]
+        , probeTiming = T.standardTiming
+        , -- ⚠ THE POINT OF THE HEARTBEAT, and the reason this is not
+          -- `Unprobed` like the ingester. A long poll that has stopped asking
+          -- looks EXACTLY like a channel where nobody is talking, and the
+          -- reconciler would go on backfilling within the minute — so the system
+          -- would be broken and indistinguishable from healthy. The binary
+          -- touches this file every completed cycle INCLUDING the empty ones,
+          -- and deliberately not after a failed one; five minutes is generous
+          -- against the plugin's two-minute park.
+          --
+          -- Rendered as both readiness and liveness, so a stale file does not
+          -- warn — it restarts the pod.
+          probe = T.Probe.Exec
+            { command =
+              [ "/bin/sh"
+              , "-c"
+              , "test -n \"\$(find ${heartbeatMount}/alive -mmin -5 2>/dev/null)\""
+              ]
+            }
+        , resources =
+          { requests = { cpu = "50m", memory = "64Mi" }
+          , limits = None T.Limits
+          }
+        , volumes =
+          [ { name = "sshkey"
+            , source =
+                T.VolumeSource.Secret
+                  { name = tailSecret
+                  , -- 0444 for the reason the CronJob's copy of this note gives.
+                    mode = Some T.fileMode.anyoneRead
+                  }
+            }
+          , { name = "heartbeat", source = T.VolumeSource.EmptyDir }
+          ]
+        , mounts =
+          [ { name = "sshkey"
+            , mountPath = sshMount
+            , subPath = None Text
+            , readOnly = True
+            }
+          , { name = "heartbeat"
+            , mountPath = heartbeatMount
+            , subPath = None Text
+            , readOnly = False
+            }
+          ]
+        , -- The reconciler is a task of the INGESTER above, not of this. They
+          -- run the same image, but a scheduled task shares its workload's uid
+          -- and root-filesystem posture, and hanging the import off the live
+          -- tier would say the two depend on each other. They deliberately do
+          -- not: the import is what still works when this is down.
+          tasks = [] : List T.ScheduledTask
+        }      ]
     , secrets = toMap keys
     , netpol =
         T.Netpol.Policies
@@ -452,6 +563,29 @@ in  { name = "signal"
               -- the node address. #781 measured an `ipBlock` naming isis's
               -- public IP matching nothing: CNI-HOSTPORT-DNAT rewrites the
               -- destination before kube-router's filter rules ever see it.
+              name = "${ircTail}-egress-amun"
+            , target = T.NetpolTarget.OneWorkload ircTail
+            , egress =
+              [ { to =
+                  [ T.NetpolPeer.Host
+                      { cidr = "${amunTunnel}/32"
+                      , why =
+                          "amun over WireGuard: the long poll asks irssi what it has just logged, and irssi lives in vps-pippijn on that cluster"
+                      }
+                  ]
+                , ports = [ { port = 2230, protocol = "TCP" } ]
+                }
+              ]
+            }
+          , { -- ⚠ THREE RULES NOW NAME THE SAME ADDRESS AND PORT, and that is
+              -- the honest shape rather than a redundancy to fold away. A
+              -- NetworkPolicy's vocabulary stops at "may open 2230"; what
+              -- separates these three is the KEY each pod presents, and each is
+              -- pinned to a different forced command on the far side —
+              -- `irclog-pull` reads the log tree, `irc-send` speaks, `irc-tail`
+              -- listens. Merging them into one namespace-wide rule would hand
+              -- every pod here the union of three capabilities it cannot
+              -- exercise but should not be granted.
               name = "messages-egress-sso"
             , target = T.NetpolTarget.OneWorkload "messages"
             , egress =
