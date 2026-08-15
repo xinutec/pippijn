@@ -354,6 +354,8 @@ spec:
               value: shadow
             - name: LEAN_STATIONCHAIN
               value: 'on'
+            - name: LEAN_DAY
+              value: shadow
             - name: LEAN_PASSES
               value: shadow
             - name: LEAN_MATCH

@@ -564,6 +564,37 @@ in  T.namespaceOf
                   # decodeFlags
                   # [ { name = "LEAN_HSMM", value = lit "shadow" }
                     , { name = "LEAN_STATIONCHAIN", value = lit "on" }
+                    , { -- The 38-pass day cascade, served from the Lean fold.
+                        -- HERE AND NOT IN `leanTenants`: the day chain is what
+                        -- `decode-day` PERSISTS to `decoded_days`, so it belongs
+                        -- to the writing job and has no business on the request
+                        -- path.
+                        --
+                        -- `shadow` runs both arms and serves the TS one — the
+                        -- Lean answer is compared and discarded, so a divergence
+                        -- cannot reach a stored row. That is the whole reason it
+                        -- can go on before the corpus is green: `on` is what
+                        -- needs a clean corpus, because a wrong number from a
+                        -- leaf pass is recomputed next run while a wrong ROW
+                        -- that gets persisted stays.
+                        --
+                        -- ⚠ It WILL report divergence immediately: 29 of 35
+                        -- corpus days differ, all of them in segment statistics
+                        -- (`pointCount`/`avgSpeed`/`maxSpeed`/`linearity`) with
+                        -- bounds and pass history agreeing. That is one known
+                        -- defect, not new breakage — expected noise until it is
+                        -- fixed. What this buys is the same measurement on LIVE
+                        -- days the 35-day corpus does not cover.
+                        --
+                        -- Bounded by `LEAN_DAY_TIMEOUT_MS` (health `3686a0d`,
+                        -- 60 s per round). Before that the tenant's bridge call
+                        -- had NO timeout, and the same call has been seen to
+                        -- deadlock at 0% CPU — which in here would hang this job
+                        -- rather than fail it. Do not flip this on a build that
+                        -- predates that commit.
+                        name = "LEAN_DAY"
+                      , value = lit "shadow"
+                      }
                     ]
                   # leanTenants
                   # [ leanCallTimeout ]
