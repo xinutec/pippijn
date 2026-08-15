@@ -6,7 +6,7 @@
 ./<app>/k8s/sync.sh
 ```
 
-Every one of those is two lines. They all `exec` [`deploy.sh`](deploy.sh), which
+Every one of those is a few lines. They all `exec` [`deploy.sh`](deploy.sh), which
 is the only implementation — it runs the `deploy` plan from
 [`xinutec-infra/plan`](../../../xinutec-infra/plan/README.md) in apply mode.
 
@@ -46,9 +46,15 @@ uncommitted edit no longer works, which is the guards doing their job.
 ## Secrets, and why most `secret.sh` are readable
 
 Each app has a `k8s/secret.sh`, run once on the host to create its k8s secret.
-**Ten of the twelve are plaintext in git, and that is correct**: they generate
-every credential at run time (`openssl rand`, `/dev/urandom`), so the only
-literals in them are usernames like `DB_USER=coach`.
+**23 of the 25 are plaintext in git, and that is correct**: they generate every
+credential at run time (`/dev/urandom`), so the only literals in them are
+usernames like `DB_USER=coach`.
+
+⚠ Generate into a **variable on its own line**, never inline in an argument:
+`openssl` is not on isis's root PATH, and a command substitution expanded into an
+argument has its status discarded, so `set -e` cannot see it fail. That produced
+an all-empty secret, created successfully. Enforced since 2026-08-08 by
+`DL-SHELL-FROM-LITERAL-SUBSTITUTION`.
 
 The two that DO hold literal credentials — `nextcloud/nextcloud/secret.sh` and
 `health/k8s/secret.sh` — are the two encrypted with git-crypt. The rule for the

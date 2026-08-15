@@ -17,12 +17,17 @@ or the cluster while producing it.
 | --- | --- |
 | `lib/types.dhall` | the schema an app is written against |
 | `lib/k8s.dhall` | the subset of the Kubernetes API this fleet uses, as types |
-| `lib/render.dhall` | `App` → Kubernetes resources |
+| `lib/render.dhall` | `Namespace` → Kubernetes resources |
+| `lib/site.dhall` | the second type: a static site, which is not an `App` |
 | `lib/list.dhall` | `map`/`concatMap` (hand-written so no remote import is needed) |
 | `dns.dhall` | every hostname the fleet serves |
 | `apps/*.dhall` | one value per app — the part a human edits |
+| `sites/*.dhall` | one value per static site |
 | `generate.sh` | render, or `--check` against the live tree |
 | `normalize.py` | canonicalises YAML so `--check` compares meaning, not text |
+
+`App` is the one-workload case of `Namespace`, and `namespaceOf` is the only
+expression that says so — everything renders through the `Namespace` path.
 
 ## Usage
 
@@ -68,46 +73,61 @@ Fleet-wide facts live in one place: the MariaDB version is one line in
 
 ## Status
 
-Two apps are modelled. **`home` IS cut over** — `home/k8s/` is rendered output
-(the files carry a GENERATED header) and `--check` reports `model matches the
-live tree`. `generated/` is gitignored; the cut-over tree in `home/k8s/` is what
-is committed and applied.
+**DONE — 16 of 16, generated, deployed, and the apply converges** (2026-08-14).
+Every modelled tree carries a `GENERATED from` header, `generate.sh --check`
+reports `model matches the live tree` for all of them, and a second
+`apply --dry-run=server` comes back clean.
 
-**`life` is modelled but NOT cut over**, blocked on three deliberate decisions
-that `--check` reports:
+- **13 apps** — `apps/*.dhall` through `lib/types.dhall`: coach, fleetwatch,
+  health, home, life, memview, messages, observe, recall, scanner, signal,
+  tasks, utterance.
+- **3 static sites** — `sites/*.dhall` through `lib/site.dhall`, a SECOND type:
+  amun, isis, slides.
 
-| Live | Model | |
-| --- | --- | --- |
-| `initialDelaySeconds: 10`, `periodSeconds: 15` | `15` / `20` | changes restart behaviour |
-| container `name: app` | `life-app` | renames a container → pod restart |
-| Service `port: 3306` | adds `targetPort: 3306` | no-op; k8s defaults targetPort to port |
+`generated/` is gitignored; the cut-over tree under `<app>/k8s/` is what is
+committed and applied.
 
-**Resolution: all three accepted, `life` cut over 2026-07-27.** The first
-instinct was to bend the model back to life's values so the cutover would be a
-behavioural no-op. Looking at what those values actually are killed that idea:
-`home` — already cut over and live — runs one name throughout (Deployment
-`home`, container `home`, Service `home`) and liveness 15/20. **`life` is the
-outlier, not the model**: container `app` under Deployment `life-app`, liveness
-10/15, with no comment or commit explaining either. They are accidents.
+⚠ **Adding a TYPE beat grinding through apps, and the margin was 3:1.** Seven
+trees was the ceiling for `T.App` alone. Ranking the rest by line count was
+wrong — size is not the cost, **conformity to the single shape the type
+describes is**. `lib/site.dhall` then moved the number by four, three of them
+byte-identically with no cluster change at all. Size the next batch by reading a
+whole subject, not one dimension of it: a change measuring only how three trees
+were *reached* unlocked zero.
 
-Preserving them would have meant adding per-app container-name and probe-timing
-fields — widening the model to encode an inconsistency. That is the opposite of
-what a model is for. The cost of accepting instead is one pod restart, no config
-or data change, and life ends up matching home.
+**`vaultwarden` is deliberately not modelled.** The only way in is making
+`runAsNonRoot`, seccomp and cpu limits optional — weakening the exact invariants
+the model exists for, for the password vault.
 
-The rule this settles: **bend the app to the model when the app's divergence is
-an accident; bend the model to the app only when the divergence is a decision.**
-Check for a comment or a commit before assuming which.
+⚠ **`generate.sh --check` cannot report the gap**, because it iterates
+`apps/*.dhall`: its universe IS the model, so it is green over what is modelled
+and silent about the rest. `check_generated_manifests` in dev-lint's `fleet.py`
+walks for `k8s/` directories instead and prints the ratio on every `./check`.
 
-## Where this is going
+⚠ **NEVER run `dhall format` on this tree.** It discards comments — measured
+313 → 40 lines on `lib/types.dhall`, 217 → 79 on `render.dhall` — and the
+reasoning in those comments is the most valuable part of the files. Nothing
+catches it: the rendered YAML is identical, because comments never reach the
+output.
 
-Six apps share the modelled skeleton (namespace + PVC + MariaDB + app + ingress
-+ netpol): `coach`, `fleetwatch`, `health`, `home`, `life`, `nocodb`. Two are
-modelled; the remaining four are the expansion targets. `signal` is a partial
-fit (db + PVC, no ingress).
+### The rule the cutover settled
 
-The prerequisite — one manifest layout across the fleet — landed 2026-07-27:
-every deployable now lives under a `k8s/` directory, which is the shape the
-renderer already emits. Apps outside the skeleton (helm-based `cert-manager`,
-`ingress-nginx`, `mailu-mailserver`, `nextcloud`) are permanently out of scope:
-helm creates resources no manifest describes, so a model cannot own them.
+**Bend the app to the model when the app's divergence is an accident; bend the
+model to the app only when the divergence is a decision.** Check for a comment
+or a commit before assuming which. `life` was the first case — container `app`
+under Deployment `life-app`, liveness 10/15 where `home` ran 15/20 — with
+nothing explaining either. Preserving them would have meant widening the model
+to encode an inconsistency, which is the opposite of what a model is for. Cost
+of accepting: one pod restart, no config or data change.
+
+## What stays out
+
+Helm-based `cert-manager`, `ingress-nginx`, `mailu-mailserver` and `nextcloud`
+are permanently out of scope: helm creates resources no manifest describes, so a
+model cannot own them. They keep their own `sync.sh`. `vaultwarden` is out for
+the different reason above — it would cost the invariants rather than being
+unmodellable.
+
+The prerequisite for all of this — one manifest layout across the fleet — landed
+2026-07-27: every deployable lives under a `k8s/` directory, which is the shape
+the renderer emits.
