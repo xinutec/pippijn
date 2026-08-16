@@ -84,7 +84,7 @@ spec:
         - name: WALK_BUILDING_ESCAPE
           value: '1'
         - name: LEAN_PASSES
-          value: shadow
+          value: 'on'
         - name: LEAN_MATCH
           value: 'on'
         - name: LEAN_RAIL

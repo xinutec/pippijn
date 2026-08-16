@@ -142,9 +142,23 @@ let leanTenants
           -- cover), and any bridge failure falls back to TS
           -- (swallow-over-wrong). "off"/unset reverts instantly.
           --
-          -- DEMOTED on->shadow 2026-08-01. Production output is to come from
-          -- the TS implementation while Lean runs alongside as measurement;
-          -- this was the last tenant still serving Lean to a reader.
+          -- RE-PROMOTED shadow->on 2026-08-16, superseding the 2026-08-01
+          -- demotion. That demotion's rule was "production output comes from
+          -- the TS implementation while Lean runs alongside as measurement",
+          -- which is the opposite of the current direction: moving OFF TS.
+          -- Owner decision, 2026-08-16 — a small divergence is acceptable and
+          -- gets resolved afterwards; serving Lean is the point.
+          --
+          -- Evidence at the flip, all six ops:
+          --   spikes / simplify / spurs / trim / despike / splice
+          -- read `n/0f/0d` on every live day 08-09..08-15, and an `on`-mode
+          -- run decodes a day byte-identically to the `shadow` run — same
+          -- segment count, same day-tenant comparison.
+          --
+          -- ⚠ `spikes` and `splice` only gained their A/B on 2026-08-16
+          -- (health `bdea621`, `7c797e9`) — before that they were the two
+          -- UNCOMPARED ops on the walk path. Their history is days, not
+          -- months, so they are the two to suspect first if this goes wrong.
           --
           -- NOTE the request-path cost, which shadow does NOT avoid: `shadow`
           -- runs both arms synchronously through the in-process bridge, so the
@@ -153,7 +167,7 @@ let leanTenants
           -- The matcher is the one that is not (276ms avg, 4.8s max), and it is
           -- LEAN_MATCH below that pays it, not this flag.
           name = "LEAN_PASSES"
-        , value = lit "shadow"
+        , value = lit "on"
         }
       , { -- Verified Lean walk-matcher (qMatchWalkSegment). ROLLED BACK to
           -- shadow 2026-07-31 after serving `on` since 2026-07-21.

@@ -357,7 +357,7 @@ spec:
             - name: LEAN_DAY
               value: shadow
             - name: LEAN_PASSES
-              value: shadow
+              value: 'on'
             - name: LEAN_MATCH
               value: 'on'
             - name: LEAN_RAIL
