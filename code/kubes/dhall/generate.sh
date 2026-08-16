@@ -390,12 +390,16 @@ header() { # app file netpol_anchor
       printf '# strategy is Recreate: a single RWO PVC must never have two DB pods.\n'
       ;;
     *-held.yaml)
-      # The marker string below is LOAD-BEARING, not decoration. THREE readers:
-      # scripts/apply.sh refuses any file containing it, fleet_health.py's drift
-      # sweep skips it so a deliberately-unapplied manifest is not reported as
-      # permanent drift, and plan-run's ManifestsUnmixed probe — the one the
-      # fleet's deploys actually go through, via deploy.sh — refuses on it too.
-      # All three also skip on the *held* filename, so this is defence in depth.
+      # The marker string below is LOAD-BEARING, not decoration. TWO readers,
+      # and there were three until scripts/apply.sh was deleted on 2026-08-16:
+      # fleet_health.py's drift sweep skips it so a deliberately-unapplied
+      # manifest is not reported as permanent drift, and plan-run's
+      # ManifestsUnmixed probe — the one the fleet's deploys actually go
+      # through, via deploy.sh — refuses any file containing it. Both also skip
+      # on the *held* filename, so this is defence in depth.
+      # Both spellings are now compared by mac-mini/test_held_marker.py, which
+      # covers the whole convention for the first time: the third reader was the
+      # one it could not reach.
       #
       # "Losing either would silently arm the policy below" was written when
       # there were two, and it has since been proven the hard way: plan-run
@@ -610,7 +614,7 @@ done
 # name it — so it cannot ask a probe, and `deploy::desired` is pure. The two
 # alternatives were both worse: evaluating Dhall at deploy time puts a
 # `nix develop` on the path of every deploy and makes this flake a deploy
-# dependency (which is what `scripts/apply.sh` does today, once per invocation);
+# dependency (which is what the deleted `scripts/apply.sh` did, once per run);
 # and a second copy of the mapping in the plan's own tables would be two sources
 # of truth for a question that already has one — the failure #692 was.
 #

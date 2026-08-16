@@ -84,13 +84,18 @@ let Site =
         --  webhook refuses the overlap, so it is delete-then-create, not apply).
         slug : Text
       , --| Which k3s cluster serves it. NOT decoration and not derivable: isis
-        --  and amun are two clusters and the four sites are split two-and-two
-        --  between them. Without this field a site could not say where it lives,
-        --  and `scripts/apply.sh` asked whoever was typing — so a dry run
-        --  against the wrong cluster reported "nothing exists here", which reads
-        --  exactly like a first deploy rather than like a mistake. That
-        --  happened, and cost a bug report filed against the wrong cluster.
-        --  `apply.sh` now READS this and refuses a `--host` that contradicts it.
+        --  and amun are two clusters, and of the three sites `amun` is served by
+        --  amun while `isis` and `slides` are served by isis. Without this field
+        --  a site could not say where it lives, and the deploy tool asked
+        --  whoever was typing — so a dry run against the wrong cluster reported
+        --  "nothing exists here", which reads exactly like a first deploy rather
+        --  than like a mistake. That happened, and cost a bug report filed
+        --  against the wrong cluster.
+        --
+        --  `generate.sh` renders this into `dhall/clusters.json` and `plan-run
+        --  deploy` reads it, refusing a `--host` that contradicts it. (The
+        --  `scripts/apply.sh` that first read this field was deleted on
+        --  2026-08-16, once the plan could do the same.)
         cluster : T.Cluster
       , host : Optional Text
       , replicas : Natural
@@ -624,8 +629,9 @@ let redirect
 --| The declared-unowned filenames, one per line, for the generator's `--check`.
 --  A fold rather than a Prelude import: this directory deliberately vendors the
 --  two list helpers it needs instead of pulling a package over the network.
---| The host `scripts/apply.sh` deploys to, from the model rather than from
---  whoever is typing. See `Site.cluster`.
+--| The host this site deploys to, from the model rather than from whoever is
+--  typing. Rendered into `dhall/clusters.json` and read by `plan-run deploy`.
+--  See `Site.cluster`.
 let clusterHost
     : Site → Text
     = λ(site : Site) →

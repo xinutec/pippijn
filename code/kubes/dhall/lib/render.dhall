@@ -106,9 +106,11 @@ let hasDb
     = λ(ns : T.Namespace) →
         merge { None = False, Some = λ(_ : T.Database) → True } ns.db
 
---| The host `scripts/apply.sh` must deploy to. The cluster has been a field on
---  `T.App` since the model existed; until 2026-08-10 nothing read it, and the
---  deploy tool asked whoever was typing instead. See `site.dhall`'s twin.
+--| The host this app must deploy to. The cluster has been a field on `T.App`
+--  since the model existed; until 2026-08-10 nothing read it, and the deploy
+--  tool asked whoever was typing instead. Rendered into `dhall/clusters.json`
+--  and read by `plan-run deploy`, which refuses a `--host` that contradicts it.
+--  See `site.dhall`'s twin.
 let clusterHost
     : T.Namespace → Text
     = λ(ns : T.Namespace) →
