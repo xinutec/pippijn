@@ -44,10 +44,19 @@ exe="$(nix build --no-link --print-out-paths "${INFRA}#plan-run")/bin/plan-run"
 # `--roll-forward` because that is what running a sync script always meant: put
 # the workloads on the current `:latest`. Without it a deploy converges the
 # standing invariants and leaves running pods alone.
+# ⚠ NO `--host`. It used to say `--host isis`, which was right fourteen times in
+# fifteen and silently wrong for the one tree on amun — and it meant this script,
+# not the model, decided which cluster got the manifests. `plan-run` reads
+# `dhall/clusters.json` now and refuses a `--host` that contradicts a model, so
+# `deploy.sh amun` reaches amun for the first time.
+#
+# A tree with NO model has to be told: `deploy.sh ircd --host isis.xinutec.org`.
+# That is deliberate rather than a regression — there is no default, because a
+# wrong cluster applies cleanly against an empty namespace and reads like a first
+# deploy (#692). The seven unmodelled trees joining the model retires the flag.
 exec "$exe" deploy \
   --settings "${INFRA}/plan/settings.json" \
   --app "$app" \
-  --host isis \
   --local-repo "$KUBES" \
   --host-dir "$HOST_DIR" \
   --roll-forward \

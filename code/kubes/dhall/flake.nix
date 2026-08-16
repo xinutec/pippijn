@@ -14,6 +14,10 @@
           packages = [
             pkgs.dhall
             pkgs.dhall-yaml
+            # clusters.json — the app -> cluster map the deploy plan reads. JSON
+            # rather than YAML because its consumer is Rust in another
+            # repository; the map is built by this, never by printf.
+            pkgs.dhall-json
             # normalize.py — semantic manifest comparison for --check
             (pkgs.python3.withPackages (ps: [ ps.pyyaml ]))
           ];

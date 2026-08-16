@@ -604,5 +604,63 @@ for src in "$here"/sites/*.dhall; do
   fi
 done
 
-[[ $mode == write ]] && echo "rendered to $here/generated/"
+# ── clusters.json: which cluster each tree belongs to, as DATA ───────────────
+#
+# `plan-run deploy` needs the host BEFORE it builds its goals, because the goals
+# name it — so it cannot ask a probe, and `deploy::desired` is pure. The two
+# alternatives were both worse: evaluating Dhall at deploy time puts a
+# `nix develop` on the path of every deploy and makes this flake a deploy
+# dependency (which is what `scripts/apply.sh` does today, once per invocation);
+# and a second copy of the mapping in the plan's own tables would be two sources
+# of truth for a question that already has one — the failure #692 was.
+#
+# So the model renders the answer, the same way it renders manifests, and the
+# plan reads a committed file. Unlike `generated/`, this one IS committed: it is
+# read by another repository, which cannot run this script.
+#
+# ⚠ The JSON is built by `dhall-to-json`, not by printf. Only the EXPRESSION is
+# assembled here, so a tree whose model lacks `cluster`, or a misspelled
+# `clusterHost`, is a Dhall type error rather than a quoting accident in bash.
+#
+# Keyed by LEAF name: `web/org/xinutec/slides` is the site `slides`. An app and a
+# site cannot share a name, which `scripts/apply.sh` already relied on.
+clusters_expr() {
+  local first=1 leaf
+  printf 'let R = %s/lib/render.dhall\nlet S = %s/lib/site.dhall\nin  toMap\n{ ' "$here" "$here"
+  for src in "$here"/apps/*.dhall; do
+    leaf=$(basename "$src" .dhall)
+    (( first )) || printf '\n, '
+    first=0
+    printf '%s = R.clusterHost %s/apps/%s.dhall' "$leaf" "$here" "$leaf"
+  done
+  for src in "$here"/sites/*.dhall; do
+    leaf=$(basename "$src" .dhall)
+    (( first )) || printf '\n, '
+    first=0
+    printf '%s = S.clusterHost %s/sites/%s.dhall' "$leaf" "$here" "$leaf"
+  done
+  printf '\n}\n'
+}
+
+clusters_rendered=$(clusters_expr | dhall-to-json 2>"$render_err") || {
+  printf 'generate.sh: the app -> cluster map did not evaluate:\n' >&2
+  cat "$render_err" >&2
+  exit 1
+}
+
+if [[ $mode == write ]]; then
+  printf '%s\n' "$clusters_rendered" > "$here/clusters.json"
+else
+  # Committed, so `--check` compares against the file rather than re-deriving
+  # it: the question this row answers is whether what the OTHER repository reads
+  # still matches the model, and re-deriving both sides could not answer it.
+  if ! printf '%s\n' "$clusters_rendered" | diff -u "$here/clusters.json" - > "$tmp/clusters.diff"; then
+    printf 'generate.sh: clusters.json is stale — the model says otherwise.\n' >&2
+    printf 'Run ./generate.sh to update it; plan-run deploy reads this file.\n' >&2
+    sed 's/^/   /' "$tmp/clusters.diff" >&2
+    status=1
+  fi
+fi
+
+[[ $mode == write ]] && echo "rendered to $here/generated/ and $here/clusters.json"
 exit $status
