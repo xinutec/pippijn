@@ -589,13 +589,20 @@ in  T.namespaceOf
                         -- leaf pass is recomputed next run while a wrong ROW
                         -- that gets persisted stays.
                         --
-                        -- ⚠ It WILL report divergence immediately: 29 of 35
-                        -- corpus days differ, all of them in segment statistics
-                        -- (`pointCount`/`avgSpeed`/`maxSpeed`/`linearity`) with
-                        -- bounds and pass history agreeing. That is one known
-                        -- defect, not new breakage — expected noise until it is
-                        -- fixed. What this buys is the same measurement on LIVE
-                        -- days the 35-day corpus does not cover.
+                        -- ⚠ THE "EXPECTED NOISE" READING IS RETIRED — do not
+                        -- reinstate it. This used to say 29 of 35 corpus days
+                        -- differ in segment statistics, so a divergence here
+                        -- meant nothing. The day gate is 35/35 as of
+                        -- 2026-08-16 and the live ledger reads EXACT on four
+                        -- days of five, so a `DIVERGED` line is now SIGNAL.
+                        -- The fifth (2026-08-11) is a 227 cm walk reroute,
+                        -- 16x the quantisation envelope, and it is what blocks
+                        -- `on` — health task #749.
+                        --
+                        -- What this buys is the measurement on LIVE days the
+                        -- corpus does not cover: `tests/golden/days/` ends
+                        -- 2026-08-06, and 08-11 is exactly such a day. Golden
+                        -- being green does not predict this.
                         --
                         -- Bounded by `LEAN_DAY_TIMEOUT_MS` (health `3686a0d`,
                         -- 60 s per round). Before that the tenant's bridge call
