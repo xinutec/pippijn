@@ -91,10 +91,21 @@ let batchResources
 
 -- The decode carries more memory than the refreshes: it holds a day's fixes and
 -- both arms of every shadowed Lean pass at once.
+--
+-- 1536Mi was enough until the day tenant got a HOST (health `21957c0`). Measured
+-- in the pod on 2026-08-16, mid-run over `--days 7`: node 488M, a long-lived
+-- `verified_cli` growing 232M→411M across the seven days, and `day-shell`
+-- spawned per call at ~177M on top. That peak OOMKilled the job twice (exit
+-- 137), and it restarts from day one each time, so it never finishes — a
+-- crash loop, not a slow run.
+--
+-- `day-shell` is transient, not a leak: sampled every 25 s it appears at
+-- ~151-177M and disappears between calls. So this is a headroom problem and 3Gi
+-- fixes it; isis had ~6 GiB free when this was raised.
 let decodeResources
     : T.Resources
     = { requests = { cpu = "100m", memory = "256Mi" }
-      , limits = Some { cpu = Some "1000m", memory = "1536Mi" }
+      , limits = Some { cpu = Some "1000m", memory = "3Gi" }
       }
 
 -- C4 continuity flags (task #224). The auth pod does not READ them — it is the
