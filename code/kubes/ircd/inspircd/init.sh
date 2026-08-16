@@ -12,27 +12,19 @@ for file in conf/secret/server.conf data/permchannels.conf; do
   done
 done
 
-# The TLS certificate, mounted from the `irc-tls` secret that cert-manager
-# renews. Watched here for the same reason the config is: inspircd reads its
-# certificate when it rehashes and never again, so a renewed certificate sitting
-# in the secret changes nothing until something sends a HUP.
-#
-# Nothing did, for a long time. cert-manager renewed into the secret while the
-# process went on serving what it had loaded months earlier, and the gap only
-# closed when a human ran `kubectl cp` by hand — every ~60 days, and once it was
-# noticed with 26 days to spare. This poll is what that human was.
+# The `irc-tls` secret, mounted by the Deployment. inspircd reads its
+# certificate at rehash and never again, so a renewal reaches the wire only when
+# something sends a HUP. Until 2026-08-16 that something was a person running
+# `kubectl cp`, and the cert came within 26 days of expiring while a good one
+# sat unused in the secret.
 CERT=conf/tls/tls.crt
 
-# What the running server would be serving if it rehashed right now: the config
-# commit and the certificate on disk. One stamp for both, because the remedy for
-# either changing is the same signal.
+# What the server would serve if it rehashed now: the config commit and the
+# certificate. One stamp for both, because either changing wants the same HUP.
 stamp() {
   git rev-parse HEAD
-  # `|| true` so an ABSENT certificate leaves the loop running rather than
-  # wedging it. That is not hypothetical — a local test build has no secret
-  # mounted, and a pod from before the volume existed would have none either.
-  # Losing the config half of this poll to a missing file would be a worse
-  # failure than the one being fixed.
+  # `|| true`: a missing certificate must not wedge the loop and take the config
+  # half down with it. A local build has no secret mounted.
   sha256sum "$CERT" 2>/dev/null || true
 }
 
