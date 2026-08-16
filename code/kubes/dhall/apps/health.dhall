@@ -573,7 +573,25 @@ in  T.namespaceOf
                     dbEnv
                   # ncEnv
                   # decodeFlags
-                  # [ { name = "LEAN_HSMM", value = lit "shadow" }
+                  # [ { -- The verified Lean trellis SERVES the decode as of
+                        -- 2026-08-16, with a TS fallback on bridge failure.
+                        --
+                        -- Flipped on the longest shadow record in the system:
+                        -- `lean-hsmm[shadow] … EXACT` on every live day, 35/35
+                        -- on the corpus, and the float↔quant twin at 100.00%
+                        -- with scoreΔ 0.00e+0.
+                        --
+                        -- `on` does NOT stop the A/B — both arms still run and
+                        -- the ledger still prints, so a regression stays visible
+                        -- rather than becoming invisible at the moment it starts
+                        -- being served. That is also why the flip costs no
+                        -- memory and no wall-clock.
+                        --
+                        -- Rollback is this word: back to `shadow` and the TS
+                        -- decode serves again on the next run.
+                        name = "LEAN_HSMM"
+                      , value = lit "on"
+                      }
                     , { name = "LEAN_STATIONCHAIN", value = lit "on" }
                     , { -- The 38-pass day cascade, served from the Lean fold.
                         -- HERE AND NOT IN `leanTenants`: the day chain is what
