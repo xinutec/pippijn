@@ -642,8 +642,32 @@ in  T.namespaceOf
                         -- deadlock at 0% CPU — which in here would hang this job
                         -- rather than fail it. Do not flip this on a build that
                         -- predates that commit.
+                        -- FLIPPED shadow->on 2026-08-16. Owner decision: moving
+                        -- off TS is the direction, a small divergence is
+                        -- acceptable and gets resolved afterwards.
+                        --
+                        -- The precondition was ATTRIBUTION, not a fix, and it is
+                        -- met. Seven live days: five EXACT, and the two that
+                        -- differ are both cosmetic and understood —
+                        --   08-11  two extra vertices, a 2.55 m out-and-back
+                        --          spur in DRAWN display geometry; both arms
+                        --          agree on the whole route, `len=0`, no mode
+                        --          and no boundary moves (health #749)
+                        --   08-09  spatially IDENTICAL (0.00 cm), vertex
+                        --          timestamps only (the #956 dev/dts class)
+                        --
+                        -- Safety rails that survive the flip: `serveLeanDay`
+                        -- returns TS on a bridge failure, a non-convergent round
+                        -- loop, or a segment-count mismatch; `graftShells` still
+                        -- fills any field the fold left undrawn; and the ledger
+                        -- keeps comparing and printing, so a regression stays
+                        -- visible while it is served.
+                        --
+                        -- ⚠ This is the one tenant that WRITES. Rollback is this
+                        -- word back to `shadow`; a row already persisted is not
+                        -- undone by that, it is overwritten on the next decode.
                         name = "LEAN_DAY"
-                      , value = lit "shadow"
+                      , value = lit "on"
                       }
                     ]
                   # leanTenants
