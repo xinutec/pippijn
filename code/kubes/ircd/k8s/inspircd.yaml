@@ -51,6 +51,19 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: ircd-storage
+        # The certificate cert-manager renews, mounted so the process can
+        # actually reach it. Before this it could not: `conf/secret` is a subPath
+        # of the PVC above, the certificate got there by a hand-run `kubectl cp`,
+        # and a renewed secret changed nothing on the wire. Restarting the pod
+        # did not help either — it reloaded the same PVC files, which is why the
+        # obvious remedy kept looking like it should work and never did.
+        - name: tls
+          secret:
+            secretName: irc-tls
+            # World-readable: inspircd runs as uid 39 and the projection is
+            # root-owned. This is a server certificate and its key, in a pod
+            # whose only process is the server that serves them.
+            defaultMode: 0444
       containers:
         - name: ircd
           image: xinutec/ircd:latest
@@ -80,3 +93,13 @@ spec:
             - mountPath: /etc/inspircd/data
               name: data
               subPath: data
+            # ⚠ NO subPath, and that is the whole point rather than an omission.
+            # A subPath mount is copied once at start and NEVER updated by the
+            # kubelet, so mounting the certificate that way would reproduce the
+            # exact bug being fixed — a renewed secret that never reaches the
+            # process — while looking like it had been solved. Mounted as a
+            # directory, the projection is refreshed in place on renewal, and
+            # init.sh's poll notices the change and rehashes.
+            - mountPath: /etc/inspircd/conf/tls
+              name: tls
+              readOnly: true
