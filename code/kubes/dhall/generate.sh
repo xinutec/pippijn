@@ -35,32 +35,41 @@ case ${1:-} in
   *) echo "usage: $0 [--check]" >&2; exit 2 ;;
 esac
 
-# Output file -> the renderers whose documents it concatenates.
-manifests=(
-  "00-namespace.yaml:namespace"
-  "01-configmap.yaml:configMap"
-  "01-pvc.yaml:pvc appPvc"
-  "02-db.yaml:dbDeployment dbService"
-  "03-app.yaml:appDeployment appService"
-  "04-ingress.yaml:ingress"
-  "04-cronjobs.yaml:cronJobs"
-  "05-networkpolicy.yaml:netpolDb netpolApp"
-  "06-networkpolicy-app-held.yaml:netpolAppHeld"
-)
+# Output file -> the renderers whose documents it concatenates, and which of
+# those renderers must keep their empty values.
+#
+# ⚠ READ FROM THE MODEL since 2026-08-17 (#65), where they were two literal bash
+# arrays and a `case` glob. All three are facts about the renderers, and they sat
+# in a different file from the renderers. `lib/manifests.dhall` carries the long
+# version of why, including which of #65's other candidates were measured and
+# could NOT move.
+#
+# The shapes are unchanged — `<file>:<renderer> <renderer>` per line, and a
+# space-separated name list — so the parsing below is the same parsing it always
+# was, and this is a change of SOURCE rather than of format.
+#
+# `dhall text`, not `dhall-to-yaml`: these are already text and a YAML round trip
+# would only add quoting to strip again.
+manifest_lines() { # field -> the table, one line per output file
+  dhall text <<< "($here/lib/manifests.dhall).$1"
+}
 
-# The same, for the static sites under web/org/xinutec/. A separate list because
-# a site is a different KIND of thing, not an app with fields switched off — see
-# lib/site.dhall. It renders no Namespace: all four share `web`, which
-# kubes/web/k8s owns, and a second copy of a shared object is how two trees start
-# fighting over it.
-site_manifests=(
-  "00-configmap.yaml:configMaps"
-  "01-pvc.yaml:pvc"
-  "02-deployment.yaml:deployment"
-  "03-service.yaml:service"
-  "04-ingress.yaml:ingress"
-  "05-redirect.yaml:redirect"
-)
+mapfile -t manifests < <(manifest_lines appLines)
+mapfile -t site_manifests < <(manifest_lines siteLines)
+
+# Renderers whose output must NOT be passed through `--omit-empty`. Space
+# separated and matched whole-word below, so `netpolApp` cannot match
+# `netpolAppHeld` by prefix the way the glob it replaces could.
+keep_empty=" $(manifest_lines keepEmptyRenderers) "
+
+# ⚠ Failing here rather than rendering an empty fleet. A `dhall text` that fails
+# leaves the array empty, every app renders no documents, and in check mode that
+# reads as the whole tree deleted — which the per-app guard further down does
+# catch, but sixteen times over and naming the wrong cause.
+if (( ${#manifests[@]} == 0 )) || (( ${#site_manifests[@]} == 0 )); then
+  echo "generate.sh: lib/manifests.dhall produced no table" >&2
+  exit 1
+fi
 
 site_tree() { # site -> its live manifest directory, relative to kubes/
   printf 'web/org/xinutec/%s/k8s' "$1"
@@ -230,20 +239,32 @@ netpol_anchor_file() { # app -> the manifest that carries the namespace's first 
 
 render() { # app renderer -> YAML documents (nothing if the renderer opts out)
   local out rc=0
-  # `--omit-empty` everywhere EXCEPT the NetworkPolicies, and the exception is
-  # load-bearing rather than cosmetic. A default-deny selects the whole namespace
-  # with `podSelector: {}` and denies a direction with an empty rule list — both
-  # empty, both deleted by that flag. dev-lint then cannot RECOGNISE the policy:
-  # measured 2026-08-11 by rendering scanner and running the linter over the
-  # result, which reported `DL-K8S-NP-DEFAULT-DENY namespace scanner has no
-  # default-deny NetworkPolicy` on a tree that had one.
+  # `--omit-empty` everywhere except the renderers the MODEL exempts, and the
+  # exception is load-bearing rather than cosmetic. A default-deny selects the
+  # whole namespace with `podSelector: {}` and denies a direction with an empty
+  # rule list — both empty, both deleted by that flag. dev-lint then cannot
+  # RECOGNISE the policy: measured 2026-08-11 by rendering scanner and running
+  # the linter over the result, which reported `DL-K8S-NP-DEFAULT-DENY namespace
+  # scanner has no default-deny NetworkPolicy` on a tree that had one.
   #
   # With the flag off, "empty" and "absent" become expressible separately, which
   # is why K.NetworkPolicy's rule lists are Optional — see lib/k8s.dhall.
+  #
+  # ⚠ This was `case $2 in netpol*|appDeployment)` until 2026-08-17 — a GLOB over
+  # renderer names deciding a dev-lint-visible property. A renderer added as
+  # `netpolExtra` would have inherited the exception silently, and one needing it
+  # under another name would silently not get it. `lib/manifests.dhall` states it
+  # per renderer instead, and the space-padded match below is whole-word, so
+  # `netpolApp` cannot match `netpolAppHeld` by prefix the way the glob could.
+  #
+  # `if`, not `[[ … ]] && flags=(…)`: a false test is that statement's exit
+  # status, and under `set -e` the same shape has already cost this fleet a
+  # script — see the note in scripts/netpol-reach.sh's row loop. It is safe here
+  # only because more commands follow, which is a reason not to write it.
   local flags=(--omit-empty --documents)
-  case $2 in
-    netpol*|appDeployment) flags=(--documents) ;;
-  esac
+  if [[ $keep_empty == *" $2 "* ]]; then
+    flags=(--documents)
+  fi
   out=$(printf 'let R = %s/lib/render.dhall in R.%s %s/apps/%s.dhall\n' \
     "$here" "$2" "$here" "$1" |
     dhall-to-yaml-ng "${flags[@]}" 2>"$render_err") || rc=$?
