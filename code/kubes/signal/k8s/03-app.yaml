@@ -1,5 +1,7 @@
 # GENERATED from dhall/apps/signal.dhall by dhall/generate.sh — do not edit.
 # Change the model and re-render; hand edits are overwritten.
+#
+# dev-lint: allow-unhardened — entrypoint runs usermod/groupmod as root before dropping to uid 1000; runAsNonRoot fails them with 'cannot lock /etc/group' and crash-loops the container
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -69,6 +71,8 @@ spec:
         app: "signal-ingester"
     spec:
       containers:
+      # dev-lint: allow-rootfs-rw — writes downloaded blobs under /attachments (a mount) and uses /tmp scratch
+      # dev-lint: allow-no-probe
       - env:
         - name: DB_HOST
           value: "signal-db"
@@ -98,6 +102,8 @@ spec:
         image: "xinutec/signal-archiver:latest"
         name: "signal-ingester"
         resources:
+          limits:
+            memory: 128Mi
           requests:
             cpu: 50m
             memory: 64Mi
@@ -139,6 +145,7 @@ spec:
         app: "signal-irc-tail"
     spec:
       containers:
+      # dev-lint: allow-rootfs-rw — copies the ssh key to /tmp at 0400 before use, for the reason the CronJob's `sshkey` note gives: a secret volume is root-owned
       - command:
         - /usr/local/bin/irc_tail
         - "--host"
@@ -197,6 +204,8 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
         resources:
+          limits:
+            memory: 128Mi
           requests:
             cpu: 50m
             memory: 64Mi

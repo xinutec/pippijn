@@ -36,4 +36,34 @@ let nonEmpty
       λ(xs : List a) →
         if Natural/isZero (List/length a xs) then None (List a) else Some xs
 
-in  { map, concatMap, nonEmpty }
+{-| Join with a separator BETWEEN elements — no leading or trailing one, which a
+    naive fold produces and which would give the shell an empty first or last
+    record to parse.
+
+    Shared rather than local since `manifests.dhall` and `render.dhall` both
+    need it. `manifests.dhall` had it privately first, with a note saying a
+    helper with one caller lives beside its caller; the second caller is what
+    moved it.
+-}
+let joinWith
+    : Text → List Text → Text
+    = λ(sep : Text) →
+      λ(xs : List Text) →
+        merge
+          { None = "", Some = λ(s : Text) → s }
+          ( List/fold
+              Text
+              xs
+              (Optional Text)
+              ( λ(x : Text) →
+                λ(acc : Optional Text) →
+                  merge
+                    { None = Some x
+                    , Some = λ(rest : Text) → Some "${x}${sep}${rest}"
+                    }
+                    acc
+              )
+              (None Text)
+          )
+
+in  { map, concatMap, nonEmpty, joinWith }

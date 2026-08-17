@@ -18,6 +18,7 @@ spec:
             app: "signal-irclog-import"
         spec:
           containers:
+          # dev-lint: allow-rootfs-rw — copies the ssh key to /tmp at 0400 before rsync, because a secret volume is root-owned
           - command:
             - /bin/sh
             - "-c"

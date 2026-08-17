@@ -93,7 +93,7 @@ in  T.namespaceOf
         , hardening = T.Hardening.NonRoot
         , -- Everything it writes is a mount: the archive, /tmp (ffmpeg scratch)
           -- and /app/logs.
-          readOnlyRootFs = True
+          rootFs = T.RootFs.ReadOnly
         , env =
           [ { -- This node is the system of record, not a capture node:
               -- /api/capture records pause/resume as INTENT that the Mac

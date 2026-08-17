@@ -82,7 +82,7 @@ in  T.namespaceOf
         , hardening = T.Hardening.NonRoot
         , -- The only thing it writes is the share-token state file, which lives
           -- on the volume below, so the root filesystem stays read-only.
-          readOnlyRootFs = True
+          rootFs = T.RootFs.ReadOnly
         , env =
           [ { name = "MEMORY_DIR", value = lit corpusPath }
           , { -- The one public share token, persisted so it survives a restart.

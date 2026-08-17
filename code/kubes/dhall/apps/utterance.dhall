@@ -63,7 +63,7 @@ in  T.namespaceOf
         , hardening = T.Hardening.NonRoot
         , -- Everything it writes goes to the volume above, so the root
           -- filesystem stays read-only.
-          readOnlyRootFs = True
+          rootFs = T.RootFs.ReadOnly
         , env =
           [ { name = "DATA_DIR", value = lit dataPath }
           , { -- All three of these must be set or the sign-in gate stays down

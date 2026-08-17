@@ -199,9 +199,11 @@ in  { name = "signal"
               { why =
                   "entrypoint runs usermod/groupmod as root before dropping to uid 1000; runAsNonRoot fails them with 'cannot lock /etc/group' and crash-loops the container"
               }
-        , -- It writes its own data dir and whatever the JVM wants; this is a
-          -- third-party image and its filesystem is not ours to constrain.
-          readOnlyRootFs = False
+        , rootFs =
+            T.RootFs.Writable
+              { why =
+                  "third-party JVM image: it writes its own data dir and whatever the runtime wants, and that filesystem is not ours to constrain"
+              }
         , env = [ { name = "MODE", value = lit "json-rpc" } ]
         , probeTiming =
             { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
@@ -240,9 +242,11 @@ in  { name = "signal"
           port = restApiPort
         , uid = 65532
         , hardening = T.Hardening.NonRoot
-        , -- It writes downloaded blobs under /attachments (a mount) and may use
-          -- /tmp scratch.
-          readOnlyRootFs = False
+        , rootFs =
+            T.RootFs.Writable
+              { why =
+                  "writes downloaded blobs under /attachments (a mount) and uses /tmp scratch"
+              }
         , env =
           [ { name = "DB_HOST", value = lit "signal-db" }
           , { name = "DB_NAME", value = lit "signal" }
@@ -262,7 +266,20 @@ in  { name = "signal"
           probe = T.Probe.Unprobed
         , resources =
           { requests = { cpu = "50m", memory = "64Mi" }
-          , limits = None T.Limits
+          , -- ⚠ THIS LIMIT ONLY BECAME MEANINGFUL ON 2026-08-17, and the order
+            -- matters. It carried none because `download_attachment` did
+            -- `resp.bytes().await` — the whole blob resident before the write —
+            -- so peak memory was the largest thing anybody sent, which this pod
+            -- does not choose. A cap set from the 5Mi steady state would have
+            -- been a cap on somebody else's video, and the OOM-kill would have
+            -- read as an unexplained crash-loop. The binary now streams the body
+            -- chunk by chunk (`attach::write_stream`), so resident size is one
+            -- chunk and 128Mi is a real ceiling: ~20x the measured 5Mi, and a
+            -- kill at it means a leak rather than a big attachment.
+            --
+            -- No cpu limit: a throttle here would stall an ingest nobody is
+            -- waiting on, and show up as latency nobody can attribute.
+            limits = Some { cpu = None Text, memory = "128Mi" }
           }
         , volumes =
           [ { name = "attachments"
@@ -331,6 +348,15 @@ in  { name = "signal"
               -- leaves a half-imported archive to explain.
               deadlineSeconds = 2700
             , suspended = False
+            , -- ⚠ ITS OWN reason, not the ingester's. This runs under that
+              -- workload but does something else entirely: `install -m 400
+              -- ${sshMount}/id_ed25519 /tmp/key`, the same secret-volume story
+              -- as irc-tail's, and nothing to do with /attachments.
+              rootFs =
+                T.RootFs.Writable
+                  { why =
+                      "copies the ssh key to /tmp at 0400 before rsync, because a secret volume is root-owned"
+                  }
             , env =
               [ { name = "DB_HOST", value = lit "signal-db" }
               , { name = "DB_NAME", value = lit "signal" }
@@ -420,9 +446,11 @@ in  { name = "signal"
           port = 2230
         , uid = 65532
         , hardening = T.Hardening.NonRoot
-        , -- It copies the ssh key to /tmp at 0400 before use, for the reason the
-          -- CronJob's `sshkey` note gives: a secret volume is root-owned.
-          readOnlyRootFs = False
+        , rootFs =
+            T.RootFs.Writable
+              { why =
+                  "copies the ssh key to /tmp at 0400 before use, for the reason the CronJob's `sshkey` note gives: a secret volume is root-owned"
+              }
         , env =
           [ { name = "DB_HOST", value = lit "signal-db" }
           , { name = "DB_NAME", value = lit "signal" }
@@ -465,7 +493,12 @@ in  { name = "signal"
             }
         , resources =
           { requests = { cpu = "50m", memory = "64Mi" }
-          , limits = None T.Limits
+          , -- Bounded BY CONSTRUCTION, unlike the ingester's was: the irssi
+            -- plugin answers a poll from a 256-line ring and this holds one
+            -- reply at a time, so there is no input size it does not control.
+            -- Measured on isis 2026-08-17 at 6Mi; 128Mi is ~20x that, so a kill
+            -- here means something is wrong rather than something is large.
+            limits = Some { cpu = None Text, memory = "128Mi" }
           }
         , volumes =
           [ { name = "sshkey"

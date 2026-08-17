@@ -58,7 +58,7 @@ in  T.namespaceOf
           uid = 65532
         , hardening = T.Hardening.NonRoot
         , -- The app never writes to disk.
-          readOnlyRootFs = True
+          rootFs = T.RootFs.ReadOnly
         , env =
           [ { -- Full mysql:// DSN (carries the DB password) — kept whole.
               name = "DATABASE_URL"

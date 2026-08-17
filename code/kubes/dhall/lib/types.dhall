@@ -369,6 +369,29 @@ let Reach =
       | NoService
       >
 
+--| Whether the container's root filesystem is read-only.
+--
+-- ⚠ THIS WAS `readOnlyRootFs : Bool`, AND THE `why` IS THE WHOLE POINT. Three
+-- workloads set it `False` — the bridge (a third-party image whose filesystem is
+-- not ours to constrain), the ingester (writes blobs under a mount and uses
+-- /tmp) and irc-tail (copies its ssh key to /tmp at 0400, because a secret
+-- volume is root-owned). Every one of those reasons was already written down.
+-- None of them survived the render: the hand-written YAML carried
+-- `allow-rootfs-rw` markers, `5a00cd49` generated the tree from the model on
+-- 2026-08-14, and the markers left with the file they were written in. dev-lint
+-- has reported all three ever since, correctly, about a decision nobody
+-- disagreed with.
+--
+-- A Bool cannot carry a reason, so the reasons lived in Dhall comments, which
+-- the renderer cannot read. This is `Hardening`'s shape for the same reason
+-- `Hardening` has it: the permissive arm has to be argued, the argument belongs
+-- where the decision is, and the generator can then emit it as the waiver rather
+-- than a human remembering to re-add one.
+--
+-- The default arm carries nothing, so `ReadOnly` stays as cheap to write as
+-- `True` was — thirteen of the sixteen call sites are exactly that.
+let RootFs = < ReadOnly | Writable : { why : Text } >
+
 --| Work that runs on a schedule and exits, as against a `Workload`, which runs
 --  until something stops it.
 --
@@ -395,6 +418,19 @@ let ScheduledTask =
         -- would have declared a daily job that does not run, which is worse than
         -- the drift it replaced: it would read as reviewed.
         suspended : Bool
+      , -- ⚠ ITS OWN, not the workload's, and one live case is why. A task shares
+        -- its workload's image and uid, and it shared the root-filesystem
+        -- posture too — including the REASON, once `RootFs` started carrying
+        -- one. `signal-irclog-import` runs under the ingester and inherited
+        -- "writes downloaded blobs under /attachments", which is not what it
+        -- does: it does `install -m 400 …/id_ed25519 /tmp/key`, and its writable
+        -- filesystem is the same ssh-key story as irc-tail's. A waiver stating
+        -- the wrong reason is worse than a missing one — it reads as reviewed.
+        --
+        -- The posture may now differ from the workload's as well, which is
+        -- strictly more precise: a batch container that needs nothing writable
+        -- can say so even where the long-running one does.
+        rootFs : RootFs
       , env : List EnvVar
       , resources : Resources
       , -- A task's OWN storage, not the workload's.
@@ -440,7 +476,7 @@ let Workload =
       , port : Natural
       , uid : Natural
       , hardening : Hardening
-      , readOnlyRootFs : Bool
+      , rootFs : RootFs
       , env : List EnvVar
       , probe : Probe
       , probeTiming : ProbeTiming
@@ -848,6 +884,7 @@ in  { Cluster
     , Writers
     , Storage
     , Hardening
+    , RootFs
     , Workload
     , ScheduledTask
     , Owner

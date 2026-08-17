@@ -54,7 +54,7 @@ in  T.namespaceOf
           -- `createWriteStream` or `mkdir`. It was `False` and said nothing
           -- about why, which went unnoticed because dev-lint carved
           -- `xinutec/home` out of DL-K8S-ROOTFS-RW by name until 2026-08-12.
-          readOnlyRootFs = True
+          rootFs = T.RootFs.ReadOnly
         , env =
           [ { name = "PORT", value = lit "3000" }
           , { name = "DB_HOST", value = lit "home-db" }

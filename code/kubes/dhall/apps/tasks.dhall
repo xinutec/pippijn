@@ -74,7 +74,7 @@ in  T.namespaceOf
           uid = 65532
         , hardening = T.Hardening.NonRoot
         , -- Everything it writes goes to the database.
-          readOnlyRootFs = True
+          rootFs = T.RootFs.ReadOnly
         , env =
           [ { -- Full mysql:// DSN (carries the DB password) — kept whole.
               name = "DATABASE_URL"

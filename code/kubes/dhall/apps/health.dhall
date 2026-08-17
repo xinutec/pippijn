@@ -19,7 +19,7 @@
 -- from the other direction. So `T.ScheduledTask` is not the next increment
 -- after this file; it is part of the same one.
 --
--- ⚠ `readOnlyRootFs = True` is a CHANGE to the live Deployment, and it is
+-- ⚠ `rootFs = T.RootFs.ReadOnly` is a CHANGE to the live Deployment, and it is
 -- measured rather than assumed: the running container's overlay upper layer
 -- after 33h held six entries, every one a kubelet bind-mount (`/etc/resolv.conf`,
 -- the serviceaccount dir). The app wrote nothing. That measurement is what
@@ -412,7 +412,7 @@ in  T.namespaceOf
         , hardening = T.Hardening.NonRoot
         , -- MEASURED, not assumed — see the header. The nine `allow-rootfs-rw`
           -- waivers in this tree go away with it.
-          readOnlyRootFs = True
+          rootFs = T.RootFs.ReadOnly
         , env =
               [ { name = "AUTH_PORT", value = lit "${Natural/show port}" }
               , { name = "DB_HOST", value = lit "health-db" }
@@ -529,6 +529,7 @@ in  T.namespaceOf
                 -- started.
                 deadlineSeconds = 3300
               , suspended = False
+              , rootFs = T.RootFs.ReadOnly
               , volumes = [] : List T.Volume
               , mounts = [] : List T.VolumeMount
               , env =
@@ -571,6 +572,7 @@ in  T.namespaceOf
               , command = [ "node", "dist/cli/refresh-focus-places.js" ]
               , deadlineSeconds = 3300
               , suspended = False
+              , rootFs = T.RootFs.ReadOnly
               , volumes = [] : List T.Volume
               , mounts = [] : List T.VolumeMount
               , env = dbEnv # ncEnv
@@ -587,6 +589,7 @@ in  T.namespaceOf
                 -- job filled.
                 deadlineSeconds = 5400
               , suspended = False
+              , rootFs = T.RootFs.ReadOnly
               , volumes = [] : List T.Volume
               , mounts = [] : List T.VolumeMount
               , env =
@@ -624,6 +627,7 @@ in  T.namespaceOf
                 -- 1, 6, 4 and 8 of 18 tiles. Under the per-tile write that is a
                 -- normal night; under the count threshold it was a refusal.
                 suspended = False
+              , rootFs = T.RootFs.ReadOnly
               , volumes = [] : List T.Volume
               , mounts = [] : List T.VolumeMount
               , env = dbEnv
@@ -643,6 +647,7 @@ in  T.namespaceOf
                 -- Lean `Int` to `Nat` was forced by a run that missed it.
                 deadlineSeconds = 1800
               , suspended = False
+              , rootFs = T.RootFs.ReadOnly
               , volumes = [] : List T.Volume
               , mounts = [] : List T.VolumeMount
               , env =
@@ -730,6 +735,7 @@ in  T.namespaceOf
               , command = [ "node", "dist/cli/refresh-rail-stops.js" ]
               , deadlineSeconds = 5400
               , suspended = False
+              , rootFs = T.RootFs.ReadOnly
               , volumes = [] : List T.Volume
               , mounts = [] : List T.VolumeMount
               , env = dbEnv

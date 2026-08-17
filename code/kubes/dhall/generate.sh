@@ -396,6 +396,109 @@ host_path_waiver() { # app file  (body on stdin) -> body, waiver injected
     }'
 }
 
+container_waivers() { # app file  (body on stdin) -> body, per-container waivers injected
+  # DL-K8S-ROOTFS-RW and DL-K8S-NO-PROBE, and unlike the three above these are
+  # PER CONTAINER rather than per file. Both are `Scope.LINE`, and dev-lint's
+  # k8s engine anchors them on the container's FIRST line, so the marker goes in
+  # the comment block directly above it. A file-level marker would waive every
+  # container in the file — 03-app.yaml holds three and only two are writable —
+  # and over-waiving is how a rule stops meaning anything.
+  #
+  # ⚠ THIS IS A RESTORATION, not a new rule. The hand-written manifests carried
+  # these markers with their reasons; `5a00cd49` generated signal's tree from the
+  # model on 2026-08-14 and they left with the file. dev-lint has reported all
+  # four ever since, correctly, about decisions nobody disagreed with. What was
+  # missing was somewhere for a reason to live that survives rendering, which is
+  # what `T.RootFs.Writable { why }` now is.
+  #
+  # The model answers WHICH CONTAINER, WHICH RULE and WHY (R.containerWaivers,
+  # tab-separated, one per line); this holds only the placement — the same
+  # division as the other three.
+  local spec
+  spec=$(ask_text "$1" containerWaivers)
+  [[ -n $spec ]] || { cat; return; }
+
+  # `"# dev-lint: allow-" suffix` rather than a literal: a complete
+  # `dev-lint: allow-<suffix>` string in this file registers as a waiver sited
+  # HERE, which suppresses nothing and is reported as DL-WAIVER-INEFFECTIVE. The
+  # other three split a constant for the same reason; this one is split by
+  # construction, because the suffix comes from the model.
+  awk -v spec="$spec" -v file="$2" '
+    function spaces(n,   s) { s = ""; while (length(s) < n) s = s " "; return s }
+
+    BEGIN {
+      rows = split(spec, row, "\n")
+      for (i = 1; i <= rows; i++) {
+        if (row[i] == "") continue
+        split(row[i], f, "\t")
+        # A container can need more than one: the ingester is both writable and
+        # unprobed. Accumulated rather than assigned, so the second does not
+        # silently replace the first.
+        marker = "# dev-lint: allow-" f[2]
+        if (f[3] != "") marker = marker " — " f[3]
+        want[f[1]] = want[f[1]] (want[f[1]] == "" ? "" : "\n") marker
+      }
+      listIndent = -1
+    }
+
+    { line[NR] = $0 }
+
+    # `containers:` opens a list; anything back at or left of its indent closes
+    # it. Without the close, a `name:` field of some later object at the right
+    # depth would be read as a container name.
+    match($0, /^ *containers:[ \t]*$/) {
+      listIndent = index($0, "c") - 1
+      cur = 0
+      next
+    }
+
+    listIndent >= 0 {
+      indent = match($0, /[^ ]/) - 1
+      # ⚠ THE DASH SITS AT THE INDENT OF `containers:` ITSELF, not two deeper —
+      # that is what
+      # dhall-to-yaml-ng emits, and the first version of this looked for the
+      # indented form and silently inserted nothing at all. Requiring EXACTLY
+      # this indent is also what keeps `- name: MODE` inside an `env:` list from
+      # reading as a new container.
+      if (indent == listIndent && substr($0, indent + 1, 2) == "- ") {
+        cur = NR
+        at[NR] = indent
+      } else if ($0 !~ /^ *$/ && indent <= listIndent) {
+        listIndent = -1
+        cur = 0
+      } else if (cur && indent == listIndent + 2 && $0 ~ /^ *name: /) {
+        nm = $0
+        sub(/^ *name: /, "", nm)
+        # dhall-to-yaml-ng double-quotes any string it did not have to leave
+        # bare; nothing here ever emits the single-quoted form.
+        gsub(/^"|"$/, "", nm)
+        if (nm in want) { owner[cur] = nm; seen[nm] = 1 }
+        cur = 0
+      }
+    }
+
+    # ⚠ NO "the model named a container this file does not have" CHECK, unlike
+    # the other three injectors, and the reason is structural rather than an
+    # omission. `R.containerWaivers` answers for the whole APP; a CronJob
+    # container lives in 04-cronjobs.yaml and a workload in 03-app.yaml, so every
+    # call legitimately sees names belonging to the other file. Per file the two
+    # states — "belongs elsewhere" and "gone" — are indistinguishable, and a
+    # warning that fires on every run is one nobody reads.
+    #
+    # What catches a waiver that failed to land is dev-lint over the rendered
+    # tree: the finding it was for is reported, unwaived. Run `~/Code/check`
+    # after touching this, exactly as the note on host_path_waiver says.
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (i in owner) {
+          n = split(want[owner[i]], ms, "\n")
+          for (j = 1; j <= n; j++) print spaces(at[i]) ms[j]
+        }
+        print line[i]
+      }
+    }'
+}
+
 header() { # app file netpol_anchor
   printf '# GENERATED from dhall/apps/%s.dhall by dhall/generate.sh — do not edit.\n' "$1"
   printf '# Change the model and re-render; hand edits are overwritten.\n'
@@ -409,6 +512,23 @@ header() { # app file netpol_anchor
       printf '# (lib/render.dhall, one line, bumps every database at once):\n'
       printf '#   scripts/mariadb-major-upgrade.sh before <app> <db>   (then after)\n'
       printf '# strategy is Recreate: a single RWO PVC must never have two DB pods.\n'
+      ;;
+    03-app.yaml)
+      # DL-K8S-UNHARDENED-WORKLOAD is `Scope.FILE`, so unlike rootfs-rw and
+      # no-probe this one belongs in the header rather than beside its container.
+      #
+      # ⚠ ANOTHER RESTORATION. The hand-written manifest carried this marker with
+      # its reason, and `5a00cd49` rendered the tree from the model without it.
+      # The reason has been in the model the whole time — `T.Hardening.Unhardened
+      # { why }` cannot be written without one — and could not get out, because
+      # dhall-to-yaml-ng emits no comments. This is the way out.
+      unhardened_why=$(ask_text "$1" unhardenedWaiver)
+      if [[ -n $unhardened_why ]]; then
+        printf '#\n'
+        # Split like the netpol waiver below and for the same reason: a complete
+        # marker in this file registers as a waiver sited HERE.
+        printf '# dev-lint: allow-''unhardened — %s\n' "$unhardened_why"
+      fi
       ;;
     *-held.yaml)
       # The marker string below is LOAD-BEARING, not decoration. TWO readers,
@@ -556,7 +676,8 @@ for src in "$here"/apps/*.dhall; do
       header "$app" "$file" "$is_anchor"
       doc_waiver "$app" "$file" "$body" \
         | host_port_waiver "$app" "$file" \
-        | host_path_waiver "$app" "$file"
+        | host_path_waiver "$app" "$file" \
+        | container_waivers "$app" "$file"
     } > "$outdir/$file"
   done
 

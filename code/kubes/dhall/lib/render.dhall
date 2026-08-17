@@ -446,11 +446,21 @@ let podSecurityContext
               }
 
 let containerSecurityContext
-    : Bool → K.ContainerSecurityContext
-    = λ(readOnlyRootFs : Bool) →
+    : T.RootFs → K.ContainerSecurityContext
+    = λ(rootFs : T.RootFs) →
         { allowPrivilegeEscalation = False
-        , readOnlyRootFilesystem =
-            if readOnlyRootFs then Some True else None Bool
+        , -- `None` rather than `Some False` under `Writable`: the field's absence
+          -- IS the writable state in Kubernetes, and emitting the explicit false
+          -- would change every generated manifest to say the same thing louder.
+          -- The `why` does not appear here at all — it leaves through
+          -- `containerWaivers`, because YAML rendered from Dhall cannot carry a
+          -- comment.
+          readOnlyRootFilesystem =
+            merge
+              { ReadOnly = Some True
+              , Writable = λ(_ : { why : Text }) → None Bool
+              }
+              rootFs
         , capabilities.drop = [ "ALL" ]
         }
 
@@ -566,6 +576,126 @@ let hostPathWaiver
               )
           )
 
+--| Per-CONTAINER dev-lint waivers, one per line: `name<TAB>suffix<TAB>why`.
+--
+-- The fourth injector, and the one the model was carrying blind. DL-K8S-ROOTFS-RW
+-- and DL-K8S-NO-PROBE are LINE-scoped — dev-lint anchors them on the container's
+-- first line — so a file-level marker would waive every container in the file,
+-- including the ones that never fired. `03-app.yaml` holds three, and only two of
+-- them are writable; over-waiving there is precisely how a rule stops meaning
+-- anything.
+--
+-- So the model answers WHICH CONTAINER and WHY, and `generate.sh` holds only the
+-- placement — the same division as `hostPathWaiver` and `storageWaiver`.
+--
+-- ⚠ TASKS TOO, and they are the half that is easy to forget. A CronJob container
+-- fires ROOTFS-RW in a different FILE from the workload it is declared under, so
+-- emitting only the workloads left `signal-irclog-import` unwaived. It states
+-- its own reason (`T.ScheduledTask.rootFs`) rather than inheriting one, because
+-- the first task to need this had a reason that was not its workload's.
+--
+-- `no-probe` carries no `why` because `T.Probe.Unprobed` is not a Bool — the
+-- constructor already says "there is nothing to probe", and its note explains
+-- what would justify giving it a payload (a second probeless workload; there is
+-- still one).
+let containerWaivers
+    : T.Namespace → Text
+    = λ(ns : T.Namespace) →
+        {-  ⚠ ONLY FOR AN IMAGE THE FLEET BUILDS, and this is a judgement call
+            worth reading before changing. dev-lint's `image_profile` switches
+            DL-K8S-ROOTFS-RW OFF for a list of third-party images —
+            `signal-cli-rest-api`, `nextcloud`, `nginx`, `inspircd`, every
+            `-db` — so a marker on one of those waives NOTHING and the linter
+            reports it as ineffective, which is a finding in its own right.
+
+            The model cannot mirror that substring list, and copying it here
+            would be a second copy of somebody else's rule: the thing this
+            fleet keeps learning not to build. `T.Image.Fleet` is a DIFFERENT
+            question — do we build this? — that happens to line up, because
+            every carve-out on that list is there for the same reason ("a
+            third-party filesystem is not ours to constrain").
+
+            Where the two disagree it fails in the SAFE direction: a
+            third-party image not on dev-lint's list gets no waiver and its
+            finding shows up, rather than being quietly suppressed.
+        -}
+        let lineFor =
+              λ(image : T.Image) →
+              λ(name : Text) →
+              λ(rootFs : T.RootFs) →
+                merge
+                  { Fleet =
+                      λ(_ : Text) →
+                        merge
+                          { ReadOnly = [] : List Text
+                          , Writable =
+                              λ(r : { why : Text }) →
+                                [ "${name}\trootfs-rw\t${r.why}" ]
+                          }
+                          rootFs
+                  , Upstream =
+                      λ(_ : { repo : Text, tag : Text }) → [] : List Text
+                  , Local = λ(_ : Text) → [] : List Text
+                  }
+                  image
+
+        let rootFsLines =
+              λ(w : T.Workload) →
+                  lineFor w.image w.name w.rootFs
+                # L.concatMap
+                    T.ScheduledTask
+                    Text
+                    (λ(t : T.ScheduledTask) → lineFor w.image t.name t.rootFs)
+                    w.tasks
+
+        let probeLines =
+              λ(w : T.Workload) →
+                merge
+                  { Http = λ(_ : { path : Text, port : Natural }) → [] : List Text
+                  , Exec = λ(_ : { command : List Text }) → [] : List Text
+                  , Tcp = λ(_ : { port : Natural }) → [] : List Text
+                  , Unprobed = [ "${w.name}\tno-probe\t" ]
+                  }
+                  w.probe
+
+        in  L.joinWith
+              "\n"
+              ( L.concatMap
+                  T.Workload
+                  Text
+                  (λ(w : T.Workload) → rootFsLines w # probeLines w)
+                  ns.workloads
+              )
+
+--| Why this app's Deployment file carries an `allow-unhardened`, "" for none.
+--
+-- FILE-scoped in dev-lint's registry, unlike the two above, so this goes in
+-- `header()` rather than beside a container. That is a looser instrument than
+-- the rule deserves — it covers every container in the file — and it is what
+-- dev-lint offers; the marker is only ever emitted when the model says at least
+-- one workload here is `Unhardened`, so it cannot be a blanket nobody asked for.
+--
+-- Joined rather than first-of, for the day a second one appears: a waiver
+-- speaking for two containers must say both reasons, and silently keeping one
+-- would make the other look reviewed.
+let unhardenedWaiver
+    : T.Namespace → Text
+    = λ(ns : T.Namespace) →
+        L.joinWith
+          "; "
+          ( L.concatMap
+              T.Workload
+              Text
+              ( λ(w : T.Workload) →
+                  merge
+                    { NonRoot = [] : List Text
+                    , Unhardened = λ(u : { why : Text }) → [ u.why ]
+                    }
+                    w.hardening
+              )
+              ns.workloads
+          )
+
 let pvc
     : T.Namespace → List K.PersistentVolumeClaim
     = λ(ns : T.Namespace) →
@@ -658,9 +788,25 @@ let dbDeployment
                                             ]
                                     }
                                     d.innodbBufferPoolGi
-                              , -- No readOnlyRootFilesystem: mariadb writes
-                                -- /run/mysqld and its data dir.
-                                securityContext = Some (containerSecurityContext False)
+                              , -- mariadbd writes /run/mysqld and its data dir.
+                                --
+                                -- ⚠ No `containerWaivers` line comes out of
+                                -- this, and that is right rather than an
+                                -- omission: dev-lint's `image_profile` carves
+                                -- every `is_db` container out of
+                                -- DL-K8S-ROOTFS-RW, so a marker here would waive
+                                -- nothing and be reported as ineffective. If
+                                -- that carve-out ever goes, six databases fire
+                                -- at once and say so.
+                                securityContext =
+                                  Some
+                                    ( containerSecurityContext
+                                        ( T.RootFs.Writable
+                                            { why =
+                                                "mariadbd writes /run/mysqld and its data directory"
+                                            }
+                                        )
+                                    )
                               , env = Some
                                   ( L.map
                                       T.EnvVar
@@ -895,7 +1041,7 @@ let deploymentFor
                           securityContext =
                             merge
                               { NonRoot =
-                                  Some (containerSecurityContext w.readOnlyRootFs)
+                                  Some (containerSecurityContext w.rootFs)
                               , Unhardened =
                                   λ(_ : { why : Text }) →
                                     None K.ContainerSecurityContext
@@ -1087,11 +1233,15 @@ let cronJobsFor
                         ⫽ { name = t.name
                           , image = T.imageRef w.image
                           , command = Some t.command
-                          , securityContext =
+                          , -- `t.rootFs`, not the workload's: a task states its
+                            -- own filesystem posture. `hardening` and `image`
+                            -- are still the workload's, which is the sharing
+                            -- `T.Workload.tasks` describes.
+                            securityContext =
                               merge
                                 { NonRoot =
                                     Some
-                                      (containerSecurityContext w.readOnlyRootFs)
+                                      (containerSecurityContext t.rootFs)
                                 , Unhardened =
                                     λ(_ : { why : Text }) →
                                       None K.ContainerSecurityContext
@@ -1664,6 +1814,8 @@ let netpolApp
 
 in  { storageWaiver
     , hostPathWaiver
+    , containerWaivers
+    , unhardenedWaiver
     , namespace
     , configMap
     , pvc

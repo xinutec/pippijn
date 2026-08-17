@@ -123,7 +123,7 @@ in  T.namespaceOf
         , port = 8091
         , uid = 101
         , hardening = T.Hardening.NonRoot
-        , readOnlyRootFs = True
+        , rootFs = T.RootFs.ReadOnly
         , env = [] : List T.EnvVar
         , probeTiming =
             -- Its own, for the reason scanner's is: nginx is ready in about a

@@ -66,7 +66,7 @@ in  T.namespaceOf
         , port = 8090
         , uid = 1000
         , hardening = T.Hardening.NonRoot
-        , readOnlyRootFs = True
+        , rootFs = T.RootFs.ReadOnly
         , env = [] : List T.EnvVar
         , probeTiming =
             -- Its own, not `standardTiming`: it answers /healthz in about three

@@ -80,30 +80,7 @@ let filter
           (λ(x : a) → λ(acc : List a) → if keep x then [ x ] # acc else acc)
           ([] : List a)
 
-{-| Join with a separator BETWEEN elements — no leading or trailing one, which a
-    naive fold produces and which would put an empty first field in every line
-    the shell then parses.
--}
-let joinWith
-    : Text → List Text → Text
-    = λ(sep : Text) →
-      λ(xs : List Text) →
-        merge
-          { None = "", Some = λ(s : Text) → s }
-          ( List/fold
-              Text
-              xs
-              (Optional Text)
-              ( λ(x : Text) →
-                λ(acc : Optional Text) →
-                  merge
-                    { None = Some x
-                    , Some = λ(rest : Text) → Some "${x}${sep}${rest}"
-                    }
-                    acc
-              )
-              (None Text)
-          )
+let joinWith = L.joinWith
 
 let Renderer = { name : Text, keepEmpty : Bool }
 

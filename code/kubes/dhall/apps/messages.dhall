@@ -56,7 +56,7 @@ let sendKeyMount = "/ssh-irc"
 -- it fails wearing an unrelated error ("no host key known") because an
 -- unreadable known_hosts is indistinguishable from an empty one. But ssh then
 -- refuses a key carrying any group or other bit, whatever the volume says. So
--- the key is copied to 0400 before use, and `readOnlyRootFs` means there is
+-- the key is copied to 0400 before use, and `RootFs.ReadOnly` means there is
 -- nowhere to copy it to without this.
 let sendWorkMount = "/run/irc"
 
@@ -126,7 +126,7 @@ in  { name = "signal"
         , hardening = T.Hardening.NonRoot
         , -- Stateless: it serves a bundle and reads a read-only mount, and
           -- writes nothing anywhere.
-          readOnlyRootFs = True
+          rootFs = T.RootFs.ReadOnly
         , env =
           [ { name = "DB_HOST", value = lit "signal-db" }
           , { name = "DB_NAME", value = lit "signal" }

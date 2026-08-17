@@ -64,6 +64,13 @@ use Errno qw(EAGAIN EWOULDBLOCK EINTR);
 
 our $VERSION = '1.0';
 our %IRSSI = (
+    # DL-PII is aimed at an address or a phone number reaching a public repo.
+    # This is irssi's own %IRSSI block, the conventional place for a script's
+    # author, in a repo whose every commit carries the same name in its Author
+    # line — so removing it would delete correct attribution to satisfy a rule
+    # about something else. The marker sits on the line DIRECTLY above the
+    # finding because the rule is line-scoped; a block above it waives nothing.
+    # dev-lint: allow-pii irssi %IRSSI authorship field, see above
     authors     => 'Pippijn van Steenhoven',
     name        => 'archive-send',
     description => 'Send one IRC message on behalf of the messages archive, over a local unix socket.',
