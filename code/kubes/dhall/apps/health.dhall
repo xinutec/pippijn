@@ -134,29 +134,25 @@ let decodeFlags
 -- intent later: "let's go all in on lean. If there are issues, we'll fix them
 -- forward. Lean is now our system."
 --
--- ⚠ READ THE PER-FLAG PROSE BELOW AS HISTORY, NOT AS BEHAVIOUR. Each block
--- describes how its tenant reached `on` and several say a bridge failure falls
--- back to TS. That WAS true at `on` and is FALSE now — at `solo` the bridge
--- throws and there is nothing behind it. The blocks are kept because the
--- evidence trail is worth more than the tidiness of deleting it.
+-- ⚠ READ THE PER-FLAG PROSE BELOW AS HISTORY, NOT AS BEHAVIOUR. Each block describes
+-- how its tenant reached `on`, and several say a bridge failure falls back to TS. That
+-- WAS true at `on` and is FALSE at `solo`, where the bridge throws and there is nothing
+-- behind it. Kept because the evidence trail is worth more than the tidiness.
 --
--- What the ledger read over 08-10..08-16 at the moment of the flip, from a
--- manual decode-recent run (`lean-head-probe-1`):
+-- What the ledger read over 08-10..08-16 at the flip (`lean-head-probe-1`):
 --
---   EXACT, no divergence     head 7/7, gpsquality 7/7, biolabels 7/7,
---                            hsmm 7/7, kalman 5/5, passes 5/5,
---                            stationchain 5/5  (remainder NOT EXERCISED —
---                            08-12 and 08-15 are near-empty days)
---   DIVERGING, adopted       match  — UNEXPLAINED on 4 of 5 exercised days,
---                            each "1 IN SERVED OUTPUT", dev ≤0.01 m
---                            day    — 1 DIVERGED on 08-11, walkMatchedPath
---                            1/8 segments differ, worst 227.07 cm, and
---                            episodes.points 1/10 differ
+--   EXACT, no divergence     head 7/7, gpsquality 7/7, biolabels 7/7, hsmm 7/7,
+--                            kalman 5/5, passes 5/5, stationchain 5/5 (remainder
+--                            NOT EXERCISED — 08-12 and 08-15 are near-empty days)
+--   DIVERGING, adopted       match — UNEXPLAINED on 4 of 5 exercised days, each
+--                            "1 IN SERVED OUTPUT", dev ≤0.01 m
+--                            day   — 1 DIVERGED on 08-11, walkMatchedPath 1/8
+--                            segments differ, worst 227.07 cm; episodes.points 1/10
 --
--- ⚠ The two divergences are now INVISIBLE, and that is the real cost of solo
--- rather than the lost fallback: the comparison was the detector, and it is the
--- thing being switched off. `day`'s 227 cm is metres, not the sub-centimetre
--- `match` case, and 08-11 is already tracked as debt (health #749).
+-- ⚠ Those two divergences are now INVISIBLE, and that is solo's real cost rather than
+-- the lost fallback: the comparison WAS the detector, and it is what got switched off.
+-- `day`'s 227 cm is metres, not the sub-centimetre `match` case, and 08-11 is already
+-- tracked as debt (health #749).
 --
 -- Reverting is one commit here plus one in kubes/health/k8s: `solo` -> `on`
 -- restores both the TS arm and the ledger.
@@ -174,30 +170,25 @@ let leanTenants
           -- cover), and any bridge failure falls back to TS
           -- (swallow-over-wrong). "off"/unset reverts instantly.
           --
-          -- RE-PROMOTED shadow->on 2026-08-16, superseding the 2026-08-01
-          -- demotion. That demotion's rule was "production output comes from
-          -- the TS implementation while Lean runs alongside as measurement",
-          -- which is the opposite of the current direction: moving OFF TS.
-          -- Owner decision, 2026-08-16 — a small divergence is acceptable and
-          -- gets resolved afterwards; serving Lean is the point.
+          -- Re-promoted shadow->on 2026-08-16, superseding the 2026-08-01
+          -- demotion, whose rule ("production output comes from TS while Lean
+          -- runs alongside as measurement") is the opposite of the current
+          -- direction. Evidence at the flip: all six ops — spikes, simplify,
+          -- spurs, trim, despike, splice — read `n/0f/0d` on every live day
+          -- 08-09..08-15, and an `on`-mode run decodes a day byte-identically
+          -- to the `shadow` run.
           --
-          -- Evidence at the flip, all six ops:
-          --   spikes / simplify / spurs / trim / despike / splice
-          -- read `n/0f/0d` on every live day 08-09..08-15, and an `on`-mode
-          -- run decodes a day byte-identically to the `shadow` run — same
-          -- segment count, same day-tenant comparison.
+          -- ⚠ `spikes` and `splice` only gained their A/B on 2026-08-16 (health
+          -- `bdea621`, `7c797e9`); before that they were the two UNCOMPARED ops
+          -- on the walk path. Their history is days, not months, so suspect them
+          -- first if this goes wrong.
           --
-          -- ⚠ `spikes` and `splice` only gained their A/B on 2026-08-16
-          -- (health `bdea621`, `7c797e9`) — before that they were the two
-          -- UNCOMPARED ops on the walk path. Their history is days, not
-          -- months, so they are the two to suspect first if this goes wrong.
-          --
-          -- NOTE the request-path cost, which shadow does NOT avoid: `shadow`
-          -- runs both arms synchronously through the in-process bridge, so the
-          -- Lean arm is added latency on a cache miss either way. Measured over
-          -- the 32-day corpus: passes 1.0ms avg / 34ms max per call — free.
-          -- The matcher is the one that is not (276ms avg, 4.8s max), and it is
-          -- LEAN_MATCH below that pays it, not this flag.
+          -- ⚠ The request-path cost is NOT avoided by shadow, which runs both
+          -- arms synchronously through the in-process bridge — the Lean arm is
+          -- added latency on a cache miss either way. Measured over the 32-day
+          -- corpus, passes cost 1.0ms avg / 34ms max per call, which is free.
+          -- The matcher is not (276ms avg, 4.8s max), and LEAN_MATCH below pays
+          -- that, not this flag.
           name = "LEAN_PASSES"
         , value = lit "solo"
         }
@@ -340,50 +331,35 @@ let leanTenants
           --   raw -> gpsquality (Lean) -> snapToPlace -> kalman (Lean)
           --       -> classifySegments -> segsRaw -> LEAN_DAY
           --
-          -- Two ops behind one flag, as LEAN_PASSES carries six: they are one
-          -- stage and they stage together. Splitting them would allow a
-          -- half-ported head, which is a state nobody wants to debug.
+          -- Two ops behind one flag, as LEAN_PASSES carries six: one stage, staged
+          -- together. Splitting them would allow a half-ported head.
           --
-          -- ⚠ THIS IS WHAT `LEAN_DAY=solo` WAS BLOCKED ON. With the head in TS,
-          -- the fold's own request is built from TS intermediates, so retiring
-          -- the day's TS arm would remove the thing computing the fold's
-          -- inputs. Both twins were complete and #guard-pinned for months with
-          -- NOTHING CALLING THEM until health `861692b`.
+          -- ⚠ THIS IS WHAT `LEAN_DAY=solo` WAS BLOCKED ON. With the head in TS, the
+          -- fold's own request is built from TS intermediates, so retiring the day's
+          -- TS arm would remove the thing computing the fold's inputs.
           --
-          -- EXACT gate, like LEAN_GPSQUALITY. Inputs cross as IEEE bit
-          -- patterns, and `snapToPlace` emits either the input coordinates or a
-          -- centroid copied from the place list — nothing computed reaches its
-          -- output, so a divergence is a DECISION flip about whether to snap.
-          -- `classifySegments` does compute, through `rangeScore`'s `exp`, but
-          -- its outputs are pinned bit-for-bit by Segments.lean's guards
-          -- against the production TS.
+          -- EXACT gate, like LEAN_GPSQUALITY. Inputs cross as IEEE bit patterns, and
+          -- `snapToPlace` emits either the input coordinates or a centroid copied
+          -- from the place list — nothing computed reaches its output, so a
+          -- divergence is a DECISION flip about whether to snap. `classifySegments`
+          -- does compute, through `rangeScore`'s `exp`, but its outputs are pinned
+          -- bit-for-bit by Segments.lean's guards against the production TS.
           --
-          -- STAGED shadow 2026-08-17. Evidence before staging, which is more
-          -- than the earlier tenants had: 35/35 golden days byte-identical for
-          -- BOTH ops (`pnpm run compare-head`, red-tested), the full day gate
-          -- green at 35/35, and 19 unit tests whose solo-branch ablation fails
-          -- 9. Shadow serves TS regardless; promote only once the live ledger
-          -- reads EXACT with 0 failures over real days.
+          -- Promoted shadow->on 2026-08-17 on 35/35 byte-identical golden days plus a
+          -- live ledger reading EXACT on 7 real days, 14 calls, 0 bridge failures.
           --
-          -- PROMOTED shadow->on 2026-08-17, same day, on Pippijn's instruction.
-          -- The live ledger read EXACT on 7 real days, 14 calls (both ops once
-          -- per day — `snap` is BATCHED over the whole day), 0 bridge failures.
+          -- ⚠ HOW MUCH SOAK THAT ACTUALLY WAS, because the line above is the kind
+          -- that gets quoted later as if it meant more. The 7 days came from ONE
+          -- AD-HOC job, not the 06:00 schedule — the flag landed after that morning's
+          -- run, so this never saw a scheduled night in shadow — and they are the
+          -- decode-recent window, already covered by the golden corpus rather than
+          -- independent of it. The stricter "let it run a few scheduled nights, so
+          -- the evidence includes days nobody chose" was traded away knowingly.
           --
-          -- ⚠ HOW MUCH SOAK THIS ACTUALLY HAD, stated plainly because the line
-          -- above is the kind that gets quoted later as if it meant more. The
-          -- 7 days came from ONE AD-HOC job, not from the 06:00 schedule: the
-          -- flag landed after that morning's run, so `LEAN_HEAD` never saw a
-          -- scheduled night in shadow. Those 7 days are the decode-recent
-          -- window and are already covered by the golden corpus, so they are
-          -- partly redundant with the 35/35 above rather than independent of
-          -- it. The condition written here was met; the stricter "let it run a
-          -- few scheduled nights so the evidence includes days nobody chose"
-          -- was NOT, and promoting traded it away deliberately.
-          --
-          -- What makes that trade cheap rather than brave: `on` still runs BOTH
-          -- arms and records the comparison, a `LeanBridgeError` falls back to
-          -- the TS answer and counts a failure, and the flag flips back in one
-          -- commit. The worst case is one re-decodable day.
+          -- What makes that cheap rather than brave: `on` runs BOTH arms and records
+          -- the comparison, a `LeanBridgeError` falls back to TS and counts a
+          -- failure, and the flag flips back in one commit. Worst case is one
+          -- re-decodable day.
           name = "LEAN_HEAD"
         , value = lit "solo"
         }
@@ -708,50 +684,39 @@ in  T.namespaceOf
                         -- that gets persisted stays.
                         --
                         -- ⚠ THE "EXPECTED NOISE" READING IS RETIRED — do not
-                        -- reinstate it. This used to say 29 of 35 corpus days
-                        -- differ in segment statistics, so a divergence here
-                        -- meant nothing. The day gate is 35/35 as of
-                        -- 2026-08-16 and the live ledger reads EXACT on four
-                        -- days of five, so a `DIVERGED` line is now SIGNAL.
-                        -- The fifth (2026-08-11) is a 227 cm walk reroute,
-                        -- 16x the quantisation envelope, and it is what blocks
-                        -- `on` — health task #749.
+                        -- reinstate it. It used to say 29 of 35 corpus days
+                        -- differ in segment statistics, so a divergence meant
+                        -- nothing. The day gate is 35/35 and the live ledger
+                        -- reads EXACT, so a `DIVERGED` line is now SIGNAL.
                         --
-                        -- What this buys is the measurement on LIVE days the
-                        -- corpus does not cover: `tests/golden/days/` ends
-                        -- 2026-08-06, and 08-11 is exactly such a day. Golden
-                        -- being green does not predict this.
+                        -- What this buys is measurement on LIVE days the corpus
+                        -- does not cover: `tests/golden/days/` ends 2026-08-06,
+                        -- and golden being green does not predict them.
                         --
-                        -- Bounded by `LEAN_DAY_TIMEOUT_MS` (health `3686a0d`,
-                        -- 60 s per round). Before that the tenant's bridge call
-                        -- had NO timeout, and the same call has been seen to
-                        -- deadlock at 0% CPU — which in here would hang this job
-                        -- rather than fail it. Do not flip this on a build that
-                        -- predates that commit.
-                        -- FLIPPED shadow->on 2026-08-16. Owner decision: moving
-                        -- off TS is the direction, a small divergence is
-                        -- acceptable and gets resolved afterwards.
+                        -- ⚠ Bounded by `LEAN_DAY_TIMEOUT_MS` (health `3686a0d`,
+                        -- 60 s per round). Before it the bridge call had NO
+                        -- timeout, and that call has been seen to deadlock at 0%
+                        -- CPU — which here would hang the job rather than fail
+                        -- it. Do not flip this on a build predating that commit.
                         --
-                        -- The precondition was ATTRIBUTION, not a fix, and it is
-                        -- met. Seven live days: five EXACT, and the two that
-                        -- differ are both cosmetic and understood —
-                        --   08-11  two extra vertices, a 2.55 m out-and-back
-                        --          spur in DRAWN display geometry; both arms
-                        --          agree on the whole route, `len=0`, no mode
-                        --          and no boundary moves (health #749)
-                        --   08-09  spatially IDENTICAL (0.00 cm), vertex
-                        --          timestamps only (the #956 dev/dts class)
+                        -- Flipped shadow->on 2026-08-16. The precondition was
+                        -- ATTRIBUTION rather than a fix: of seven live days five
+                        -- were EXACT and both differences were cosmetic and
+                        -- understood — 08-11 two extra vertices in DRAWN display
+                        -- geometry, both arms agreeing on the route with `len=0`
+                        -- and no mode or boundary moves (health #749); 08-09
+                        -- spatially IDENTICAL at 0.00 cm, vertex timestamps only
+                        -- (the #956 dev/dts class).
                         --
-                        -- Safety rails that survive the flip: `serveLeanDay`
-                        -- returns TS on a bridge failure, a non-convergent round
-                        -- loop, or a segment-count mismatch; `graftShells` still
-                        -- fills any field the fold left undrawn; and the ledger
-                        -- keeps comparing and printing, so a regression stays
-                        -- visible while it is served.
+                        -- Rails that survive the flip: `serveLeanDay` returns TS
+                        -- on a bridge failure, a non-convergent round loop or a
+                        -- segment-count mismatch; `graftShells` fills any field
+                        -- the fold left undrawn; the ledger keeps comparing, so
+                        -- a regression stays visible while it is served.
                         --
                         -- ⚠ This is the one tenant that WRITES. Rollback is this
-                        -- word back to `shadow`; a row already persisted is not
-                        -- undone by that, it is overwritten on the next decode.
+                        -- word back to `shadow` — which does not undo a row
+                        -- already persisted; that is overwritten on next decode.
                         name = "LEAN_DAY"
                       , value = lit "solo"
                       }
