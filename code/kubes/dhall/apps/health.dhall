@@ -332,8 +332,28 @@ let leanTenants
           -- green at 35/35, and 19 unit tests whose solo-branch ablation fails
           -- 9. Shadow serves TS regardless; promote only once the live ledger
           -- reads EXACT with 0 failures over real days.
+          --
+          -- PROMOTED shadow->on 2026-08-17, same day, on Pippijn's instruction.
+          -- The live ledger read EXACT on 7 real days, 14 calls (both ops once
+          -- per day — `snap` is BATCHED over the whole day), 0 bridge failures.
+          --
+          -- ⚠ HOW MUCH SOAK THIS ACTUALLY HAD, stated plainly because the line
+          -- above is the kind that gets quoted later as if it meant more. The
+          -- 7 days came from ONE AD-HOC job, not from the 06:00 schedule: the
+          -- flag landed after that morning's run, so `LEAN_HEAD` never saw a
+          -- scheduled night in shadow. Those 7 days are the decode-recent
+          -- window and are already covered by the golden corpus, so they are
+          -- partly redundant with the 35/35 above rather than independent of
+          -- it. The condition written here was met; the stricter "let it run a
+          -- few scheduled nights so the evidence includes days nobody chose"
+          -- was NOT, and promoting traded it away deliberately.
+          --
+          -- What makes that trade cheap rather than brave: `on` still runs BOTH
+          -- arms and records the comparison, a `LeanBridgeError` falls back to
+          -- the TS answer and counts a failure, and the flag flips back in one
+          -- commit. The worst case is one re-decodable day.
           name = "LEAN_HEAD"
-        , value = lit "shadow"
+        , value = lit "on"
         }
       ]
 
