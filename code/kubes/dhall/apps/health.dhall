@@ -128,6 +128,38 @@ let decodeFlags
 -- `LEAN_STATIONCHAIN` and `LEAN_CALL_TIMEOUT_MS`; the auth pod adds
 -- `WALK_BUILDING_ESCAPE`. Only what BOTH must agree on lives here — a list that
 -- absorbed the extras would force one of them to carry a flag it does not want.
+--
+-- ⚠⚠ EVERY TENANT IS AT `solo` AS OF 2026-08-17. Lean alone: no TS arm, no
+-- comparison, NO FALLBACK. Owner decision, quoted so nobody has to infer the
+-- intent later: "let's go all in on lean. If there are issues, we'll fix them
+-- forward. Lean is now our system."
+--
+-- ⚠ READ THE PER-FLAG PROSE BELOW AS HISTORY, NOT AS BEHAVIOUR. Each block
+-- describes how its tenant reached `on` and several say a bridge failure falls
+-- back to TS. That WAS true at `on` and is FALSE now — at `solo` the bridge
+-- throws and there is nothing behind it. The blocks are kept because the
+-- evidence trail is worth more than the tidiness of deleting it.
+--
+-- What the ledger read over 08-10..08-16 at the moment of the flip, from a
+-- manual decode-recent run (`lean-head-probe-1`):
+--
+--   EXACT, no divergence     head 7/7, gpsquality 7/7, biolabels 7/7,
+--                            hsmm 7/7, kalman 5/5, passes 5/5,
+--                            stationchain 5/5  (remainder NOT EXERCISED —
+--                            08-12 and 08-15 are near-empty days)
+--   DIVERGING, adopted       match  — UNEXPLAINED on 4 of 5 exercised days,
+--                            each "1 IN SERVED OUTPUT", dev ≤0.01 m
+--                            day    — 1 DIVERGED on 08-11, walkMatchedPath
+--                            1/8 segments differ, worst 227.07 cm, and
+--                            episodes.points 1/10 differ
+--
+-- ⚠ The two divergences are now INVISIBLE, and that is the real cost of solo
+-- rather than the lost fallback: the comparison was the detector, and it is the
+-- thing being switched off. `day`'s 227 cm is metres, not the sub-centimetre
+-- `match` case, and 08-11 is already tracked as debt (health #749).
+--
+-- Reverting is one commit here plus one in kubes/health/k8s: `solo` -> `on`
+-- restores both the TS arm and the ledger.
 let leanTenants
     : List T.EnvVar
     = [ { -- Serve the verified Lean geometry passes on the request path
@@ -167,7 +199,7 @@ let leanTenants
           -- The matcher is the one that is not (276ms avg, 4.8s max), and it is
           -- LEAN_MATCH below that pays it, not this flag.
           name = "LEAN_PASSES"
-        , value = lit "on"
+        , value = lit "solo"
         }
       , { -- Verified Lean walk-matcher (qMatchWalkSegment). ROLLED BACK to
           -- shadow 2026-07-31 after serving `on` since 2026-07-21.
@@ -211,7 +243,7 @@ let leanTenants
           -- a fallback draws an imperceptibly different pavement line, not a
           -- different route. This is why the timeout is NOT in this shared list.
           name = "LEAN_MATCH"
-        , value = lit "on"
+        , value = lit "solo"
         }
       , { -- Verified Lean rail shortest path (Verified.Rail.dijkstraC, proved
           -- correct AND complete).
@@ -225,7 +257,7 @@ let leanTenants
           -- from 07-rail-refresh, where the volume is: EXACT over 28 calls in a
           -- 21-day window, 0 failures.
           name = "LEAN_RAIL"
-        , value = lit "on"
+        , value = lit "solo"
         }
       , { -- Verified Lean GPS Kalman filter
           -- (Verified.Geo.Kalman.filterGpsTrack). It runs on every velocity
@@ -249,7 +281,7 @@ let leanTenants
           -- `+1 stationary-bearing` on 08-03, is #394 — a fabricated heading at
           -- speed 0 that BOTH arms emit, so it is not a divergence.
           name = "LEAN_KALMAN"
-        , value = lit "on"
+        , value = lit "solo"
         }
       , { -- Verified Lean GPS quality pre-filter
           -- (Verified.Geo.GpsQuality.qualityFilterGps) — the incoherent-run
@@ -272,7 +304,7 @@ let leanTenants
           -- PROMOTED shadow->on 2026-08-06 (#432). EXACT every day it was seen
           -- across the 9-day window, 0 failures.
           name = "LEAN_GPSQUALITY"
-        , value = lit "on"
+        , value = lit "solo"
         }
       , { -- Verified Lean biometric label rewrites
           -- (Verified.Geo.BiometricLabels) — the four velocity passes that let
@@ -299,7 +331,7 @@ let leanTenants
           -- PROMOTED shadow->on 2026-08-06 (#432). EXACT every day it was seen,
           -- 5 calls/day (one per call site), 0 failures.
           name = "LEAN_BIOLABELS"
-        , value = lit "on"
+        , value = lit "solo"
         }
       , { -- The verified pipeline HEAD: `snapToPlace` and `classifySegments`,
           -- the two TS algorithm steps between the raw fixes and `segsRaw` —
@@ -353,7 +385,7 @@ let leanTenants
           -- the TS answer and counts a failure, and the flag flips back in one
           -- commit. The worst case is one re-decodable day.
           name = "LEAN_HEAD"
-        , value = lit "on"
+        , value = lit "solo"
         }
       ]
 
@@ -582,7 +614,7 @@ in  T.namespaceOf
               , volumes = [] : List T.Volume
               , mounts = [] : List T.VolumeMount
               , env =
-                    [ { name = "LEAN_RAIL", value = lit "on" }
+                    [ { name = "LEAN_RAIL", value = lit "solo" }
                     , leanCallTimeout
                     ]
                   # dbEnv
@@ -658,9 +690,9 @@ in  T.namespaceOf
                         -- Rollback is this word: back to `shadow` and the TS
                         -- decode serves again on the next run.
                         name = "LEAN_HSMM"
-                      , value = lit "on"
+                      , value = lit "solo"
                       }
-                    , { name = "LEAN_STATIONCHAIN", value = lit "on" }
+                    , { name = "LEAN_STATIONCHAIN", value = lit "solo" }
                     , { -- The 38-pass day cascade, served from the Lean fold.
                         -- HERE AND NOT IN `leanTenants`: the day chain is what
                         -- `decode-day` PERSISTS to `decoded_days`, so it belongs
@@ -721,7 +753,7 @@ in  T.namespaceOf
                         -- word back to `shadow`; a row already persisted is not
                         -- undone by that, it is overwritten on the next decode.
                         name = "LEAN_DAY"
-                      , value = lit "on"
+                      , value = lit "solo"
                       }
                     ]
                   # leanTenants
