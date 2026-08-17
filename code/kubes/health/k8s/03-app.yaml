@@ -95,6 +95,8 @@ spec:
           value: 'on'
         - name: LEAN_BIOLABELS
           value: 'on'
+        - name: LEAN_HEAD
+          value: shadow
         image: "xinutec/health-sync:latest"
         livenessProbe:
           initialDelaySeconds: 15

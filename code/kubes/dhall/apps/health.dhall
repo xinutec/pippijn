@@ -301,6 +301,40 @@ let leanTenants
           name = "LEAN_BIOLABELS"
         , value = lit "on"
         }
+      , { -- The verified pipeline HEAD: `snapToPlace` and `classifySegments`,
+          -- the two TS algorithm steps between the raw fixes and `segsRaw` —
+          -- which is the day fold's ONLY input (health #975):
+          --
+          --   raw -> gpsquality (Lean) -> snapToPlace -> kalman (Lean)
+          --       -> classifySegments -> segsRaw -> LEAN_DAY
+          --
+          -- Two ops behind one flag, as LEAN_PASSES carries six: they are one
+          -- stage and they stage together. Splitting them would allow a
+          -- half-ported head, which is a state nobody wants to debug.
+          --
+          -- ⚠ THIS IS WHAT `LEAN_DAY=solo` WAS BLOCKED ON. With the head in TS,
+          -- the fold's own request is built from TS intermediates, so retiring
+          -- the day's TS arm would remove the thing computing the fold's
+          -- inputs. Both twins were complete and #guard-pinned for months with
+          -- NOTHING CALLING THEM until health `861692b`.
+          --
+          -- EXACT gate, like LEAN_GPSQUALITY. Inputs cross as IEEE bit
+          -- patterns, and `snapToPlace` emits either the input coordinates or a
+          -- centroid copied from the place list — nothing computed reaches its
+          -- output, so a divergence is a DECISION flip about whether to snap.
+          -- `classifySegments` does compute, through `rangeScore`'s `exp`, but
+          -- its outputs are pinned bit-for-bit by Segments.lean's guards
+          -- against the production TS.
+          --
+          -- STAGED shadow 2026-08-17. Evidence before staging, which is more
+          -- than the earlier tenants had: 35/35 golden days byte-identical for
+          -- BOTH ops (`pnpm run compare-head`, red-tested), the full day gate
+          -- green at 35/35, and 19 unit tests whose solo-branch ablation fails
+          -- 9. Shadow serves TS regardless; promote only once the live ledger
+          -- reads EXACT with 0 failures over real days.
+          name = "LEAN_HEAD"
+        , value = lit "shadow"
+        }
       ]
 
 in  T.namespaceOf

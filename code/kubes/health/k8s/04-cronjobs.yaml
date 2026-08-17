@@ -368,6 +368,8 @@ spec:
               value: 'on'
             - name: LEAN_BIOLABELS
               value: 'on'
+            - name: LEAN_HEAD
+              value: shadow
             - name: LEAN_CALL_TIMEOUT_MS
               value: '30000'
             image: "xinutec/health-sync:latest"
