@@ -97,6 +97,8 @@ spec:
           value: 'solo'
         - name: LEAN_HEAD
           value: 'solo'
+        - name: LEAN_DAY
+          value: 'solo'
         image: "xinutec/health-sync:latest"
         livenessProbe:
           initialDelaySeconds: 15

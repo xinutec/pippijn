@@ -363,6 +363,58 @@ let leanTenants
           name = "LEAN_HEAD"
         , value = lit "solo"
         }
+      , { -- The 38-pass day cascade, served from the Lean fold — on the request
+          -- path AND in `decode-day`, which is why it lives here now rather
+          -- than in the decode job alone.
+          --
+          -- ⚠ IT USED TO SAY THE OPPOSITE: "belongs to the writing job and has
+          -- no business on the request path". That reading split on WRITES —
+          -- the cron persists to `decoded_days` and the API does not — and
+          -- that is the wrong axis. `/api/velocity` recomputes the whole
+          -- cascade on a cache miss (routes/api.ts), so the request path was
+          -- already running these 38 passes; it was running the TS copy.
+          --
+          -- `solo` and not `on`, on a path where a user is waiting:
+          --
+          --   * `on` protects against the FOLD being wrong, not against the
+          --     BRIDGE dying. LEAN_HEAD is already `solo` here, so a dead
+          --     bridge already fails the request — `on` buys no availability
+          --     this path does not already lack.
+          --   * What `on` costs is the TS arm staying alive. `solo` skips
+          --     ~1,340 lines of it, and deleting those is what health #975 is.
+          --   * The fold being wrong is the class the corpus closes: 42/42
+          --     golden days byte-identical between the arms on 2026-08-18 —
+          --     not "differences we explained", none — over a corpus that now
+          --     runs past 2026-08-06 on seven live days captured with the TS
+          --     arm, so each `expected` is the TS answer.
+          --
+          -- ⚠ WHAT `solo` GIVES UP, which is not nothing: no TS fallback, no
+          -- ledger, and no segment-count cross-check against a second arm. A
+          -- failed round loop is a FAILED DAY — here a failed request, not a
+          -- re-runnable job.
+          --
+          -- ⚠ Bounded by `LEAN_DAY_TIMEOUT_MS` (health `3686a0d`), which
+          -- defaults to 60 s PER ROUND where the corpus needs 2-8. That number
+          -- was sized for a CronJob where nobody is watching; nobody has sized
+          -- it for a request. It is the known exposure of this flip — #424,
+          -- the bridge call has been seen to deadlock at 0% CPU.
+          --
+          -- The cron reached `on` on 2026-08-16 by ATTRIBUTION rather than by
+          -- a fix: of seven live days five were EXACT and both differences
+          -- were cosmetic and understood — extra vertices in DRAWN geometry
+          -- with the route unchanged (health #749), and a spatially identical
+          -- line differing in vertex timestamps only (the #956 class).
+          --
+          -- ⚠ Rolling back to `on`/`shadow` brings the ledger back, and with
+          -- it a trap: the old "expected noise" reading — 29 of 35 corpus days
+          -- differ in segment statistics, so a divergence means nothing — is
+          -- RETIRED. A `DIVERGED` line is signal.
+          --
+          -- Rollback is this word. Neither `on` nor `shadow` undoes a row
+          -- already persisted; that is overwritten on the next decode.
+          name = "LEAN_DAY"
+        , value = lit "solo"
+        }
       ]
 
 in  T.namespaceOf
@@ -674,57 +726,6 @@ in  T.namespaceOf
                       , value = lit "solo"
                       }
                     , { name = "LEAN_STATIONCHAIN", value = lit "solo" }
-                    , { -- The 38-pass day cascade, served from the Lean fold.
-                        -- HERE AND NOT IN `leanTenants`: the day chain is what
-                        -- `decode-day` PERSISTS to `decoded_days`, so it belongs
-                        -- to the writing job and has no business on the request
-                        -- path.
-                        --
-                        -- `shadow` runs both arms and serves the TS one — the
-                        -- Lean answer is compared and discarded, so a divergence
-                        -- cannot reach a stored row. That is the whole reason it
-                        -- can go on before the corpus is green: `on` is what
-                        -- needs a clean corpus, because a wrong number from a
-                        -- leaf pass is recomputed next run while a wrong ROW
-                        -- that gets persisted stays.
-                        --
-                        -- ⚠ THE "EXPECTED NOISE" READING IS RETIRED — do not
-                        -- reinstate it. It used to say 29 of 35 corpus days
-                        -- differ in segment statistics, so a divergence meant
-                        -- nothing. The day gate is 35/35 and the live ledger
-                        -- reads EXACT, so a `DIVERGED` line is now SIGNAL.
-                        --
-                        -- What this buys is measurement on LIVE days the corpus
-                        -- does not cover: `tests/golden/days/` ends 2026-08-06,
-                        -- and golden being green does not predict them.
-                        --
-                        -- ⚠ Bounded by `LEAN_DAY_TIMEOUT_MS` (health `3686a0d`,
-                        -- 60 s per round). Before it the bridge call had NO
-                        -- timeout, and that call has been seen to deadlock at 0%
-                        -- CPU — which here would hang the job rather than fail
-                        -- it. Do not flip this on a build predating that commit.
-                        --
-                        -- Flipped shadow->on 2026-08-16. The precondition was
-                        -- ATTRIBUTION rather than a fix: of seven live days five
-                        -- were EXACT and both differences were cosmetic and
-                        -- understood — 08-11 two extra vertices in DRAWN display
-                        -- geometry, both arms agreeing on the route with `len=0`
-                        -- and no mode or boundary moves (health #749); 08-09
-                        -- spatially IDENTICAL at 0.00 cm, vertex timestamps only
-                        -- (the #956 dev/dts class).
-                        --
-                        -- Rails that survive the flip: `serveLeanDay` returns TS
-                        -- on a bridge failure, a non-convergent round loop or a
-                        -- segment-count mismatch; `graftShells` fills any field
-                        -- the fold left undrawn; the ledger keeps comparing, so
-                        -- a regression stays visible while it is served.
-                        --
-                        -- ⚠ This is the one tenant that WRITES. Rollback is this
-                        -- word back to `shadow` — which does not undo a row
-                        -- already persisted; that is overwritten on next decode.
-                        name = "LEAN_DAY"
-                      , value = lit "solo"
-                      }
                     ]
                   # leanTenants
                   # [ leanCallTimeout ]
