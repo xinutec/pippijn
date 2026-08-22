@@ -160,6 +160,7 @@ in  { name = "signal"
           , { name = "IRC_SEND_KEY_DIR", value = lit sendKeyMount }
           , { name = "IRC_SEND_WORK_DIR", value = lit sendWorkMount }
           ]
+        , readiness = None T.Readiness
         , probeTiming =
             { readiness = { initialDelaySeconds = 2, periodSeconds = 10 }
             , liveness = { initialDelaySeconds = 5, periodSeconds = 20 }

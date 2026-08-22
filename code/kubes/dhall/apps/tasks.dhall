@@ -120,6 +120,7 @@ in  T.namespaceOf
             , value = lit "info,tasks=debug"
             }
           ]
+        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8092 }
         , resources =

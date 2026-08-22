@@ -514,6 +514,7 @@ in  T.namespaceOf
                 }
               ]
             # leanTenants
+        , readiness = None T.Readiness
         , probeTiming =
             -- Readiness is the live tree's own 3/10 rather than
             -- `T.standardTiming`'s 5/10: it is behind an Ingress with no

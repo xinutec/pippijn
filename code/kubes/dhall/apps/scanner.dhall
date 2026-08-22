@@ -68,6 +68,7 @@ in  T.namespaceOf
         , hardening = T.Hardening.NonRoot
         , rootFs = T.RootFs.ReadOnly
         , env = [] : List T.EnvVar
+        , readiness = None T.Readiness
         , probeTiming =
             -- Its own, not `standardTiming`: it answers /healthz in about three
             -- seconds, and being reached by a hostPort it cannot roll, so every

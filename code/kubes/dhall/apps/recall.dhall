@@ -147,6 +147,7 @@ in  T.namespaceOf
             , value = lit "http://nextcloud-server.nextcloud.svc.cluster.local"
             }
           ]
+        , readiness = None T.Readiness
         , probeTiming =
             -- Its own, like the other two tunnel-only apps: reached by a
             -- hostPort it cannot roll, so readiness delay is downtime per

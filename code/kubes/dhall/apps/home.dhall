@@ -70,6 +70,7 @@ in  T.namespaceOf
           , { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
           , { name = "NC_CLIENT_SECRET", value = secret keys.NC_CLIENT_SECRET }
           ]
+        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/health", port = 3000 }
         , resources =

@@ -66,11 +66,13 @@ spec:
         ports:
         - containerPort: 8080
         readinessProbe:
+          failureThreshold: 3
           httpGet:
-            path: /healthz
+            path: /readyz
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 5
         resources:
           limits:
             cpu: '1'

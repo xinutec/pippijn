@@ -130,6 +130,27 @@ let standardTiming
       , liveness = { initialDelaySeconds = 15, periodSeconds = 20 }
       }
 
+--| A readiness probe that asks a DIFFERENT question from liveness, with the two
+--  timings a deep probe cannot leave at kubelet's defaults.
+--
+-- ⚠ WHY THIS IS NOT JUST ANOTHER `Probe`. Pointing readiness at an endpoint that
+-- does real work changes what the default timings mean:
+--
+--   * `timeoutSeconds` defaults to 1. A handler that reaches a database can
+--     legitimately take longer than that under load, and at the default kubelet
+--     cuts it off as a probe TIMEOUT — the pod goes NotReady with no status
+--     code, no log line, and no cause named anywhere. Set it ABOVE the handler's
+--     own budget and the failure arrives instead as a 503 the app wrote down.
+--   * `failureThreshold` decides how much slowness is a fault. Withdrawing the
+--     only pod of a single-replica app on one slow answer turns a slow dashboard
+--     into no dashboard, which is worse than what it was reporting.
+--
+-- Both are required rather than optional: a workload writing this field has
+-- already decided the fleet defaults do not fit, so leaving them implicit would
+-- be the one shape that is never right.
+let Readiness =
+      { probe : Probe, timeoutSeconds : Natural, failureThreshold : Natural }
+
 let Quantity = { cpu : Text, memory : Text }
 
 -- ⚠ A LIMIT IS NOT A REQUEST, and this is why `limits` is not a `Quantity`.
@@ -478,7 +499,27 @@ let Workload =
       , hardening : Hardening
       , rootFs : RootFs
       , env : List EnvVar
-      , probe : Probe
+      , -- The question kubelet asks. Asked for BOTH probes unless `readiness`
+        -- below names a different one.
+        --
+        -- ⚠ ONE probe answering both is right for most of these — a static site,
+        -- a UI with no backing store — and wrong the moment the two questions
+        -- have different answers. It fails in the direction that hurts:
+        -- fleetwatch pointed both at `/healthz`, which returned the constant
+        -- `"ok"`, so readiness asserted "this pod can serve" while every read
+        -- 500'd on an exhausted pool. A probe that cannot fail does not merely
+        -- miss the fault, it asserts the opposite of it.
+        probe : Probe
+      , -- A different question for readiness, when "is the process up" and "can
+        -- it serve" are not the same question.
+        --
+        -- `None` means ask `probe` twice, which is what every workload here did
+        -- before this field existed. Deliberately not the other way round:
+        -- making LIVENESS deep is the dangerous mistake, because a liveness
+        -- probe that depends on the database restarts the container in a loop
+        -- for the duration of a database outage — the restart cannot fix a
+        -- dependency, and it destroys the part still working.
+        readiness : Optional Readiness
       , probeTiming : ProbeTiming
       , resources : Resources
       , volumes : List Volume
@@ -870,6 +911,7 @@ in  { Cluster
     , EnvVar
     , Probe
     , ProbeTiming
+    , Readiness
     , standardTiming
     , Quantity
     , Limits

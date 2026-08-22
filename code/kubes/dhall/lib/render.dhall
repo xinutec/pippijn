@@ -1093,20 +1093,49 @@ let deploymentFor
                                   w.env
                               )
                         , readinessProbe =
+                            -- `readiness` overrides BOTH the question and the two
+                            -- timings a deep probe cannot leave at kubelet's
+                            -- defaults; absent, readiness asks `probe` — the same
+                            -- question as liveness, which is what every workload
+                            -- did before the field existed.
                             merge
-                              { None = None K.Probe
+                              { None =
+                                  merge
+                                    { None = None K.Probe
+                                    , Some =
+                                        λ(pr : K.Probe) →
+                                          Some
+                                            (   pr
+                                              ⫽ { initialDelaySeconds = Some
+                                                    w.probeTiming.readiness.initialDelaySeconds
+                                                , periodSeconds = Some
+                                                    w.probeTiming.readiness.periodSeconds
+                                                }
+                                            )
+                                    }
+                                    (renderProbe w.probe)
                               , Some =
-                                  λ(pr : K.Probe) →
-                                    Some
-                                      (   pr
-                                        ⫽ { initialDelaySeconds = Some
-                                              w.probeTiming.readiness.initialDelaySeconds
-                                          , periodSeconds = Some
-                                              w.probeTiming.readiness.periodSeconds
-                                          }
-                                      )
+                                  λ(r : T.Readiness) →
+                                    merge
+                                      { None = None K.Probe
+                                      , Some =
+                                          λ(pr : K.Probe) →
+                                            Some
+                                              (   pr
+                                                ⫽ { initialDelaySeconds = Some
+                                                      w.probeTiming.readiness.initialDelaySeconds
+                                                  , periodSeconds = Some
+                                                      w.probeTiming.readiness.periodSeconds
+                                                  , timeoutSeconds = Some
+                                                      r.timeoutSeconds
+                                                  , failureThreshold = Some
+                                                      r.failureThreshold
+                                                  }
+                                              )
+                                      }
+                                      (renderProbe r.probe)
                               }
-                              (renderProbe w.probe)
+                              w.readiness
                         , livenessProbe =
                             merge
                               { None = None K.Probe

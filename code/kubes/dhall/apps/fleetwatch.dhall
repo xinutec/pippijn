@@ -116,6 +116,32 @@ in  T.namespaceOf
           ]
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8080 }
+        , -- ⚠ THE TWO PROBES ASK DIFFERENT QUESTIONS, and they used to ask the
+          -- same one. `/healthz` returns the literal `"ok"`, which is the right
+          -- answer for liveness and a lie for readiness: it proved the process
+          -- was listening and nothing else, so a pod that could not reach its
+          -- database — or had exhausted its pool, which is what #1053 was —
+          -- reported Ready and kept taking traffic it answered with 500s.
+          --
+          -- `/readyz` runs `SELECT 1` through the SHARED pool, so it asks for a
+          -- connection exactly the way a real handler does and an exhausted pool
+          -- reads as unready even while MariaDB itself is healthy. Liveness stays
+          -- on `/healthz` on purpose: readiness withdraws the pod and puts it
+          -- back by itself, where liveness would restart the container in a loop
+          -- for as long as the database was down.
+          --
+          -- The timings are the single-replica tax. `timeoutSeconds = 5` sits
+          -- above the handler's own 3s budget (`routes::health::READY_BUDGET`),
+          -- so a slow database arrives as a 503 fleetwatch logged rather than a
+          -- probe timeout that names no cause; `failureThreshold = 3` with a 10s
+          -- period means 30s of sustained failure before the only pod leaves the
+          -- Service. Both exist because unreadying this app is an OUTAGE, not a
+          -- shift of traffic to a sibling.
+          readiness = Some
+          { probe = T.Probe.Http { path = "/readyz", port = 8080 }
+          , timeoutSeconds = 5
+          , failureThreshold = 3
+          }
         , resources =
           { requests = { cpu = "50m", memory = "64Mi" }
           , limits = Some { cpu = Some "1", memory = "256Mi" }

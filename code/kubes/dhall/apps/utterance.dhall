@@ -97,6 +97,7 @@ in  T.namespaceOf
             }
           , { name = "RUST_LOG", value = lit "info,utterance=debug" }
           ]
+        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8080 }
         , resources =

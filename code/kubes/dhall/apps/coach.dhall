@@ -95,6 +95,7 @@ in  T.namespaceOf
             , value = optionalSecret keys.HEALTH_SERVICE_TOKEN
             }
           ]
+        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8080 }
         , resources =

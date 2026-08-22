@@ -125,6 +125,7 @@ in  T.namespaceOf
         , hardening = T.Hardening.NonRoot
         , rootFs = T.RootFs.ReadOnly
         , env = [] : List T.EnvVar
+        , readiness = None T.Readiness
         , probeTiming =
             -- Its own, for the reason scanner's is: nginx is ready in about a
             -- second, and an app reached by a hostPort cannot roll, so every

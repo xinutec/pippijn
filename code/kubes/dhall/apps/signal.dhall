@@ -205,6 +205,7 @@ in  { name = "signal"
                   "third-party JVM image: it writes its own data dir and whatever the runtime wants, and that filesystem is not ours to constrain"
               }
         , env = [ { name = "MODE", value = lit "json-rpc" } ]
+        , readiness = None T.Readiness
         , probeTiming =
             { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
             , liveness = { initialDelaySeconds = 15, periodSeconds = 20 }
@@ -261,6 +262,7 @@ in  { name = "signal"
           , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
           , { name = "SIGNAL_NUMBER", value = secret keys.SIGNAL_NUMBER }
           ]
+        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , -- ⚠ INERT under `Unprobed` — see the note at `T.Probe`.
           probe = T.Probe.Unprobed
@@ -472,6 +474,7 @@ in  { name = "signal"
             , value = secret keys.IRC_SELF_NICK_ALT
             }
           ]
+        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , -- ⚠ THE POINT OF THE HEARTBEAT, and the reason this is not
           -- `Unprobed` like the ingester. A long poll that has stopped asking
