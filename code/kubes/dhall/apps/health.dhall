@@ -465,15 +465,19 @@ in  T.namespaceOf
           -- ⚠ It reads AUTH_PORT, the same variable the TypeScript read and the
           -- one set below. It used to read PORT and fall back to 8081, which
           -- would have bound the wrong port behind a Service expecting 3000.
-          -- ⚠ REVERTED 2026-08-23, same day. The binary works — 16/16 routes
-          -- and 39/39 days verified — but `rootFs = ReadOnly` below is real:
-          -- the Lean serve path opens a `tempfile()` for its stderr capture and
-          -- /tmp is on the read-only root, so EVERY /velocity returned 400
-          -- while the cheap routes stayed fine. Local runs never saw it because
-          -- a dev machine's /tmp is writable.
+          -- The Rust+Lean HTTP server (#982). The image ships BOTH this and
+          -- `dist/server.js`, so reverting is this one line and a re-apply.
           --
-          -- Re-flip once the capture no longer needs a writable filesystem.
-          command = Some [ "node", "dist/server.js" ]
+          -- ⚠ It needs the writable /tmp mounted below. The first attempt at
+          -- this flip, earlier on 2026-08-23, was reverted within the hour
+          -- because /tmp was on the read-only root and every `/velocity`
+          -- returned 400 while the pod stayed 1/1 Running (#1106).
+          --
+          -- Both that and the migration-lock defect (#1108) are now checked
+          -- BEFORE a cutover, against the real securityContext and the real
+          -- database, by `health/scripts/check-serving-conditions.sh`. It was
+          -- shown to catch #1106 by ablation rather than assumed to.
+          command = Some [ "bin/backend", "serve" ]
         , port
         , uid = 1000
         , hardening = T.Hardening.NonRoot

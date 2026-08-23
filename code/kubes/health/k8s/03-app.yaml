@@ -18,8 +18,8 @@ spec:
     spec:
       containers:
       - command:
-        - node
-        - dist/server.js
+        - bin/backend
+        - serve
         env:
         - name: AUTH_PORT
           value: '3000'
