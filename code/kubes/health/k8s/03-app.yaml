@@ -18,8 +18,8 @@ spec:
     spec:
       containers:
       - command:
-        - node
-        - dist/server.js
+        - bin/backend
+        - serve
         env:
         - name: AUTH_PORT
           value: '3000'
@@ -84,21 +84,21 @@ spec:
         - name: WALK_BUILDING_ESCAPE
           value: '1'
         - name: LEAN_PASSES
-          value: 'solo'
+          value: solo
         - name: LEAN_MATCH
-          value: 'solo'
+          value: solo
         - name: LEAN_RAIL
-          value: 'solo'
+          value: solo
         - name: LEAN_KALMAN
-          value: 'solo'
+          value: solo
         - name: LEAN_GPSQUALITY
-          value: 'solo'
+          value: solo
         - name: LEAN_BIOLABELS
-          value: 'solo'
+          value: solo
         - name: LEAN_HEAD
-          value: 'solo'
+          value: solo
         - name: LEAN_DAY
-          value: 'solo'
+          value: solo
         image: "xinutec/health-sync:latest"
         livenessProbe:
           initialDelaySeconds: 15

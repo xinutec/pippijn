@@ -458,7 +458,14 @@ in  T.namespaceOf
             T.Reach.Ingress { host = dns.health, exposure = T.Exposure.Public }
         , name = "health-auth"
         , image = T.Image.Fleet "health-sync"
-        , command = Some [ "node", "dist/server.js" ]
+        , -- The Rust+Lean HTTP server (#982). The image ships BOTH this and
+          -- `dist/server.js`, so reverting is this one line and a re-apply —
+          -- no rebuild.
+          --
+          -- ⚠ It reads AUTH_PORT, the same variable the TypeScript read and the
+          -- one set below. It used to read PORT and fall back to 8081, which
+          -- would have bound the wrong port behind a Service expecting 3000.
+          command = Some [ "bin/backend", "serve" ]
         , port
         , uid = 1000
         , hardening = T.Hardening.NonRoot

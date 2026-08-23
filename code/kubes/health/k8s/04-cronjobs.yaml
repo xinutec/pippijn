@@ -182,7 +182,7 @@ spec:
             - "dist/cli/refresh-rail-routes.js"
             env:
             - name: LEAN_RAIL
-              value: 'solo'
+              value: solo
             - name: LEAN_CALL_TIMEOUT_MS
               value: '30000'
             - name: DB_HOST
@@ -351,25 +351,25 @@ spec:
             - name: USE_REACQUIRE_ROBUST_SPEED
               value: '1'
             - name: LEAN_HSMM
-              value: 'solo'
+              value: solo
             - name: LEAN_STATIONCHAIN
-              value: 'solo'
+              value: solo
             - name: LEAN_PASSES
-              value: 'solo'
+              value: solo
             - name: LEAN_MATCH
-              value: 'solo'
+              value: solo
             - name: LEAN_RAIL
-              value: 'solo'
+              value: solo
             - name: LEAN_KALMAN
-              value: 'solo'
+              value: solo
             - name: LEAN_GPSQUALITY
-              value: 'solo'
+              value: solo
             - name: LEAN_BIOLABELS
-              value: 'solo'
+              value: solo
             - name: LEAN_HEAD
-              value: 'solo'
+              value: solo
             - name: LEAN_DAY
-              value: 'solo'
+              value: solo
             - name: LEAN_CALL_TIMEOUT_MS
               value: '30000'
             image: "xinutec/health-sync:latest"
