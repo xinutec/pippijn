@@ -126,12 +126,18 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
       securityContext:
         runAsGroup: 1000
         runAsNonRoot: true
         runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
+      volumes:
+      - emptyDir: {}
+        name: tmp
 ---
 apiVersion: v1
 kind: Service

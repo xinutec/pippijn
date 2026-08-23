@@ -570,8 +570,25 @@ in  T.namespaceOf
               memory = "512Mi"
             }
           }
-        , volumes = [] : List T.Volume
-        , mounts = [] : List T.VolumeMount
+        , -- ⚠ A WRITABLE /tmp, because `rootFs` above is ReadOnly and the Lean
+          -- serve path opens a `tempfile()` to capture Lean's stderr. Without
+          -- this, every `/velocity` returns 400 with "Read-only file system"
+          -- while the pod stays 1/1 Running and passes readiness — only the
+          -- route that runs the fold touches it (#1106, measured in production
+          -- 2026-08-23).
+          --
+          -- An `emptyDir`, NOT a relaxation of `rootFs`: the read-only root is
+          -- measured hardening that nine `allow-rootfs-rw` waivers depend on,
+          -- and this gives the process a scratch area without giving it its own
+          -- code back.
+          volumes = [ { name = "tmp", source = T.VolumeSource.EmptyDir } ]
+        , mounts =
+          [ { name = "tmp"
+            , mountPath = "/tmp"
+            , subPath = None Text
+            , readOnly = False
+            }
+          ]
         , tasks =
             -- The six recurring jobs. `dbEnv` is every task's floor — all of them
             -- read and write the same database — and the extras are per task.
