@@ -465,7 +465,15 @@ in  T.namespaceOf
           -- ⚠ It reads AUTH_PORT, the same variable the TypeScript read and the
           -- one set below. It used to read PORT and fall back to 8081, which
           -- would have bound the wrong port behind a Service expecting 3000.
-          command = Some [ "bin/backend", "serve" ]
+          -- ⚠ REVERTED 2026-08-23, same day. The binary works — 16/16 routes
+          -- and 39/39 days verified — but `rootFs = ReadOnly` below is real:
+          -- the Lean serve path opens a `tempfile()` for its stderr capture and
+          -- /tmp is on the read-only root, so EVERY /velocity returned 400
+          -- while the cheap routes stayed fine. Local runs never saw it because
+          -- a dev machine's /tmp is writable.
+          --
+          -- Re-flip once the capture no longer needs a writable filesystem.
+          command = Some [ "node", "dist/server.js" ]
         , port
         , uid = 1000
         , hardening = T.Hardening.NonRoot
