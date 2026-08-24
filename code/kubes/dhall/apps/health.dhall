@@ -86,13 +86,21 @@ let leanCallTimeout
 -- The nightly refreshes walk a 21-day window a day at a time, and each day
 -- carries a full velocity computation. That is a WORKING SET, not a leak.
 --
--- 1Gi was too small by about 5%. Measured on 2026-08-24 by re-running
--- `health-rail-refresh` with the ceiling raised to 6Gi and sampling RSS: it
--- climbs 219 → 273 → 377 → 384 → 977Mi and then sits flat at 977Mi to
--- completion (exit 0, 18 route geometries upserted). Against a 1Gi = 1024Mi
--- limit that leaves 47Mi of headroom, so any slightly heavier day is an
--- OOMKill — which is what `health-rail-refresh` and `health-rail-stops-refresh`
--- had been doing EVERY NIGHT since 2026-08-21 (#1133).
+-- 1Gi is simply below what the job needs. Measured on 2026-08-24 by re-running
+-- `health-rail-refresh` with the ceiling raised and sampling RSS every 20s:
+--
+--   at 6Gi   219 -> 273 -> 377 -> 384 -> 977Mi, completes (exit 0, 18 routes)
+--   at 2Gi   peak 1113Mi, completes in 840s (exit 0, 18 routes, 0 restarts)
+--
+-- 1113Mi is ABOVE the old 1Gi = 1024Mi ceiling, which is exactly why
+-- `health-rail-refresh` and `health-rail-stops-refresh` OOMKilled EVERY NIGHT
+-- from 2026-08-21 (#1133).
+--
+-- ⚠ Both figures are LOWER BOUNDS: a 20s sample cannot see a peak between
+-- samples, and the 6Gi run reported 977Mi where the 2Gi run reported 1113Mi for
+-- the same work. Do not treat either as the true maximum — 2Gi is chosen for
+-- the ~900Mi of headroom over the larger observation, not because 1113Mi is
+-- known to be the ceiling.
 --
 -- ⚠ It reads as a network failure and is not. SIGKILL gives the process no
 -- chance to print, so the log simply STOPS mid-scan with no error; the last
