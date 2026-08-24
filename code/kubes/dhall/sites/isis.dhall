@@ -41,6 +41,18 @@ in    { name = "httpd-isis"
               location ~ \.(md|py|sh)$ {
                   default_type text/plain;
               }
+
+              # Slice images for the DICOM viewer: thousands of small files,
+              # each one a request, and every request on this host re-runs
+              # basic auth. Without a Cache-Control header browsers fall back
+              # to heuristic freshness and revalidate constantly, paying that
+              # cost again. The images are derived from archived studies and
+              # only change when they are deliberately re-exported.
+              # Deliberately NOT `immutable`: a re-export should still reach a
+              # reader who reloads, rather than being pinned for a whole day.
+              location ~* ^/share/[^/]+/slices/.+\.webp$ {
+                  add_header Cache-Control "public, max-age=86400";
+              }
           }
           ''
       , -- The auth-gated route is the OTHER Ingress; this one is open, and the
