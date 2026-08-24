@@ -83,11 +83,32 @@ let leanCallTimeout
     : T.EnvVar
     = { name = "LEAN_CALL_TIMEOUT_MS", value = lit "30000" }
 
+-- The nightly refreshes walk a 21-day window a day at a time, and each day
+-- carries a full velocity computation. That is a WORKING SET, not a leak.
+--
+-- 1Gi was too small by about 5%. Measured on 2026-08-24 by re-running
+-- `health-rail-refresh` with the ceiling raised to 6Gi and sampling RSS: it
+-- climbs 219 → 273 → 377 → 384 → 977Mi and then sits flat at 977Mi to
+-- completion (exit 0, 18 route geometries upserted). Against a 1Gi = 1024Mi
+-- limit that leaves 47Mi of headroom, so any slightly heavier day is an
+-- OOMKill — which is what `health-rail-refresh` and `health-rail-stops-refresh`
+-- had been doing EVERY NIGHT since 2026-08-21 (#1133).
+--
+-- ⚠ It reads as a network failure and is not. SIGKILL gives the process no
+-- chance to print, so the log simply STOPS mid-scan with no error; the last
+-- visible line is an unrelated `velocity … INFEASIBLE` warning that looks like
+-- a cause. The task carried "overpass-api.de has banned isis's IP" for three
+-- days on that reading, while a curl FROM isis returned 200 in 0.52 s.
+--
+-- Same failure and same fix as `decodeResources` below, which was raised for
+-- exactly this on 2026-08-16. 2Gi is ~2x the measured peak; isis had ~6 GiB
+-- free when this was raised.
 let batchResources
     : T.Resources
     = { requests = { cpu = "100m", memory = "256Mi" }
-      , limits = Some { cpu = Some "1000m", memory = "1Gi" }
+      , limits = Some { cpu = Some "1000m", memory = "2Gi" }
       }
+
 
 -- The decode carries more memory than the refreshes: it holds a day's fixes and
 -- both arms of every shadowed Lean pass at once.
