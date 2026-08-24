@@ -107,8 +107,8 @@ spec:
         spec:
           containers:
           - command:
-            - node
-            - "dist/cli/refresh-focus-places.js"
+            - bin/backend
+            - "refresh-focus-places"
             env:
             - name: DB_HOST
               value: "health-db"

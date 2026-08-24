@@ -701,7 +701,24 @@ in  T.namespaceOf
             , { name = "health-focus-refresh"
               , -- Weekly, Sunday 04:00.
                 schedule = "0 4 * * 0"
-              , command = [ "node", "dist/cli/refresh-focus-places.js" ]
+              , -- Rust+Lean since 2026-08-24 (#982 Tier 2). Verified against
+                -- production before the flip: 122 of 128 rows byte-identical,
+                -- 128 places, 0 deletions, home_tz unchanged, peak RSS 185Mi
+                -- against this job's 512Mi limit.
+                --
+                -- The three labels that differ are all low-visit clusters in
+                -- dense venue areas, and are #343's subject rather than a port
+                -- defect: on a one-visit cluster with four candidates inside
+                -- the 12 m near field, which name wins is unstable in EITHER
+                -- arm. One of the three is production being wrong -- it names a
+                -- venue the mirror holds nowhere within 500 m of that centroid,
+                -- and the Rust arm declines to name it.
+                --
+                -- It also carries a guard the node arm lacks: it REFUSES to
+                -- write when a PhoneTrack device fetch failed, because the
+                -- write path ends in DELETE and a partial history silently
+                -- drops real places (#1140).
+                command = [ "bin/backend", "refresh-focus-places" ]
               , deadlineSeconds = 3300
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
