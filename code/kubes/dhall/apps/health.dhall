@@ -729,7 +729,12 @@ in  T.namespaceOf
                 , "-c"
                 ,     "node dist/cli/decode-day.js --user pippijn "
                   ++  "--tz Europe/London --days 7 && "
-                  ++  "node dist/cli/refresh-presence-log.js 90"
+                  -- Tier 2 of #982: the rollup is Lean now, and this is the
+                  -- first cron step to stop being node. Verified against the
+                  -- TypeScript arm on 2026-08-24 by running both against the
+                  -- production database and diffing the whole table — 136 rows,
+                  -- every column identical.
+                  ++  "bin/backend refresh-presence-log 90"
                 ]
               , -- 30 min, and the tightest deadline here on purpose: this is the
                 -- job an expensive Lean tenant blows first. The matcher's move off
