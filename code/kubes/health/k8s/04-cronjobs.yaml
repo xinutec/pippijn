@@ -19,8 +19,8 @@ spec:
         spec:
           containers:
           - command:
-            - node
-            - dist/sync.js
+            - bin/backend
+            - sync
             env:
             - name: DB_HOST
               value: "health-db"

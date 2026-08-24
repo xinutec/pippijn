@@ -612,7 +612,21 @@ in  T.namespaceOf
                 -- req/hr/user.
                 name = "health-sync"
               , schedule = "*/15 * * * *"
-              , command = [ "node", "dist/sync.js" ]
+              , -- Tier 2 of #982. The Fitbit + PhoneTrack ingestion, on the
+                -- Rust binary.
+                --
+                -- ⚠ Verified in three parts, because one of them was vacuous
+                -- for a week: the forward pass against production (10 tables
+                -- 2026-08-17, `daily_activity` 2026-08-24), the backfill half
+                -- by static parity plus a live run that left `sync_state`
+                -- BYTE-IDENTICAL, and `migrate()` — absent here on purpose —
+                -- which `backend serve` now performs since the HTTP cutover.
+                --
+                -- ⚠ The backfill loop CANNOT run in production: all nine
+                -- streams carry `complete = true`, and both walks short-circuit
+                -- on that. Clearing a flag is what would exercise an untested
+                -- path, not this switch.
+                command = [ "bin/backend", "sync" ]
               , -- 55 min: under the 15-min cadence a run that outlives four of its
                 -- own successors is wedged, and `Forbid` means those four never
                 -- started.
