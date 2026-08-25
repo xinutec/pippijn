@@ -793,7 +793,17 @@ in  T.namespaceOf
               }
             , { name = "health-bus-refresh"
               , schedule = "30 5 * * *"
-              , command = [ "node", "dist/cli/refresh-bus-routes.js" ]
+              , -- Tier 2 of #982, flipped 2026-08-25 with rail-stops below. The
+                -- extraction is Lean and was measured byte-identical to the node
+                -- arm on a real 10.5 MB central-London tile: 127 routes, 4088
+                -- stops, every stop name in route order and every coordinate to
+                -- 7 dp. The PLAN matches too, against the real focus_places —
+                -- 65 places, 4 regions, an 18-tile bbox.
+                --
+                -- ⚠ What a laptop could NOT check is the DB write, which is why
+                -- this runs here first: the pod spec and env are where every
+                -- failure this week actually lived.
+                command = [ "bin/backend", "refresh-bus-routes" ]
               , deadlineSeconds = 5400
               , -- RESUMED 2026-08-14 21:xx, and this time the deploy dependency is
                 -- actually met: the running image was built 19:04:25Z from
@@ -877,7 +887,18 @@ in  T.namespaceOf
               }
             , { name = "health-rail-stops-refresh"
               , schedule = "0 6 * * *"
-              , command = [ "node", "dist/cli/refresh-rail-stops.js" ]
+              , -- Tier 2 of #982, flipped 2026-08-25 with bus-refresh above.
+                -- Same measured parity: 188 relations, 3062 stops, identical to
+                -- the node arm on a real tile.
+                --
+                -- ⚠ THIS ARM ALSO GAINED A `tile_key` (3311455), which the node
+                -- arm never had. Without it a partial run DELETEd the whole
+                -- table and rewrote only what it found — two dry runs the same
+                -- afternoon harvested 441 and 313 relations from different
+                -- 10-of-18 tile subsets, so consecutive runs would have written
+                -- two very different caches and the count going UP (268 -> 441)
+                -- would have hidden it. #1134, #1153.
+                command = [ "bin/backend", "refresh-rail-stops" ]
               , deadlineSeconds = 5400
               , suspended = False
               , rootFs = T.RootFs.ReadOnly

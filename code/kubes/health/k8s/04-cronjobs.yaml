@@ -271,8 +271,8 @@ spec:
         spec:
           containers:
           - command:
-            - node
-            - "dist/cli/refresh-bus-routes.js"
+            - bin/backend
+            - refresh-bus-routes
             env:
             - name: DB_HOST
               value: "health-db"
@@ -446,8 +446,8 @@ spec:
         spec:
           containers:
           - command:
-            - node
-            - "dist/cli/refresh-rail-stops.js"
+            - bin/backend
+            - refresh-rail-stops
             env:
             - name: DB_HOST
               value: "health-db"
