@@ -109,7 +109,15 @@ let apps
         , renderers = [ keep "appDeployment", omit "appService" ]
         }
       , { file = "04-ingress.yaml", renderers = [ omit "ingress" ] }
-      , { file = "04-cronjobs.yaml", renderers = [ omit "cronJobs" ] }
+      , { -- `keep`, because a cron's writable /tmp is an `emptyDir`, and an
+          -- emptyDir IS an empty value: `--omit-empty` deleted the source and
+          -- left `- name: tmp` alone. Kubernetes defaults a source-less volume
+          -- to emptyDir, so nothing broke — measured 2026-08-25, server-side
+          -- dry-run and the live objects both — but the manifest stopped saying
+          -- what it meant and dev-lint reported six volumes with no source.
+          file = "04-cronjobs.yaml"
+        , renderers = [ keep "cronJobs" ]
+        }
       , { file = "05-networkpolicy.yaml"
         , renderers = [ keep "netpolDb", keep "netpolApp" ]
         }

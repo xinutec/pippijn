@@ -89,7 +89,8 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumes:
-          - name: tmp
+          - emptyDir: {}
+            name: tmp
   schedule: "*/15 * * * *"
   successfulJobsHistoryLimit: 3
 
@@ -165,7 +166,8 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumes:
-          - name: tmp
+          - emptyDir: {}
+            name: tmp
   schedule: "0 4 * * 0"
   successfulJobsHistoryLimit: 3
 
@@ -245,7 +247,8 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumes:
-          - name: tmp
+          - emptyDir: {}
+            name: tmp
   schedule: "0 5 * * *"
   successfulJobsHistoryLimit: 3
 
@@ -311,7 +314,8 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumes:
-          - name: tmp
+          - emptyDir: {}
+            name: tmp
   schedule: "30 5 * * *"
   successfulJobsHistoryLimit: 3
 
@@ -418,7 +422,8 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumes:
-          - name: tmp
+          - emptyDir: {}
+            name: tmp
   schedule: "0 6 * * *"
   successfulJobsHistoryLimit: 3
 
@@ -484,6 +489,7 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumes:
-          - name: tmp
+          - emptyDir: {}
+            name: tmp
   schedule: "0 6 * * *"
   successfulJobsHistoryLimit: 3
