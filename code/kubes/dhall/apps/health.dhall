@@ -758,7 +758,23 @@ in  T.namespaceOf
               }
             , { name = "health-rail-refresh"
               , schedule = "0 5 * * *"
-              , command = [ "node", "dist/cli/refresh-rail-routes.js" ]
+              , -- Rust+Lean since 2026-08-25 (#982 Tier 2). Verified against
+                -- production before the flip: 63 of 64 cached routes identical,
+                -- ZERO lost, two GAINED (Jubilee-line routes the node arm left
+                -- un-snapped), and one differing by two vertices out of 248 —
+                -- across a different 21-day window, which makes the agreement a
+                -- stronger signal rather than a weaker one. Peak RSS 205Mi.
+                --
+                -- ⚠ The whole corridor snap runs in Lean (`Verified.Geo.RailSnap`,
+                -- 123 guards) via the `railsnap` mode: Rust hands over raw ways,
+                -- stations and the pooled fix cloud. The node arm builds the
+                -- graph itself and asks Lean only for `dijkstraC`.
+                --
+                -- ⚠ It REFUSES to report success when every scanned day failed
+                -- to compute. Its own first run pooled 0 routes and exited 0 —
+                -- #1134's shape — which is how the missing /tmp emptyDir was
+                -- found (#1106 had reached only the Deployment).
+                command = [ "bin/backend", "refresh-rail-routes" ]
               , -- 90 min. This is where the verified rail search runs in BULK — the
                 -- decode's railSnap pass is only an indexed lookup into what this
                 -- job filled.

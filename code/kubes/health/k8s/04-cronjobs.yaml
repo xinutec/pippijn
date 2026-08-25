@@ -188,8 +188,8 @@ spec:
         spec:
           containers:
           - command:
-            - node
-            - "dist/cli/refresh-rail-routes.js"
+            - bin/backend
+            - "refresh-rail-routes"
             env:
             - name: LEAN_RAIL
               value: solo
