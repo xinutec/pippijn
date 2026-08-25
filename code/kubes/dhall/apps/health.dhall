@@ -111,6 +111,32 @@ let leanCallTimeout
 -- Same failure and same fix as `decodeResources` below, which was raised for
 -- exactly this on 2026-08-16. 2Gi is ~2x the measured peak; isis had ~6 GiB
 -- free when this was raised.
+-- ⚠ A WRITABLE /tmp FOR THE CRONS TOO. `rootFs` is ReadOnly and the Lean serve
+-- path opens a `tempfile()` to capture Lean's stderr, so any job that reaches
+-- the day pipeline dies with "Read-only file system (os error 30)" without it.
+--
+-- The Deployment got this on 2026-08-23 (#1106); the CronJobs did not, and
+-- nothing noticed until `refresh-rail-routes` ran on Rust for the first time on
+-- 2026-08-25 and EVERY ONE of its 22 days failed that way. It pooled 0 routes,
+-- upserted 0, and exited 0 — the node arm had never exercised this path because
+-- it computed days in-process rather than through the Lean fold.
+--
+-- Given to every cron rather than the four that provably need it: an emptyDir
+-- costs nothing, and picking the subset by inspection is how the Deployment's
+-- fix failed to reach these in the first place.
+let tmpVolume
+    : List T.Volume
+    = [ { name = "tmp", source = T.VolumeSource.EmptyDir } ]
+
+let tmpMount
+    : List T.VolumeMount
+    = [ { name = "tmp"
+        , mountPath = "/tmp"
+        , subPath = None Text
+        , readOnly = False
+        }
+      ]
+
 let batchResources
     : T.Resources
     = { requests = { cpu = "100m", memory = "256Mi" }
@@ -662,8 +688,8 @@ in  T.namespaceOf
                 deadlineSeconds = 3300
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
-              , volumes = [] : List T.Volume
-              , mounts = [] : List T.VolumeMount
+              , volumes = tmpVolume
+              , mounts = tmpMount
               , env =
                     dbEnv
                   # [ { name = "FITBIT_CLIENT_ID"
@@ -722,8 +748,8 @@ in  T.namespaceOf
               , deadlineSeconds = 3300
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
-              , volumes = [] : List T.Volume
-              , mounts = [] : List T.VolumeMount
+              , volumes = tmpVolume
+              , mounts = tmpMount
               , env = dbEnv # ncEnv
               , resources =
                 { requests = { cpu = "50m", memory = "128Mi" }
@@ -739,8 +765,8 @@ in  T.namespaceOf
                 deadlineSeconds = 5400
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
-              , volumes = [] : List T.Volume
-              , mounts = [] : List T.VolumeMount
+              , volumes = tmpVolume
+              , mounts = tmpMount
               , env =
                     [ { name = "LEAN_RAIL", value = lit "solo" }
                     , leanCallTimeout
@@ -777,8 +803,8 @@ in  T.namespaceOf
                 -- normal night; under the count threshold it was a refusal.
                 suspended = False
               , rootFs = T.RootFs.ReadOnly
-              , volumes = [] : List T.Volume
-              , mounts = [] : List T.VolumeMount
+              , volumes = tmpVolume
+              , mounts = tmpMount
               , env = dbEnv
               , resources = batchResources
               }
@@ -802,8 +828,8 @@ in  T.namespaceOf
                 deadlineSeconds = 1800
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
-              , volumes = [] : List T.Volume
-              , mounts = [] : List T.VolumeMount
+              , volumes = tmpVolume
+              , mounts = tmpMount
               , env =
                     dbEnv
                   # ncEnv
@@ -839,8 +865,8 @@ in  T.namespaceOf
               , deadlineSeconds = 5400
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
-              , volumes = [] : List T.Volume
-              , mounts = [] : List T.VolumeMount
+              , volumes = tmpVolume
+              , mounts = tmpMount
               , env = dbEnv
               , resources = batchResources
               }

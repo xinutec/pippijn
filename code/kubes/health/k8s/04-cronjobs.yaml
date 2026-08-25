@@ -78,6 +78,9 @@ spec:
                 drop:
                 - ALL
               readOnlyRootFilesystem: true
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
           restartPolicy: OnFailure
           securityContext:
             runAsGroup: 1000
@@ -85,6 +88,8 @@ spec:
             runAsUser: 1000
             seccompProfile:
               type: RuntimeDefault
+          volumes:
+          - name: tmp
   schedule: "*/15 * * * *"
   successfulJobsHistoryLimit: 3
 
@@ -149,6 +154,9 @@ spec:
                 drop:
                 - ALL
               readOnlyRootFilesystem: true
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
           restartPolicy: OnFailure
           securityContext:
             runAsGroup: 1000
@@ -156,6 +164,8 @@ spec:
             runAsUser: 1000
             seccompProfile:
               type: RuntimeDefault
+          volumes:
+          - name: tmp
   schedule: "0 4 * * 0"
   successfulJobsHistoryLimit: 3
 
@@ -224,6 +234,9 @@ spec:
                 drop:
                 - ALL
               readOnlyRootFilesystem: true
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
           restartPolicy: OnFailure
           securityContext:
             runAsGroup: 1000
@@ -231,6 +244,8 @@ spec:
             runAsUser: 1000
             seccompProfile:
               type: RuntimeDefault
+          volumes:
+          - name: tmp
   schedule: "0 5 * * *"
   successfulJobsHistoryLimit: 3
 
@@ -285,6 +300,9 @@ spec:
                 drop:
                 - ALL
               readOnlyRootFilesystem: true
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
           restartPolicy: OnFailure
           securityContext:
             runAsGroup: 1000
@@ -292,6 +310,8 @@ spec:
             runAsUser: 1000
             seccompProfile:
               type: RuntimeDefault
+          volumes:
+          - name: tmp
   schedule: "30 5 * * *"
   successfulJobsHistoryLimit: 3
 
@@ -387,6 +407,9 @@ spec:
                 drop:
                 - ALL
               readOnlyRootFilesystem: true
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
           restartPolicy: OnFailure
           securityContext:
             runAsGroup: 1000
@@ -394,6 +417,8 @@ spec:
             runAsUser: 1000
             seccompProfile:
               type: RuntimeDefault
+          volumes:
+          - name: tmp
   schedule: "0 6 * * *"
   successfulJobsHistoryLimit: 3
 
@@ -448,6 +473,9 @@ spec:
                 drop:
                 - ALL
               readOnlyRootFilesystem: true
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
           restartPolicy: OnFailure
           securityContext:
             runAsGroup: 1000
@@ -455,5 +483,7 @@ spec:
             runAsUser: 1000
             seccompProfile:
               type: RuntimeDefault
+          volumes:
+          - name: tmp
   schedule: "0 6 * * *"
   successfulJobsHistoryLimit: 3
