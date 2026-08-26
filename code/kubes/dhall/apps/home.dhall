@@ -19,7 +19,7 @@ let lit = T.EnvValue.Literal
 
 in  T.namespaceOf
       (     { name = "home"
-      , cluster = T.Cluster.isis
+      , placement = T.on T.Cluster.isis
       , db = Some
         { dbName = "home"
         , innodbBufferPoolGi = None Natural

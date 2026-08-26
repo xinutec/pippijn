@@ -765,8 +765,11 @@ done
 # read by another repository, which cannot run this script.
 #
 # ⚠ The JSON is built by `dhall-to-json`, not by printf. Only the EXPRESSION is
-# assembled here, so a tree whose model lacks `cluster`, or a misspelled
-# `clusterHost`, is a Dhall type error rather than a quoting accident in bash.
+# assembled here, so a tree whose model lacks `placement`, or a misspelled
+# `clusterHosts`, is a Dhall type error rather than a quoting accident in bash.
+#
+# ⚠ Values are ARRAYS since 2026-08-26 — a subject may be placed on more than one
+# cluster. `plan-run` reads this file, so its reader changed in the same breath.
 #
 # Keyed by LEAF name: `web/org/xinutec/slides` is the site `slides`. An app and a
 # site cannot share a name, which `scripts/apply.sh` already relied on.
@@ -777,13 +780,13 @@ clusters_expr() {
     leaf=$(basename "$src" .dhall)
     (( first )) || printf '\n, '
     first=0
-    printf '%s = R.clusterHost %s/apps/%s.dhall' "$leaf" "$here" "$leaf"
+    printf '%s = R.clusterHosts %s/apps/%s.dhall' "$leaf" "$here" "$leaf"
   done
   for src in "$here"/sites/*.dhall; do
     leaf=$(basename "$src" .dhall)
     (( first )) || printf '\n, '
     first=0
-    printf '%s = S.clusterHost %s/sites/%s.dhall' "$leaf" "$here" "$leaf"
+    printf '%s = S.clusterHosts %s/sites/%s.dhall' "$leaf" "$here" "$leaf"
   done
   printf '\n}\n'
 }

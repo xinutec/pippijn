@@ -474,7 +474,7 @@ let leanTenants
 
 in  T.namespaceOf
       (     { name = "health"
-      , cluster = T.Cluster.isis
+      , placement = T.on T.Cluster.isis
       , db = Some
         { dbName = "health"
         , -- ~4 GB today, `heart_rate_intraday` alone ~2.6 GB.

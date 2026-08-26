@@ -111,12 +111,18 @@ let hasDb
 --  tool asked whoever was typing instead. Rendered into `dhall/clusters.json`
 --  and read by `plan-run deploy`, which refuses a `--host` that contradicts it.
 --  See `site.dhall`'s twin.
-let clusterHost
-    : T.Namespace → Text
+--  ⚠ Returns a LIST since 2026-08-26: a subject may be placed on more than one
+--  cluster (`web` is, on both), and `plan-run deploy` runs its one-host plan
+--  once per host rather than learning about two.
+let hostOf
+    : T.Cluster → Text
+    = λ(c : T.Cluster) →
+        merge { isis = "isis.xinutec.org", amun = "amun.xinutec.org" } c
+
+let clusterHosts
+    : T.Namespace → List Text
     = λ(ns : T.Namespace) →
-        merge
-          { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
-          ns.cluster
+        L.map T.Cluster Text hostOf (T.placedOn ns.placement)
 
 --| `T.Resources` → the API's shape.
 --
@@ -1070,7 +1076,7 @@ let deploymentFor
                                     -- that disagrees with the containerPort
                                     -- forwards to nothing, silently.
                                     hostPort = Some w.port
-                                  , hostIP = Some (T.wgAddress ns.cluster)
+                                  , hostIP = Some (T.wgAddress (T.soleCluster ns.placement))
                                   }
                                 ]
                               , Internal =
@@ -1860,7 +1866,8 @@ in  { storageWaiver
     , netpolApp
     , mariadbVersion
     , secretName
-    , clusterHost
+    , clusterHosts
+    , hostOf
     , hasDb
     , hasAppliedNetpol
     , usesHostPort

@@ -14,7 +14,7 @@ let dataPath = "/srv/data"
 
 in  T.namespaceOf
       (     { name = "scanner"
-      , cluster = T.Cluster.isis
+      , placement = T.on T.Cluster.isis
       , db = None T.Database
       , storage = Some
         { -- Session recordings: a few MB each, kept so the Mac's replay

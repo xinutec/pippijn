@@ -22,7 +22,7 @@ let dataPath = "/data"
 
 in  T.namespaceOf
       (     { name = "utterance"
-      , cluster = T.Cluster.isis
+      , placement = T.on T.Cluster.isis
       , db = None T.Database
       , storage = Some
         { -- The recordings are 51 MB today across fifteen takes, and a take is

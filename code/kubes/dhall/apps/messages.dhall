@@ -97,7 +97,7 @@ in  { name = "signal"
             "a cert-manager ClusterIssuer: cluster-scoped one-time isis setup, not part of this or any app. The HTTP-01 issuer the fleet otherwise uses cannot validate a host that resolves to a VPN-only address, so this one proves ownership by a Cloudflare TXT record instead."
         }
       ]
-    , cluster = T.Cluster.isis
+    , placement = T.on T.Cluster.isis
     , -- It reads signal's. The `sessions` table it owns is created on boot in
       -- that same database, which is why there is no second one to declare.
       db = None T.Database

@@ -632,12 +632,18 @@ let redirect
 --| The host this site deploys to, from the model rather than from whoever is
 --  typing. Rendered into `dhall/clusters.json` and read by `plan-run deploy`.
 --  See `Site.cluster`.
-let clusterHost
-    : Site → Text
+--  ⚠ A LIST, to match `render.dhall`'s twin, while `Site.cluster` stays a single
+--  cluster — because a site genuinely runs on one. The list is the shape
+--  `clusters.json` needs now that a subject MAY span clusters, not a claim that
+--  a site does. Widening the output without widening the type keeps the three
+--  site models unchanged.
+let clusterHosts
+    : Site → List Text
     = λ(site : Site) →
-        merge
-          { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
-          site.cluster
+        [ merge
+            { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
+            site.cluster
+        ]
 
 let netpolWaiver
     : Site → Bool
@@ -668,7 +674,7 @@ in  { Doc
     , webrootPath
     , storageWaiver
     , netpolWaiver
-    , clusterHost
+    , clusterHosts
     , unownedFiles
     , configMaps
     , pvc

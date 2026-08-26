@@ -33,7 +33,7 @@ let lit = T.EnvValue.Literal
 
 in  T.namespaceOf
       (     { name = "fleetwatch"
-      , cluster = T.Cluster.isis
+      , placement = T.on T.Cluster.isis
       , db = Some
         { dbName = "fleetwatch"
         , innodbBufferPoolGi = None Natural

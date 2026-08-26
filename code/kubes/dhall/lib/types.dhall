@@ -586,6 +586,71 @@ let wgAddress
     : Cluster → Text
     = λ(c : Cluster) → merge { isis = "10.100.0.2", amun = "10.100.0.1" } c
 
+--| WHERE a subject runs. One cluster, or several.
+--
+-- ⚠ **A RECORD WITH A MANDATORY HEAD, NOT A `List Cluster`**, because "runs
+-- nowhere" must not be writable. An empty list typechecks, renders no host, and
+-- would reach `plan-run deploy` as a tree the model does not place — which is
+-- the arm that falls back to trusting `--host`, i.e. exactly the #692 defect the
+-- cluster model exists to close. The head being required makes the bad state
+-- unrepresentable rather than caught later, which is this file's whole method.
+--
+-- ⚠ **AND NOT AN `Every` CONSTRUCTOR.** "Wherever there are clusters" reads as
+-- the convenient answer and is the dangerous one: adding a third cluster would
+-- start deploying every `Every` subject onto it with nobody having decided.
+-- Naming the clusters means growing the fleet is a deliberate edit to each
+-- subject that should follow it — the same reason `plan-run.nix` pins a revision
+-- instead of tracking `main`.
+--
+-- The first user is the `web` namespace, which is applied to BOTH clusters
+-- today: identical `last-applied-configuration` on isis and amun, checked
+-- 2026-08-26. Before this existed the model could only say it lived on one, so
+-- the model stated something false and modelling it would have REFUSED the
+-- deploy to the other cluster.
+let Placement = { first : Cluster, rest : List Cluster }
+
+--| Runs on exactly one cluster — every subject but `web`, today.
+let on
+    : Cluster → Placement
+    = λ(c : Cluster) → { first = c, rest = [] : List Cluster }
+
+--| Runs on both. Spelled out rather than derived from a fleet-wide list, for
+--  the reason `Every` was rejected above.
+let onBoth
+    : Placement
+    = { first = Cluster.isis, rest = [ Cluster.amun ] }
+
+--| Every cluster a subject is placed on, head first.
+let placedOn
+    : Placement → List Cluster
+    = λ(p : Placement) → [ p.first ] # p.rest
+
+--| ⚠ The ONE cluster a subject runs on, for the things that cannot mean two.
+--
+-- `wgAddress` is the case: a hostPort's `hostIP` is ONE node's tunnel address
+-- and a subject spanning clusters has no single one.
+--
+-- ⚠ **DHALL CANNOT REFUSE THIS, AND AN `assert` HERE IS WORSE THAN NOTHING.**
+-- Tried 2026-08-26: `assert : List/length Cluster p.rest ≡ 0` inside this
+-- function fails to TYPECHECK for every subject, not just multi-cluster ones,
+-- because `p` is lambda-bound so the length never normalises to a literal.
+-- Dhall's `assert` is a typecheck-time equality on normal forms, not a runtime
+-- precondition — the whole model stopped building. The idea that it would "fire
+-- only on the path that needs it" was a description of what I wanted.
+--
+-- So this takes the head, and **the obligation moves to dev-lint over the
+-- RENDERED tree**: a `hostIP` must be the tunnel address of the cluster its
+-- manifests actually deploy to. That is a decidable predicate over rendered YAML
+-- with the deploy map beside it, which is a linter's job — the same division
+-- `Resources`/`image_profile` already draws, where the type states the shape and
+-- the linter judges what belongs in it.
+--
+-- Nothing hits this today: the only multi-cluster subject is `web`, which has no
+-- workloads at all. The lint is owed before a SECOND one appears.
+let soleCluster
+    : Placement → Cluster
+    = λ(p : Placement) → p.first
+
 --| A declared secret key. `apps/*.dhall` builds a record of these and refers to
 --  its fields, which is how a mistyped key becomes a compile error.
 let SecretKey = { mapKey : Text, mapValue : Text }
@@ -817,7 +882,7 @@ let Unowned = { file : Text, why : Text }
 let Namespace =
       { name : Text
       , owner : Owner
-      , cluster : Cluster
+      , placement : Placement
       , db : Optional Database
       , configMap : Optional ConfigMapDoc
       , claims : List Claim
@@ -829,7 +894,7 @@ let Namespace =
 
 let App =
       { name : Text
-      , cluster : Cluster
+      , placement : Placement
       , db : Optional Database
       , storage : Optional Storage
       , configMap : Optional ConfigMapDoc
@@ -902,7 +967,7 @@ let namespaceOf
                 }
                 a.storage
 
-        in    a.{ name, cluster, db, configMap, secrets, netpol }
+        in    a.{ name, placement, db, configMap, secrets, netpol }
             ⫽ { -- An app IS its namespace: it creates the object and every name
                 -- derives from it. So the embedding fills both new fields and no
                 -- model file changes, which is what keeps `--check` a proof
@@ -919,6 +984,11 @@ let namespaceOf
               }
 
 in  { Cluster
+    , Placement
+    , on
+    , onBoth
+    , placedOn
+    , soleCluster
     , Durability
     , Image
     , imageRef

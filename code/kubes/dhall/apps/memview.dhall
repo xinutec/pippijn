@@ -32,7 +32,7 @@ let statePath = "/state"
 
 in  T.namespaceOf
       (     { name = "memview"
-      , cluster = T.Cluster.isis
+      , placement = T.on T.Cluster.isis
       , db = None T.Database
       , storage = Some
         { -- The corpus is ~280 small markdown files, well under a megabyte, and

@@ -143,7 +143,7 @@ in  { name = "signal"
       -- See `T.Owner`, and `messages.dhall`'s `Elsewhere` pointing back here.
       owner = T.Owner.Own
     , unowned = [] : List T.Unowned
-    , cluster = T.Cluster.isis
+    , placement = T.on T.Cluster.isis
     , db = Some
       { dbName = "signal"
       , -- ⚠ MEASURED 2026-08-14, and the default 128 MiB stopped being tenable

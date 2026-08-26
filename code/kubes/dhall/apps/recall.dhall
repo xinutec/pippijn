@@ -40,7 +40,7 @@ let lit = T.EnvValue.Literal
 
 in  T.namespaceOf
       (     { name = "recall"
-      , cluster = T.Cluster.isis
+      , placement = T.on T.Cluster.isis
       , db = None T.Database
       , storage = Some
         { -- The SQLite system-of-record and the audio segments together. Audio

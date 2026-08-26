@@ -21,7 +21,7 @@ let nginxConfName = "observe-viewer-nginx"
 
 in  T.namespaceOf
       (     { name = "observe"
-      , cluster = T.Cluster.isis
+      , placement = T.on T.Cluster.isis
       , db = None T.Database
       , -- No PVC. The content is a hostPath the Mac rsyncs to; see `volumes`.
         storage = None T.Storage
