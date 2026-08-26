@@ -381,8 +381,24 @@ let issuerFor
 -- `Exposure.VpnOnly` provides. Three apps do it (scanner, recall, observe) and
 -- each said so in a comment beginning "same as recall".
 --
--- The port is NOT a field: it is the workload's own. A hostPort that disagrees
--- with the containerPort forwards to nothing, silently.
+-- The port is NOT a field: it is the workload's own, so the three apps above
+-- cannot name a hostPort that no container is listening on.
+--
+-- ⚠ THE REASON THIS COMMENT USED TO GIVE WAS FALSE, and the correction bounds
+-- what `Reach` can describe. It claimed "a hostPort that disagrees with the
+-- containerPort forwards to nothing, silently". It does not: the CNI portmap
+-- plugin installs a DNAT from the host dport to the container's port, and the
+-- two are free to differ. Checked on amun 2026-08-26 against `vps/irssi`, which
+-- has run 2230 -> 22 for 51 days:
+--
+--     -A CNI-DN-ae12ea... -p tcp --dport 2230 -j DNAT --to-destination 10.42.0.154:22
+--
+-- and the banner answers. So deriving the hostPort from the containerPort is a
+-- POLICY -- one port, named once, for the apps modelled here -- and not the
+-- safety property it was written as. It is also the reason `vps/irssi` and
+-- `ircd` are not expressible: irssi remaps the port deliberately (a per-user SSH
+-- endpoint on a shared node cannot have every user listening on 22), and ircd
+-- publishes three ports from one container where `Workload.port` holds one.
 let Reach =
       < Ingress : { host : Text, exposure : Exposure }
       | WireGuard
