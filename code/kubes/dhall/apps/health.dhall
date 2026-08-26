@@ -839,9 +839,23 @@ in  T.namespaceOf
               , command =
                 [ "sh"
                 , "-c"
-                ,     "node dist/cli/decode-day.js --user pippijn "
-                  ++  "--tz Europe/London --days 7 && "
-                  -- Tier 2 of #982: the rollup is Lean now, and this is the
+                ,     -- #982 COMPLETE: the sixth and last cron off node, and the
+                      -- one #975 was waiting on. Verified 2026-08-26 by decoding
+                      -- seven days against the production database with
+                      -- `--dry-run` and diffing `decoded_days` as TEXT: 206
+                      -- segments, 206 BYTE-IDENTICAL, zero differences.
+                      --
+                      -- ⚠ NO `--tz`. The Rust arm reads `home_tz` from
+                      -- `sync_state` rather than taking it on the command line,
+                      -- so the zone cannot drift from what the rest of the
+                      -- pipeline uses. That it resolves to Europe/London here is
+                      -- not assumed — the byte-identical week is against a node
+                      -- arm that was passed `--tz Europe/London` explicitly.
+                      --
+                      -- ⚠ 7 IS EXPLICIT because node's was. The Rust default is
+                      -- 14; leaving it off would quietly double the window.
+                      "bin/backend decode-day pippijn 7 && "
+                  -- Tier 2 of #982: the rollup is Lean now, and this was the
                   -- first cron step to stop being node. Verified against the
                   -- TypeScript arm on 2026-08-24 by running both against the
                   -- production database and diffing the whole table — 136 rows,
@@ -851,6 +865,11 @@ in  T.namespaceOf
               , -- 30 min, and the tightest deadline here on purpose: this is the
                 -- job an expensive Lean tenant blows first. The matcher's move off
                 -- Lean `Int` to `Nat` was forced by a run that missed it.
+                --
+                -- ⚠ UNCHANGED ACROSS THE RUST FLIP, and measured rather than
+                -- hoped: the seven-day run above took 6m03s from a Mac THROUGH
+                -- THE SSH TUNNEL, which is an upper bound — half of that wall
+                -- clock was IO wait the pod does not pay. 20% of the budget.
                 deadlineSeconds = 1800
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
