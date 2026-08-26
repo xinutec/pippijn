@@ -297,24 +297,38 @@ in  { name = "signal"
           ]
         , tasks =
           [ { name = irclogImport
-            , -- ⚠ EVERY MINUTE, and hourly was never a judgement about latency —
-              -- it was the price of a run that cost the same whatever had
-              -- happened. MEASURED 2026-08-14: the importer re-read all 36,201
-              -- staged files and re-issued `INSERT IGNORE` for all 3.68M lines
-              -- every time, taking 10m34s to write 14 rows. Running that more
-              -- often was not a trade-off anybody could make.
+            , -- ⚠ EVERY FIFTEEN MINUTES, AND THIS IS NOT A LATENCY NUMBER.
+              -- `ircTail` below is the live tier and writes each line in under a
+              -- second on the same dedupe key; this task is its RECONCILER, so
+              -- what the cadence sets is how fast a line the tail DROPPED is
+              -- recovered, not how fresh the archive is. The comment here used to
+              -- say the long-poll tier "is not needed" — it was built, it runs,
+              -- and that sentence has been wrong since.
               --
-              -- `signal`'s `irc_import_state` made a run cost what ARRIVED: the
-              -- next one was **20 seconds** end to end — pod start, the rsync of
-              -- all 36,201 files, statting them, reading the state — with zero
-              -- files opened. At that price the cadence is just a number, and
-              -- the long-poll tier #880 was designed around is not needed.
+              -- ⚠ IT WAS EVERY MINUTE, AND THAT COST THE HEALTH BACKUP 41%.
+              -- Ablated 2026-08-24 (import off 335s, on 473s, back to back on an
+              -- idle disk) and corroborated observationally 2026-08-26 by a 15s
+              -- sampler across the real backup window: of the sixteen D-state
+              -- blocking occurrences during the health dump, TEN were this
+              -- importer and two were rsync — and it was in D state ONLY inside
+              -- that window, never once in the other 59 minutes. The live dump
+              -- took 969s, twice the ablation's loaded arm. At `*/15` its share
+              -- of the window falls from ~40% to ~3%.
+              --
+              -- Hourly was the ORIGINAL setting and was never a latency
+              -- judgement: it was the price of a run that cost the same whatever
+              -- had happened. MEASURED 2026-08-14: the importer re-read all
+              -- 36,201 staged files and re-issued `INSERT IGNORE` for all 3.68M
+              -- lines every time, taking 10m34s to write 14 rows. `signal`'s
+              -- `irc_import_state` made a run cost what ARRIVED — 20 seconds end
+              -- to end, zero files opened — which is what makes the cadence free
+              -- to choose on other grounds, as it now is.
               --
               -- ⚠ Safe to overlap-proof rather than by luck: `concurrencyPolicy`
               -- is `Forbid` for every task in this model (see `render.dhall`), so
-              -- a run that ever outlasts its minute delays the next rather than
+              -- a run that ever outlasts its window delays the next rather than
               -- racing it into the same rows.
-              schedule = "* * * * *"
+              schedule = "*/15 * * * *"
             , -- ⚠ TWO STEPS, so a shell. The logs are on the OTHER CLUSTER —
               -- irssi runs in `vps-pippijn` on amun — so they are pulled over
               -- ssh into `${irclogMount}` and imported from there. The far side

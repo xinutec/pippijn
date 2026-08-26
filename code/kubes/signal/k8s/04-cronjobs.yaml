@@ -83,5 +83,5 @@ spec:
             secret:
               defaultMode: 292
               secretName: "signal-irclog-sync"
-  schedule: "* * * * *"
+  schedule: "*/15 * * * *"
   successfulJobsHistoryLimit: 3
