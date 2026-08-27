@@ -399,9 +399,42 @@ let issuerFor
 -- `ircd` are not expressible: irssi remaps the port deliberately (a per-user SSH
 -- endpoint on a shared node cannot have every user listening on 22), and ircd
 -- publishes three ports from one container where `Workload.port` holds one.
+--| A container port and the node port it is published at.
+--
+-- ⚠ **The two are FREE TO DIFFER**, which this model denied until 2026-08-27.
+-- The CNI portmap plugin DNATs the host dport to the container's port; measured
+-- on amun against `vps/irssi`, running 2230 -> 22 for 51 days. `WireGuard` still
+-- names one number for both, but that is now a POLICY it chooses rather than a
+-- rule the cluster enforces.
+let Published = { containerPort : Natural, hostPort : Natural }
+
 let Reach =
       < Ingress : { host : Text, exposure : Exposure }
       | WireGuard
+      | -- Published straight onto every node interface, with NO Service.
+        --
+        -- ⚠ **NOT Kubernetes' `type: NodePort`** — deliberately not named that.
+        -- There is no Service at all here; a Service is the thing being avoided.
+        --
+        -- ⚠ **`hostIP` IS UNSET, and that is the difference from `WireGuard`.**
+        -- That arm pins the port to the tunnel address, which is right when the
+        -- fleet is the only client. These bind every interface because the
+        -- clients are people on the internet with an ssh or IRC client.
+        --
+        -- A LIST because `ircd` publishes three ports from one container
+        -- (6697/7005/7776) and `Workload.port` holds one. `Workload.port` stays
+        -- the port the probes ask about, and must be among these.
+        --
+        -- ⚠ **`why` IS NOT DECORATION — it becomes the dev-lint waiver.** A
+        -- hostPort is a real exception (`DL-K8S-HOST-PORT`), and while
+        -- `WireGuard` was the only arm its justification was identical
+        -- everywhere and could be a constant in `generate.sh`. It no longer is:
+        -- these bind the node to see the REAL CLIENT IP, which is a different
+        -- reason from tunnel-pinning. `RootFs.Writable` carries a `why` because
+        -- three such reasons were already written down and left with the
+        -- hand-written YAML they were written in; this is that lesson applied
+        -- before the same thing happens again.
+        HostPorts : { published : List Published, why : Text }
       | Internal
       | NoService
       >
@@ -1022,6 +1055,7 @@ let namespaceOf
 in  { Cluster
     , Labels
     , Selector
+    , Published
     , Placement
     , on
     , onBoth

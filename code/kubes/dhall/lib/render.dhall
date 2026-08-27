@@ -93,6 +93,7 @@ let usesHostPort
                     { Ingress =
                         λ(_ : { host : Text, exposure : T.Exposure }) → False
                     , WireGuard = True
+                    , HostPorts = λ(_ : { published : List T.Published, why : Text }) → True
                     , Internal = False
                     , NoService = False
                     }
@@ -1008,6 +1009,11 @@ let deploymentFor
                 { Ingress =
                     λ(_ : { host : Text, exposure : T.Exposure }) → False
                 , WireGuard = True
+                , -- Same reason as `WireGuard`, and the live manifests say so in
+                  -- their own words: "hostPort binds the node interface, so two
+                  -- pods can't coexist during a rollout — recreate (brief blip)
+                  -- instead of a RollingUpdate that would deadlock on the port."
+                  HostPorts = λ(_ : { published : List T.Published, why : Text }) → True
                 , Internal = False
                 , NoService = False
                 }
@@ -1111,6 +1117,25 @@ let deploymentFor
                                   , hostIP = Some (T.wgAddress (T.soleCluster ns.placement))
                                   }
                                 ]
+                              , -- ⚠ `hostIP` UNSET, unlike `WireGuard`: these
+                                -- bind every interface because the clients are
+                                -- people on the internet, not the fleet. And the
+                                -- two numbers are whatever the model says — the
+                                -- CNI portmap plugin DNATs between them.
+                                HostPorts =
+                                  λ ( r
+                                    : { published : List T.Published, why : Text }
+                                    ) →
+                                    L.map
+                                      T.Published
+                                      K.ContainerPort
+                                      ( λ(x : T.Published) →
+                                          { containerPort = x.containerPort
+                                          , hostPort = Some x.hostPort
+                                          , hostIP = None Text
+                                          }
+                                      )
+                                      r.published
                               , Internal =
                                 [ { containerPort = w.port
                                   , hostPort = None Natural
@@ -1244,9 +1269,11 @@ let servicePort
           { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → 80
           , WireGuard = w.port
           , Internal = w.port
+          , -- Never evaluated, same as `NoService` below.
+            HostPorts = λ(_ : { published : List T.Published, why : Text }) → w.port
           , -- Never evaluated: `serviceFor` renders no Service for this arm, so
             -- the port is not a fallback anybody can reach. Stated rather than
-            -- left to a wildcard so adding a fifth arm stays a type error.
+            -- left to a wildcard so adding a further arm stays a type error.
             NoService = w.port
           }
           w.reach
@@ -1382,6 +1409,7 @@ let serviceFor
               { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → svc
               , WireGuard = svc
               , Internal = svc
+              , HostPorts = λ(_ : { published : List T.Published, why : Text }) → [] : List K.Service
               , NoService = [] : List K.Service
               }
               w.reach
@@ -1436,6 +1464,7 @@ let ingressFor
                     ]
           , WireGuard = [] : List K.Ingress
           , Internal = [] : List K.Ingress
+          , HostPorts = λ(_ : { published : List T.Published, why : Text }) → [] : List K.Ingress
           , NoService = [] : List K.Ingress
           }
           w.reach
