@@ -75,6 +75,28 @@ site_tree() { # site -> its live manifest directory, relative to kubes/
   printf 'web/org/xinutec/%s/k8s' "$1"
 }
 
+app_tree() { # app -> its live manifest directory, relative to kubes/
+  # Almost every app's tree is `<name>/k8s`, and the two exceptions are not
+  # sloppiness. `vps-pippijn` and `vps-simon` are two namespaces built from ONE
+  # image: `vps/irssi/` holds the Dockerfile, init.sh and both home trees, so the
+  # manifests live beside the source they deploy rather than in two top-level
+  # directories that would separate them from it.
+  #
+  # ⚠ They were ONE DIRECTORY holding two manifests until 2026-08-27, and that is
+  # unmodellable rather than merely untidy: `compare` concatenates every *.yaml in
+  # the directory and diffs the whole SET against one model file, so two models
+  # pointing at one directory would each read the other's manifest as an
+  # undeclared extra — and an undeclared manifest is deliberately a failure.
+  # Splitting them was chosen over making every renderer list-valued (which would
+  # touch all 17 trees) or teaching `compare` per-file ownership (which would
+  # weaken the check that caught the ircd cert drift on 2026-07-27).
+  case $1 in
+    vps-pippijn) printf 'vps/irssi/k8s/pippijn' ;;
+    vps-simon) printf 'vps/irssi/k8s/simon' ;;
+    *) printf '%s/k8s' "$1" ;;
+  esac
+}
+
 # ⚠ A FAILED `ask` IS WORSE THAN A FAILED RENDER, and needs its own mechanism.
 #
 # `die_render`'s `exit` works because every renderer is called where a non-zero
@@ -709,7 +731,7 @@ for src in "$here"/apps/*.dhall; do
     # part of any app, and the model has no type for it.
     mapfile -t unowned < <(ask_text "$app" unownedFiles | grep -v '^$' || true)
     if [[ -e $ask_failed ]]; then exit 1; fi
-    compare "$app" "$kubes/$app/k8s" "$tmp/$app.model.yaml" "${unowned[@]}"
+    compare "$app" "$kubes/$(app_tree "$app")" "$tmp/$app.model.yaml" "${unowned[@]}"
   fi
 done
 
