@@ -710,8 +710,13 @@ let Workload =
       -- numbers for a running pod. `selector` is also absent — `spec.selector` is
       -- immutable, and an immutable field deserves an explicit answer at every site.
       --
-      -- The three below are safe because each already means "nothing here": no command
-      -- override, no distinct readiness question, no batch work.
+      -- ⚠ No count here on purpose: the list below MOVES, and a number in this
+      -- sentence rots the moment a field is added — which it did within hours of
+      -- being written. The criterion is what matters. Each defaulted field's
+      -- default is the answer that PRESERVES EXISTING BEHAVIOUR for every
+      -- workload that does not mention it: no command override, no distinct
+      -- readiness question, no batch work, the kernel doing the chown, and the
+      -- pull policy the image kind already implies.
       { Type = WorkloadType
       , default =
         { command = None (List Text)
