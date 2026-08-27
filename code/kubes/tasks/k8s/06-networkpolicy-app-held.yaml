@@ -25,6 +25,7 @@ spec:
           kubernetes.io/metadata.name: "ingress-nginx"
     ports:
     - port: 8092
+      protocol: TCP
   podSelector:
     matchLabels:
       app: tasks

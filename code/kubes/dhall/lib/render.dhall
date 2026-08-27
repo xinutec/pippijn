@@ -1550,7 +1550,11 @@ let ingressFromNginx
                     }
                   }
                 ]
-              , ports = [ { port = w.port, protocol = None Text } ]
+              , -- STATED, never implicit. This list is atomic, so an omitted
+                -- protocol makes every apply report `configured` for ever —
+                -- see `K.NetworkPolicyPort`, and DL-K8S-NP-PORT-PROTOCOL,
+                -- which now checks the rendered YAML for exactly this.
+                ports = [ { port = w.port, protocol = Some "TCP" } ]
               }
             ]
           , egress =
@@ -1737,7 +1741,11 @@ let ingressFromNginx
                     }
                   }
                 ]
-              , ports = [ { port = w.port, protocol = None Text } ]
+              , -- STATED, never implicit. This list is atomic, so an omitted
+                -- protocol makes every apply report `configured` for ever —
+                -- see `K.NetworkPolicyPort`, and DL-K8S-NP-PORT-PROTOCOL,
+                -- which now checks the rendered YAML for exactly this.
+                ports = [ { port = w.port, protocol = Some "TCP" } ]
               }
             ]
           , egress =
