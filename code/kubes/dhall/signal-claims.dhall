@@ -27,8 +27,8 @@ let T = ./lib/types.dhall
 -- two claims of one namespace belong in one place, not because anything else
 -- reads it.
 let cli
-    : T.Claim
-    = { name = "signal-cli-pvc"
+    : T.Claim.Type
+    = T.Claim::{ name = "signal-cli-pvc"
       , storageGi = 2
       , durability =
           T.Durability.LossAccepted
@@ -44,8 +44,8 @@ let cli
 -- `Writers` is `Concurrent` and why claims belong to the NAMESPACE rather than
 -- to a workload. RWO holds because both pods land on the one node.
 let attachments
-    : T.Claim
-    = { name = "signal-attachments-pvc"
+    : T.Claim.Type
+    = T.Claim::{ name = "signal-attachments-pvc"
       , storageGi = 20
       , durability =
           T.Durability.LossAccepted
@@ -74,8 +74,8 @@ let attachments
 -- whole thing would be re-fetched every run, and rsync's entire value here is
 -- that the second run transfers almost nothing.
 let irclogs
-    : T.Claim
-    = { name = "signal-irclogs-pvc"
+    : T.Claim.Type
+    = T.Claim::{ name = "signal-irclogs-pvc"
       , storageGi = 5
       , durability =
           T.Durability.LossAccepted

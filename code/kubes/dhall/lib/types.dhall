@@ -280,13 +280,28 @@ let Writers =
 -- direction, and the safe one.
 let FsGroupChange = < Always | OnRootMismatch >
 
-let Claim =
+let ClaimType =
       { name : Text
       , storageGi : Natural
       , durability : Durability
       , writers : Writers
       , chown : FsGroupChange
+      , -- ⚠ **`None` OMITS IT, and that is right for every generated tree** —
+        -- k3s's default StorageClass IS `local-path` (verified on amun
+        -- 2026-08-27), so naming it adds a line that says what the cluster
+        -- already does.
+        --
+        -- ⚠ **But it is IMMUTABLE on a live PVC and recorded in
+        -- last-applied-configuration.** The four hand-written trees that declare
+        -- it (ircd, vaultwarden, mailu, irssi) therefore cannot stop: a
+        -- generated manifest omitting it is REJECTED on apply, not silently
+        -- ignored. Modelling what IS beats modelling what would be tidy.
+        storageClass : Optional Text
       }
+
+--| `Claim` as a SCHEMA. Second use of `{ Type, default }` in this model, after
+-- `Workload` — see there for when a field earns a default.
+let Claim = { Type = ClaimType, default.storageClass = None Text }
 
 let Storage =
       { storageGi : Natural
@@ -324,7 +339,7 @@ let VolumeSource =
       < EmptyDir
       | ConfigMap : { name : Text }
       | HostPath : { path : Text, why : Text }
-      | Claim : Claim
+      | Claim : Claim.Type
       | Secret : { name : Text, mode : Optional Natural }
       >
 
@@ -593,6 +608,17 @@ let WorkloadType =
       , rootFs : RootFs
       , selector : Selector
       , volumeOwnership : VolumeOwnership
+      , -- Overrides what the image kind implies. `None` means "ask
+        -- `pullPolicyFor`", which is right for every generated tree: a Fleet
+        -- image names no policy and Kubernetes defaults `:latest` to `Always`.
+        --
+        -- ⚠ Exists so a HAND-WRITTEN tree that spells the default out can be
+        -- modelled WITHOUT a rollout. irssi's live container says
+        -- `imagePullPolicy: Always` — redundant, but removing it would change
+        -- the pod template and restart a bouncer holding live IRC sessions. The
+        -- model describes what is; it does not get to charge a restart for
+        -- tidiness.
+        pullPolicy : Optional Text
       , env : List EnvVar
       , -- The question kubelet asks. Asked for BOTH probes unless `readiness`
         -- below names a different one.
@@ -652,6 +678,7 @@ let Workload =
         , readiness = None Readiness
         , tasks = [] : List ScheduledTask
         , volumeOwnership = VolumeOwnership.FsGroup
+        , pullPolicy = None Text
         }
       }
 
@@ -1005,7 +1032,7 @@ let Namespace =
       , placement : Placement
       , db : Optional Database
       , configMap : Optional ConfigMapDoc
-      , claims : List Claim
+      , claims : List Claim.Type
       , workloads : List Workload.Type
       , secrets : List SecretKey
       , netpol : Netpol
@@ -1053,11 +1080,15 @@ let namespaceOf
                 , durability = s.durability
                 , writers = s.writers
                 , chown = s.chown
+                , -- An App's storage never names a class: these trees are
+                  -- generated, so none predates the model and k3s's default
+                  -- applies. Only hand-written trees carry one.
+                  storageClass = None Text
                 }
 
         let claims =
               merge
-                { None = [] : List Claim
+                { None = [] : List Claim.Type
                 , Some = λ(s : Storage) → [ claimOf s ]
                 }
                 a.storage

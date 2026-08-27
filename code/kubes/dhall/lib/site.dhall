@@ -251,6 +251,10 @@ let pvc
                     { accessModes = [ "ReadWriteOnce" ]
                     , resources.requests.storage
                       = "${Natural/show v.storageGi}Gi"
+                    , -- A site's webroot volume is not a T.Claim and names no
+                      -- class: these trees are generated, so k3s's default
+                      -- applies. None omits the key.
+                      storageClassName = None Text
                     }
                   }
                 ]

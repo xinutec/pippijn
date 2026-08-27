@@ -387,7 +387,7 @@ let k8sVolume
                       empty
                     ⫽ { hostPath = Some { path = h.path, type = "Directory" } }
               , Claim =
-                  λ(c : T.Claim) →
+                  λ(c : T.Claim.Type) →
                       empty
                     ⫽ { persistentVolumeClaim = Some { claimName = c.name } }
               , Secret =
@@ -400,21 +400,21 @@ let k8sVolume
               v.source
 
 let mountedClaims
-    : T.Workload.Type → List T.Claim
+    : T.Workload.Type → List T.Claim.Type
     = λ(w : T.Workload.Type) →
         L.concatMap
           T.Volume
-          T.Claim
+          T.Claim.Type
           ( λ(v : T.Volume) →
               merge
-                { EmptyDir = [] : List T.Claim
-                , ConfigMap = λ(_ : { name : Text }) → [] : List T.Claim
+                { EmptyDir = [] : List T.Claim.Type
+                , ConfigMap = λ(_ : { name : Text }) → [] : List T.Claim.Type
                 , HostPath =
-                    λ(_ : { path : Text, why : Text }) → [] : List T.Claim
-                , Claim = λ(c : T.Claim) → [ c ]
+                    λ(_ : { path : Text, why : Text }) → [] : List T.Claim.Type
+                , Claim = λ(c : T.Claim.Type) → [ c ]
                 , Secret =
                     λ(_ : { name : Text, mode : Optional Natural }) →
-                      [] : List T.Claim
+                      [] : List T.Claim.Type
                 }
                 v.source
           )
@@ -423,7 +423,7 @@ let mountedClaims
 let anyClaim
     : T.Workload.Type → Bool
     = λ(w : T.Workload.Type) →
-        Natural/isZero (List/length T.Claim (mountedClaims w)) == False
+        Natural/isZero (List/length T.Claim.Type (mountedClaims w)) == False
 
 --| The namespace's ONE workload, when it has exactly one.
 --
@@ -545,10 +545,10 @@ let storageWaiver
     : T.Namespace → Text
     = λ(ns : T.Namespace) →
         List/fold
-          T.Claim
+          T.Claim.Type
           ns.claims
           Text
-          ( λ(c : T.Claim) →
+          ( λ(c : T.Claim.Type) →
             λ(acc : Text) →
                   merge
                     { BackedUp = ""
@@ -585,7 +585,7 @@ let hostPathWaiver
                         , ConfigMap = λ(_ : { name : Text }) → [] : List Text
                         , HostPath =
                             λ(h : { path : Text, why : Text }) → [ h.why ]
-                        , Claim = λ(_ : T.Claim) → [] : List Text
+                        , Claim = λ(_ : T.Claim.Type) → [] : List Text
                         , Secret =
                             λ(_ : { name : Text, mode : Optional Natural }) →
                               [] : List Text
@@ -734,6 +734,9 @@ let pvc
                     { accessModes = [ "ReadWriteOnce" ]
                     , resources.requests.storage
                       = "${Natural/show d.storageGi}Gi"
+                    , -- A database's volume is not a Claim, so it has no
+                      -- storageClass to carry. None omits the key.
+                      storageClassName = None Text
                     }
                   }
                 ]
@@ -745,15 +748,16 @@ let claimPvcs
     : T.Namespace → List K.PersistentVolumeClaim
     = λ(ns : T.Namespace) →
         L.map
-          T.Claim
+          T.Claim.Type
           K.PersistentVolumeClaim
-          ( λ(c : T.Claim) →
+          ( λ(c : T.Claim.Type) →
               { apiVersion = "v1"
               , kind = "PersistentVolumeClaim"
               , metadata = meta c.name ns.name
               , spec =
                 { accessModes = [ "ReadWriteOnce" ]
                 , resources.requests.storage = "${Natural/show c.storageGi}Gi"
+                , storageClassName = c.storageClass
                 }
               }
           )
@@ -996,10 +1000,10 @@ let deploymentFor
             -- at every start is not. `Always` is the API default and renders
             -- as absent.
               List/fold
-                T.Claim
+                T.Claim.Type
                 (mountedClaims w)
                 (Optional Text)
-                ( λ(c : T.Claim) →
+                ( λ(c : T.Claim.Type) →
                   λ(acc : Optional Text) →
                     merge
                       { Always = acc
@@ -1035,10 +1039,10 @@ let deploymentFor
             -- NODE, both pods land on that node, so k8s permits both mounts and
             -- the rollout does not hang — it double-writes. See `T.Writers`.
               List/fold
-                T.Claim
+                T.Claim.Type
                 (mountedClaims w)
                 Bool
-                ( λ(c : T.Claim) →
+                ( λ(c : T.Claim.Type) →
                   λ(acc : Bool) →
                         merge
                           { Exclusive = True
@@ -1071,7 +1075,12 @@ let deploymentFor
                     [   baseContainer
                       ⫽ { name = w.name
                         , image = T.imageRef w.image
-                        , imagePullPolicy = T.pullPolicyFor w.image
+                        , imagePullPolicy =
+                            merge
+                              { None = T.pullPolicyFor w.image
+                              , Some = λ(p : Text) → Some p
+                              }
+                              w.pullPolicy
                         , command = w.command
                         , -- ⚠ `Unhardened` drops this too, and that is the
                           -- point: `drop: ALL` takes CAP_CHOWN/CAP_SETUID/

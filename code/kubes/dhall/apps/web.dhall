@@ -45,7 +45,7 @@ in  { name = "web"
     , placement = T.onBoth
     , db = None T.Database
     , configMap = None T.ConfigMapDoc
-    , claims = [] : List T.Claim
+    , claims = [] : List T.Claim.Type
     , -- Nothing runs here. The four sites are separate trees that declare
       -- `Owner.Elsewhere` and render their own workloads into this namespace.
       workloads = [] : List T.Workload.Type

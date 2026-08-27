@@ -22,10 +22,15 @@ numbers may differ was denied by this model until 2026-08-27 — see `T.Publishe
 let T = ./lib/types.dhall
 
 let storage =
-      { name = "irssi-storage"
+      T.Claim::{ name = "irssi-storage"
       , storageGi = 5
       , durability = T.Durability.BackedUp
       , writers = T.Writers.Exclusive
+      , -- ⚠ Named because the LIVE PVC names it and the field is IMMUTABLE:
+        -- a generated manifest that dropped it would be rejected on apply, not
+        -- ignored. It is redundant in effect — local-path IS k3s's default — but
+        -- the model states what is, not what would be tidy.
+        storageClass = Some "local-path"
       , chown = T.FsGroupChange.Always
       }
 
@@ -51,6 +56,9 @@ in  λ(who : { user : Text, hostPort : Natural }) →
                     "users ssh directly to this per-user hostPort, so it must bind the node interface and see the real client IP"
                 }
           , image = T.Image.Fleet "irssi"
+          , -- The live container spells this out. Redundant — `:latest` defaults
+            -- to Always — but stated so the model matches without a rollout.
+            pullPolicy = Some "Always"
           , -- Run the entrypoint under bash explicitly: the baked image's
             -- /init.sh still carries a #!/bin/sh shebang while using
             -- `set -o pipefail`, a bash builtin, so dash crashloops it.

@@ -285,6 +285,13 @@ let PersistentVolumeClaim =
       , spec :
           { accessModes : List Text
           , resources : { requests : { storage : Text } }
+          , -- ⚠ IMMUTABLE once the PVC exists, and recorded in
+            -- last-applied-configuration, so a manifest that DROPS it cannot be
+            -- applied to a live claim — the API server rejects the patch. That
+            -- is why it is modelled rather than left implicit: `local-path` is
+            -- k3s's default and the field is redundant in EFFECT, but the four
+            -- hand-written trees that declare it cannot stop declaring it.
+            storageClassName : Optional Text
           }
       }
 

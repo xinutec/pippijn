@@ -106,7 +106,7 @@ in  { name = "signal"
     , -- Empty because the claim it mounts is signal's — `claims` is what a tree
       -- CREATES, and `VolumeSource.Claim` carries the claim value, so mounting
       -- one this tree does not own needs nothing here.
-      claims = [] : List T.Claim
+      claims = [] : List T.Claim.Type
     , workloads =
       [ T.Workload::{ name = "messages"
         , reach =
