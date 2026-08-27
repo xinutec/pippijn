@@ -142,6 +142,7 @@ in  { name = "signal"
     , -- This tree creates the namespace — including the one `messages` runs in.
       -- See `T.Owner`, and `messages.dhall`'s `Elsewhere` pointing back here.
       owner = T.Owner.Own
+    , labels = [] : T.Labels
     , unowned = [] : List T.Unowned
     , placement = T.on T.Cluster.isis
     , db = Some

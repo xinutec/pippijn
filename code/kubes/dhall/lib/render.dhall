@@ -249,12 +249,19 @@ let meta
         }
 
 let clusterMeta
-    : Text → K.Meta
+    : Text → T.Labels → K.Meta
     = λ(name : Text) →
+      λ(labels : T.Labels) →
         { name
         , namespace = None Text
         , annotations = None Annotations
-        , labels = None Annotations
+        , -- ⚠ EMPTY MAPS TO ABSENT, not to `Some []`. `labels: {}` is a
+          -- different manifest from no labels at all, and 13 of the 14 trees
+          -- carry none — rendering an empty map would change every one of them.
+          labels =
+            if    Natural/isZero (List/length { mapKey : Text, mapValue : Text } labels)
+            then  None Annotations
+            else  Some labels
         }
 
 let renderEnv
@@ -482,7 +489,7 @@ let namespace
           { Own =
             [ { apiVersion = "v1"
               , kind = "Namespace"
-              , metadata = clusterMeta ns.name
+              , metadata = clusterMeta ns.name ns.labels
               }
             ]
           , Elsewhere =

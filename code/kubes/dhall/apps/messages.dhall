@@ -91,6 +91,7 @@ in  { name = "signal"
             -- webhook refuses the overlap — so it is stated, not tidied.
             ingressName = "messages"
           }
+    , labels = [] : T.Labels
     , unowned =
       [ { file = "00-letsencrypt-dns-issuer.yaml"
         , why =

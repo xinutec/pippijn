@@ -879,6 +879,18 @@ let Owner =
 -- first and for the same reason.
 let Unowned = { file : Text, why : Text }
 
+--| Labels on the Namespace OBJECT ITSELF — not the pod labels a workload derives.
+--
+-- ⚠ **Empty for 13 of the 14 trees, and that is the point.** Only `web` carries
+-- one (`name: web`, redundant with `metadata.name` and selected by NOTHING —
+-- checked in-repo and against the live netpols on isis). It is modelled rather
+-- than stripped because the model's job is to state what the fleet IS; removing
+-- a live label so a type fits is the move this model refuses everywhere else.
+--
+-- A List, not an Optional: empty IS the answer for almost every tree, and
+-- `clusterMeta` maps empty to an ABSENT key, so no manifest gains `labels: {}`.
+let Labels = List { mapKey : Text, mapValue : Text }
+
 let Namespace =
       { name : Text
       , owner : Owner
@@ -889,6 +901,7 @@ let Namespace =
       , workloads : List Workload
       , secrets : List SecretKey
       , netpol : Netpol
+      , labels : Labels
       , unowned : List Unowned
       }
 
@@ -973,6 +986,7 @@ let namespaceOf
                 -- model file changes, which is what keeps `--check` a proof
                 -- about ι rather than a regression test.
                 owner = Owner.Own
+              , labels = [] : Labels
               , unowned = [] : List Unowned
               , claims
               , workloads =
@@ -984,6 +998,7 @@ let namespaceOf
               }
 
 in  { Cluster
+    , Labels
     , Placement
     , on
     , onBoth
