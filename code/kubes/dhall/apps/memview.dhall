@@ -62,7 +62,7 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { name = "memview"
+        T.Workload::{ name = "memview"
         , -- The hostname resolves to the WireGuard address, not the public one, so
           -- the corpus is not advertised to the internet at large. Obscurity, not
           -- a firewall — the ingress still answers on the public IP — but it does
@@ -75,7 +75,6 @@ in  T.namespaceOf
             T.Reach.Ingress
               { host = dns.memview, exposure = T.Exposure.VpnOnly }
         , image = T.Image.Fleet "memview"
-        , command = None (List Text)
         , port = 8091
         , -- Matches the nonroot user baked into the image (Dockerfile).
           uid = 65532
@@ -158,7 +157,6 @@ in  T.namespaceOf
             }
           , { name = "RUST_LOG", value = lit "info,memview=debug" }
           ]
-        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8091 }
         , resources =
@@ -178,7 +176,6 @@ in  T.namespaceOf
             , readOnly = False
             }
           ]
-        , tasks = [] : List T.ScheduledTask
         }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx

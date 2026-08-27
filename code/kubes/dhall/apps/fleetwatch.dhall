@@ -52,7 +52,7 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { name = "fleetwatch-app"
+        T.Workload::{ name = "fleetwatch-app"
         , -- The hostname resolves to isis's WireGuard address, not the public one,
           -- so HTTP-01 cannot validate and the certificate must come from DNS-01 —
           -- which is what this field decides.
@@ -69,7 +69,6 @@ in  T.namespaceOf
             T.Reach.Ingress
               { host = dns.fleetwatch, exposure = T.Exposure.VpnOnly }
         , image = T.Image.Fleet "fleetwatch"
-        , command = None (List Text)
         , port = 8080
         , -- Matches the nonroot user baked into the image (Dockerfile).
           uid = 65532
@@ -149,7 +148,6 @@ in  T.namespaceOf
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
-        , tasks = [] : List T.ScheduledTask
         }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx

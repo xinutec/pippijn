@@ -183,14 +183,13 @@ in  { name = "signal"
     , configMap = None T.ConfigMapDoc
     , claims = [ claims.cli, claims.attachments, claims.irclogs ]
     , workloads =
-      [ { name = restApiName
+      [ T.Workload::{ name = restApiName
         , -- A ClusterIP the ingester and the viewer resolve. Not `NoService`:
           -- this one genuinely is dialled, in-cluster, by name.
           reach = T.Reach.Internal
         , image =
             T.Image.Upstream
               { repo = "bbernhard/signal-cli-rest-api", tag = "0.100" }
-        , command = None (List Text)
         , port = restApiPort
         , uid = 1000
         , selector = T.Selector.App
@@ -207,7 +206,6 @@ in  { name = "signal"
                   "third-party JVM image: it writes its own data dir and whatever the runtime wants, and that filesystem is not ours to constrain"
               }
         , env = [ { name = "MODE", value = lit "json-rpc" } ]
-        , readiness = None T.Readiness
         , probeTiming =
             { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
             , liveness = { initialDelaySeconds = 15, periodSeconds = 20 }
@@ -229,16 +227,14 @@ in  { name = "signal"
             , readOnly = False
             }
           ]
-        , tasks = [] : List T.ScheduledTask
         }
-      , { name = "signal-ingester"
+      , T.Workload::{ name = "signal-ingester"
         , -- ⚠ NOTHING DIALS THIS. It is a websocket client: it connects OUT to
           -- the bridge and writes rows, and listens on no port. `Internal`
           -- would give it a Service with no consumers, which reads to a
           -- reviewer as an integration point that exists.
           reach = T.Reach.NoService
         , image = T.Image.Fleet "signal-archiver"
-        , command = None (List Text)
         , -- Not reachable, so this number names nothing outside the pod. It is
           -- required by `T.Workload` and the bridge's port is the honest value
           -- to carry.
@@ -265,7 +261,6 @@ in  { name = "signal"
           , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
           , { name = "SIGNAL_NUMBER", value = secret keys.SIGNAL_NUMBER }
           ]
-        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , -- ⚠ INERT under `Unprobed` — see the note at `T.Probe`.
           probe = T.Probe.Unprobed
@@ -427,7 +422,7 @@ in  { name = "signal"
             }
           ]
         }
-      , { name = ircTail
+      , T.Workload::{ name = ircTail
         , -- ⚠ NOTHING DIALS THIS EITHER, for the same reason as the ingester: it
           -- connects OUT and holds a long poll open.
           reach = T.Reach.NoService
@@ -492,7 +487,6 @@ in  { name = "signal"
             , value = secret keys.IRC_SELF_NICK_ALT
             }
           ]
-        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , -- ⚠ THE POINT OF THE HEARTBEAT, and the reason this is not
           -- `Unprobed` like the ingester. A long poll that has stopped asking

@@ -84,10 +84,10 @@ let usesHostPort
     : T.Namespace → Bool
     = λ(ns : T.Namespace) →
         List/fold
-          T.Workload
+          T.Workload.Type
           ns.workloads
           Bool
-          ( λ(w : T.Workload) →
+          ( λ(w : T.Workload.Type) →
             λ(acc : Bool) →
                   merge
                     { Ingress =
@@ -400,8 +400,8 @@ let k8sVolume
               v.source
 
 let mountedClaims
-    : T.Workload → List T.Claim
-    = λ(w : T.Workload) →
+    : T.Workload.Type → List T.Claim
+    = λ(w : T.Workload.Type) →
         L.concatMap
           T.Volume
           T.Claim
@@ -421,8 +421,8 @@ let mountedClaims
           w.volumes
 
 let anyClaim
-    : T.Workload → Bool
-    = λ(w : T.Workload) →
+    : T.Workload.Type → Bool
+    = λ(w : T.Workload.Type) →
         Natural/isZero (List/length T.Claim (mountedClaims w)) == False
 
 --| The namespace's ONE workload, when it has exactly one.
@@ -431,14 +431,14 @@ let anyClaim
 -- there is one to name. With several — or with batch tasks, whose pods carry
 -- only per-run labels — the honest selector is the whole namespace.
 let soleWorkload
-    : T.Namespace → Optional T.Workload
+    : T.Namespace → Optional T.Workload.Type
     = λ(ns : T.Namespace) →
-        let len = List/length T.Workload ns.workloads
+        let len = List/length T.Workload.Type ns.workloads
 
         in  if        Natural/isZero (Natural/subtract 1 len)
                   &&  (if Natural/isZero len then False else True)
-            then  List/head T.Workload ns.workloads
-            else  None T.Workload
+            then  List/head T.Workload.Type ns.workloads
+            else  None T.Workload.Type
 
 --| `Unhardened` drops the three identity fields and keeps everything else —
 --  `fsGroup` and seccomp still apply, which is as far as such a pod can be
@@ -593,9 +593,9 @@ let hostPathWaiver
                         v.source
                   )
                   ( L.concatMap
-                      T.Workload
+                      T.Workload.Type
                       T.Volume
-                      (λ(w : T.Workload) → w.volumes)
+                      (λ(w : T.Workload.Type) → w.volumes)
                       ns.workloads
                   )
               )
@@ -665,7 +665,7 @@ let containerWaivers
                   image
 
         let rootFsLines =
-              λ(w : T.Workload) →
+              λ(w : T.Workload.Type) →
                   lineFor w.image w.name w.rootFs
                 # L.concatMap
                     T.ScheduledTask
@@ -674,7 +674,7 @@ let containerWaivers
                     w.tasks
 
         let probeLines =
-              λ(w : T.Workload) →
+              λ(w : T.Workload.Type) →
                 merge
                   { Http = λ(_ : { path : Text, port : Natural }) → [] : List Text
                   , Exec = λ(_ : { command : List Text }) → [] : List Text
@@ -686,9 +686,9 @@ let containerWaivers
         in  L.joinWith
               "\n"
               ( L.concatMap
-                  T.Workload
+                  T.Workload.Type
                   Text
-                  (λ(w : T.Workload) → rootFsLines w # probeLines w)
+                  (λ(w : T.Workload.Type) → rootFsLines w # probeLines w)
                   ns.workloads
               )
 
@@ -709,9 +709,9 @@ let unhardenedWaiver
         L.joinWith
           "; "
           ( L.concatMap
-              T.Workload
+              T.Workload.Type
               Text
-              ( λ(w : T.Workload) →
+              ( λ(w : T.Workload.Type) →
                   merge
                     { NonRoot = [] : List Text
                     , Unhardened = λ(u : { why : Text }) → [ u.why ]
@@ -969,9 +969,9 @@ let dbService
           ns.db
 
 let deploymentFor
-    : T.Namespace → T.Workload → K.Deployment
+    : T.Namespace → T.Workload.Type → K.Deployment
     = λ(ns : T.Namespace) →
-      λ(w : T.Workload) →
+      λ(w : T.Workload.Type) →
         let fsGroup =
             -- Only when there is a volume, and equal to the uid the container
             -- runs as. A PVC arrives owned by root, so without this the app is
@@ -1243,7 +1243,7 @@ let deploymentFor
 let deployments
     : T.Namespace → List K.Deployment
     = λ(ns : T.Namespace) →
-        L.map T.Workload K.Deployment (deploymentFor ns) ns.workloads
+        L.map T.Workload.Type K.Deployment (deploymentFor ns) ns.workloads
 
 --| ι applied: the generator hands each renderer an `apps/*.dhall`, whose type is
 --  still `T.App`, so the entry points keep that shape and the generalised work
@@ -1263,8 +1263,8 @@ let appDeployment = deployments
 -- and an Ingress backend that disagree forward to nothing, and say nothing
 -- about it.
 let servicePort
-    : T.Workload → Natural
-    = λ(w : T.Workload) →
+    : T.Workload.Type → Natural
+    = λ(w : T.Workload.Type) →
         merge
           { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → 80
           , WireGuard = w.port
@@ -1279,9 +1279,9 @@ let servicePort
           w.reach
 
 let cronJobsFor
-    : T.Namespace → T.Workload → List K.CronJob
+    : T.Namespace → T.Workload.Type → List K.CronJob
     = λ(ns : T.Namespace) →
-      λ(w : T.Workload) →
+      λ(w : T.Workload.Type) →
         L.map
           T.ScheduledTask
           K.CronJob
@@ -1330,7 +1330,7 @@ let cronJobsFor
                           , -- `t.rootFs`, not the workload's: a task states its
                             -- own filesystem posture. `hardening` and `image`
                             -- are still the workload's, which is the sharing
-                            -- `T.Workload.tasks` describes.
+                            -- `T.Workload.Type.tasks` describes.
                             securityContext =
                               merge
                                 { NonRoot =
@@ -1382,12 +1382,12 @@ let cronJobsFor
 let cronJobs
     : T.Namespace → List K.CronJob
     = λ(ns : T.Namespace) →
-        L.concatMap T.Workload K.CronJob (cronJobsFor ns) ns.workloads
+        L.concatMap T.Workload.Type K.CronJob (cronJobsFor ns) ns.workloads
 
 let serviceFor
-    : T.Namespace → T.Workload → List K.Service
+    : T.Namespace → T.Workload.Type → List K.Service
     = λ(ns : T.Namespace) →
-      λ(w : T.Workload) →
+      λ(w : T.Workload.Type) →
         let svc =
               [ { apiVersion = "v1"
                 , kind = "Service"
@@ -1417,14 +1417,14 @@ let serviceFor
 let services
     : T.Namespace → List K.Service
     = λ(ns : T.Namespace) →
-        L.concatMap T.Workload K.Service (serviceFor ns) ns.workloads
+        L.concatMap T.Workload.Type K.Service (serviceFor ns) ns.workloads
 
 let appService = services
 
 let ingressFor
-    : T.Namespace → T.Workload → List K.Ingress
+    : T.Namespace → T.Workload.Type → List K.Ingress
     = λ(ns : T.Namespace) →
-      λ(w : T.Workload) →
+      λ(w : T.Workload.Type) →
         merge
           { Ingress =
               λ(r : { host : Text, exposure : T.Exposure }) →
@@ -1472,7 +1472,7 @@ let ingressFor
 let ingresses
     : T.Namespace → List K.Ingress
     = λ(ns : T.Namespace) →
-        L.concatMap T.Workload K.Ingress (ingressFor ns) ns.workloads
+        L.concatMap T.Workload.Type K.Ingress (ingressFor ns) ns.workloads
 
 let ingress = ingresses
 
@@ -1499,9 +1499,9 @@ let netpolDb
                                   ( List/length
                                       T.ScheduledTask
                                       ( L.concatMap
-                                          T.Workload
+                                          T.Workload.Type
                                           T.ScheduledTask
-                                          (λ(w : T.Workload) → w.tasks)
+                                          (λ(w : T.Workload.Type) → w.tasks)
                                           ns.workloads
                                       )
                                   )
@@ -1538,7 +1538,7 @@ let netpolDb
                                   merge
                                     { None = None K.Labels
                                     , Some =
-                                        λ(w : T.Workload) →
+                                        λ(w : T.Workload.Type) →
                                           if    Natural/isZero
                                                   ( List/length
                                                       T.ScheduledTask
@@ -1589,9 +1589,9 @@ let netpolDb
 --  deliberately outside the applied set until a probe-source rule is added and
 --  verified on a live pod.
 let ingressFromNginx
-    : T.Namespace → T.Workload → K.NetworkPolicy
+    : T.Namespace → T.Workload.Type → K.NetworkPolicy
     = λ(ns : T.Namespace) →
-      λ(w : T.Workload) →
+      λ(w : T.Workload.Type) →
         { apiVersion = "networking.k8s.io/v1"
         , kind = "NetworkPolicy"
         , metadata = meta "${slugOf ns}-app-from-ingress-only" ns.name
@@ -1780,9 +1780,9 @@ let defaultDenyOf
 --  deliberately outside the applied set until a probe-source rule is added and
 --  verified on a live pod.
 let ingressFromNginx
-    : T.Namespace → T.Workload → K.NetworkPolicy
+    : T.Namespace → T.Workload.Type → K.NetworkPolicy
     = λ(ns : T.Namespace) →
-      λ(w : T.Workload) →
+      λ(w : T.Workload.Type) →
         { apiVersion = "networking.k8s.io/v1"
         , kind = "NetworkPolicy"
         , metadata = meta "${slugOf ns}-app-from-ingress-only" ns.name
@@ -1894,7 +1894,7 @@ let netpolAppHeld
         merge
           { Unpoliced = [] : List K.NetworkPolicy
           , IngressFromNginx =
-              L.map T.Workload K.NetworkPolicy (ingressFromNginx ns) ns.workloads
+              L.map T.Workload.Type K.NetworkPolicy (ingressFromNginx ns) ns.workloads
           , Egress = λ(_ : List T.EgressTo) → [] : List K.NetworkPolicy
           , Policies = λ(_ : List T.NetpolPolicy) → [] : List K.NetworkPolicy
           }

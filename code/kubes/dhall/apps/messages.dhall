@@ -108,7 +108,7 @@ in  { name = "signal"
       -- one this tree does not own needs nothing here.
       claims = [] : List T.Claim
     , workloads =
-      [ { name = "messages"
+      [ T.Workload::{ name = "messages"
         , reach =
             T.Reach.Ingress
               { host = "messages.xinutec.org"
@@ -121,7 +121,6 @@ in  { name = "signal"
                 exposure = T.Exposure.VpnOnly
               }
         , image = T.Image.Fleet "messages"
-        , command = None (List Text)
         , port
         , uid = 65532
         , selector = T.Selector.App
@@ -162,7 +161,6 @@ in  { name = "signal"
           , { name = "IRC_SEND_KEY_DIR", value = lit sendKeyMount }
           , { name = "IRC_SEND_WORK_DIR", value = lit sendWorkMount }
           ]
-        , readiness = None T.Readiness
         , probeTiming =
             { readiness = { initialDelaySeconds = 2, periodSeconds = 10 }
             , liveness = { initialDelaySeconds = 5, periodSeconds = 20 }
@@ -214,7 +212,6 @@ in  { name = "signal"
             , readOnly = False
             }
           ]
-        , tasks = [] : List T.ScheduledTask
         }
       ]
     , secrets = toMap keys

@@ -106,7 +106,7 @@ in  T.namespaceOf
             }
         }
       , workload =
-        { -- No Ingress and no DNS record, the same stance as recall and scanner:
+        T.Workload::{ -- No Ingress and no DNS record, the same stance as recall and scanner:
           -- the shared nginx ingress answers on isis's PUBLIC address whatever DNS
           -- says, so an Ingress here would be obscurity rather than a gate. These
           -- are reconstructions of rooms in the house.
@@ -119,14 +119,12 @@ in  T.namespaceOf
           image =
             T.Image.Upstream
               { repo = "docker.io/nginxinc/nginx-unprivileged", tag = "alpine" }
-        , command = None (List Text)
         , port = 8091
         , uid = 101
         , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
         , rootFs = T.RootFs.ReadOnly
         , env = [] : List T.EnvVar
-        , readiness = None T.Readiness
         , probeTiming =
             -- Its own, for the reason scanner's is: nginx is ready in about a
             -- second, and an app reached by a hostPort cannot roll, so every
@@ -175,7 +173,6 @@ in  T.namespaceOf
               readOnly = False
             }
           ]
-        , tasks = [] : List T.ScheduledTask
         }
       , secrets = [] : List T.SecretKey
       , -- Default-deny egress with no exceptions: it serves static files and

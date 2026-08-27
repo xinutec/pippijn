@@ -48,11 +48,10 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { reach =
+        T.Workload::{ reach =
             T.Reach.Ingress { host = dns.coach, exposure = T.Exposure.Public }
         , name = "coach-app"
         , image = T.Image.Fleet "coach"
-        , command = None (List Text)
         , port = 8080
         , -- Matches the nonroot user baked into the image (Dockerfile).
           uid = 65532
@@ -96,7 +95,6 @@ in  T.namespaceOf
             , value = optionalSecret keys.HEALTH_SERVICE_TOKEN
             }
           ]
-        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8080 }
         , resources =
@@ -105,7 +103,6 @@ in  T.namespaceOf
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
-        , tasks = [] : List T.ScheduledTask
         }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx

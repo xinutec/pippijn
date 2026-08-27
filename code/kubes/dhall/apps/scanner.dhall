@@ -45,7 +45,7 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { -- No Ingress and no DNS record, deliberately. The shared nginx ingress
+        T.Workload::{ -- No Ingress and no DNS record, deliberately. The shared nginx ingress
           -- answers on isis's PUBLIC IP whatever DNS says, so an Ingress here
           -- would be obscurity rather than a gate; scans are private documents.
           -- `WireGuard` is a hostPort DNAT'd to the tunnel address only, which is
@@ -62,14 +62,12 @@ in  T.namespaceOf
           -- reach whatever stranger holds that name) is a loud error rather
           -- than a silent substitution.
           image = T.Image.Local "scanner"
-        , command = None (List Text)
         , port = 8090
         , uid = 1000
         , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
         , rootFs = T.RootFs.ReadOnly
         , env = [] : List T.EnvVar
-        , readiness = None T.Readiness
         , probeTiming =
             -- Its own, not `standardTiming`: it answers /healthz in about three
             -- seconds, and being reached by a hostPort it cannot roll, so every
@@ -87,7 +85,6 @@ in  T.namespaceOf
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
-        , tasks = [] : List T.ScheduledTask
         }
       , secrets = [] : List T.SecretKey
       , -- Default-deny egress with NO exceptions: it talks to nothing outside

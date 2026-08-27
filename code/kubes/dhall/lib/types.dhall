@@ -555,7 +555,7 @@ let Hardening = < NonRoot | Unhardened : { why : Text } >
 let Selector = < App | Run >
 
 --| A long-running container plus the Service in front of it.
-let Workload =
+let WorkloadType =
       { name : Text
       , -- How anything outside this pod gets to it. ON THE WORKLOAD, not the
         -- namespace: signal runs a REST bridge (Internal), an archiver
@@ -602,6 +602,33 @@ let Workload =
         -- picking the first would be a silent answer to a real question.
         tasks : List ScheduledTask
       }
+
+--| `Workload` as a SCHEMA, so a field that is `None`/empty for almost every
+-- workload costs one line in the ONE file that differs, not fifteen everywhere.
+--
+-- ⚠ **THE FIRST USE OF `{ Type, default }` IN THIS MODEL, so it sets the
+-- convention.** Adopted 2026-08-27 after three fields landed in one day at ~15
+-- edits each (`T.Labels`, `T.Selector`, `Reach.HostPorts`) and a fourth
+-- (`fsGroup`, for irssi) was queued behind the same cost. The conversion is paid
+-- once; every later optional field is one line.
+--
+-- ⚠ **A FIELD BELONGS IN `default` ONLY IF ITS DEFAULT IS THE SAFE ANSWER**, not
+-- merely the common one. `resources` is deliberately ABSENT: nocodb runs with
+-- `resources: {}` live on amun, so a default would let a model quietly invent
+-- numbers for a running pod. `selector` is also absent — `spec.selector` is
+-- immutable, and an immutable field deserves an explicit answer at every site.
+--
+-- The three below are safe because each already means "nothing here": no command
+-- override, no distinct readiness question, no batch work.
+let Workload =
+      { Type = WorkloadType
+      , default =
+        { command = None (List Text)
+        , readiness = None Readiness
+        , tasks = [] : List ScheduledTask
+        }
+      }
+
 
 --| A MariaDB sidecar database. The engine version lives in `render.dhall`, so
 --  a fleet-wide major bump is one edit instead of six identical ones.
@@ -953,7 +980,7 @@ let Namespace =
       , db : Optional Database
       , configMap : Optional ConfigMapDoc
       , claims : List Claim
-      , workloads : List Workload
+      , workloads : List Workload.Type
       , secrets : List SecretKey
       , netpol : Netpol
       , labels : Labels
@@ -966,7 +993,7 @@ let App =
       , db : Optional Database
       , storage : Optional Storage
       , configMap : Optional ConfigMapDoc
-      , workload : Workload
+      , workload : Workload.Type
       , secrets : List SecretKey
       , netpol : Netpol
       }

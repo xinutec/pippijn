@@ -65,7 +65,7 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { -- No Ingress and no DNS record. The shared nginx ingress answers on
+        T.Workload::{ -- No Ingress and no DNS record. The shared nginx ingress answers on
           -- isis's PUBLIC address whatever DNS says — obscurity, not a gate,
           -- confirmed 2026-07-09 — and this archive is transcripts of
           -- conversations in the house. The hostPort pinned to the tunnel address
@@ -148,7 +148,6 @@ in  T.namespaceOf
             , value = lit "http://nextcloud-server.nextcloud.svc.cluster.local"
             }
           ]
-        , readiness = None T.Readiness
         , probeTiming =
             -- Its own, like the other two tunnel-only apps: reached by a
             -- hostPort it cannot roll, so readiness delay is downtime per
@@ -183,7 +182,6 @@ in  T.namespaceOf
               readOnly = False
             }
           ]
-        , tasks = [] : List T.ScheduledTask
         }
       , secrets = toMap keys
       , -- Default-deny egress with exactly one exception besides DNS: the SSO

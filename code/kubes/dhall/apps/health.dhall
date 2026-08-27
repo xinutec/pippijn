@@ -509,7 +509,7 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { reach =
+        T.Workload::{ reach =
             T.Reach.Ingress { host = dns.health, exposure = T.Exposure.Public }
         , name = "health-auth"
         , image = T.Image.Fleet "health-sync"
@@ -589,7 +589,6 @@ in  T.namespaceOf
                 }
               ]
             # leanTenants
-        , readiness = None T.Readiness
         , probeTiming =
             -- Readiness is the live tree's own 3/10 rather than
             -- `T.standardTiming`'s 5/10: it is behind an Ingress with no

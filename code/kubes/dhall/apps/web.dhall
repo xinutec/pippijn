@@ -48,7 +48,7 @@ in  { name = "web"
     , claims = [] : List T.Claim
     , -- Nothing runs here. The four sites are separate trees that declare
       -- `Owner.Elsewhere` and render their own workloads into this namespace.
-      workloads = [] : List T.Workload
+      workloads = [] : List T.Workload.Type
     , secrets = [] : List T.SecretKey
     , -- ⚠ NOT a policy decision deferred — a namespace with no pods of its own
       -- has nothing to select. The sites' own trees carry their waivers; a

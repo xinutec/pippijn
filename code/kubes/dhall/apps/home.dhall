@@ -40,7 +40,7 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { reach =
+        T.Workload::{ reach =
             T.Reach.Ingress { host = dns.home, exposure = T.Exposure.Public }
         , name = "home"
         , image = T.Image.Fleet "home"
@@ -71,7 +71,6 @@ in  T.namespaceOf
           , { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
           , { name = "NC_CLIENT_SECRET", value = secret keys.NC_CLIENT_SECRET }
           ]
-        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/health", port = 3000 }
         , resources =
@@ -80,7 +79,6 @@ in  T.namespaceOf
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
-        , tasks = [] : List T.ScheduledTask
         }
       , secrets = toMap keys
       , netpol = T.Netpol.Unpoliced

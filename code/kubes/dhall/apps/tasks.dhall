@@ -59,7 +59,7 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        { -- The hostname resolves to the WireGuard address, not the public one.
+        T.Workload::{ -- The hostname resolves to the WireGuard address, not the public one.
           -- Obscurity, NOT a firewall — the isis ingress answers on the public IP
           -- too, and the Nextcloud login plus the `pippijn`-only allow-list is the
           -- real gate. But it does mean HTTP-01 cannot validate, hence a DNS-01
@@ -68,7 +68,6 @@ in  T.namespaceOf
             T.Reach.Ingress { host = dns.tasks, exposure = T.Exposure.VpnOnly }
         , name = "tasks"
         , image = T.Image.Fleet "tasks"
-        , command = None (List Text)
         , port = 8092
         , -- Matches the nonroot user baked into the image (Dockerfile).
           uid = 65532
@@ -121,7 +120,6 @@ in  T.namespaceOf
             , value = lit "info,tasks=debug"
             }
           ]
-        , readiness = None T.Readiness
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8092 }
         , resources =
@@ -133,7 +131,6 @@ in  T.namespaceOf
           }
         , volumes = [] : List T.Volume
         , mounts = [] : List T.VolumeMount
-        , tasks = [] : List T.ScheduledTask
         }
       , secrets = toMap keys
       , netpol = T.Netpol.IngressFromNginx
