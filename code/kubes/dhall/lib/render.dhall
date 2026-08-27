@@ -1090,9 +1090,23 @@ let deploymentFor
                                     ]
                               , WireGuard =
                                 [ { containerPort = w.port
-                                  , -- Same number by construction: a hostPort
-                                    -- that disagrees with the containerPort
-                                    -- forwards to nothing, silently.
+                                  , -- ⚠ Same number by POLICY, not by necessity,
+                                    -- and this comment claimed otherwise until
+                                    -- 2026-08-27. It read "a hostPort that
+                                    -- disagrees with the containerPort forwards
+                                    -- to nothing, silently" — false: the CNI
+                                    -- portmap plugin DNATs host dport to the
+                                    -- container's port and the two may differ
+                                    -- (`vps/irssi` has run 2230 -> 22 for 51
+                                    -- days; evidence in `T.Reach`). `25fdbee5`
+                                    -- corrected the copy in types.dhall and
+                                    -- MISSED this one, so the falsified claim
+                                    -- outlived its own correction by a day.
+                                    --
+                                    -- What is true: a WireGuard app is reached
+                                    -- at the port it serves, so one number is
+                                    -- named once. That is a choice, and it is
+                                    -- why a deliberate remap is inexpressible.
                                     hostPort = Some w.port
                                   , hostIP = Some (T.wgAddress (T.soleCluster ns.placement))
                                   }
