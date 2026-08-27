@@ -978,7 +978,17 @@ let deploymentFor
             -- a non-root process holding a directory it cannot write — which
             -- surfaces as a permission error at the first upload rather than at
             -- startup, long after anyone would connect it to the manifest.
-              if anyClaim w then Some w.uid else None Natural
+            --
+            -- ⚠ Unless the image does it itself. `EntrypointChowns` is not a
+            -- weaker `FsGroup`: irssi's entrypoint runs as root and chowns the
+            -- mounts before dropping privilege, so an fsGroup there would be a
+            -- field the live pod does not carry. See `T.VolumeOwnership` for the
+            -- two measured rows that refute deriving this from posture.
+              merge
+                { FsGroup = if anyClaim w then Some w.uid else None Natural
+                , EntrypointChowns = λ(_ : { why : Text }) → None Natural
+                }
+                w.volumeOwnership
 
         let fsGroupChangePolicy =
             -- `OnRootMismatch` if ANY mounted claim asks for it: skipping a

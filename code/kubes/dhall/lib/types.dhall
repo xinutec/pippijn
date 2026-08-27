@@ -554,6 +554,30 @@ let Hardening = < NonRoot | Unhardened : { why : Text } >
 -- `Workload` uses it. Beside `Labels` further down it is an unbound variable.
 let Selector = < App | Run >
 
+--| Who makes a mounted claim writable by the process that uses it.
+--
+-- ⚠ **`fsGroup` IS NOT DERIVABLE FROM POSTURE, AND THE OBVIOUS RULE IS REFUTED.**
+-- The renderer used `if anyClaim w then Some w.uid`, which is right for most
+-- trees and wrong for irssi. Measured 2026-08-27 against the live cluster:
+--
+--     workload      hardening     claim   live fsGroup
+--     signal app    Unhardened    yes     1000
+--     irssi         Unhardened    yes     NONE
+--
+-- Both are `Unhardened` with claims and they genuinely differ, so "derive it
+-- from `Hardening`" does not work either. The difference is a fact about the
+-- IMAGE: irssi's entrypoint runs as root and chowns the mounted volumes itself
+-- before dropping to uid 1000, so an `fsGroup` would be redundant. signal's does
+-- not, so it needs one.
+--
+-- ⚠ The exception arm carries `why` for the same reason `Hardening.Unhardened`,
+-- `RootFs.Writable` and `Reach.HostPorts` do: the reason exists today only in
+-- hand-written YAML, and that is exactly how `RootFs`'s three reasons were lost
+-- when their file was generated away.
+--
+-- `FsGroup` is the default, so all 15 existing workloads are unchanged.
+let VolumeOwnership = < FsGroup | EntrypointChowns : { why : Text } >
+
 --| A long-running container plus the Service in front of it.
 let WorkloadType =
       { name : Text
@@ -568,6 +592,7 @@ let WorkloadType =
       , hardening : Hardening
       , rootFs : RootFs
       , selector : Selector
+      , volumeOwnership : VolumeOwnership
       , env : List EnvVar
       , -- The question kubelet asks. Asked for BOTH probes unless `readiness`
         -- below names a different one.
@@ -626,6 +651,7 @@ let Workload =
         { command = None (List Text)
         , readiness = None Readiness
         , tasks = [] : List ScheduledTask
+        , volumeOwnership = VolumeOwnership.FsGroup
         }
       }
 
@@ -1082,6 +1108,7 @@ let namespaceOf
 in  { Cluster
     , Labels
     , Selector
+    , VolumeOwnership
     , Published
     , Placement
     , on
