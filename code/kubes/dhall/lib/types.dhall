@@ -501,6 +501,26 @@ let ScheduledTask =
 -- storage.
 let Hardening = < NonRoot | Unhardened : { why : Text } >
 
+--| Which label key a Deployment selects its pods on.
+--
+-- ⚠ **`spec.selector` IS IMMUTABLE, so this is not cosmetic.** Getting it wrong
+-- is not a re-apply — it is delete-and-recreate, which for these workloads means
+-- dropping a live IRC session or an ssh terminal server.
+--
+-- Two conventions exist here and neither is going away: the app trees derive
+-- `app: <name>`, while `ircd`, `vps-pippijn` and `vps-simon` were written by
+-- hand years earlier and select `run: <name>`. A union rather than free Text,
+-- because these are the only two and a typo'd key typechecks yet cannot be
+-- fixed in place. It is spelled at every workload rather than defaulted: an
+-- immutable field deserves an explicit answer.
+--
+-- ⚠ ONLY the workload's own selector. A database Deployment always derives
+-- `app:` — it is generated, so no live object predates the model.
+--
+-- ⚠ Defined HERE, above `Workload`, because Dhall `let` bindings are ORDERED and
+-- `Workload` uses it. Beside `Labels` further down it is an unbound variable.
+let Selector = < App | Run >
+
 --| A long-running container plus the Service in front of it.
 let Workload =
       { name : Text
@@ -514,6 +534,7 @@ let Workload =
       , uid : Natural
       , hardening : Hardening
       , rootFs : RootFs
+      , selector : Selector
       , env : List EnvVar
       , -- The question kubelet asks. Asked for BOTH probes unless `readiness`
         -- below names a different one.
@@ -891,6 +912,7 @@ let Unowned = { file : Text, why : Text }
 -- `clusterMeta` maps empty to an ABSENT key, so no manifest gains `labels: {}`.
 let Labels = List { mapKey : Text, mapValue : Text }
 
+
 let Namespace =
       { name : Text
       , owner : Owner
@@ -999,6 +1021,7 @@ let namespaceOf
 
 in  { Cluster
     , Labels
+    , Selector
     , Placement
     , on
     , onBoth

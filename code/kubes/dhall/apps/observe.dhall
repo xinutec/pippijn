@@ -122,6 +122,7 @@ in  T.namespaceOf
         , command = None (List Text)
         , port = 8091
         , uid = 101
+        , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
         , rootFs = T.RootFs.ReadOnly
         , env = [] : List T.EnvVar

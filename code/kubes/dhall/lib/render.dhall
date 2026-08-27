@@ -238,6 +238,17 @@ let appLabels
     : Text → K.Labels
     = λ(name : Text) → toMap { app = name }
 
+--| A workload's own pod labels, which ARE its Deployment's immutable selector.
+--
+-- `appLabels` stays for everything GENERATED — the db Deployment, its Service,
+-- its policy — where `app:` is the only convention and no live object predates
+-- the model. This exists because `ircd` and both irssi namespaces select `run:`.
+let workloadLabels
+    : T.Selector → Text → K.Labels
+    = λ(s : T.Selector) →
+      λ(name : Text) →
+        merge { App = toMap { app = name }, Run = toMap { run = name } } s
+
 let meta
     : Text → Text → K.Meta
     = λ(name : Text) →
@@ -1033,9 +1044,9 @@ let deploymentFor
             , spec =
               { replicas = 1
               , strategy
-              , selector.matchLabels = appLabels w.name
+              , selector.matchLabels = workloadLabels w.selector w.name
               , template =
-                { metadata.labels = appLabels w.name
+                { metadata.labels = workloadLabels w.selector w.name
                 , spec =
                   { securityContext = podSecurityContext w.uid fsGroup w.hardening
                         ⫽ { fsGroupChangePolicy }
@@ -1342,7 +1353,7 @@ let serviceFor
                 , metadata = meta w.name ns.name
                 , spec =
                   { clusterIP = None Text
-                  , selector = appLabels w.name
+                  , selector = workloadLabels w.selector w.name
                   , ports =
                     [ { port = servicePort w
                       , targetPort = Some w.port
@@ -1490,7 +1501,7 @@ let netpolDb
                                                       T.ScheduledTask
                                                       w.tasks
                                                   )
-                                          then  Some (appLabels w.name)
+                                          then  Some (workloadLabels w.selector w.name)
                                           else  None K.Labels
                                     }
                                     (soleWorkload ns)

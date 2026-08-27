@@ -535,6 +535,7 @@ in  T.namespaceOf
           command = Some [ "bin/backend", "serve" ]
         , port
         , uid = 1000
+        , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
         , -- MEASURED, not assumed — see the header. The nine `allow-rootfs-rw`
           -- waivers in this tree go away with it.

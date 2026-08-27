@@ -48,6 +48,7 @@ in  T.namespaceOf
         , port = 3000
         , -- Matches the nonroot "node" user in the image.
           uid = 1000
+        , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
         , -- Nothing in the server writes to disk: state is the database and
           -- the session cookie, and `src/` has no `writeFile`,

@@ -90,6 +90,7 @@ in  T.namespaceOf
           ]
         , port
         , uid = 1000
+        , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
         , -- Everything it writes is a mount: the archive, /tmp (ffmpeg scratch)
           -- and /app/logs.

@@ -65,6 +65,7 @@ in  T.namespaceOf
         , command = None (List Text)
         , port = 8090
         , uid = 1000
+        , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
         , rootFs = T.RootFs.ReadOnly
         , env = [] : List T.EnvVar

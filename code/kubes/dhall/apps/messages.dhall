@@ -124,6 +124,7 @@ in  { name = "signal"
         , command = None (List Text)
         , port
         , uid = 65532
+        , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
         , -- Stateless: it serves a bundle and reads a read-only mount, and
           -- writes nothing anywhere.

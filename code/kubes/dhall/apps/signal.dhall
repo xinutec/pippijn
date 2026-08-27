@@ -193,6 +193,7 @@ in  { name = "signal"
         , command = None (List Text)
         , port = restApiPort
         , uid = 1000
+        , selector = T.Selector.App
         , -- ⚠ CANNOT BE FORCED NON-ROOT, and this was measured rather than
           -- assumed. See `T.Hardening`.
           hardening =
@@ -243,6 +244,7 @@ in  { name = "signal"
           -- to carry.
           port = restApiPort
         , uid = 65532
+        , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
         , rootFs =
             T.RootFs.Writable
@@ -462,6 +464,7 @@ in  { name = "signal"
           -- the honest value to carry.
           port = 2230
         , uid = 65532
+        , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
         , rootFs =
             T.RootFs.Writable
