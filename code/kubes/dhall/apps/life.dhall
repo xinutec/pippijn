@@ -1,5 +1,6 @@
--- life.xinutec.org — the life app (Rust/axum + Angular).
-let T = ../lib/types.dhall
+let T =
+      -- life.xinutec.org — the life app (Rust/axum + Angular).
+      ../lib/types.dhall
 
 let dns = ../dns.dhall
 

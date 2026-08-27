@@ -1,18 +1,19 @@
--- memview.xinutec.org — a read-only viewer for the Claude memory corpus
--- (Rust axum + Angular). Repo: github.com/xinutec/memview.
---
--- The corpus is the most personal data the fleet holds: medical context, family,
--- addresses, private feedback. Two consequences run through this whole file.
---
--- First, the app never *contains* the corpus — the published image carries only
--- the viewer, and the memories arrive as a volume the Mac pushes up. That is why
--- the repo can be public and the image can be pulled from Docker Hub.
---
--- Second, the sign-in gate is not optional here. `memview` serves everything it
--- can read to whoever gets past it, so the three auth keys below are required
--- secret references rather than optional ones: a pod that fails to start is
--- much better than a pod that starts unguarded.
-let T = ../lib/types.dhall
+let T =
+      -- memview.xinutec.org — a read-only viewer for the Claude memory corpus
+      -- (Rust axum + Angular). Repo: github.com/xinutec/memview.
+      --
+      -- The corpus is the most personal data the fleet holds: medical context, family,
+      -- addresses, private feedback. Two consequences run through this whole file.
+      --
+      -- First, the app never *contains* the corpus — the published image carries only
+      -- the viewer, and the memories arrive as a volume the Mac pushes up. That is why
+      -- the repo can be public and the image can be pulled from Docker Hub.
+      --
+      -- Second, the sign-in gate is not optional here. `memview` serves everything it
+      -- can read to whoever gets past it, so the three auth keys below are required
+      -- secret references rather than optional ones: a pod that fails to start is
+      -- much better than a pod that starts unguarded.
+      ../lib/types.dhall
 
 let dns = ../dns.dhall
 

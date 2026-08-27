@@ -1,14 +1,15 @@
--- fleetwatch.xinutec.org — where the fleet's machines report what they saw
--- (Rust/axum + Angular).
---
--- Two audiences, two gates, and the model only expresses one of them. The WRITE
--- path is token-only: `FLEETWATCH_TOKENS` is a comma-separated set of
--- source:token pairs, and a producer can only ever write as its mapped source
--- (`src/auth.rs`). Reads sit behind the Nextcloud login, with one hole —
--- `FLEETWATCH_READ_TOKENS` opens `GET /api/problems` alone, for the Android
--- app's half-hourly background poller. Both are secret references here; which
--- endpoints they unlock is the app's business and is written up beside the code.
-let T = ../lib/types.dhall
+let T =
+      -- fleetwatch.xinutec.org — where the fleet's machines report what they saw
+      -- (Rust/axum + Angular).
+      --
+      -- Two audiences, two gates, and the model only expresses one of them. The WRITE
+      -- path is token-only: `FLEETWATCH_TOKENS` is a comma-separated set of
+      -- source:token pairs, and a producer can only ever write as its mapped source
+      -- (`src/auth.rs`). Reads sit behind the Nextcloud login, with one hole —
+      -- `FLEETWATCH_READ_TOKENS` opens `GET /api/problems` alone, for the Android
+      -- app's half-hourly background poller. Both are secret references here; which
+      -- endpoints they unlock is the app's business and is written up beside the code.
+      ../lib/types.dhall
 
 let dns = ../dns.dhall
 

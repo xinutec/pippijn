@@ -1,12 +1,13 @@
--- Minimal list helpers.
---
--- Deliberately hand-written rather than imported from the Dhall Prelude: a
--- remote import would make `dhall-to-yaml` need the network (and a frozen
--- hash) to render a manifest. Everything here is a builtin fold, so the whole
--- model stays evaluable offline.
 let map
     : ∀(a : Type) → ∀(b : Type) → (a → b) → List a → List b
-    = λ(a : Type) →
+    =
+      -- Minimal list helpers.
+      --
+      -- Deliberately hand-written rather than imported from the Dhall Prelude: a
+      -- remote import would make `dhall-to-yaml` need the network (and a frozen
+      -- hash) to render a manifest. Everything here is a builtin fold, so the whole
+      -- model stays evaluable offline.
+      λ(a : Type) →
       λ(b : Type) →
       λ(f : a → b) →
       λ(xs : List a) →

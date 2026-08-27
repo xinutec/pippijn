@@ -1,15 +1,16 @@
--- slides.xinutec.org — password-gated static host for the Marp talk decks.
---
--- Standalone on purpose: its own Deployment, ConfigMap, PVC and Service, sharing
--- nothing with `httpd-isis` (the dicom-scan share). A change or an outage there
--- cannot affect slides, and vice versa.
---
--- Decks live at the webroot root (`/usr/share/nginx/html/<deck>/`) and are served
--- at the public root (`slides.xinutec.org/<deck>/`) with NO path rewrite, so
--- nginx's directory trailing-slash redirect stays in public terms. Combined with
--- `absolute_redirect off`, the bare `/<deck>` 301 becomes a relative `/<deck>/`
--- and never leaks the internal :8080 listen port or a `/share/...` path.
-let S = ../lib/site.dhall
+let S =
+      -- slides.xinutec.org — password-gated static host for the Marp talk decks.
+      --
+      -- Standalone on purpose: its own Deployment, ConfigMap, PVC and Service, sharing
+      -- nothing with `httpd-isis` (the dicom-scan share). A change or an outage there
+      -- cannot affect slides, and vice versa.
+      --
+      -- Decks live at the webroot root (`/usr/share/nginx/html/<deck>/`) and are served
+      -- at the public root (`slides.xinutec.org/<deck>/`) with NO path rewrite, so
+      -- nginx's directory trailing-slash redirect stays in public terms. Combined with
+      -- `absolute_redirect off`, the bare `/<deck>` 301 becomes a relative `/<deck>/`
+      -- and never leaks the internal :8080 listen port or a `/share/...` path.
+      ../lib/site.dhall
 
 let T = ../lib/types.dhall
 

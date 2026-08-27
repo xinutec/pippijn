@@ -1,42 +1,43 @@
--- The `signal` namespace: a Signal archive, and the first model written as a
--- NAMESPACE rather than through the `App` sugar.
---
--- Three workloads share it, which is why `T.App` could never describe it:
---
---   * `signal-db` — MariaDB, the archive's system of record
---   * `signal-cli-rest-api` — the bridge to Signal itself, third-party
---   * `signal-ingester` — a websocket CLIENT that dials the bridge and writes
---     rows; nothing dials IT
---
--- A FOURTH pod lives here and is NOT in this file: the `messages` viewer, whose
--- tree is `kubes/messages/`. It is in this namespace because a `secretKeyRef`
--- cannot cross namespaces and it reads `signal-secret` — so its egress policy
--- is declared HERE, where the namespace's policies live, exactly as the live
--- tree has it.
---
--- ⚠⚠ RENDERED BUT NOT APPLIED. Three deltas remain against the live tree and
--- every one is deliberate:
---
---   1. container names become the workload's (`rest-api` → `signal-cli-rest-api`,
---      `ingester` → `signal-ingester`). Cosmetic; costs a pod restart.
---   2. a liveness probe appears on the bridge, which has readiness only today.
---      Same call health-auth got — a `tcpSocket` check is answered by the
---      kernel's accept queue rather than the process, so a busy pod cannot fail
---      it — but it IS new behaviour on a live pod.
---   3. `netpolDb` adds `signal-db-from-app-only`, admitting 3306 from the whole
---      namespace. The live tree has no such policy: additive hardening, not a
---      change to anything that works.
---
--- ⚠ APPLYING THIS NEEDS `scripts/netpol-reach.sh` RUN FIRST, against
--- `signal/k8s/netpol-reach.table`. The policies below were proved by connecting
--- in #781, and a policy that reads correct and is not is how the archive
--- quietly stops recording.
---
--- ⚠ THE ARCHIVE IS TRANSCRIPTS OF PRIVATE CONVERSATIONS. Every netpol below was
--- measured by connecting (#781, `scripts/netpol-reach.sh` + the
--- `netpol-reach.table` beside it), not reasoned about. Change one and re-run
--- that probe before believing it.
-let T = ../lib/types.dhall
+let T =
+      -- The `signal` namespace: a Signal archive, and the first model written as a
+      -- NAMESPACE rather than through the `App` sugar.
+      --
+      -- Three workloads share it, which is why `T.App` could never describe it:
+      --
+      --   * `signal-db` — MariaDB, the archive's system of record
+      --   * `signal-cli-rest-api` — the bridge to Signal itself, third-party
+      --   * `signal-ingester` — a websocket CLIENT that dials the bridge and writes
+      --     rows; nothing dials IT
+      --
+      -- A FOURTH pod lives here and is NOT in this file: the `messages` viewer, whose
+      -- tree is `kubes/messages/`. It is in this namespace because a `secretKeyRef`
+      -- cannot cross namespaces and it reads `signal-secret` — so its egress policy
+      -- is declared HERE, where the namespace's policies live, exactly as the live
+      -- tree has it.
+      --
+      -- ⚠⚠ RENDERED BUT NOT APPLIED. Three deltas remain against the live tree and
+      -- every one is deliberate:
+      --
+      --   1. container names become the workload's (`rest-api` → `signal-cli-rest-api`,
+      --      `ingester` → `signal-ingester`). Cosmetic; costs a pod restart.
+      --   2. a liveness probe appears on the bridge, which has readiness only today.
+      --      Same call health-auth got — a `tcpSocket` check is answered by the
+      --      kernel's accept queue rather than the process, so a busy pod cannot fail
+      --      it — but it IS new behaviour on a live pod.
+      --   3. `netpolDb` adds `signal-db-from-app-only`, admitting 3306 from the whole
+      --      namespace. The live tree has no such policy: additive hardening, not a
+      --      change to anything that works.
+      --
+      -- ⚠ APPLYING THIS NEEDS `scripts/netpol-reach.sh` RUN FIRST, against
+      -- `signal/k8s/netpol-reach.table`. The policies below were proved by connecting
+      -- in #781, and a policy that reads correct and is not is how the archive
+      -- quietly stops recording.
+      --
+      -- ⚠ THE ARCHIVE IS TRANSCRIPTS OF PRIVATE CONVERSATIONS. Every netpol below was
+      -- measured by connecting (#781, `scripts/netpol-reach.sh` + the
+      -- `netpol-reach.table` beside it), not reasoned about. Change one and re-run
+      -- that probe before believing it.
+      ../lib/types.dhall
 
 let keys =
       { DB_USER = "DB_USER"
@@ -55,72 +56,77 @@ let irclogImport = "signal-irclog-import"
 
 let irclogMount = "/irclogs"
 
---| Which of irssi's log trees the archive holds.
---
--- ⚠ **THE NETWORKS PIPPIJN STILL HAS TABS OPEN ON**, and that is the rule rather
--- than a list somebody curated. It is the same rule the send path uses — an open
--- window item is what may be sent to — so the two halves cannot disagree about
--- what a live conversation is.
---
--- Measured 2026-08-14: the whole tree is ~89,000 files and 2.3G across twenty
--- tags, and these five are ~36,000 files and ~507M. What the rule leaves out is
--- the point:
---
---   * `freenode` — 25,007 files, 1.4G, and a network nobody has been on for
---     years. Two thirds of the bytes for none of the conversations.
---   * `minbif` — 21,037 files that are not IRC at all: it is an IM gateway, so
---     those are Facebook- and MSN-era contacts bridged through it. Private
---     conversations with a great many named people, and both repositories here
---     are public.
---
--- `xinutec2` is not a network. It is the tag irssi invents for a second
--- simultaneous connection, dead since 2022-01-25, and `--map` folds it back into
--- `xinutec` so the app shows one conversation per person rather than two.
-let irclogNetworks = [ "euirc", "libera", "schmorp", "teranova", "xinutec" ]
+let irclogNetworks =
+      --| Which of irssi's log trees the archive holds.
+      --
+      -- ⚠ **THE NETWORKS PIPPIJN STILL HAS TABS OPEN ON**, and that is the rule rather
+      -- than a list somebody curated. It is the same rule the send path uses — an open
+      -- window item is what may be sent to — so the two halves cannot disagree about
+      -- what a live conversation is.
+      --
+      -- Measured 2026-08-14: the whole tree is ~89,000 files and 2.3G across twenty
+      -- tags, and these five are ~36,000 files and ~507M. What the rule leaves out is
+      -- the point:
+      --
+      --   * `freenode` — 25,007 files, 1.4G, and a network nobody has been on for
+      --     years. Two thirds of the bytes for none of the conversations.
+      --   * `minbif` — 21,037 files that are not IRC at all: it is an IM gateway, so
+      --     those are Facebook- and MSN-era contacts bridged through it. Private
+      --     conversations with a great many named people, and both repositories here
+      --     are public.
+      --
+      -- `xinutec2` is not a network. It is the tag irssi invents for a second
+      -- simultaneous connection, dead since 2022-01-25, and `--map` folds it back into
+      -- `xinutec` so the app shows one conversation per person rather than two.
+      [ "euirc", "libera", "schmorp", "teranova", "xinutec" ]
 
 let sshMount = "/ssh"
 
---| The ssh key that pulls the logs, as its OWN Secret rather than another entry
---  in `signal-secret`.
---
--- Two lifetimes, not one: this is a credential to a machine in another cluster,
--- rotated when that trust changes, and `signal-secret` holds the database
--- password and the linked-device number. Folding them together would mean
--- rotating an ssh key to change a database password. It is also mounted as
--- FILES, and a volume mounts every key in a secret — putting the DB password on
--- disk in this pod to get at an ssh key beside it.
-let irclogSecret = "signal-irclog-sync"
+let irclogSecret =
+      --| The ssh key that pulls the logs, as its OWN Secret rather than another entry
+      --  in `signal-secret`.
+      --
+      -- Two lifetimes, not one: this is a credential to a machine in another cluster,
+      -- rotated when that trust changes, and `signal-secret` holds the database
+      -- password and the linked-device number. Folding them together would mean
+      -- rotating an ssh key to change a database password. It is also mounted as
+      -- FILES, and a volume mounts every key in a secret — putting the DB password on
+      -- disk in this pod to get at an ssh key beside it.
+      "signal-irclog-sync"
 
 let ircTail = "signal-irc-tail"
 
---| The tail key's own Secret, for the same two-lifetimes reason as
---  `irclogSecret`: a third credential to the same host, pinned to a third forced
---  command, rotated when that trust changes rather than when a password does.
-let tailSecret = ircTail
+let tailSecret =
+      --| The tail key's own Secret, for the same two-lifetimes reason as
+      --  `irclogSecret`: a third credential to the same host, pinned to a third forced
+      --  command, rotated when that trust changes rather than when a password does.
+      ircTail
 
---| Where the long poll records that it completed a cycle. An `emptyDir`, not a
---  claim: it says only "this process was alive a moment ago", which is worthless
---  across a restart and is exactly what the liveness probe reads.
-let heartbeatMount = "/run/irc-tail"
+let heartbeatMount =
+      --| Where the long poll records that it completed a cycle. An `emptyDir`, not a
+      --  claim: it says only "this process was alive a moment ago", which is worthless
+      --  across a restart and is exactly what the liveness probe reads.
+      "/run/irc-tail"
 
---| amun over the WireGuard tunnel, not `amun.xinutec.org`.
---
--- ⚠ The public name resolves to 94.23.247.133 and routes out of the building
--- and back; the tunnel address is a direct peer (isis 10.100.0.2 ↔ amun
--- 10.100.0.1, measured 2026-08-14). Both work. This one keeps thirteen years of
--- private conversation off the public path even in the seconds it would be
--- inside an ssh session, and it is the address the NetworkPolicy names, so
--- using the other would be blocked anyway.
-let amunTunnel = "10.100.0.1"
+let amunTunnel =
+      --| amun over the WireGuard tunnel, not `amun.xinutec.org`.
+      --
+      -- ⚠ The public name resolves to 94.23.247.133 and routes out of the building
+      -- and back; the tunnel address is a direct peer (isis 10.100.0.2 ↔ amun
+      -- 10.100.0.1, measured 2026-08-14). Both work. This one keeps thirteen years of
+      -- private conversation off the public path even in the seconds it would be
+      -- inside an ssh session, and it is the address the NetworkPolicy names, so
+      -- using the other would be blocked anyway.
+      "10.100.0.1"
 
--- Spelled out rather than folded from `irclogNetworks`: there is no Prelude
--- import here, and a hand-rolled fold would be more machinery than six names
--- deserve. That list is the statement of the rule; these two are its
--- consequences, and `generate.sh --check` is what keeps them level.
---
--- Each source names the host again rather than using rsync's `host:a :b` short
--- form, which works and reads like a typo.
 let irclogSources =
+      -- Spelled out rather than folded from `irclogNetworks`: there is no Prelude
+      -- import here, and a hand-rolled fold would be more machinery than six names
+      -- deserve. That list is the statement of the rule; these two are its
+      -- consequences, and `generate.sh --check` is what keeps them level.
+      --
+      -- Each source names the host again rather than using rsync's `host:a :b` short
+      -- form, which works and reads like a typo.
       "irssi@${amunTunnel}:xinutec irssi@${amunTunnel}:xinutec2 irssi@${amunTunnel}:euirc irssi@${amunTunnel}:libera irssi@${amunTunnel}:schmorp irssi@${amunTunnel}:teranova"
 
 let irclogNetworkArgs =
@@ -134,9 +140,10 @@ let restApiName = "signal-cli-rest-api"
 
 let restApiPort = 8080
 
--- The claims this namespace owns. In their own file because `kubes/messages`
--- mounts one of them — see `signal-claims.dhall`.
-let claims = ../signal-claims.dhall
+let claims =
+      -- The claims this namespace owns. In their own file because `kubes/messages`
+      -- mounts one of them — see `signal-claims.dhall`.
+      ../signal-claims.dhall
 
 in  { name = "signal"
     , -- This tree creates the namespace — including the one `messages` runs in.

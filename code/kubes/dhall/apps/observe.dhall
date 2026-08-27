@@ -1,19 +1,20 @@
--- observe's fleet tier: a static nginx serving the runs ledger — published
--- reconstruction meshes (glTF) plus the before/after viewer page — to the phone
--- and any browser on the VPN. The Mac cannot be reached from the phone (one-way
--- VPN peer), so this mirror is how a scan becomes visible away from the Mac.
---
--- THE FIRST APP IN THE MODEL WITH NO APPLICATION BACKEND AT ALL, and that is
--- what it adds to the vocabulary. There is no image of ours, no port an app
--- listens on, no database — nginx serving two directories IS the deployment.
--- So its configuration cannot live in the environment the way every other app's
--- does: it is an nginx vhost, a file, and `T.ConfigMapDoc` exists for it.
---
--- It is also the first to mount a directory from the NODE. That is a real
--- exception and it is rendered as one: `DL-K8S-HOST-PATH` fires on it and the
--- generator emits the waiver from `why` below, so the reason travels with the
--- manifest instead of being lost between the model and the tree.
-let T = ../lib/types.dhall
+let T =
+      -- observe's fleet tier: a static nginx serving the runs ledger — published
+      -- reconstruction meshes (glTF) plus the before/after viewer page — to the phone
+      -- and any browser on the VPN. The Mac cannot be reached from the phone (one-way
+      -- VPN peer), so this mirror is how a scan becomes visible away from the Mac.
+      --
+      -- THE FIRST APP IN THE MODEL WITH NO APPLICATION BACKEND AT ALL, and that is
+      -- what it adds to the vocabulary. There is no image of ours, no port an app
+      -- listens on, no database — nginx serving two directories IS the deployment.
+      -- So its configuration cannot live in the environment the way every other app's
+      -- does: it is an nginx vhost, a file, and `T.ConfigMapDoc` exists for it.
+      --
+      -- It is also the first to mount a directory from the NODE. That is a real
+      -- exception and it is rendered as one: `DL-K8S-HOST-PATH` fires on it and the
+      -- generator emits the waiver from `why` below, so the reason travels with the
+      -- manifest instead of being lost between the model and the tree.
+      ../lib/types.dhall
 
 let contentPath = "/srv/observe"
 

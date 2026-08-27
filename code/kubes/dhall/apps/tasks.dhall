@@ -1,21 +1,22 @@
--- tasks.xinutec.org — the work Claude sessions and Pippijn hand between each
--- other (Rust axum + Angular). Repo: github.com/xinutec/tasks.
---
--- Two things about this app decide most of what follows.
---
--- First, **the store is the record**. The scheme this replaced kept tasks as
--- files in each repository, so git was the history: what was finished, and when.
--- There is no git here, so this database holds the only copy of who was carrying
--- what — which is why it is `BackedUp` and not, as the app's own read-only
--- sibling memview can be, `LossAccepted`.
---
--- Second, **a Claude session is a client of this**. The prompt hook on the Mac
--- reads its index on every prompt over the VPN, so the app has to be reachable
--- from there and has to be quick; and `AGENT_TOKEN` is what admits it. That key
--- is a REQUIRED secret reference rather than an optional one: unset, the agent
--- API closes and every session silently loses its task list, which reads exactly
--- like having no tasks.
-let T = ../lib/types.dhall
+let T =
+      -- tasks.xinutec.org — the work Claude sessions and Pippijn hand between each
+      -- other (Rust axum + Angular). Repo: github.com/xinutec/tasks.
+      --
+      -- Two things about this app decide most of what follows.
+      --
+      -- First, **the store is the record**. The scheme this replaced kept tasks as
+      -- files in each repository, so git was the history: what was finished, and when.
+      -- There is no git here, so this database holds the only copy of who was carrying
+      -- what — which is why it is `BackedUp` and not, as the app's own read-only
+      -- sibling memview can be, `LossAccepted`.
+      --
+      -- Second, **a Claude session is a client of this**. The prompt hook on the Mac
+      -- reads its index on every prompt over the VPN, so the app has to be reachable
+      -- from there and has to be quick; and `AGENT_TOKEN` is what admits it. That key
+      -- is a REQUIRED secret reference rather than an optional one: unset, the agent
+      -- API closes and every session silently loses its task list, which reads exactly
+      -- like having no tasks.
+      ../lib/types.dhall
 
 let dns = ../dns.dhall
 

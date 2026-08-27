@@ -1,14 +1,15 @@
--- scanner's fleet tier: the Rust preview server (axum + resvg) that turns the
--- phone's per-photo OCR posts into the progressive styled SVG. Stateless bar the
--- session recordings on its volume. The engine's dev loop stays on the Mac
--- (replay + scoreboard against those recordings); this is the stable deployment
--- the phone talks to by default — reachable from anywhere over the VPN, which
--- the Mac's LAN server never was.
---
--- The FIRST app in the model whose image is neither built by CI nor pulled from
--- a registry, and the first with no Ingress at all. Both are types now rather
--- than comments: `Image.Local` and `Reach.WireGuard`.
-let T = ../lib/types.dhall
+let T =
+      -- scanner's fleet tier: the Rust preview server (axum + resvg) that turns the
+      -- phone's per-photo OCR posts into the progressive styled SVG. Stateless bar the
+      -- session recordings on its volume. The engine's dev loop stays on the Mac
+      -- (replay + scoreboard against those recordings); this is the stable deployment
+      -- the phone talks to by default — reachable from anywhere over the VPN, which
+      -- the Mac's LAN server never was.
+      --
+      -- The FIRST app in the model whose image is neither built by CI nor pulled from
+      -- a registry, and the first with no Ingress at all. Both are types now rather
+      -- than comments: `Image.Local` and `Reach.WireGuard`.
+      ../lib/types.dhall
 
 let dataPath = "/srv/data"
 

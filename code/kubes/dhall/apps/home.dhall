@@ -1,5 +1,6 @@
--- home.xinutec.org — environmental readings + Claude usage dashboard.
-let T = ../lib/types.dhall
+let T =
+      -- home.xinutec.org — environmental readings + Claude usage dashboard.
+      ../lib/types.dhall
 
 let dns = ../dns.dhall
 

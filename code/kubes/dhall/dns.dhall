@@ -1,11 +1,12 @@
--- Every hostname the fleet serves, in one place.
---
--- Apps refer to these as record fields (`dns.home`), never as string literals.
--- That is the whole trick: `dns.hoem` is a type error at render time, so an
--- Ingress can no longer name a host that was never declared, and the set of
--- names that must exist in DNS is derivable from this file instead of being
--- rediscovered by grepping manifests.
-let domain = "xinutec.org"
+let domain =
+      -- Every hostname the fleet serves, in one place.
+      --
+      -- Apps refer to these as record fields (`dns.home`), never as string literals.
+      -- That is the whole trick: `dns.hoem` is a type error at render time, so an
+      -- Ingress can no longer name a host that was never declared, and the set of
+      -- names that must exist in DNS is derivable from this file instead of being
+      -- rediscovered by grepping manifests.
+      "xinutec.org"
 
 let sub = λ(name : Text) → "${name}.${domain}"
 

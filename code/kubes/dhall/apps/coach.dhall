@@ -1,11 +1,12 @@
--- coach.xinutec.org — the training log (Rust/axum + Angular).
---
--- Shaped almost exactly like `life`: a MariaDB sidecar, Nextcloud sign-in, a
--- stateless read-only app container. The one thing that is its own is the pair
--- of `HEALTH_*` variables at the bottom — coach reads health-sync's internal API
--- to work out where a session happened, and that link is the only place in the
--- fleet where one app is a client of another.
-let T = ../lib/types.dhall
+let T =
+      -- coach.xinutec.org — the training log (Rust/axum + Angular).
+      --
+      -- Shaped almost exactly like `life`: a MariaDB sidecar, Nextcloud sign-in, a
+      -- stateless read-only app container. The one thing that is its own is the pair
+      -- of `HEALTH_*` variables at the bottom — coach reads health-sync's internal API
+      -- to work out where a session happened, and that link is the only place in the
+      -- fleet where one app is a client of another.
+      ../lib/types.dhall
 
 let dns = ../dns.dhall
 

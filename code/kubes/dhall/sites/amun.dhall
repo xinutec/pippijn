@@ -1,12 +1,13 @@
--- amun.xinutec.org — the main site, and the apex `xinutec.org` with it.
---
--- The site itself is the stock nginx welcome page: nothing here serves content
--- of its own, which is why the webroot is `Stock`. What it exists for is the one
--- file overlaid under `.well-known/` — Android's Digital Asset Links, which is
--- what lets health.xinutec.org links open in the app instead of a browser tab.
--- Mounted by `subPath`, so it lands beside the image's own files rather than
--- replacing the directory.
-let S = ../lib/site.dhall
+let S =
+      -- amun.xinutec.org — the main site, and the apex `xinutec.org` with it.
+      --
+      -- The site itself is the stock nginx welcome page: nothing here serves content
+      -- of its own, which is why the webroot is `Stock`. What it exists for is the one
+      -- file overlaid under `.well-known/` — Android's Digital Asset Links, which is
+      -- what lets health.xinutec.org links open in the app instead of a browser tab.
+      -- Mounted by `subPath`, so it lands beside the image's own files rather than
+      -- replacing the directory.
+      ../lib/site.dhall
 
 let T = ../lib/types.dhall
 

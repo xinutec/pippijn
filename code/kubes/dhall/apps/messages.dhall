@@ -1,36 +1,37 @@
--- messages.xinutec.org — a reader for the Signal archive.
---
--- ⚠ THE FIRST TREE THAT DOES NOT OWN ITS NAMESPACE, and that is the whole
--- reason this file was the last one modelled. Its pod runs in `signal`, which
--- `kubes/signal/k8s` creates, because a `secretKeyRef` CANNOT CROSS NAMESPACES
--- and this app reads `signal-secret` for the archive's database credentials.
--- Everything unusual below follows from that one fact — see `T.Owner`, where it
--- is one field rather than four flags.
---
--- What it means in practice:
---
---   * no `00-namespace.yaml` — signal's tree has it;
---   * no `allow-no-netpol` waiver, though this tree renders no policy: the
---     namespace IS defended, and the rule admitting this pod's SSO callback is
---     declared in `apps/signal.dhall` where the namespace's policies live;
---   * `messages-secret` and `messages-tls`, not `signal-*`: the SLUG names what
---     belongs to the app, and only `meta`'s namespace field uses `signal`;
---   * an Ingress named `messages`, stated rather than derived.
---
--- ⚠ TWO DELTAS against the live tree, both on the pod's `securityContext`, both
--- additive and both measured rather than argued:
---
---   1. `fsGroup: 65532` and 2. `fsGroupChangePolicy: OnRootMismatch`. The live
---   manifest has neither, so this pod reads the attachments only because the
---   INGESTER's fsGroup happened to set the volume's group — an accident of
---   another tree's manifest (`signal/k8s/04-ingester.yaml` lines 24-25, both
---   values identical to these). Stating them makes the read permitted rather
---   than incidental. `OnRootMismatch` is what keeps it cheap: the root already
---   carries gid 65532, so kubelet checks and skips rather than re-chowning
---   20 Gi at every start.
---
--- It costs a pod restart, which for a reader nobody is reading is free.
-let T = ../lib/types.dhall
+let T =
+      -- messages.xinutec.org — a reader for the Signal archive.
+      --
+      -- ⚠ THE FIRST TREE THAT DOES NOT OWN ITS NAMESPACE, and that is the whole
+      -- reason this file was the last one modelled. Its pod runs in `signal`, which
+      -- `kubes/signal/k8s` creates, because a `secretKeyRef` CANNOT CROSS NAMESPACES
+      -- and this app reads `signal-secret` for the archive's database credentials.
+      -- Everything unusual below follows from that one fact — see `T.Owner`, where it
+      -- is one field rather than four flags.
+      --
+      -- What it means in practice:
+      --
+      --   * no `00-namespace.yaml` — signal's tree has it;
+      --   * no `allow-no-netpol` waiver, though this tree renders no policy: the
+      --     namespace IS defended, and the rule admitting this pod's SSO callback is
+      --     declared in `apps/signal.dhall` where the namespace's policies live;
+      --   * `messages-secret` and `messages-tls`, not `signal-*`: the SLUG names what
+      --     belongs to the app, and only `meta`'s namespace field uses `signal`;
+      --   * an Ingress named `messages`, stated rather than derived.
+      --
+      -- ⚠ TWO DELTAS against the live tree, both on the pod's `securityContext`, both
+      -- additive and both measured rather than argued:
+      --
+      --   1. `fsGroup: 65532` and 2. `fsGroupChangePolicy: OnRootMismatch`. The live
+      --   manifest has neither, so this pod reads the attachments only because the
+      --   INGESTER's fsGroup happened to set the volume's group — an accident of
+      --   another tree's manifest (`signal/k8s/04-ingester.yaml` lines 24-25, both
+      --   values identical to these). Stating them makes the read permitted rather
+      --   than incidental. `OnRootMismatch` is what keeps it cheap: the root already
+      --   carries gid 65532, so kubelet checks and skips rather than re-chowning
+      --   20 Gi at every start.
+      --
+      -- It costs a pod restart, which for a reader nobody is reading is free.
+      ../lib/types.dhall
 
 let claims = ../signal-claims.dhall
 
@@ -38,33 +39,35 @@ let port = 8080
 
 let attachmentsPath = "/attachments"
 
--- The send path. `messages` is a reader everywhere else; this is the one thing
--- it does that leaves the cluster and the one thing it does that another person
--- sees.
---
--- ⚠ THE KEY IS ITS OWN SECRET, not a field in `messages-secret`, for the same
--- reason the importer's is: it is a credential to a DIFFERENT CLUSTER with a
--- different lifetime. Rotating the session secret should not mean touching a
--- key that is authorised on amun, and vice versa.
-let sendKeySecret = "messages-irc-send"
+let sendKeySecret =
+      -- The send path. `messages` is a reader everywhere else; this is the one thing
+      -- it does that leaves the cluster and the one thing it does that another person
+      -- sees.
+      --
+      -- ⚠ THE KEY IS ITS OWN SECRET, not a field in `messages-secret`, for the same
+      -- reason the importer's is: it is a credential to a DIFFERENT CLUSTER with a
+      -- different lifetime. Rotating the session secret should not mean touching a
+      -- key that is authorised on amun, and vice versa.
+      "messages-irc-send"
 
 let sendKeyMount = "/ssh-irc"
 
--- ⚠ A WRITABLE SCRATCH DIRECTORY IS REQUIRED, and only because of how ssh reads
--- key permissions. The secret volume is mounted 0444 — 0400 would be unreadable,
--- since a secret volume's files belong to root rather than to `runAsUser`, and
--- it fails wearing an unrelated error ("no host key known") because an
--- unreadable known_hosts is indistinguishable from an empty one. But ssh then
--- refuses a key carrying any group or other bit, whatever the volume says. So
--- the key is copied to 0400 before use, and `RootFs.ReadOnly` means there is
--- nowhere to copy it to without this.
-let sendWorkMount = "/run/irc"
+let sendWorkMount =
+      -- ⚠ A WRITABLE SCRATCH DIRECTORY IS REQUIRED, and only because of how ssh reads
+      -- key permissions. The secret volume is mounted 0444 — 0400 would be unreadable,
+      -- since a secret volume's files belong to root rather than to `runAsUser`, and
+      -- it fails wearing an unrelated error ("no host key known") because an
+      -- unreadable known_hosts is indistinguishable from an empty one. But ssh then
+      -- refuses a key carrying any group or other bit, whatever the volume says. So
+      -- the key is copied to 0400 before use, and `RootFs.ReadOnly` means there is
+      -- nowhere to copy it to without this.
+      "/run/irc"
 
--- This app's OWN secret, `messages-secret`. The archive's DB credentials are
--- NOT here: they live in `signal-secret`, which this model does not manage, and
--- `T.EnvValue.FromUnmanagedSecret` is how a model says it expects to find a key
--- in someone else's secret.
 let keys =
+      -- This app's OWN secret, `messages-secret`. The archive's DB credentials are
+      -- NOT here: they live in `signal-secret`, which this model does not manage, and
+      -- `T.EnvValue.FromUnmanagedSecret` is how a model says it expects to find a key
+      -- in someone else's secret.
       { SESSION_SECRET = "SESSION_SECRET"
       , NC_CLIENT_ID = "NC_CLIENT_ID"
       , NC_CLIENT_SECRET = "NC_CLIENT_SECRET"

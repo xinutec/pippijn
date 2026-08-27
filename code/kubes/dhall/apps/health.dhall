@@ -1,32 +1,33 @@
--- health.xinutec.org — the health app (TypeScript/node + a verified Lean core).
---
--- The largest tree in the fleet and the only one with BATCH workloads: six
--- CronJobs and two one-shot Jobs share this image and this environment. They are
--- not modelled here yet (they need `T.ScheduledTask`), which is why two `let`s
--- below are exported-looking rather than inlined — `decodeFlags` and
--- `leanTenants` are the env the crons must agree with, and the live manifests
--- say so in prose today ("kept in step with 08-decode-recent.yaml"). Checked
--- pairwise on 2026-08-12: all ten shared values agree. The `let` is what stops
--- that being luck.
---
--- ⚠⚠ NOT DEPLOYABLE YET, and not for the obvious reason. Rendering this tree
--- emits `netpolDb` — `health-db-from-app-only`, which admits port 3306 from
--- `app: health-auth` and nothing else. SIX CRONJOBS TALK TO THIS DATABASE and
--- carry their own labels, so applying the rendered tree today cuts every batch
--- workload off from its data, at 04:00, where nobody is looking. That policy is
--- correct for a namespace holding one workload and false about this one — the
--- same conflation of "a namespace" with "a workload" that `signal` runs into
--- from the other direction. So `T.ScheduledTask` is not the next increment
--- after this file; it is part of the same one.
---
--- ⚠ `rootFs = T.RootFs.ReadOnly` is a CHANGE to the live Deployment, and it is
--- measured rather than assumed: the running container's overlay upper layer
--- after 33h held six entries, every one a kubelet bind-mount (`/etc/resolv.conf`,
--- the serviceaccount dir). The app wrote nothing. That measurement is what
--- retires this tree's nine `allow-rootfs-rw` waivers, which stopped being inert
--- on 2026-08-12 when dev-lint's `image_profile` dropped its `health-sync`
--- exemption — the linter had been excusing an image the fleet builds.
-let T = ../lib/types.dhall
+let T =
+      -- health.xinutec.org — the health app (TypeScript/node + a verified Lean core).
+      --
+      -- The largest tree in the fleet and the only one with BATCH workloads: six
+      -- CronJobs and two one-shot Jobs share this image and this environment. They are
+      -- not modelled here yet (they need `T.ScheduledTask`), which is why two `let`s
+      -- below are exported-looking rather than inlined — `decodeFlags` and
+      -- `leanTenants` are the env the crons must agree with, and the live manifests
+      -- say so in prose today ("kept in step with 08-decode-recent.yaml"). Checked
+      -- pairwise on 2026-08-12: all ten shared values agree. The `let` is what stops
+      -- that being luck.
+      --
+      -- ⚠⚠ NOT DEPLOYABLE YET, and not for the obvious reason. Rendering this tree
+      -- emits `netpolDb` — `health-db-from-app-only`, which admits port 3306 from
+      -- `app: health-auth` and nothing else. SIX CRONJOBS TALK TO THIS DATABASE and
+      -- carry their own labels, so applying the rendered tree today cuts every batch
+      -- workload off from its data, at 04:00, where nobody is looking. That policy is
+      -- correct for a namespace holding one workload and false about this one — the
+      -- same conflation of "a namespace" with "a workload" that `signal` runs into
+      -- from the other direction. So `T.ScheduledTask` is not the next increment
+      -- after this file; it is part of the same one.
+      --
+      -- ⚠ `rootFs = T.RootFs.ReadOnly` is a CHANGE to the live Deployment, and it is
+      -- measured rather than assumed: the running container's overlay upper layer
+      -- after 33h held six entries, every one a kubelet bind-mount (`/etc/resolv.conf`,
+      -- the serviceaccount dir). The app wrote nothing. That measurement is what
+      -- retires this tree's nine `allow-rootfs-rw` waivers, which stopped being inert
+      -- on 2026-08-12 when dev-lint's `image_profile` dropped its `health-sync`
+      -- exemption — the linter had been excusing an image the fleet builds.
+      ../lib/types.dhall
 
 let dns = ../dns.dhall
 
@@ -52,81 +53,85 @@ let optionalSecret =
 
 let lit = T.EnvValue.Literal
 
--- The Google Health credentials, which live in a secret this model does not
--- manage. See `T.EnvValue.FromUnmanagedSecret`.
 let google =
+      -- The Google Health credentials, which live in a secret this model does not
+      -- manage. See `T.EnvValue.FromUnmanagedSecret`.
       λ(k : Text) →
         T.EnvValue.FromUnmanagedSecret
           { secret = "health-google", key = k, optional = False }
 
--- Every batch task reads and writes the same database, so this is their floor
--- rather than something each restates.
 let dbEnv
     : List T.EnvVar
-    = [ { name = "DB_HOST", value = lit "health-db" }
+    =
+      -- Every batch task reads and writes the same database, so this is their floor
+      -- rather than something each restates.
+      [ { name = "DB_HOST", value = lit "health-db" }
       , { name = "DB_NAME", value = lit "health" }
       , { name = "DB_USER", value = secret keys.DB_USER }
       , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
       ]
 
--- Nextcloud OAuth, for the jobs that read places out of it.
 let ncEnv
     : List T.EnvVar
-    = [ { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
+    =
+      -- Nextcloud OAuth, for the jobs that read places out of it.
+      [ { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
       , { name = "NC_CLIENT_SECRET", value = secret keys.NC_CLIENT_SECRET }
       ]
 
--- 30 s, against the request path's 5 s default. A batch job may wait for the
--- verified core; an interactive request may not. This is the flag whose absence
--- from `leanTenants` is deliberate — see the note at LEAN_MATCH.
 let leanCallTimeout
     : T.EnvVar
-    = { name = "LEAN_CALL_TIMEOUT_MS", value = lit "30000" }
+    =
+      -- 30 s, against the request path's 5 s default. A batch job may wait for the
+      -- verified core; an interactive request may not. This is the flag whose absence
+      -- from `leanTenants` is deliberate — see the note at LEAN_MATCH.
+      { name = "LEAN_CALL_TIMEOUT_MS", value = lit "30000" }
 
--- The nightly refreshes walk a 21-day window a day at a time, and each day
--- carries a full velocity computation. That is a WORKING SET, not a leak.
---
--- 1Gi is simply below what the job needs. Measured on 2026-08-24 by re-running
--- `health-rail-refresh` with the ceiling raised and sampling RSS every 20s:
---
---   at 6Gi   219 -> 273 -> 377 -> 384 -> 977Mi, completes (exit 0, 18 routes)
---   at 2Gi   peak 1113Mi, completes in 840s (exit 0, 18 routes, 0 restarts)
---
--- 1113Mi is ABOVE the old 1Gi = 1024Mi ceiling, which is exactly why
--- `health-rail-refresh` and `health-rail-stops-refresh` OOMKilled EVERY NIGHT
--- from 2026-08-21 (#1133).
---
--- ⚠ Both figures are LOWER BOUNDS: a 20s sample cannot see a peak between
--- samples, and the 6Gi run reported 977Mi where the 2Gi run reported 1113Mi for
--- the same work. Do not treat either as the true maximum — 2Gi is chosen for
--- the ~900Mi of headroom over the larger observation, not because 1113Mi is
--- known to be the ceiling.
---
--- ⚠ It reads as a network failure and is not. SIGKILL gives the process no
--- chance to print, so the log simply STOPS mid-scan with no error; the last
--- visible line is an unrelated `velocity … INFEASIBLE` warning that looks like
--- a cause. The task carried "overpass-api.de has banned isis's IP" for three
--- days on that reading, while a curl FROM isis returned 200 in 0.52 s.
---
--- Same failure and same fix as `decodeResources` below, which was raised for
--- exactly this on 2026-08-16. 2Gi is ~2x the measured peak; isis had ~6 GiB
--- free when this was raised.
--- ⚠ A WRITABLE /tmp FOR THE CRONS TOO. `rootFs` is ReadOnly and the Lean serve
--- path opens a `tempfile()` to capture Lean's stderr, so any job that reaches
--- the day pipeline dies with "Read-only file system (os error 30)" without it.
---
--- The Deployment got this on 2026-08-23 (#1106); the CronJobs did not, and
--- nothing noticed until `refresh-rail-routes` ran on Rust for the first time on
--- 2026-08-25 and EVERY ONE of its 22 days failed that way. It pooled 0 routes,
--- upserted 0, and exited 0 — the node arm had never exercised this path because
--- it computed days in-process rather than through the Lean fold.
---
--- Given to every cron rather than the four that provably need it: an emptyDir
--- costs nothing, and picking the subset by inspection is how the Deployment's
--- fix failed to reach these in the first place.
 let tmpVolume
     : List T.Volume
-    = [ { name = "tmp", source = T.VolumeSource.EmptyDir } ]
+    =
+      -- The nightly refreshes walk a 21-day window a day at a time, and each day
+      -- carries a full velocity computation. That is a WORKING SET, not a leak.
+      --
+      -- 1Gi is simply below what the job needs. Measured on 2026-08-24 by re-running
+      -- `health-rail-refresh` with the ceiling raised and sampling RSS every 20s:
+      --
+      --   at 6Gi   219 -> 273 -> 377 -> 384 -> 977Mi, completes (exit 0, 18 routes)
+      --   at 2Gi   peak 1113Mi, completes in 840s (exit 0, 18 routes, 0 restarts)
+      --
+      -- 1113Mi is ABOVE the old 1Gi = 1024Mi ceiling, which is exactly why
+      -- `health-rail-refresh` and `health-rail-stops-refresh` OOMKilled EVERY NIGHT
+      -- from 2026-08-21 (#1133).
+      --
+      -- ⚠ Both figures are LOWER BOUNDS: a 20s sample cannot see a peak between
+      -- samples, and the 6Gi run reported 977Mi where the 2Gi run reported 1113Mi for
+      -- the same work. Do not treat either as the true maximum — 2Gi is chosen for
+      -- the ~900Mi of headroom over the larger observation, not because 1113Mi is
+      -- known to be the ceiling.
+      --
+      -- ⚠ It reads as a network failure and is not. SIGKILL gives the process no
+      -- chance to print, so the log simply STOPS mid-scan with no error; the last
+      -- visible line is an unrelated `velocity … INFEASIBLE` warning that looks like
+      -- a cause. The task carried "overpass-api.de has banned isis's IP" for three
+      -- days on that reading, while a curl FROM isis returned 200 in 0.52 s.
+      --
+      -- Same failure and same fix as `decodeResources` below, which was raised for
+      -- exactly this on 2026-08-16. 2Gi is ~2x the measured peak; isis had ~6 GiB
+      -- free when this was raised.
+      -- ⚠ A WRITABLE /tmp FOR THE CRONS TOO. `rootFs` is ReadOnly and the Lean serve
+      -- path opens a `tempfile()` to capture Lean's stderr, so any job that reaches
+      -- the day pipeline dies with "Read-only file system (os error 30)" without it.
+      --
+      -- The Deployment got this on 2026-08-23 (#1106); the CronJobs did not, and
+      -- nothing noticed until `refresh-rail-routes` ran on Rust for the first time on
+      -- 2026-08-25 and EVERY ONE of its 22 days failed that way. It pooled 0 routes,
+      -- upserted 0, and exited 0 — the node arm had never exercised this path because
+      -- it computed days in-process rather than through the Lean fold.
+      --
+      -- Given to every cron rather than the four that provably need it: an emptyDir
+      -- costs nothing, and picking the subset by inspection is how the Deployment's
+      -- fix failed to reach these in the first place.
+      [ { name = "tmp", source = T.VolumeSource.EmptyDir } ]
 
 let tmpMount
     : List T.VolumeMount
@@ -144,76 +149,79 @@ let batchResources
       }
 
 
--- The decode carries more memory than the refreshes: it holds a day's fixes and
--- both arms of every shadowed Lean pass at once.
---
--- 1536Mi was enough until the day tenant got a HOST (health `21957c0`). Measured
--- in the pod on 2026-08-16, mid-run over `--days 7`: node 488M, a long-lived
--- `verified_cli` growing 232M→411M across the seven days, and `day-shell`
--- spawned per call at ~177M on top. That peak OOMKilled the job twice (exit
--- 137), and it restarts from day one each time, so it never finishes — a
--- crash loop, not a slow run.
---
--- `day-shell` is transient, not a leak: sampled every 25 s it appears at
--- ~151-177M and disappears between calls. So this is a headroom problem and 3Gi
--- fixes it; isis had ~6 GiB free when this was raised.
 let decodeResources
     : T.Resources
-    = { requests = { cpu = "100m", memory = "256Mi" }
+    =
+      -- The decode carries more memory than the refreshes: it holds a day's fixes and
+      -- both arms of every shadowed Lean pass at once.
+      --
+      -- 1536Mi was enough until the day tenant got a HOST (health `21957c0`). Measured
+      -- in the pod on 2026-08-16, mid-run over `--days 7`: node 488M, a long-lived
+      -- `verified_cli` growing 232M→411M across the seven days, and `day-shell`
+      -- spawned per call at ~177M on top. That peak OOMKilled the job twice (exit
+      -- 137), and it restarts from day one each time, so it never finishes — a
+      -- crash loop, not a slow run.
+      --
+      -- `day-shell` is transient, not a leak: sampled every 25 s it appears at
+      -- ~151-177M and disappears between calls. So this is a headroom problem and 3Gi
+      -- fixes it; isis had ~6 GiB free when this was raised.
+      { requests = { cpu = "100m", memory = "256Mi" }
       , limits = Some { cpu = Some "1000m", memory = "3Gi" }
       }
 
--- C4 continuity flags (task #224). The auth pod does not READ them — it is the
--- decode that does — but `scripts/prod-db.sh` mirrors the pod env via printenv
--- so a Mac replay decodes the same day the cron wrote. A missing mirror is the
--- exact feedback_parity_tools_must_mirror_env failure, so these are carried
--- here deliberately. Rationale and the open defect (#366) are documented at the
--- cron: kubes/health/k8s/08-decode-recent.yaml.
 let decodeFlags
     : List T.EnvVar
-    = [ { name = "USE_CADENCE_IMPUTATION", value = lit "1" }
+    =
+      -- C4 continuity flags (task #224). The auth pod does not READ them — it is the
+      -- decode that does — but `scripts/prod-db.sh` mirrors the pod env via printenv
+      -- so a Mac replay decodes the same day the cron wrote. A missing mirror is the
+      -- exact feedback_parity_tools_must_mirror_env failure, so these are carried
+      -- here deliberately. Rationale and the open defect (#366) are documented at the
+      -- cron: kubes/health/k8s/08-decode-recent.yaml.
+      [ { name = "USE_CADENCE_IMPUTATION", value = lit "1" }
       , { name = "USE_SEGMENT_EVIDENCE", value = lit "1" }
       , { name = "USE_CHAIN_CONTEXT", value = lit "1" }
       , { name = "USE_REACQUIRE_ROBUST_SPEED", value = lit "1" }
       ]
 
--- The verified-Lean tenants, shared with the decode cron.
---
--- ⚠ SHARED BASE, NOT THE WHOLE ENV. The cron adds `LEAN_HSMM`,
--- `LEAN_STATIONCHAIN` and `LEAN_CALL_TIMEOUT_MS`; the auth pod adds
--- `WALK_BUILDING_ESCAPE`. Only what BOTH must agree on lives here — a list that
--- absorbed the extras would force one of them to carry a flag it does not want.
---
--- ⚠⚠ EVERY TENANT IS AT `solo` AS OF 2026-08-17. Lean alone: no TS arm, no
--- comparison, NO FALLBACK. Owner decision, quoted so nobody has to infer the
--- intent later: "let's go all in on lean. If there are issues, we'll fix them
--- forward. Lean is now our system."
---
--- ⚠ READ THE PER-FLAG PROSE BELOW AS HISTORY, NOT AS BEHAVIOUR. Each block describes
--- how its tenant reached `on`, and several say a bridge failure falls back to TS. That
--- WAS true at `on` and is FALSE at `solo`, where the bridge throws and there is nothing
--- behind it. Kept because the evidence trail is worth more than the tidiness.
---
--- What the ledger read over 08-10..08-16 at the flip (`lean-head-probe-1`):
---
---   EXACT, no divergence     head 7/7, gpsquality 7/7, biolabels 7/7, hsmm 7/7,
---                            kalman 5/5, passes 5/5, stationchain 5/5 (remainder
---                            NOT EXERCISED — 08-12 and 08-15 are near-empty days)
---   DIVERGING, adopted       match — UNEXPLAINED on 4 of 5 exercised days, each
---                            "1 IN SERVED OUTPUT", dev ≤0.01 m
---                            day   — 1 DIVERGED on 08-11, walkMatchedPath 1/8
---                            segments differ, worst 227.07 cm; episodes.points 1/10
---
--- ⚠ Those two divergences are now INVISIBLE, and that is solo's real cost rather than
--- the lost fallback: the comparison WAS the detector, and it is what got switched off.
--- `day`'s 227 cm is metres, not the sub-centimetre `match` case, and 08-11 is already
--- tracked as debt (health #749).
---
--- Reverting is one commit here plus one in kubes/health/k8s: `solo` -> `on`
--- restores both the TS arm and the ledger.
 let leanTenants
     : List T.EnvVar
-    = [ { -- Serve the verified Lean geometry passes on the request path
+    =
+      -- The verified-Lean tenants, shared with the decode cron.
+      --
+      -- ⚠ SHARED BASE, NOT THE WHOLE ENV. The cron adds `LEAN_HSMM`,
+      -- `LEAN_STATIONCHAIN` and `LEAN_CALL_TIMEOUT_MS`; the auth pod adds
+      -- `WALK_BUILDING_ESCAPE`. Only what BOTH must agree on lives here — a list that
+      -- absorbed the extras would force one of them to carry a flag it does not want.
+      --
+      -- ⚠⚠ EVERY TENANT IS AT `solo` AS OF 2026-08-17. Lean alone: no TS arm, no
+      -- comparison, NO FALLBACK. Owner decision, quoted so nobody has to infer the
+      -- intent later: "let's go all in on lean. If there are issues, we'll fix them
+      -- forward. Lean is now our system."
+      --
+      -- ⚠ READ THE PER-FLAG PROSE BELOW AS HISTORY, NOT AS BEHAVIOUR. Each block describes
+      -- how its tenant reached `on`, and several say a bridge failure falls back to TS. That
+      -- WAS true at `on` and is FALSE at `solo`, where the bridge throws and there is nothing
+      -- behind it. Kept because the evidence trail is worth more than the tidiness.
+      --
+      -- What the ledger read over 08-10..08-16 at the flip (`lean-head-probe-1`):
+      --
+      --   EXACT, no divergence     head 7/7, gpsquality 7/7, biolabels 7/7, hsmm 7/7,
+      --                            kalman 5/5, passes 5/5, stationchain 5/5 (remainder
+      --                            NOT EXERCISED — 08-12 and 08-15 are near-empty days)
+      --   DIVERGING, adopted       match — UNEXPLAINED on 4 of 5 exercised days, each
+      --                            "1 IN SERVED OUTPUT", dev ≤0.01 m
+      --                            day   — 1 DIVERGED on 08-11, walkMatchedPath 1/8
+      --                            segments differ, worst 227.07 cm; episodes.points 1/10
+      --
+      -- ⚠ Those two divergences are now INVISIBLE, and that is solo's real cost rather than
+      -- the lost fallback: the comparison WAS the detector, and it is what got switched off.
+      -- `day`'s 227 cm is metres, not the sub-centimetre `match` case, and 08-11 is already
+      -- tracked as debt (health #749).
+      --
+      -- Reverting is one commit here plus one in kubes/health/k8s: `solo` -> `on`
+      -- restores both the TS arm and the ledger.
+      [ { -- Serve the verified Lean geometry passes on the request path
           -- (docs/proposals/2026-07-verified-core-lean.md). `on` routes five
           -- proved display passes — simplify, removeSpurs, trim, despike,
           -- rejectSpikes — through the in-process bridge to verified_cli

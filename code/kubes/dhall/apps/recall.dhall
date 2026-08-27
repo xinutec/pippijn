@@ -1,28 +1,29 @@
--- recall's fleet tier: api + web + the sync ingest, one container. NO ML runs
--- here — the Mac keeps capture/ASR/diarize/LLM — so this is a light FastAPI +
--- SQLite + static frontend over the archive on its own volume.
---
--- ⚠ THE FIVE SECRET KEYS ARE THE WHOLE RISK IN THIS FILE, and four of them are
--- OPTIONAL, which is the dangerous kind. A missing required key crash-loops the
--- pod and somebody notices within a minute. A missing optional one starts
--- cleanly and leaves the web UI with NO LOGIN — the archive is transcripts of
--- conversations in this house, so that failure is silent and serious. This model
--- was checked field-by-field against the live Deployment on isis before it was
--- rendered (2026-08-12: nine env vars, in this order, four carrying
--- `optional: true`, and all five keys present in `recall-secret`), not against
--- the committed manifest alone.
---
--- Modelled LAST of the twelve for that reason.
-let T = ../lib/types.dhall
+let T =
+      -- recall's fleet tier: api + web + the sync ingest, one container. NO ML runs
+      -- here — the Mac keeps capture/ASR/diarize/LLM — so this is a light FastAPI +
+      -- SQLite + static frontend over the archive on its own volume.
+      --
+      -- ⚠ THE FIVE SECRET KEYS ARE THE WHOLE RISK IN THIS FILE, and four of them are
+      -- OPTIONAL, which is the dangerous kind. A missing required key crash-loops the
+      -- pod and somebody notices within a minute. A missing optional one starts
+      -- cleanly and leaves the web UI with NO LOGIN — the archive is transcripts of
+      -- conversations in this house, so that failure is silent and serious. This model
+      -- was checked field-by-field against the live Deployment on isis before it was
+      -- rendered (2026-08-12: nine env vars, in this order, four carrying
+      -- `optional: true`, and all five keys present in `recall-secret`), not against
+      -- the committed manifest alone.
+      --
+      -- Modelled LAST of the twelve for that reason.
+      ../lib/types.dhall
 
 let dataPath = "/data"
 
 let port = 8000
 
--- The keys as a RECORD, so a typo is a type error rather than a pod that boots
--- with an empty credential. `secrets = toMap keys` publishes the same
--- expressions `secret.sh` writes.
 let keys =
+      -- The keys as a RECORD, so a typo is a type error rather than a pod that boots
+      -- with an empty credential. `secrets = toMap keys` publishes the same
+      -- expressions `secret.sh` writes.
       { SYNC_TOKEN = "SYNC_TOKEN"
       , SESSION_SECRET = "SESSION_SECRET"
       , NC_CLIENT_ID = "NC_CLIENT_ID"
@@ -32,9 +33,10 @@ let keys =
 
 let required = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False }
 
--- Optional here means "the pod starts without it", and every use below says
--- what is lost when it is absent. None of them is optional for convenience.
-let optional = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = True }
+let optional =
+      -- Optional here means "the pod starts without it", and every use below says
+      -- what is lost when it is absent. None of them is optional for convenience.
+      λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = True }
 
 let lit = T.EnvValue.Literal
 

@@ -1,14 +1,15 @@
--- isis.xinutec.org — the file share, served from a PVC under `/share`.
---
--- The webroot claim mounts at `${webroot}/share` rather than at the root, so the
--- image's own index still answers `/` and only the share directory is this
--- volume's. Content is pushed from `~/Code/dicom-scan`.
---
--- ⚠ Two Ingresses serve this host and only one is modelled here. The other,
--- `isis-share-auth`, lives in `share-auth.yaml` with the bcrypt Secret it
--- references — git-crypt'd, because this repository is public — and is declared
--- `unowned` below so `--check` neither renders nor forgets it.
-let S = ../lib/site.dhall
+let S =
+      -- isis.xinutec.org — the file share, served from a PVC under `/share`.
+      --
+      -- The webroot claim mounts at `${webroot}/share` rather than at the root, so the
+      -- image's own index still answers `/` and only the share directory is this
+      -- volume's. Content is pushed from `~/Code/dicom-scan`.
+      --
+      -- ⚠ Two Ingresses serve this host and only one is modelled here. The other,
+      -- `isis-share-auth`, lives in `share-auth.yaml` with the bcrypt Secret it
+      -- references — git-crypt'd, because this repository is public — and is declared
+      -- `unowned` below so `--check` neither renders nor forgets it.
+      ../lib/site.dhall
 
 let T = ../lib/types.dhall
 

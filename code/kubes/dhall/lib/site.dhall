@@ -1,47 +1,51 @@
--- A static site → Kubernetes resources.
---
--- The fleet's second kind of deployable, and genuinely a different KIND rather
--- than an `App` with the interesting parts switched off. Four of them live under
--- `web/org/xinutec/`, and what they have in common is not what `T.App` describes:
---
---   * they share ONE namespace (`web`, created by `kubes/web/k8s`), so a site
---     renders no Namespace of its own — `App` always renders one, and a second
---     copy of a shared object is how two trees start fighting over it;
---   * they run a stock `nginxinc/nginx-unprivileged:alpine` rather than an image
---     the fleet builds, so `T.Image.Fleet`'s "`:latest` is the only expressible
---     form" is the wrong rule here — an upstream tag is exactly right;
---   * they select on `run`, not `app`. **A Deployment's `spec.selector` is
---     immutable**, so this is not a convention that can be tidied away: changing
---     it means deleting and recreating four live Deployments.
---
--- What they DO share is the shape below, and it is worth a type because the
--- interesting variation is small and the repetition is large: four near-identical
--- Deployments, four Services whose selector must match, four Ingresses whose
--- backend must name the Service.
-let T = ./types.dhall
+let T =
+      -- A static site → Kubernetes resources.
+      --
+      -- The fleet's second kind of deployable, and genuinely a different KIND rather
+      -- than an `App` with the interesting parts switched off. Four of them live under
+      -- `web/org/xinutec/`, and what they have in common is not what `T.App` describes:
+      --
+      --   * they share ONE namespace (`web`, created by `kubes/web/k8s`), so a site
+      --     renders no Namespace of its own — `App` always renders one, and a second
+      --     copy of a shared object is how two trees start fighting over it;
+      --   * they run a stock `nginxinc/nginx-unprivileged:alpine` rather than an image
+      --     the fleet builds, so `T.Image.Fleet`'s "`:latest` is the only expressible
+      --     form" is the wrong rule here — an upstream tag is exactly right;
+      --   * they select on `run`, not `app`. **A Deployment's `spec.selector` is
+      --     immutable**, so this is not a convention that can be tidied away: changing
+      --     it means deleting and recreating four live Deployments.
+      --
+      -- What they DO share is the shape below, and it is worth a type because the
+      -- interesting variation is small and the repetition is large: four near-identical
+      -- Deployments, four Services whose selector must match, four Ingresses whose
+      -- backend must name the Service.
+      ./types.dhall
 
 let K = ./k8s.dhall
 
 let L = ./list.dhall
 
---| Every site runs this. Pinned, unlike a fleet image: an unpinned nginx would
---  silently major-upgrade the thing serving every static host at once.
-let nginxImage = "nginxinc/nginx-unprivileged:alpine"
+let nginxImage =
+      --| Every site runs this. Pinned, unlike a fleet image: an unpinned nginx would
+      --  silently major-upgrade the thing serving every static host at once.
+      "nginxinc/nginx-unprivileged:alpine"
 
---| The image runs as uid 101 and listens on 8080 — no root, no privileged-port
---  bind. Both numbers are properties of the IMAGE, not choices per site, so they
---  live here and no site can get them wrong.
-let nginxUid = 101
+let nginxUid =
+      --| The image runs as uid 101 and listens on 8080 — no root, no privileged-port
+      --  bind. Both numbers are properties of the IMAGE, not choices per site, so they
+      --  live here and no site can get them wrong.
+      101
 
 let nginxPort = 8080
 
---| Where the image looks for what it serves.
-let webrootPath = "/usr/share/nginx/html"
+let webrootPath =
+      --| Where the image looks for what it serves.
+      "/usr/share/nginx/html"
 
 let Doc = { mapKey : Text, mapValue : Text }
 
---| Where the bytes a site serves come from.
 let Webroot =
+      --| Where the bytes a site serves come from.
       < --| The image's own default page. Only useful with `overlays`, which is
         --  what `amun` does: the site itself is the stock nginx welcome page and
         --  the only thing that matters is one file under `.well-known/`.
@@ -59,19 +63,21 @@ let Webroot =
           { storageGi : Natural, durability : T.Durability, at : Text }
       >
 
---| One ConfigMap file dropped into the webroot by `subPath`, leaving everything
---  around it alone. `.well-known/assetlinks.json` is the motivating case: a
---  whole-directory mount there would hide the site.
---
---  `name` is the ConfigMap's own, spelled out rather than derived: an overlay is
---  an object in its own right whose name predates this model.
-let Overlay = { name : Text, path : Text, file : Doc }
+let Overlay =
+      --| One ConfigMap file dropped into the webroot by `subPath`, leaving everything
+      --  around it alone. `.well-known/assetlinks.json` is the motivating case: a
+      --  whole-directory mount there would hide the site.
+      --
+      --  `name` is the ConfigMap's own, spelled out rather than derived: an overlay is
+      --  an object in its own right whose name predates this model.
+      { name : Text, path : Text, file : Doc }
 
---| A host that only redirects. It still needs a certificate — without an Ingress
---  the shared controller answers on 443 with its own fake cert, which is what a
---  browser complains about — and it still needs a backend reference for the rule
---  to parse, though nginx applies the redirect before ever proxying.
-let Redirect = { name : Text, host : Text, to : Text, tlsSecret : Text }
+let Redirect =
+      --| A host that only redirects. It still needs a certificate — without an Ingress
+      --  the shared controller answers on 443 with its own fake cert, which is what a
+      --  browser complains about — and it still needs a backend reference for the rule
+      --  to parse, though nginx applies the redirect before ever proxying.
+      { name : Text, host : Text, to : Text, tlsSecret : Text }
 
 let Site =
       { --| Names the Deployment, the Service, the pod label and the Service
@@ -128,11 +134,12 @@ let Site =
 
 let namespace = "web"
 
---| The labels the pod template, the Service and the Ingress backend all agree
---  on. One expression; see `K.Labels` for why the map is free-form.
 let runLabels
     : Text → K.Labels
-    = λ(name : Text) → toMap { run = name }
+    =
+      --| The labels the pod template, the Service and the Ingress backend all agree
+      --  on. One expression; see `K.Labels` for why the map is free-form.
+      λ(name : Text) → toMap { run = name }
 
 let meta
     : Text → K.Meta
@@ -163,10 +170,11 @@ let webrootVolume = "webroot"
 
 let confVolume = "nginx-config"
 
---| The claim, if the site keeps its content on one.
 let volumeOf
     : Site → Optional { storageGi : Natural, durability : T.Durability, at : Text }
-    = λ(site : Site) →
+    =
+      --| The claim, if the site keeps its content on one.
+      λ(site : Site) →
         merge
           { Stock = None { storageGi : Natural, durability : T.Durability, at : Text }
           , Config =
@@ -178,10 +186,11 @@ let volumeOf
           }
           site.webroot
 
---| The ConfigMap of served files, if the site keeps its content in one.
 let filesOf
     : Site → Optional (List Doc)
-    = λ(site : Site) →
+    =
+      --| The ConfigMap of served files, if the site keeps its content in one.
+      λ(site : Site) →
         merge
           { Stock = None (List Doc)
           , Config = λ(c : { files : List Doc }) → Some c.files
@@ -261,11 +270,12 @@ let pvc
           }
           (volumeOf site)
 
---| The backup-coverage waiver this site's claim should carry, or "" for none.
---  Same contract as `render.dhall`'s `storageWaiver`.
 let storageWaiver
     : Site → Text
-    = λ(site : Site) →
+    =
+      --| The backup-coverage waiver this site's claim should carry, or "" for none.
+      --  Same contract as `render.dhall`'s `storageWaiver`.
+      λ(site : Site) →
         merge
           { None = ""
           , Some =
@@ -525,10 +535,11 @@ let service
           }
         ]
 
---| The site's own Ingress. Redirects render separately — see `redirect`.
 let ingress
     : Site → List K.Ingress
-    = λ(site : Site) →
+    =
+      --| The site's own Ingress. Redirects render separately — see `redirect`.
+      λ(site : Site) →
         let issuer = toMap { `cert-manager.io/cluster-issuer` = "letsencrypt-prod" }
 
         let basicAuth =
@@ -581,17 +592,18 @@ let ingress
 
         in  own
 
---| Redirect-only hosts, rendered to their OWN file.
---
--- ⚠ Not decoration: `nginx.ingress.kubernetes.io/permanent-redirect` is
--- validated as a URL by the ingress admission webhook, and `$request_uri` is not
--- one — so a redirect carrying it is REFUSED on apply even though an identical
--- object created before the webhook gained that check is still running. Keeping
--- these in a separate manifest means one un-appliable document cannot block the
--- site it sits beside. See task #692.
 let redirect
     : Site → List K.Ingress
-    = λ(site : Site) →
+    =
+      --| Redirect-only hosts, rendered to their OWN file.
+      --
+      -- ⚠ Not decoration: `nginx.ingress.kubernetes.io/permanent-redirect` is
+      -- validated as a URL by the ingress admission webhook, and `$request_uri` is not
+      -- one — so a redirect carrying it is REFUSED on apply even though an identical
+      -- object created before the webhook gained that check is still running. Keeping
+      -- these in a separate manifest means one un-appliable document cannot block the
+      -- site it sits beside. See task #692.
+      λ(site : Site) →
         let issuer = toMap { `cert-manager.io/cluster-issuer` = "letsencrypt-prod" }
 
         let backend =
@@ -630,20 +642,21 @@ let redirect
                 )
                 site.redirects
 
---| The declared-unowned filenames, one per line, for the generator's `--check`.
---  A fold rather than a Prelude import: this directory deliberately vendors the
---  two list helpers it needs instead of pulling a package over the network.
---| The host this site deploys to, from the model rather than from whoever is
---  typing. Rendered into `dhall/clusters.json` and read by `plan-run deploy`.
---  See `Site.cluster`.
---  ⚠ A LIST, to match `render.dhall`'s twin, while `Site.cluster` stays a single
---  cluster — because a site genuinely runs on one. The list is the shape
---  `clusters.json` needs now that a subject MAY span clusters, not a claim that
---  a site does. Widening the output without widening the type keeps the three
---  site models unchanged.
 let clusterHosts
     : Site → List Text
-    = λ(site : Site) →
+    =
+      --| The declared-unowned filenames, one per line, for the generator's `--check`.
+      --  A fold rather than a Prelude import: this directory deliberately vendors the
+      --  two list helpers it needs instead of pulling a package over the network.
+      --| The host this site deploys to, from the model rather than from whoever is
+      --  typing. Rendered into `dhall/clusters.json` and read by `plan-run deploy`.
+      --  See `Site.cluster`.
+      --  ⚠ A LIST, to match `render.dhall`'s twin, while `Site.cluster` stays a single
+      --  cluster — because a site genuinely runs on one. The list is the shape
+      --  `clusters.json` needs now that a subject MAY span clusters, not a claim that
+      --  a site does. Widening the output without widening the type keeps the three
+      --  site models unchanged.
+      λ(site : Site) →
         [ merge
             { isis = "isis.xinutec.org", amun = "amun.xinutec.org" }
             site.cluster

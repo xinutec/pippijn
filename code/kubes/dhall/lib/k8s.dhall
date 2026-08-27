@@ -1,16 +1,16 @@
--- The subset of Kubernetes this fleet actually uses, as types.
---
--- Only the fields we use are here, deliberately. Two consequences:
---
---   * a misspelled API field (`containerPorts`, `readinessprobe`) is a type
---     error at render time instead of a silently-ignored key that kubectl
---     accepts and does nothing with;
---   * reaching for a field that isn't modelled forces a decision in this file,
---     which is where a reviewer can see the fleet's surface area grow.
---
--- Optional fields are rendered away by `dhall-to-yaml-ng --omit-empty`, as are
--- empty lists, so an app with no volumes emits no `volumes:` key at all.
 let Meta =
+      -- The subset of Kubernetes this fleet actually uses, as types.
+      --
+      -- Only the fields we use are here, deliberately. Two consequences:
+      --
+      --   * a misspelled API field (`containerPorts`, `readinessprobe`) is a type
+      --     error at render time instead of a silently-ignored key that kubectl
+      --     accepts and does nothing with;
+      --   * reaching for a field that isn't modelled forces a decision in this file,
+      --     which is where a reviewer can see the fleet's surface area grow.
+      --
+      -- Optional fields are rendered away by `dhall-to-yaml-ng --omit-empty`, as are
+      -- empty lists, so an app with no volumes emits no `volumes:` key at all.
       { name : Text
       , namespace : Optional Text
       , annotations : Optional (List { mapKey : Text, mapValue : Text })
@@ -22,20 +22,22 @@ let Meta =
 
 let Quantity = { cpu : Text, memory : Text }
 
---| A limits block, where BOTH halves are Optional because the API's are: `limits`
---  is a resource map, and a container may cap memory without capping CPU or the
---  other way round. This file is the API's shape, so it says so.
---
--- Which containers may omit which half is a fleet policy rather than an API
--- fact, and it lives on `T.Limits` — memory required, cpu not. Keeping the two
--- apart is what lets `T.Limits` tighten without this file claiming the API
--- forbids what it permits.
-let Limits = { cpu : Optional Text, memory : Optional Text }
+let Limits =
+      --| A limits block, where BOTH halves are Optional because the API's are: `limits`
+      --  is a resource map, and a container may cap memory without capping CPU or the
+      --  other way round. This file is the API's shape, so it says so.
+      --
+      -- Which containers may omit which half is a fleet policy rather than an API
+      -- fact, and it lives on `T.Limits` — memory required, cpu not. Keeping the two
+      -- apart is what lets `T.Limits` tighten without this file claiming the API
+      -- forbids what it permits.
+      { cpu : Optional Text, memory : Optional Text }
 
---| `limits` is Optional because the API's is: a container may reserve without
---  capping. Which containers MAY do that is not decided here — see `T.Resources`,
---  which leaves it to dev-lint's `image_profile`, a fact about the image.
-let Resources = { requests : Quantity, limits : Optional Limits }
+let Resources =
+      --| `limits` is Optional because the API's is: a container may reserve without
+      --  capping. Which containers MAY do that is not decided here — see `T.Resources`,
+      --  which leaves it to dev-lint's `image_profile`, a fact about the image.
+      { requests : Quantity, limits : Optional Limits }
 
 let SecretKeyRef = { name : Text, key : Text, optional : Optional Bool }
 
@@ -61,8 +63,8 @@ let Probe =
       , failureThreshold : Optional Natural
       }
 
---| A probe with every timing unset; renderers override what they mean.
 let emptyProbe =
+      --| A probe with every timing unset; renderers override what they mean.
       { httpGet = None HTTPGetAction
       , exec = None ExecAction
       , tcpSocket = None TCPSocketAction
@@ -72,10 +74,10 @@ let emptyProbe =
       , failureThreshold = None Natural
       }
 
---| A hostPort ALWAYS carries its `hostIP` here. A bare hostPort DNATs on every
---  address the node has, including the public one, and the rule bypasses the
---  NixOS firewall — so the two are one field pair, never separable.
 let ContainerPort =
+      --| A hostPort ALWAYS carries its `hostIP` here. A bare hostPort DNATs on every
+      --  address the node has, including the public one, and the rule bypasses the
+      --  NixOS firewall — so the two are one field pair, never separable.
       { containerPort : Natural
       , hostPort : Optional Natural
       , hostIP : Optional Text
@@ -94,12 +96,12 @@ let ContainerSecurityContext =
       , capabilities : { drop : List Text }
       }
 
---| The three identity fields are Optional because one pod in the fleet must
---  omit them. `signal-cli-rest-api`'s entrypoint runs `usermod`/`groupmod` as
---  root before dropping to uid 1000; under `runAsNonRoot` those calls fail with
---  "cannot lock /etc/group" and the container crash-loops. That was measured,
---  not assumed, and `T.Hardening` is where a workload says so.
 let PodSecurityContext =
+      --| The three identity fields are Optional because one pod in the fleet must
+      --  omit them. `signal-cli-rest-api`'s entrypoint runs `usermod`/`groupmod` as
+      --  root before dropping to uid 1000; under `runAsNonRoot` those calls fail with
+      --  "cannot lock /etc/group" and the container crash-loops. That was measured,
+      --  not assumed, and `T.Hardening` is where a workload says so.
       { runAsNonRoot : Optional Bool
       , runAsUser : Optional Natural
       , runAsGroup : Optional Natural
@@ -151,21 +153,21 @@ let Container =
         imagePullPolicy : Optional Text
       }
 
---| Exactly one of the source fields is set. The API models this as a union of
---  optional keys and cannot say "exactly one"; `T.Volume` can, and does, so
---  nothing hand-writes this record.
---
--- `emptyDir` renders as `{}` — the empty record, which is the API's way of
--- saying "default medium, no size limit". `hostPath` states its `type` because
--- omitting it makes kubelet CREATE a missing path as a directory rather than
--- fail, so a typo'd mirror path becomes an empty volume that serves 404s
--- instead of an error anyone would see.
--- `secret.defaultMode` is Optional and usually should not be: an ssh private
--- key mounted at the API's default 0644 is refused by ssh itself ("permissions
--- are too open"), which surfaces as a job that cannot connect rather than as
--- anything about file modes. It is decimal in the API and octal everywhere a
--- person writes it, so `T.VolumeSource.Secret` takes the octal and converts.
 let Volume =
+      --| Exactly one of the source fields is set. The API models this as a union of
+      --  optional keys and cannot say "exactly one"; `T.Volume` can, and does, so
+      --  nothing hand-writes this record.
+      --
+      -- `emptyDir` renders as `{}` — the empty record, which is the API's way of
+      -- saying "default medium, no size limit". `hostPath` states its `type` because
+      -- omitting it makes kubelet CREATE a missing path as a directory rather than
+      -- fail, so a typo'd mirror path becomes an empty volume that serves 404s
+      -- instead of an error anyone would see.
+      -- `secret.defaultMode` is Optional and usually should not be: an ssh private
+      -- key mounted at the API's default 0644 is refused by ssh itself ("permissions
+      -- are too open"), which surfaces as a job that cannot connect rather than as
+      -- anything about file modes. It is decimal in the API and octal everywhere a
+      -- person writes it, so `T.VolumeSource.Secret` takes the octal and converts.
       { name : Text
       , persistentVolumeClaim : Optional { claimName : Text }
       , configMap : Optional { name : Text }
@@ -175,9 +177,9 @@ let Volume =
           Optional { secretName : Text, defaultMode : Optional Natural }
       }
 
---| Files served or mounted as configuration. `data` is a map, so the KEY is the
---  filename inside the mount and the value is its whole contents.
 let ConfigMap =
+      --| Files served or mounted as configuration. `data` is a map, so the KEY is the
+      --  filename inside the mount and the value is its whole contents.
       { apiVersion : Text
       , kind : Text
       , metadata : Meta
@@ -194,44 +196,45 @@ let PodSpec =
         restartPolicy : Optional Text
       }
 
---| The pod a Job runs, plus the two bounds on running it.
---
--- `activeDeadlineSeconds` is required here where the API makes it optional. An
--- unset deadline means a wedged run continues forever, and nothing watches a
--- batch pod — there is no Service and no probe — so the failure is a job that is
--- still "running" days later with `concurrencyPolicy: Forbid` suppressing every
--- scheduled successor. That is silent, and it is why the field is not Optional.
---| The labels that tie a pod template, its Service and its policies together.
---
--- A free-form map rather than a fixed `{ app : Text }` record, because the fleet
--- has two conventions and neither can be changed: the apps select on `app`, and
--- the static sites under `web/` select on `run`. **A Deployment's
--- `spec.selector` is immutable** — the API rejects an edit — so rewriting the
--- sites to `app` would mean deleting and recreating four live Deployments.
---
--- What stops a Service selector disagreeing with its pod template is NOT the
--- record shape: it is that one expression (`render.dhall`'s `appLabels`,
--- `site.dhall`'s `runLabels`) produces the value everywhere it is needed. The
--- shape only ever documented the convention; the derivation is the guarantee.
-let Labels = List { mapKey : Text, mapValue : Text }
+let Labels =
+      --| The pod a Job runs, plus the two bounds on running it.
+      --
+      -- `activeDeadlineSeconds` is required here where the API makes it optional. An
+      -- unset deadline means a wedged run continues forever, and nothing watches a
+      -- batch pod — there is no Service and no probe — so the failure is a job that is
+      -- still "running" days later with `concurrencyPolicy: Forbid` suppressing every
+      -- scheduled successor. That is silent, and it is why the field is not Optional.
+      --| The labels that tie a pod template, its Service and its policies together.
+      --
+      -- A free-form map rather than a fixed `{ app : Text }` record, because the fleet
+      -- has two conventions and neither can be changed: the apps select on `app`, and
+      -- the static sites under `web/` select on `run`. **A Deployment's
+      -- `spec.selector` is immutable** — the API rejects an edit — so rewriting the
+      -- sites to `app` would mean deleting and recreating four live Deployments.
+      --
+      -- What stops a Service selector disagreeing with its pod template is NOT the
+      -- record shape: it is that one expression (`render.dhall`'s `appLabels`,
+      -- `site.dhall`'s `runLabels`) produces the value everywhere it is needed. The
+      -- shape only ever documented the convention; the derivation is the guarantee.
+      List { mapKey : Text, mapValue : Text }
 
--- `template.metadata.labels` exists so a job's pods can be SELECTED — by a
--- NetworkPolicy above all. A CronJob pod otherwise carries only the labels the
--- API generates (`job-name`, `controller-uid`), none of which name the work, so
--- the only expressible egress rule for a job is one that covers the whole
--- namespace. That is how a job that needs to reach one host ends up granting
--- every pod beside it the same reach.
 let JobSpec =
+      -- `template.metadata.labels` exists so a job's pods can be SELECTED — by a
+      -- NetworkPolicy above all. A CronJob pod otherwise carries only the labels the
+      -- API generates (`job-name`, `controller-uid`), none of which name the work, so
+      -- the only expressible egress rule for a job is one that covers the whole
+      -- namespace. That is how a job that needs to reach one host ends up granting
+      -- every pod beside it the same reach.
       { activeDeadlineSeconds : Natural
       , backoffLimit : Optional Natural
       , template : { metadata : { labels : Labels }, spec : PodSpec }
       }
 
---| A CronJob. The three policy fields are required rather than defaulted
---  because the API's defaults are all wrong for this fleet: `concurrencyPolicy`
---  defaults to `Allow` (two decodes writing the same rows), and the history
---  limits to 3/1 — the failed one being the one worth keeping.
 let CronJob =
+      --| A CronJob. The three policy fields are required rather than defaulted
+      --  because the API's defaults are all wrong for this fleet: `concurrencyPolicy`
+      --  defaults to `Allow` (two decodes writing the same rows), and the history
+      --  limits to 3/1 — the failed one being the one worth keeping.
       { apiVersion : Text
       , kind : Text
       , metadata : Meta
@@ -314,12 +317,12 @@ let Ingress =
           }
       }
 
---| `matchLabels` is Optional inside the peer for the same reason it is on
---  `spec.podSelector`: `podSelector: {}` — a selector with no terms — matches
---  EVERY pod in the namespace, and that is a thing a rule sometimes needs to
---  say. `netpolDb` says it for an app with batch tasks, whose pods carry no
---  stable labels of their own.
 let NetworkPolicyPeer =
+      --| `matchLabels` is Optional inside the peer for the same reason it is on
+      --  `spec.podSelector`: `podSelector: {}` — a selector with no terms — matches
+      --  EVERY pod in the namespace, and that is a thing a rule sometimes needs to
+      --  say. `netpolDb` says it for an app with batch tasks, whose pods carry no
+      --  stable labels of their own.
       { -- CIDR minus exceptions. The only way to say "the public internet",
         -- and NOT a way to say "this node" — see `T.NetpolPeer.Internet`.
         --
@@ -338,42 +341,43 @@ let NetworkPolicyPeer =
             { matchLabels : List { mapKey : Text, mapValue : Text } }
       }
 
---| A port in a NetworkPolicy rule.
---
--- ⚠ STATE THE PROTOCOL, even for TCP. It reads like a default worth leaving
--- implicit and it is not: this list is ATOMIC in the API (no patch merge key),
--- so `kubectl apply` replaces it whole. A manifest omitting `protocol` sends a
--- patch that drops the `TCP` the API defaulted in, the API defaults it back, and
--- the object is reported `configured` on every apply for ever — drift that never
--- converges and never means anything. `Optional` remains only because UDP has to
--- be sayable; nothing here should choose `None`.
-let NetworkPolicyPort = { port : Natural, protocol : Optional Text }
+let NetworkPolicyPort =
+      --| A port in a NetworkPolicy rule.
+      --
+      -- ⚠ STATE THE PROTOCOL, even for TCP. It reads like a default worth leaving
+      -- implicit and it is not: this list is ATOMIC in the API (no patch merge key),
+      -- so `kubectl apply` replaces it whole. A manifest omitting `protocol` sends a
+      -- patch that drops the `TCP` the API defaulted in, the API defaults it back, and
+      -- the object is reported `configured` on every apply for ever — drift that never
+      -- converges and never means anything. `Optional` remains only because UDP has to
+      -- be sayable; nothing here should choose `None`.
+      { port : Natural, protocol : Optional Text }
 
---| `podSelector` is `Optional` so an empty selector — the whole namespace, which
---  is what a default-deny selects — can be expressed at all.
---
--- ⚠ An earlier version of this comment said `matchLabels: {}` "selects
--- nothing". That is WRONG: a Kubernetes `LabelSelector` with no terms matches
--- EVERYTHING, so `podSelector: {}` and `podSelector: {matchLabels: {}}` are the
--- same selector. The real problem is narrower and is about rendering rather
--- than meaning — under `--omit-empty` an empty `matchLabels` collapses the
--- whole `podSelector` key away, and `spec.podSelector` is a required field
--- whose absence works only because Go unmarshals it to its zero value. A
--- manifest that relies on that reads as "no selector stated" where the intent
--- is "every pod in the namespace".
---
--- `egress` is a list of rules, and an EMPTY list is meaningful: with `Egress` in
--- `policyTypes` it denies all egress. So the NetworkPolicy documents are the one
--- thing here rendered WITHOUT `--omit-empty` (see generate.sh's `render`), which
--- keeps both `podSelector: {}` and `egress: []` on the page.
---
--- That flips the burden onto the OTHER direction: with the flag off, a rule list
--- that is empty because the policy does not govern that direction at all would
--- render as a bare `ingress: []` — a term the live manifests do not carry and
--- which reads as "an ingress section, deliberately empty". Hence `Optional`:
--- `None` means "this policy says nothing about that direction" and disappears,
--- `Some ([] : ...)` means "this direction is denied outright" and stays.
 let NetworkPolicy =
+      --| `podSelector` is `Optional` so an empty selector — the whole namespace, which
+      --  is what a default-deny selects — can be expressed at all.
+      --
+      -- ⚠ An earlier version of this comment said `matchLabels: {}` "selects
+      -- nothing". That is WRONG: a Kubernetes `LabelSelector` with no terms matches
+      -- EVERYTHING, so `podSelector: {}` and `podSelector: {matchLabels: {}}` are the
+      -- same selector. The real problem is narrower and is about rendering rather
+      -- than meaning — under `--omit-empty` an empty `matchLabels` collapses the
+      -- whole `podSelector` key away, and `spec.podSelector` is a required field
+      -- whose absence works only because Go unmarshals it to its zero value. A
+      -- manifest that relies on that reads as "no selector stated" where the intent
+      -- is "every pod in the namespace".
+      --
+      -- `egress` is a list of rules, and an EMPTY list is meaningful: with `Egress` in
+      -- `policyTypes` it denies all egress. So the NetworkPolicy documents are the one
+      -- thing here rendered WITHOUT `--omit-empty` (see generate.sh's `render`), which
+      -- keeps both `podSelector: {}` and `egress: []` on the page.
+      --
+      -- That flips the burden onto the OTHER direction: with the flag off, a rule list
+      -- that is empty because the policy does not govern that direction at all would
+      -- render as a bare `ingress: []` — a term the live manifests do not carry and
+      -- which reads as "an ingress section, deliberately empty". Hence `Optional`:
+      -- `None` means "this policy says nothing about that direction" and disappears,
+      -- `Some ([] : ...)` means "this direction is denied outright" and stays.
       { apiVersion : Text
       , kind : Text
       , metadata : Meta

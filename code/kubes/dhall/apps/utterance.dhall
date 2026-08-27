@@ -1,10 +1,11 @@
--- utterance.xinutec.org — derive music from the structure of a voice
--- (Rust workspace + Angular). Repo: github.com/xinutec/utterance.
---
--- The one fleet app with no database. Its state is files — uploaded recordings
--- and the voiceprints derived from them — so it declares `storage` instead, and
--- is the reason that field exists.
-let T = ../lib/types.dhall
+let T =
+      -- utterance.xinutec.org — derive music from the structure of a voice
+      -- (Rust workspace + Angular). Repo: github.com/xinutec/utterance.
+      --
+      -- The one fleet app with no database. Its state is files — uploaded recordings
+      -- and the voiceprints derived from them — so it declares `storage` instead, and
+      -- is the reason that field exists.
+      ../lib/types.dhall
 
 let dns = ../dns.dhall
 
