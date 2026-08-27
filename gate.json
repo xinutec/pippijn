@@ -12,6 +12,15 @@
     },
     {
       "argv": [
+        "./code/kubes/scripts/dhall-comments.sh"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "the dhall model keeps its comments",
+      "timeout_s": 120
+    },
+    {
+      "argv": [
         "nix",
         "run",
         "../dev-lint#gate",

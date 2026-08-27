@@ -56,6 +56,30 @@ in  { name = "pippijn"
         , argv = [ "./generate.sh", "--check" ]
         , timeout_s = 900
         }
+      , {-  The comments in the Dhall model, which nothing else can see.
+
+            `dhall format` deletes most of them — it keeps only what sits after a
+            token opening an expression, and discards the `--|` blocks above
+            `let` bindings that carry this model's reasoning. It happened in
+            8bb958ea, which took types.dhall from 313 comment lines to 42 while
+            `generate.sh --check` stayed green, because comments never reach the
+            rendered YAML. Found by eye; restored by three-way merge the same day
+            in de509130.
+
+            The 50% threshold is measured against all 118 commits touching the
+            tree: deliberate culls lose at most 15% of a file, the formatter took
+            87%. Nothing sits between.
+
+            ⚠ It does not make the tree formattable — a comment trailing a field
+            or inside a list has no position that survives, so moving every
+            `let`-attached block below its `=` still loses half of types.dhall.
+            The rule is still "do not format here"; this is the net under it.
+        -}
+        G.Check::{
+        , name = "the dhall model keeps its comments"
+        , argv = [ "./code/kubes/scripts/dhall-comments.sh" ]
+        , timeout_s = 120
+        }
       , G.checkTable "../dev-lint"
       ]
     }
