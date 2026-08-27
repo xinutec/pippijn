@@ -81,9 +81,21 @@ in  λ(who : { user : Text, hostPort : Natural }) →
           , -- Just "is anything listening" — sshd has no health endpoint, and
             -- saying so is honest about what is actually checked.
             probe = T.Probe.Tcp { port = 22 }
-          , probeTiming =
+          , -- ⚠ **LIVENESS IS DELIBERATELY SLOWER THAN READINESS, and copying
+            -- readiness's timing here would have CRASH-LOOPED this pod.**
+            -- Measured 2026-08-27 across two starts: 16s to Ready, then 31s on
+            -- the very next one. With `initialDelaySeconds = 5` and
+            -- `failureThreshold` 3 the kubelet kills at ~25s — before the 31s
+            -- start was ready. The entrypoint chowns /home/irssi and
+            -- /etc/ssh_keys as root before starting sshd, and that varies with
+            -- the home directory.
+            --
+            -- A liveness probe that kills a container which is merely slow to
+            -- start turns a slow boot into a crash loop, which is strictly worse
+            -- than having no liveness probe at all.
+            probeTiming =
             { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
-            , liveness = { initialDelaySeconds = 5, periodSeconds = 10 }
+            , liveness = { initialDelaySeconds = 30, periodSeconds = 10 }
             }
           , resources =
             { requests = { cpu = "10m", memory = "64Mi" }
