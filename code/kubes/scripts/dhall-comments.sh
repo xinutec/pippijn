@@ -28,7 +28,15 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 readonly TREE="code/kubes/dhall"
-readonly LOSS_PCT=50
+# ANY drop, not a percentage. The threshold was 50% when the hazard was 46% —
+# formatting the tree cost 1292 of 2824 comment lines. dcc155ec moved every doc
+# block below its `let`'s `=`, so a format now costs 115 lines (4%), which sailed
+# under a 50% bar. A guard sized to the old hazard is not a guard.
+#
+# Cheap, measured: across all 118 commits touching this tree only 12 dropped a
+# file's comment count at all, so a deliberate cull reaching for
+# DHALL_COMMENTS_OK is rare rather than routine.
+readonly LOSS_PCT=0
 
 comments() { grep -cE '^[[:space:]]*(--|\{-)' || true; }
 
@@ -45,7 +53,7 @@ while IFS= read -r file; do
 
   lost=$((before - after))
   pct=$((lost * 100 / before))
-  if [ "$pct" -ge "$LOSS_PCT" ]; then
+  if [ "$pct" -ge "$LOSS_PCT" ]; then  # LOSS_PCT=0, so: any drop at all
     echo "$file: $before comment lines -> $after, ${pct}% gone" >&2
     status=1
   fi
@@ -54,7 +62,7 @@ done < <(git diff --name-only HEAD -- "$TREE" | grep '\.dhall$' || true)
 if [ "$status" -ne 0 ]; then
   cat >&2 <<'WHY'
 
-A Dhall file lost half its comments. If `dhall format` ran here, revert it: the
+A Dhall file lost comments. If `dhall format` ran here, revert it: the
 reasoning in this model is the part that does not survive, and no other check can
 see it go. Recover with the three-way merge in de509130 if it is already
 committed.
@@ -65,4 +73,4 @@ WHY
   [ -n "${DHALL_COMMENTS_OK:-}" ] && exit 0
   exit 1
 fi
-echo "dhall comments: no file lost ${LOSS_PCT}% or more"
+echo "dhall comments: no file lost any"
