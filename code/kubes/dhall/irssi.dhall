@@ -44,6 +44,7 @@ in  λ(who : { user : Text, hostPort : Natural }) →
       , claims = [ storage ]
       , secrets = [] : List T.SecretKey
       , unowned = [] : List T.Unowned
+      , acme = None T.AcmeDelegation
       , netpol = T.Netpol.Unpoliced
       , workloads =
         [ T.Workload::{

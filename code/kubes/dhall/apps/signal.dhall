@@ -151,6 +151,7 @@ in  { name = "signal"
       owner = T.Owner.Own
     , labels = [] : T.Labels
     , unowned = [] : List T.Unowned
+    , acme = None T.AcmeDelegation
     , placement = T.on T.Cluster.isis
     , db = Some
       { dbName = "signal"

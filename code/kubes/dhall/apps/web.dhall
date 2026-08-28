@@ -55,5 +55,6 @@ in  { name = "web"
       -- policy here would target an empty pod set and read as protection.
       netpol = T.Netpol.Unpoliced
     , unowned = [] : List T.Unowned
+    , acme = None T.AcmeDelegation
     }
     : T.Namespace

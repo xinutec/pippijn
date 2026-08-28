@@ -1083,6 +1083,47 @@ let Labels =
       List { mapKey : Text, mapValue : Text }
 
 
+let AcmeDelegation =
+      --| A certificate this namespace needs, whose ACME challenge is answered by a
+      --  machine that is NOT in this cluster.
+      --
+      -- `ircd` is the only one, and reading its manifests is what named the concept:
+      -- `net.xinutec.irc.yaml` looks like two objects and is one idea. The Ingress
+      -- routes NOTHING to the workload — IRC is on hostPorts — so it exists purely to
+      -- (a) hold the certificate for its host and (b) hand one path to somebody else.
+      --
+      -- ⚠ ONE FIELD RENDERS BOTH OBJECTS, and that is the point rather than tidiness.
+      -- The `ExternalName` Service's `metadata.name` and the Ingress's
+      -- `backend.service.name` are two statements of one name that can drift apart —
+      -- `render.dhall`'s own header warns that "an Ingress cannot point at a Service
+      -- that was renamed". From one field they cannot disagree.
+      { host : Text
+      , exposure : Exposure
+      , tlsSecret :
+          --| Where cert-manager puts the issued certificate. STATED, because the
+          --  workload mounts it by name and nothing derives `irc-tls` from `ircd`.
+          Text
+      , path :
+          --| The prefix handed over — `/barfooze`, not `/.well-known`, which the live
+          --  manifest records as a deliberate choice in a trailing comment.
+          Text
+      , forwardTo :
+          --| The FQDN that answers the challenge. Outside the cluster by definition;
+          --  if it were inside, this would be an ordinary backend and not a delegation.
+          Text
+      , serviceName :
+          --| STATED, not derived. `certbot-forward` is the live name, and deriving
+          --  something tidier would rename a live Service and rewrite the Ingress
+          --  backend for cosmetics — the rule `vps-pippijn` established: the model
+          --  does not get to charge a cluster change for tidiness.
+          Text
+      , why :
+          --| REQUIRED. Handing a path on your own hostname to a third-party host is
+          --  exactly the change that must not be addable without saying why, so an
+          --  unjustified delegation is unwritable rather than merely discouraged.
+          List Text
+      }
+
 let Namespace =
       { name : Text
       , owner : Owner
@@ -1095,6 +1136,7 @@ let Namespace =
       , netpol : Netpol
       , labels : Labels
       , unowned : List Unowned
+      , acme : Optional AcmeDelegation
       }
 
 let App =
@@ -1185,6 +1227,7 @@ let namespaceOf
                 owner = Owner.Own
               , labels = [] : Labels
               , unowned = [] : List Unowned
+              , acme = None AcmeDelegation
               , claims
               , workloads =
                 [   a.workload
@@ -1232,6 +1275,7 @@ in  { Cluster
     , ScheduledTask
     , Owner
     , Unowned
+    , AcmeDelegation
     , Namespace
     , namespaceOf
     , Database
