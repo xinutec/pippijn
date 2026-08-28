@@ -602,7 +602,7 @@ in  T.namespaceOf
             -- `T.standardTiming`'s 5/10: it is behind an Ingress with no
             -- hostPort, so it CAN roll, and a shorter delay is free.
             { readiness = { initialDelaySeconds = 3, periodSeconds = 10 }
-            , liveness = { initialDelaySeconds = 15, periodSeconds = 20 }
+            , liveness = Some { initialDelaySeconds = 15, periodSeconds = 20 }
             }
         , -- ⚠ A LIVENESS PROBE IS NEW — the live Deployment has readiness only.
           -- Safe on this app specifically, and worth stating why rather than
@@ -616,7 +616,7 @@ in  T.namespaceOf
           -- `Tcp`, not `Http`: there is no health endpoint, and probing `/`
           -- would run the session middleware on every tick.
           probe = T.Probe.Tcp { port }
-        , resources =
+        , resources =  Some
           { requests =
             { -- Idle most of the time; a /api/velocity compute is a short CPU
               -- burst. Modest but non-trivial.

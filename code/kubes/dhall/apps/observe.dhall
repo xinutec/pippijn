@@ -131,10 +131,10 @@ in  T.namespaceOf
             -- second, and an app reached by a hostPort cannot roll, so every
             -- second of readiness delay is a second of downtime per deploy.
             { readiness = { initialDelaySeconds = 2, periodSeconds = 10 }
-            , liveness = { initialDelaySeconds = 5, periodSeconds = 30 }
+            , liveness = Some { initialDelaySeconds = 5, periodSeconds = 30 }
             }
         , probe = T.Probe.Http { path = "/healthz", port = 8091 }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "50m", memory = "32Mi" }
           , limits = Some { cpu = Some "1", memory = "256Mi" }
           }

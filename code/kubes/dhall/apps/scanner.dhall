@@ -74,10 +74,10 @@ in  T.namespaceOf
             -- seconds, and being reached by a hostPort it cannot roll, so every
             -- second of readiness delay is a second of downtime on each deploy.
             { readiness = { initialDelaySeconds = 3, periodSeconds = 10 }
-            , liveness = { initialDelaySeconds = 10, periodSeconds = 30 }
+            , liveness = Some { initialDelaySeconds = 10, periodSeconds = 30 }
             }
         , probe = T.Probe.Http { path = "/healthz", port = 8090 }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "100m", memory = "128Mi" }
           , -- Fusion is CPU-bound per post; two of isis's four cores is the
             -- ceiling, which leaves two for everything else on the node.

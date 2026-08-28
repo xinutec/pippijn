@@ -167,10 +167,10 @@ in  { name = "signal"
           ]
         , probeTiming =
             { readiness = { initialDelaySeconds = 2, periodSeconds = 10 }
-            , liveness = { initialDelaySeconds = 5, periodSeconds = 20 }
+            , liveness = Some { initialDelaySeconds = 5, periodSeconds = 20 }
             }
         , probe = T.Probe.Http { path = "/healthz", port }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "25m", memory = "64Mi" }
           , limits = Some
             { -- Memory only, and `T.Limits` exists so this can be said. A CPU

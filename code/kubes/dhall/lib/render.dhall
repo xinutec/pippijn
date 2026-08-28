@@ -1097,7 +1097,10 @@ let deploymentFor
                   , restartPolicy = None Text
                   , containers =
                     [   baseContainer
-                      ⫽ { name = w.name
+                      ⫽ { name =
+                            merge
+                              { None = w.name, Some = λ(n : Text) → n }
+                              w.containerName
                         , image = T.imageRef w.image
                         , imagePullPolicy =
                             merge
@@ -1242,26 +1245,51 @@ let deploymentFor
                                       (renderProbe r.probe)
                               }
                               w.readiness
-                        , livenessProbe =
+                        , -- ⚠ TWO merges, and the outer one is the workload
+                          -- saying it has NO liveness probe — distinct from the
+                          -- inner one, which is a probe kind that renders to
+                          -- nothing. Collapsing them would make "ircd states no
+                          -- liveness" indistinguishable from "this probe cannot
+                          -- be expressed", and only one of those is intended.
+                          livenessProbe =
                             merge
                               { None = None K.Probe
                               , Some =
-                                  λ(pr : K.Probe) →
-                                    Some
-                                      (   pr
-                                        ⫽ { initialDelaySeconds = Some
-                                              w.probeTiming.liveness.initialDelaySeconds
-                                          , periodSeconds = Some
-                                              w.probeTiming.liveness.periodSeconds
-                                          }
-                                      )
+                                  λ ( lt
+                                    : { initialDelaySeconds : Natural
+                                      , periodSeconds : Natural
+                                      }
+                                    ) →
+                                    merge
+                                      { None = None K.Probe
+                                      , Some =
+                                          λ(pr : K.Probe) →
+                                            Some
+                                              (   pr
+                                                ⫽ { initialDelaySeconds = Some
+                                                      lt.initialDelaySeconds
+                                                  , periodSeconds = Some
+                                                      lt.periodSeconds
+                                                  }
+                                              )
+                                      }
+                                      (renderProbe w.probe)
                               }
-                              (renderProbe w.probe)
+                              w.probeTiming.liveness
                         , -- Whether a container ought to state limits is a
                           -- fact about its image, which dev-lint knows and this
                           -- does not. See `k8sResources` for why the two record
                           -- types are no longer identical.
-                          resources = Some (k8sResources w.resources)
+                          -- ⚠ `Optional` all the way through: a workload that
+                          -- states no resources renders NO `resources:` key,
+                          -- rather than an empty one. `resources: {}` is not the
+                          -- same manifest and `generate.sh --check` compares text.
+                          resources =
+                            merge
+                              { None = None K.Resources
+                              , Some = λ(r : T.Resources) → Some (k8sResources r)
+                              }
+                              w.resources
                         , volumeMounts =
                             L.nonEmpty
                               K.VolumeMount
@@ -1516,12 +1544,83 @@ let ingressFor
           }
           w.reach
 
+let acmeIngresses
+    : T.Namespace → List K.Ingress
+    =
+      --| The Ingress half of an `AcmeDelegation`: TLS for the host, and one path
+      --  handed to the external service below.
+      --
+      -- ⚠ It routes NOTHING to any workload, and that is not an omission. `ircd`
+      -- serves IRC on hostPorts; this Ingress exists to hold a certificate and to
+      -- delegate the challenge. A default `/` backend here would put a workload on
+      -- the public web that was deliberately never there.
+      λ(ns : T.Namespace) →
+        merge
+          { None = [] : List K.Ingress
+          , Some =
+              λ(a : T.AcmeDelegation) →
+                [ { apiVersion = "networking.k8s.io/v1"
+                  , kind = "Ingress"
+                  , metadata =
+                        meta a.ingressName ns.name
+                      ⫽ { annotations = Some
+                            ( toMap
+                                { `cert-manager.io/cluster-issuer` =
+                                    T.issuerFor a.exposure
+                                }
+                            )
+                        }
+                  , spec =
+                    { ingressClassName = "nginx"
+                    , tls = [ { hosts = [ a.host ], secretName = a.tlsSecret } ]
+                    , rules =
+                      [ { host = a.host
+                        , http.paths
+                          =
+                          [ { path = a.path
+                            , pathType = "Prefix"
+                            , backend.service
+                              =
+                              { name = a.serviceName, port.number = 80 }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                ]
+          }
+          ns.acme
+
 let ingresses
     : T.Namespace → List K.Ingress
     = λ(ns : T.Namespace) →
-        L.concatMap T.Workload.Type K.Ingress (ingressFor ns) ns.workloads
+          L.concatMap T.Workload.Type K.Ingress (ingressFor ns) ns.workloads
+        # acmeIngresses ns
 
 let ingress = ingresses
+
+let acmeServices
+    : T.Namespace → List K.ExternalNameService
+    =
+      --| The Service half, and it takes its NAME from the same field the Ingress
+      --  backend above does. That is the whole reason `AcmeDelegation` is one
+      --  record: two statements of this name could drift, and the failure is an
+      --  Ingress pointing at a Service that does not exist — which serves 503 to
+      --  the ACME challenge and expires the certificate silently.
+      λ(ns : T.Namespace) →
+        merge
+          { None = [] : List K.ExternalNameService
+          , Some =
+              λ(a : T.AcmeDelegation) →
+                [ { apiVersion = "v1"
+                  , kind = "Service"
+                  , metadata = meta a.serviceName ns.name
+                  , spec = { type = "ExternalName", externalName = a.forwardTo }
+                  }
+                ]
+          }
+          ns.acme
 
 let netpolDb
     : T.Namespace → List K.NetworkPolicy
@@ -1985,6 +2084,7 @@ in  { storageWaiver
     , cronJobs
     , appService
     , ingress
+    , acmeServices
     , netpolDb
     , netpolAppHeld
     , netpolApp

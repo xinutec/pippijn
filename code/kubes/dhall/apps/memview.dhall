@@ -160,7 +160,7 @@ in  T.namespaceOf
           ]
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8091 }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "25m", memory = "64Mi" }
           , -- The corpus is re-read from disk on every request — a deliberate
             -- choice, since a live Claude session writes memories and staleness

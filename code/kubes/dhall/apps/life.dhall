@@ -95,7 +95,7 @@ in  T.namespaceOf
           ]
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8080 }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "50m", memory = "64Mi" }
           , limits = Some { cpu = Some "1", memory = "256Mi" }
           }

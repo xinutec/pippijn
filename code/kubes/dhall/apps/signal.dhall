@@ -216,12 +216,12 @@ in  { name = "signal"
         , env = [ { name = "MODE", value = lit "json-rpc" } ]
         , probeTiming =
             { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
-            , liveness = { initialDelaySeconds = 15, periodSeconds = 20 }
+            , liveness = Some { initialDelaySeconds = 15, periodSeconds = 20 }
             }
         , -- `Tcp`: the bridge has no health endpoint, and this is honest about
           -- what is actually checked.
           probe = T.Probe.Tcp { port = restApiPort }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "100m", memory = "384Mi" }
           , -- No limit, and dev-lint's image_profile is why this is allowed to
             -- say so: what a third-party JVM image needs is not ours to cap.
@@ -272,7 +272,7 @@ in  { name = "signal"
         , probeTiming = T.standardTiming
         , -- ⚠ INERT under `Unprobed` — see the note at `T.Probe`.
           probe = T.Probe.Unprobed
-        , resources =
+        , resources =  Some
           { requests = { cpu = "50m", memory = "64Mi" }
           , -- ⚠ THIS LIMIT ONLY BECAME MEANINGFUL ON 2026-08-17, and the order
             -- matters. It carried none because `download_attachment` did
@@ -514,7 +514,7 @@ in  { name = "signal"
               , "test -n \"\$(find ${heartbeatMount}/alive -mmin -5 2>/dev/null)\""
               ]
             }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "50m", memory = "64Mi" }
           , -- Bounded BY CONSTRUCTION, unlike the ingester's was: the irssi
             -- plugin answers a poll from a 256-line ring and this holds one

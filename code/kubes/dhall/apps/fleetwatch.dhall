@@ -143,7 +143,7 @@ in  T.namespaceOf
           , timeoutSeconds = 5
           , failureThreshold = 3
           }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "50m", memory = "64Mi" }
           , limits = Some { cpu = Some "1", memory = "256Mi" }
           }

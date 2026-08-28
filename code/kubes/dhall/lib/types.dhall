@@ -148,7 +148,21 @@ let ProbeTiming =
       -- says which set it uses and a reader can see it, but there is still exactly one
       -- place the fleet default is written down.
       { readiness : { initialDelaySeconds : Natural, periodSeconds : Natural }
-      , liveness : { initialDelaySeconds : Natural, periodSeconds : Natural }
+      , liveness :
+          --| ⚠ OPTIONAL, because "no liveness probe" is a real and often correct
+          --  state and the model must be able to SAY it rather than impose one.
+          --
+          -- `ircd` is the case that forced it: the live Deployment has readiness
+          -- and no liveness, and requiring one would have added a probe to a
+          -- running IRC server — a cluster change to satisfy a type, which is
+          -- backwards, and a risky one. A liveness probe that kills a container
+          -- merely slow to start turns a slow boot into a crash loop, which is
+          -- strictly worse than having none; `vps-pippijn` measured that at 16s
+          -- then 31s to Ready against a kubelet that kills at ~25s.
+          --
+          -- ⚠ Absent is NOT the same as `standardTiming`'s. This says the
+          -- container has no liveness probe at all; that says it has the fleet's.
+          Optional { initialDelaySeconds : Natural, periodSeconds : Natural }
       }
 
 let standardTiming
@@ -156,7 +170,7 @@ let standardTiming
     =
       --| The reviewed set the renderer used to hardcode for everything.
       { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
-      , liveness = { initialDelaySeconds = 15, periodSeconds = 20 }
+      , liveness = Some { initialDelaySeconds = 15, periodSeconds = 20 }
       }
 
 let Readiness =
@@ -636,6 +650,19 @@ let VolumeOwnership =
 let WorkloadType =
       --| A long-running container plus the Service in front of it.
       { name : Text
+      , containerName :
+          --| The container's own name, when it is not the workload's.
+          --
+          -- `None` means "the same as `name`", which is every tree but one and is
+          -- why this is Optional rather than required — seventeen models would
+          -- otherwise restate a name the Deployment already carries.
+          --
+          -- ⚠ `ircd` is the exception and it is not tidiness: the Deployment is
+          -- `inspircd` and the container inside it is `ircd`. Renaming the
+          -- container to match would change the pod template and RESTART a live
+          -- IRC server — the rule `vps-pippijn` set, that the model does not get
+          -- to charge a rollout for a name.
+          Optional Text
       , -- How anything outside this pod gets to it. ON THE WORKLOAD, not the
         -- namespace: signal runs a REST bridge (Internal), an archiver
         -- (NoService) and, in another repo tree entirely, a viewer (Ingress).
@@ -682,7 +709,19 @@ let WorkloadType =
         -- dependency, and it destroys the part still working.
         readiness : Optional Readiness
       , probeTiming : ProbeTiming
-      , resources : Resources
+      , resources :
+          --| ⚠ OPTIONAL, because a container that states NO resources is a real
+          --  state and the model must be able to say it.
+          --
+          -- `ircd` forced it: the live container has no `resources` block at all,
+          -- and `Resources.requests` is required — so modelling it would have
+          -- meant inventing a request for a running pod and restarting it to
+          -- match. That is the move `Resources`' own comment calls backwards,
+          -- made once already for `limits` when signal's two containers had none.
+          --
+          -- ⚠ WORKLOAD ONLY. `ScheduledTask` and `Database` keep theirs required:
+          -- every live one states resources, so nothing there is being forced.
+          Optional Resources
       , volumes : List Volume
       , mounts : List VolumeMount
       , -- Batch work sharing THIS workload's image, uid and root-filesystem
@@ -724,6 +763,7 @@ let Workload =
         , tasks = [] : List ScheduledTask
         , volumeOwnership = VolumeOwnership.FsGroup
         , pullPolicy = None Text
+        , containerName = None Text
         }
       }
 
@@ -1116,6 +1156,14 @@ let AcmeDelegation =
           --  something tidier would rename a live Service and rewrite the Ingress
           --  backend for cosmetics — the rule `vps-pippijn` established: the model
           --  does not get to charge a cluster change for tidiness.
+          Text
+      , ingressName :
+          --| STATED, and this one is not cosmetic at all. cert-manager creates the
+          --  Certificate OWNED BY THIS INGRESS (`ownerReferences: Ingress/<name>`),
+          --  so renaming the Ingress destroys that Certificate and reissues from
+          --  scratch — a live TLS outage for every connected client, to tidy a name.
+          --  `ingressNameOf` derives `<namespace>-ingress`, which would rename the
+          --  live `irc-ingress` in the `ircd` namespace. Not derivable; stated.
           Text
       , why :
           --| REQUIRED. Handing a path on your own hostname to a third-party host is

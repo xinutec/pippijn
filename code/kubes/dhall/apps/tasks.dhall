@@ -123,7 +123,7 @@ in  T.namespaceOf
           ]
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8092 }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "25m", memory = "64Mi" }
           , -- The heavy read is a list of a few hundred one-line rows; the
             -- bodies are fetched one at a time. Nothing here is resident.

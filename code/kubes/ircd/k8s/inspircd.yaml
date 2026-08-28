@@ -25,6 +25,10 @@ metadata:
   namespace: ircd
   name: inspircd
 spec:
+  # Stated rather than defaulted so the model and this file agree. ⚠ Safe: it
+  # lives in `spec`, NOT `spec.template`, so it forces no rollout — unset and 1
+  # are the same running pod. The same change vps-pippijn made 2026-08-27.
+  replicas: 1
   selector:
     matchLabels:
       run: inspircd

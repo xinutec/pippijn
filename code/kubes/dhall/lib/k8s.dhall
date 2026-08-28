@@ -281,6 +281,20 @@ let Service =
           }
       }
 
+let ExternalNameService =
+      --| A Service that is a DNS CNAME and nothing else.
+      --
+      -- A SEPARATE TYPE from `Service` rather than optional fields on it, because
+      -- the two have no overlap: this one has no selector, no ports and no
+      -- clusterIP, and the API server rejects it if given any of them. Modelled as
+      -- one record with optionals, every ExternalName service would be a valid
+      -- place to write a selector that silently does nothing.
+      { apiVersion : Text
+      , kind : Text
+      , metadata : Meta
+      , spec : { type : Text, externalName : Text }
+      }
+
 let PersistentVolumeClaim =
       { apiVersion : Text
       , kind : Text
@@ -426,6 +440,7 @@ in  { Meta
     , Deployment
     , ServicePort
     , Service
+    , ExternalNameService
     , PersistentVolumeClaim
     , Namespace
     , IngressBackend

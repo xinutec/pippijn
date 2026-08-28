@@ -155,13 +155,13 @@ in  T.namespaceOf
             -- hostPort it cannot roll, so readiness delay is downtime per
             -- deploy.
             { readiness = { initialDelaySeconds = 3, periodSeconds = 10 }
-            , liveness = { initialDelaySeconds = 10, periodSeconds = 30 }
+            , liveness = Some { initialDelaySeconds = 10, periodSeconds = 30 }
             }
         , -- `Tcp`, not `Http`: it is honest about what is actually checked.
           -- There is no health endpoint, and probing `/` would exercise the
           -- session middleware on every tick.
           probe = T.Probe.Tcp { port }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "100m", memory = "256Mi" }
           , limits = Some { cpu = Some "1", memory = "1Gi" }
           }

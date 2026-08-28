@@ -100,7 +100,7 @@ in  T.namespaceOf
           ]
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/healthz", port = 8080 }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "50m", memory = "128Mi" }
           , -- Deliberately generous on CPU and capped hard on memory. Analysing
             -- a take runs an FFT over every steady frame and a render

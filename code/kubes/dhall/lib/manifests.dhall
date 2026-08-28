@@ -108,7 +108,17 @@ let apps
       , { file = "03-app.yaml"
         , renderers = [ keep "appDeployment", omit "appService" ]
         }
-      , { file = "04-ingress.yaml", renderers = [ omit "ingress" ] }
+      , { -- ⚠ The ExternalName Service FIRST, then the Ingress — the order
+          -- `ircd`'s live `net.xinutec.irc.yaml` uses, and `compare`
+          -- concatenates a directory's documents rather than sorting them.
+          -- Both come from one `AcmeDelegation`, so they cannot disagree about
+          -- the service name; this only decides which is printed first.
+          --
+          -- Every app without an `acme` renders both empty, so this changes
+          -- nothing for the other seventeen trees.
+          file = "04-ingress.yaml"
+        , renderers = [ omit "acmeServices", omit "ingress" ]
+        }
       , { -- `keep`, because a cron's writable /tmp is an `emptyDir`, and an
           -- emptyDir IS an empty value: `--omit-empty` deleted the source and
           -- left `- name: tmp` alone. Kubernetes defaults a source-less volume

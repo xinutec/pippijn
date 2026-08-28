@@ -74,7 +74,7 @@ in  T.namespaceOf
           ]
         , probeTiming = T.standardTiming
         , probe = T.Probe.Http { path = "/health", port = 3000 }
-        , resources =
+        , resources =  Some
           { requests = { cpu = "10m", memory = "128Mi" }
           , limits = Some { cpu = Some "200m", memory = "256Mi" }
           }

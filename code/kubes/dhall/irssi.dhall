@@ -104,9 +104,9 @@ in  λ(who : { user : Text, hostPort : Natural }) →
             -- than having no liveness probe at all.
             probeTiming =
             { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
-            , liveness = { initialDelaySeconds = 30, periodSeconds = 10 }
+            , liveness = Some { initialDelaySeconds = 30, periodSeconds = 10 }
             }
-          , resources =
+          , resources =  Some
             { requests = { cpu = "10m", memory = "64Mi" }
             , limits = Some { cpu = Some "100m", memory = "128Mi" }
             }
