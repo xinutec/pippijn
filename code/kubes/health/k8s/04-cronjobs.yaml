@@ -272,7 +272,7 @@ spec:
           containers:
           - command:
             - bin/backend
-            - refresh-bus-routes
+            - "refresh-bus-routes"
             env:
             - name: DB_HOST
               value: "health-db"
@@ -447,7 +447,7 @@ spec:
           containers:
           - command:
             - bin/backend
-            - refresh-rail-stops
+            - "refresh-rail-stops"
             env:
             - name: DB_HOST
               value: "health-db"
@@ -492,4 +492,71 @@ spec:
           - emptyDir: {}
             name: tmp
   schedule: "0 6 * * *"
+  successfulJobsHistoryLimit: 3
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "health-freshness"
+  namespace: health
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app: "health-freshness"
+        spec:
+          containers:
+          - command:
+            - bin/backend
+            - freshness
+            env:
+            - name: DB_HOST
+              value: "health-db"
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: DB_USER
+                  name: "health-secret"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: "health-secret"
+            image: "xinutec/health-sync:latest"
+            name: "health-freshness"
+            resources:
+              limits:
+                cpu: 1000m
+                memory: 2Gi
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+          restartPolicy: OnFailure
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+          - emptyDir: {}
+            name: tmp
+  schedule: "0 9 * * *"
   successfulJobsHistoryLimit: 3

@@ -934,6 +934,39 @@ in  T.namespaceOf
               , env = dbEnv
               , resources = batchResources
               }
+            , { -- Did the biometric streams actually ARRIVE? (health #1231)
+                --
+                -- On 2026-08-28 `daily_activity` stopped for over an hour because
+                -- Fitbit began quoting an integer. `health-sync` exited 0 on every
+                -- run; the only trace was one ERROR line in a pod log that nothing
+                -- reads. It surfaced because a deploy was being watched for an
+                -- unrelated reason — luck, not detection.
+                --
+                -- ⚠ An error-string watcher would not have caught it and would not
+                -- catch the next one: a stream that writes nothing WITHOUT erroring
+                -- looks identical from outside. This asks the only question that
+                -- generalises, over all eleven streams, and exits NON-ZERO with
+                -- their names.
+                name = "health-freshness"
+              , -- Daily, 09:00. ⚠ NOT more often: every bound is in DAYS (the
+                -- tightest is 3), so a 15-minute cadence would re-ask a question
+                -- whose answer cannot change and turn one stale stream into 96
+                -- failed Jobs a day.
+                schedule = "0 9 * * *"
+              , command = [ "bin/backend", "freshness" ]
+              , -- Eleven `MAX(date)` reads over one connection. The 300 s is for a
+                -- database that is slow, not for work.
+                deadlineSeconds = 300
+              , suspended = False
+              , rootFs = T.RootFs.ReadOnly
+              , volumes = tmpVolume
+              , mounts = tmpMount
+              , -- ⚠ `dbEnv` ONLY. It reads `MAX(date)` and nothing else; giving it
+                -- the Fitbit or Google credentials would let a check that exists to
+                -- observe the syncs become able to perform one.
+                env = dbEnv
+              , resources = batchResources
+              }
             ]
         }
       , secrets = toMap keys
