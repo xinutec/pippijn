@@ -193,10 +193,6 @@ spec:
             - bin/backend
             - "refresh-rail-routes"
             env:
-            - name: LEAN_RAIL
-              value: solo
-            - name: LEAN_CALL_TIMEOUT_MS
-              value: '30000'
             - name: DB_HOST
               value: "health-db"
             - name: DB_NAME
@@ -374,28 +370,6 @@ spec:
               value: '1'
             - name: USE_REACQUIRE_ROBUST_SPEED
               value: '1'
-            - name: LEAN_HSMM
-              value: solo
-            - name: LEAN_STATIONCHAIN
-              value: solo
-            - name: LEAN_PASSES
-              value: solo
-            - name: LEAN_MATCH
-              value: solo
-            - name: LEAN_RAIL
-              value: solo
-            - name: LEAN_KALMAN
-              value: solo
-            - name: LEAN_GPSQUALITY
-              value: solo
-            - name: LEAN_BIOLABELS
-              value: solo
-            - name: LEAN_HEAD
-              value: solo
-            - name: LEAN_DAY
-              value: solo
-            - name: LEAN_CALL_TIMEOUT_MS
-              value: '30000'
             image: "xinutec/health-sync:latest"
             name: "health-decode-recent"
             resources:

@@ -1,14 +1,17 @@
 let T =
-      -- health.xinutec.org — the health app (TypeScript/node + a verified Lean core).
+      -- health.xinutec.org — the health app (a Rust server over a verified Lean
+      -- core, serving an Angular frontend; the TypeScript backend is gone, #975).
       --
-      -- The largest tree in the fleet and the only one with BATCH workloads: six
-      -- CronJobs and two one-shot Jobs share this image and this environment. They are
-      -- not modelled here yet (they need `T.ScheduledTask`), which is why two `let`s
-      -- below are exported-looking rather than inlined — `decodeFlags` and
-      -- `leanTenants` are the env the crons must agree with, and the live manifests
-      -- say so in prose today ("kept in step with 08-decode-recent.yaml"). Checked
-      -- pairwise on 2026-08-12: all ten shared values agree. The `let` is what stops
-      -- that being luck.
+      -- The largest tree in the fleet and the only one with BATCH workloads: the
+      -- CronJobs under `tasks` and two one-shot Jobs share this image and this
+      -- environment. They are not modelled here yet (they need `T.ScheduledTask`),
+      -- which is why one `let` below is exported-looking rather than inlined —
+      -- `decodeFlags` is the env the crons must agree with, and the live manifests
+      -- say so in prose today ("kept in step with 08-decode-recent.yaml"). The `let`
+      -- is what stops that being luck. The pairwise check of 2026-08-12 also covered
+      -- `leanTenants`, deleted 2026-08-29 as dead (health #1213): no Rust or Lean
+      -- code reads a `LEAN_*` variable, so those entries selected between arms that
+      -- no longer exist.
       --
       -- ⚠⚠ NOT DEPLOYABLE YET, and not for the obvious reason. Rendering this tree
       -- emits `netpolDb` — `health-db-from-app-only`, which admits port 3306 from
@@ -78,14 +81,6 @@ let ncEnv
       [ { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
       , { name = "NC_CLIENT_SECRET", value = secret keys.NC_CLIENT_SECRET }
       ]
-
-let leanCallTimeout
-    : T.EnvVar
-    =
-      -- 30 s, against the request path's 5 s default. A batch job may wait for the
-      -- verified core; an interactive request may not. This is the flag whose absence
-      -- from `leanTenants` is deliberate — see the note at LEAN_MATCH.
-      { name = "LEAN_CALL_TIMEOUT_MS", value = lit "30000" }
 
 let tmpVolume
     : List T.Volume
@@ -182,302 +177,6 @@ let decodeFlags
       , { name = "USE_SEGMENT_EVIDENCE", value = lit "1" }
       , { name = "USE_CHAIN_CONTEXT", value = lit "1" }
       , { name = "USE_REACQUIRE_ROBUST_SPEED", value = lit "1" }
-      ]
-
-let leanTenants
-    : List T.EnvVar
-    =
-      -- The verified-Lean tenants, shared with the decode cron.
-      --
-      -- ⚠ SHARED BASE, NOT THE WHOLE ENV. The cron adds `LEAN_HSMM`,
-      -- `LEAN_STATIONCHAIN` and `LEAN_CALL_TIMEOUT_MS`; the auth pod adds
-      -- `WALK_BUILDING_ESCAPE`. Only what BOTH must agree on lives here — a list that
-      -- absorbed the extras would force one of them to carry a flag it does not want.
-      --
-      -- ⚠⚠ EVERY TENANT IS AT `solo` AS OF 2026-08-17. Lean alone: no TS arm, no
-      -- comparison, NO FALLBACK. Owner decision, quoted so nobody has to infer the
-      -- intent later: "let's go all in on lean. If there are issues, we'll fix them
-      -- forward. Lean is now our system."
-      --
-      -- ⚠ READ THE PER-FLAG PROSE BELOW AS HISTORY, NOT AS BEHAVIOUR. Each block describes
-      -- how its tenant reached `on`, and several say a bridge failure falls back to TS. That
-      -- WAS true at `on` and is FALSE at `solo`, where the bridge throws and there is nothing
-      -- behind it. Kept because the evidence trail is worth more than the tidiness.
-      --
-      -- What the ledger read over 08-10..08-16 at the flip (`lean-head-probe-1`):
-      --
-      --   EXACT, no divergence     head 7/7, gpsquality 7/7, biolabels 7/7, hsmm 7/7,
-      --                            kalman 5/5, passes 5/5, stationchain 5/5 (remainder
-      --                            NOT EXERCISED — 08-12 and 08-15 are near-empty days)
-      --   DIVERGING, adopted       match — UNEXPLAINED on 4 of 5 exercised days, each
-      --                            "1 IN SERVED OUTPUT", dev ≤0.01 m
-      --                            day   — 1 DIVERGED on 08-11, walkMatchedPath 1/8
-      --                            segments differ, worst 227.07 cm; episodes.points 1/10
-      --
-      -- ⚠ Those two divergences are now INVISIBLE, and that is solo's real cost rather than
-      -- the lost fallback: the comparison WAS the detector, and it is what got switched off.
-      -- `day`'s 227 cm is metres, not the sub-centimetre `match` case, and 08-11 is already
-      -- tracked as debt (health #749).
-      --
-      -- Reverting is one commit here plus one in kubes/health/k8s: `solo` -> `on`
-      -- restores both the TS arm and the ledger.
-      [ { -- Serve the verified Lean geometry passes on the request path
-          -- (docs/proposals/2026-07-verified-core-lean.md). `on` routes five
-          -- proved display passes — simplify, removeSpurs, trim, despike,
-          -- rejectSpikes — through the in-process bridge to verified_cli
-          -- (LEAN_CLI is set by the Dockerfile), serving the theorem-backed
-          -- output. Golden is 31/31 byte-identical to the pure-TS pipeline
-          -- under `on` (the golden corpus measures 2 accepted Douglas-Peucker
-          -- near-ties, which wash out downstream; the accepted manifest also
-          -- carries entries observed in production on days the corpus does not
-          -- cover), and any bridge failure falls back to TS
-          -- (swallow-over-wrong). "off"/unset reverts instantly.
-          --
-          -- Re-promoted shadow->on 2026-08-16, superseding the 2026-08-01
-          -- demotion, whose rule ("production output comes from TS while Lean
-          -- runs alongside as measurement") is the opposite of the current
-          -- direction. Evidence at the flip: all six ops — spikes, simplify,
-          -- spurs, trim, despike, splice — read `n/0f/0d` on every live day
-          -- 08-09..08-15, and an `on`-mode run decodes a day byte-identically
-          -- to the `shadow` run.
-          --
-          -- ⚠ `spikes` and `splice` only gained their A/B on 2026-08-16 (health
-          -- `bdea621`, `7c797e9`); before that they were the two UNCOMPARED ops
-          -- on the walk path. Their history is days, not months, so suspect them
-          -- first if this goes wrong.
-          --
-          -- ⚠ The request-path cost is NOT avoided by shadow, which runs both
-          -- arms synchronously through the in-process bridge — the Lean arm is
-          -- added latency on a cache miss either way. Measured over the 32-day
-          -- corpus, passes cost 1.0ms avg / 34ms max per call, which is free.
-          -- The matcher is not (276ms avg, 4.8s max), and LEAN_MATCH below pays
-          -- that, not this flag.
-          name = "LEAN_PASSES"
-        , value = lit "solo"
-        }
-      , { -- Verified Lean walk-matcher (qMatchWalkSegment). ROLLED BACK to
-          -- shadow 2026-07-31 after serving `on` since 2026-07-21.
-          --
-          -- The flip rested on "compare-match 185/185 bit-exact against the
-          -- BigInt twin". That number is real (191/191 today) but it measures
-          -- quant<->Lean — that serving Lean equals serving the twin. It says
-          -- nothing about float<->quant, i.e. how the twin differs from the TS
-          -- matcher production served before, and THAT is the set of legs whose
-          -- behaviour the flip changes. Those legs were never all signed off.
-          --
-          -- Measured on leg 71e5544efa614a06 (2026-07-30 09:40Z, King's Cross,
-          -- #398): the arms take different corridors for ~2 min, 120 m apart at
-          -- coarse vertex 13. The quant line sits 42.1 m from the GPS track at
-          -- p85, past matchImprovesDisplay's 40 m cap, so the gate returns
-          -- use=false and the leg falls back to RAW GPS — where the float arm
-          -- returned use=true and drew a matched line better on every measure
-          -- (off-network 3.5 vs 10.9 m, stray 16.5 vs 42.1 m, building
-          -- intrusion 169 vs 202 m). A coarse divergence is not display-only:
-          -- coarsePath feeds a keep/discard decision (#369).
-          --
-          -- RE-PROMOTED shadow->on 2026-08-11, against the condition this block
-          -- set for itself: green AND wired into a gate. Both now hold.
-          -- `compare-match --gate` runs in deploy.sh (#9) and prints GATE GREEN
-          -- over 35 days / 208 legs / 28 deltas, each signed off on all three
-          -- axes a leg can move in (#401). 71e5544efa614a06 — the leg this
-          -- rollback was measured on — is bit-clean since #406.
-          --
-          -- What is NOT claimed: that a live day cannot still surprise us. That
-          -- leg served for ten days before anyone looked, on a day the corpus
-          -- does not contain, and the gate is evidence about the corpus. What
-          -- changed is that the same class of divergence now fails a deploy
-          -- instead of accumulating unread.
-          --
-          -- ⚠ NO `LEAN_CALL_TIMEOUT_MS` ON THE REQUEST PATH, by design — the
-          -- interactive path must never stall a request, so the 5 s default
-          -- stands while the cron carries 30 s. The matcher's heaviest measured
-          -- leg is 4838 ms, 97% of that ceiling, so expect occasional timeouts
-          -- falling back to TS under load. Warned and ledgered, and harmless:
-          -- the two arms' lines differ by <=0.14 m across the whole corpus, so
-          -- a fallback draws an imperceptibly different pavement line, not a
-          -- different route. This is why the timeout is NOT in this shared list.
-          name = "LEAN_MATCH"
-        , value = lit "solo"
-        }
-      , { -- Verified Lean rail shortest path (Verified.Rail.dijkstraC, proved
-          -- correct AND complete).
-          --
-          -- On the server this fires only on the miss-driven route-cache fill
-          -- for a first-seen route (rail-route-fill.ts, #363) — the railSnap
-          -- pass itself is an indexed cache lookup. Bulk volume is in
-          -- 07-rail-refresh.yaml, which prints the ledger.
-          --
-          -- PROMOTED shadow->on 2026-08-06 (#432). The soak this asked for came
-          -- from 07-rail-refresh, where the volume is: EXACT over 28 calls in a
-          -- 21-day window, 0 failures.
-          name = "LEAN_RAIL"
-        , value = lit "solo"
-        }
-      , { -- Verified Lean GPS Kalman filter
-          -- (Verified.Geo.Kalman.filterGpsTrack). It runs on every velocity
-          -- compute; golden 32/32 byte-identical, truth 295 held, walk ratchet
-          -- 0/0/0/0, decoder scoreboard OK, ~7 ms median per compute (~1% of a
-          -- run).
-          --
-          -- It is the first tenant with a genuinely non-zero divergence class.
-          -- Lean's `Float.cos` and V8's `Math.cos` disagree by 1 ULP on ~7.6%
-          -- of real latitudes, `metersToDegreesLon` calls `cos`, and the
-          -- covariance recursion carries that into `lon` on ~0.5% of rows
-          -- (femtometres — far under the 1e-7° display grid). Two libms cannot
-          -- be reconciled, so the per-day `lean-kalman[...]` ledger grades
-          -- EXACT / ULP / DIVERGED and reserves DIVERGED for the thing no ULP
-          -- story explains: the two arms keeping DIFFERENT fixes.
-          --
-          -- PROMOTED shadow->on 2026-08-06 (#432) after a 9-day soak
-          -- (07-26..08-03) reading 9/9 clean — 4 EXACT, 5 in the ULP band,
-          -- bearing <=5.7e-14 deg, ZERO length diffs, and no swallowed bridge
-          -- failure on any tenant in the window. The one open item,
-          -- `+1 stationary-bearing` on 08-03, is #394 — a fabricated heading at
-          -- speed 0 that BOTH arms emit, so it is not a divergence.
-          name = "LEAN_KALMAN"
-        , value = lit "solo"
-        }
-      , { -- Verified Lean GPS quality pre-filter
-          -- (Verified.Geo.GpsQuality.qualityFilterGps) — the incoherent-run
-          -- dropper that runs one call ABOVE the Kalman filter.
-          --
-          -- Unlike the tenants above it this one has an EXACT gate rather than
-          -- a bounded-ULP one, and the reason is structural: the filter is
-          -- drop-only. Every fix it emits is a copy of an input fix, never a
-          -- computed value. Inputs cross the bridge as IEEE bit patterns, so
-          -- both arms select from bit-identical candidates and `cos` reaches
-          -- only the threshold comparisons. `compare-gpsquality` is 32/32 days
-          -- agreeing exactly on the keep-set.
-          --
-          -- So the ledger has TWO levels, not three: there is no expected
-          -- divergence class to grade, and anything other than EXACT is a
-          -- DECISION flip — the two arms disagreeing about whether a run is
-          -- garbage. If one appears, adjudicate which arm is right; do not
-          -- widen the verdict to quiet it.
-          --
-          -- PROMOTED shadow->on 2026-08-06 (#432). EXACT every day it was seen
-          -- across the 9-day window, 0 failures.
-          name = "LEAN_GPSQUALITY"
-        , value = lit "solo"
-        }
-      , { -- Verified Lean biometric label rewrites
-          -- (Verified.Geo.BiometricLabels) — the four velocity passes that let
-          -- the step counter overrule what GPS decided about a segment's mode:
-          -- cadenceCorrect, revertIsolatedCadence, jitterWalkToStay,
-          -- walkThrough. Four passes behind one flag because they are one port
-          -- of one TS module, and splitting them would mean four soaks of a
-          -- surface that shares every threshold. Five CALL SITES, since
-          -- revertIsolatedCadence runs twice — before and after the rail
-          -- annotators — and both are served.
-          --
-          -- EXACT gate, like LEAN_GPSQUALITY and for a related reason: every
-          -- output is a discrete label, an index, or a `toFixed` rendering —
-          -- never a fresh real. The reason strings go through
-          -- Verified.JsNum.toFixed, which implements the ECMA-262 rounding rule
-          -- against the double's exact binary value, so even the formatted
-          -- numbers are compared exactly rather than to a tolerance.
-          --
-          -- The one place a libm difference could reach a decision is the
-          -- stay-extent veto in correctStationaryWalkThrough — a haversine max
-          -- against an 80 m threshold — and only for a segment whose extent
-          -- sits within 1 ULP of exactly 80 m.
-          --
-          -- PROMOTED shadow->on 2026-08-06 (#432). EXACT every day it was seen,
-          -- 5 calls/day (one per call site), 0 failures.
-          name = "LEAN_BIOLABELS"
-        , value = lit "solo"
-        }
-      , { -- The verified pipeline HEAD: `snapToPlace` and `classifySegments`,
-          -- the two TS algorithm steps between the raw fixes and `segsRaw` —
-          -- which is the day fold's ONLY input (health #975):
-          --
-          --   raw -> gpsquality (Lean) -> snapToPlace -> kalman (Lean)
-          --       -> classifySegments -> segsRaw -> LEAN_DAY
-          --
-          -- Two ops behind one flag, as LEAN_PASSES carries six: one stage, staged
-          -- together. Splitting them would allow a half-ported head.
-          --
-          -- ⚠ THIS IS WHAT `LEAN_DAY=solo` WAS BLOCKED ON. With the head in TS, the
-          -- fold's own request is built from TS intermediates, so retiring the day's
-          -- TS arm would remove the thing computing the fold's inputs.
-          --
-          -- EXACT gate, like LEAN_GPSQUALITY. Inputs cross as IEEE bit patterns, and
-          -- `snapToPlace` emits either the input coordinates or a centroid copied
-          -- from the place list — nothing computed reaches its output, so a
-          -- divergence is a DECISION flip about whether to snap. `classifySegments`
-          -- does compute, through `rangeScore`'s `exp`, but its outputs are pinned
-          -- bit-for-bit by Segments.lean's guards against the production TS.
-          --
-          -- Promoted shadow->on 2026-08-17 on 35/35 byte-identical golden days plus a
-          -- live ledger reading EXACT on 7 real days, 14 calls, 0 bridge failures.
-          --
-          -- ⚠ HOW MUCH SOAK THAT ACTUALLY WAS, because the line above is the kind
-          -- that gets quoted later as if it meant more. The 7 days came from ONE
-          -- AD-HOC job, not the 06:00 schedule — the flag landed after that morning's
-          -- run, so this never saw a scheduled night in shadow — and they are the
-          -- decode-recent window, already covered by the golden corpus rather than
-          -- independent of it. The stricter "let it run a few scheduled nights, so
-          -- the evidence includes days nobody chose" was traded away knowingly.
-          --
-          -- What makes that cheap rather than brave: `on` runs BOTH arms and records
-          -- the comparison, a `LeanBridgeError` falls back to TS and counts a
-          -- failure, and the flag flips back in one commit. Worst case is one
-          -- re-decodable day.
-          name = "LEAN_HEAD"
-        , value = lit "solo"
-        }
-      , { -- The 38-pass day cascade, served from the Lean fold — on the request
-          -- path AND in `decode-day`, which is why it lives here now rather
-          -- than in the decode job alone.
-          --
-          -- ⚠ IT USED TO SAY THE OPPOSITE: "belongs to the writing job and has
-          -- no business on the request path". That reading split on WRITES —
-          -- the cron persists to `decoded_days` and the API does not — and
-          -- that is the wrong axis. `/api/velocity` recomputes the whole
-          -- cascade on a cache miss (routes/api.ts), so the request path was
-          -- already running these 38 passes; it was running the TS copy.
-          --
-          -- `solo` and not `on`, on a path where a user is waiting:
-          --
-          --   * `on` protects against the FOLD being wrong, not against the
-          --     BRIDGE dying. LEAN_HEAD is already `solo` here, so a dead
-          --     bridge already fails the request — `on` buys no availability
-          --     this path does not already lack.
-          --   * What `on` costs is the TS arm staying alive. `solo` skips
-          --     ~1,340 lines of it, and deleting those is what health #975 is.
-          --   * The fold being wrong is the class the corpus closes: 42/42
-          --     golden days byte-identical between the arms on 2026-08-18 —
-          --     not "differences we explained", none — over a corpus that now
-          --     runs past 2026-08-06 on seven live days captured with the TS
-          --     arm, so each `expected` is the TS answer.
-          --
-          -- ⚠ WHAT `solo` GIVES UP, which is not nothing: no TS fallback, no
-          -- ledger, and no segment-count cross-check against a second arm. A
-          -- failed round loop is a FAILED DAY — here a failed request, not a
-          -- re-runnable job.
-          --
-          -- ⚠ Bounded by `LEAN_DAY_TIMEOUT_MS` (health `3686a0d`), which
-          -- defaults to 60 s PER ROUND where the corpus needs 2-8. That number
-          -- was sized for a CronJob where nobody is watching; nobody has sized
-          -- it for a request. It is the known exposure of this flip — #424,
-          -- the bridge call has been seen to deadlock at 0% CPU.
-          --
-          -- The cron reached `on` on 2026-08-16 by ATTRIBUTION rather than by
-          -- a fix: of seven live days five were EXACT and both differences
-          -- were cosmetic and understood — extra vertices in DRAWN geometry
-          -- with the route unchanged (health #749), and a spatially identical
-          -- line differing in vertex timestamps only (the #956 class).
-          --
-          -- ⚠ Rolling back to `on`/`shadow` brings the ledger back, and with
-          -- it a trap: the old "expected noise" reading — 29 of 35 corpus days
-          -- differ in segment statistics, so a divergence means nothing — is
-          -- RETIRED. A `DIVERGED` line is signal.
-          --
-          -- Rollback is this word. Neither `on` nor `shadow` undoes a row
-          -- already persisted; that is overwritten on the next decode.
-          name = "LEAN_DAY"
-        , value = lit "solo"
-        }
       ]
 
 in  T.namespaceOf
@@ -596,7 +295,6 @@ in  T.namespaceOf
                 , value = lit "1"
                 }
               ]
-            # leanTenants
         , probeTiming =
             -- Readiness is the live tree's own 3/10 rather than
             -- `T.standardTiming`'s 5/10: it is behind an Ingress with no
@@ -657,16 +355,15 @@ in  T.namespaceOf
             }
           ]
         , tasks =
-            -- The six recurring jobs. `dbEnv` is every task's floor — all of them
+            -- The recurring jobs. `dbEnv` is every task's floor — all of them
             -- read and write the same database — and the extras are per task.
             --
             -- ⚠ The two one-shot Jobs in the live tree (`health-decode-backfill-v7`,
             -- `health-decode-redecode-20260731`) are NOT here and should not be. A
             -- Job's spec is immutable, so re-rendering one with today's flags makes
             -- `apply` fail rather than update; their names encode a run rather than
-            -- a service; and `backfill-v7` still carries the pre-2026-08-06 env with
-            -- no LEAN_* tenants at all, which is a record of how that run decoded
-            -- and NOT a policy anything should reproduce. They are spent, and
+            -- a service; and `backfill-v7`'s env is a record of how that run
+            -- decoded and NOT a policy anything should reproduce. They are spent, and
             -- retiring them is a decision about the cluster, not about the model.
             [ { -- Every 15 min so Fitbit data (esp. sleep, which Fitbit only
                 -- finalizes after you wake) appears within ~15 min instead of up to
@@ -791,12 +488,7 @@ in  T.namespaceOf
               , rootFs = T.RootFs.ReadOnly
               , volumes = tmpVolume
               , mounts = tmpMount
-              , env =
-                    [ { name = "LEAN_RAIL", value = lit "solo" }
-                    , leanCallTimeout
-                    ]
-                  # dbEnv
-                  # ncEnv
+              , env = dbEnv # ncEnv
               , resources = batchResources
               }
             , { name = "health-bus-refresh"
@@ -883,33 +575,7 @@ in  T.namespaceOf
               , rootFs = T.RootFs.ReadOnly
               , volumes = tmpVolume
               , mounts = tmpMount
-              , env =
-                    dbEnv
-                  # ncEnv
-                  # decodeFlags
-                  # [ { -- The verified Lean trellis SERVES the decode as of
-                        -- 2026-08-16, with a TS fallback on bridge failure.
-                        --
-                        -- Flipped on the longest shadow record in the system:
-                        -- `lean-hsmm[shadow] … EXACT` on every live day, 35/35
-                        -- on the corpus, and the float↔quant twin at 100.00%
-                        -- with scoreΔ 0.00e+0.
-                        --
-                        -- `on` does NOT stop the A/B — both arms still run and
-                        -- the ledger still prints, so a regression stays visible
-                        -- rather than becoming invisible at the moment it starts
-                        -- being served. That is also why the flip costs no
-                        -- memory and no wall-clock.
-                        --
-                        -- Rollback is this word: back to `shadow` and the TS
-                        -- decode serves again on the next run.
-                        name = "LEAN_HSMM"
-                      , value = lit "solo"
-                      }
-                    , { name = "LEAN_STATIONCHAIN", value = lit "solo" }
-                    ]
-                  # leanTenants
-                  # [ leanCallTimeout ]
+              , env = dbEnv # ncEnv # decodeFlags
               , resources = decodeResources
               }
             , { name = "health-rail-stops-refresh"
