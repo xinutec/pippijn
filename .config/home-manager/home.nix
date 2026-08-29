@@ -79,10 +79,21 @@ in {
   programs.ssh = {
     enable = true;
 
-    extraConfig = ''
-      IdentityFile ~/.ssh/id_ed25519
-      IdentityFile ~/.ssh/id_rsa
-    '';
+    # ⚠ NO GLOBAL `IdentityFile`. It used to name `~/.ssh/id_ed25519` and
+    # `~/.ssh/id_rsa` — the RETIRED `pippijn@xinutec.org` pair, deleted from this
+    # repo 2026-08-29 (health #1250) because a keypair whose private half was
+    # published does not belong in a public checkout.
+    #
+    # Nothing replaces the lines, deliberately: naming NO identity restores
+    # OpenSSH's built-in list, which already contains `~/.ssh/id_ed25519`. An
+    # explicit `IdentityFile` REPLACES that list rather than adding to it
+    # ([[reference_identityfile_replaces_the_default_list]]), so the old lines
+    # were narrowing the search to two keys and one of them no longer exists.
+    #
+    # Checked before removing, on the Mac: the live key is
+    # `SHA256:W+Hnhg9k…` (`pippijn@Mac.communityfibre.co.uk`), which is NOT the
+    # pair this repo tracked (`SHA256:zO4GK9lb…`). `ssh -v root@isis` offers and
+    # authenticates with the live one.
 
     matchBlocks = {
       "*" = {
@@ -157,8 +168,12 @@ in {
     initContent = ''
       unsetopt beep                   # don't beep, ever
       setopt hist_reduce_blanks       # remove superfluous blanks
-      chmod 0600 $HOME/.ssh/id_ed25519 $HOME/.ssh/id_rsa
-      keychain id_ed25519 id_rsa
+      # ⚠ The retired `pippijn@xinutec.org` pair used to be chmod'ed and loaded
+      # here at EVERY shell start. Deleted with the keys (health #1250); a
+      # `chmod` of an absent file would error on every prompt on every host.
+      # `keychain` with no key names still loads the agent and writes the file
+      # sourced below.
+      keychain --quiet
       . .keychain/${sys.networking.hostName}-sh
 
       # Fix some permissions in case they went wrong after git clone
