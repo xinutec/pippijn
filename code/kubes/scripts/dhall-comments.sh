@@ -13,16 +13,18 @@
 # every test was green, and the loss was found by eye. de509130 restored it from
 # a three-way merge the same day.
 #
-# The threshold is measured, not guessed. Across all 118 commits touching
-# `code/kubes/dhall`, deliberate comment culls lose at most 15% of a file
-# (34906949, "comments: cut narration, keep the trap", 8%). The formatter took
-# 87%, 64% and 57% of three files in one commit. 50% separates them with nothing
-# in between.
+# The threshold is ANY DROP, and it got there by being wrong once. It started at
+# 50%, which was measured: across all 118 commits touching `code/kubes/dhall`,
+# deliberate culls lose at most 15% of a file (34906949, 8%) while the formatter
+# took 87%, 64% and 57% of three files in one commit, so 50% separated them with
+# nothing in between. Then dcc155ec moved every doc block below its `let`'s `=`
+# and the hazard fell from 46% of the tree to 4% — which sails under a 50% bar. A
+# guard sized to a hazard that has since shrunk is not a guard. See `LOSS_PCT`.
 #
-# ⚠ This does not make the tree safe to format — moving every `let`-attached
-# block below its `=` still loses 52% of types.dhall, because a comment trailing
-# a field or inside a list has no surviving position at all. The rule remains
-# "do not run dhall format here". This is the net under it.
+# ⚠ This does not make the tree safe to format. It costs 4% now rather than 46%,
+# but a comment trailing a field or inside a `<A | B>` union has no surviving
+# position at all, so the rule remains "do not run dhall format here". This is
+# the net under it.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"

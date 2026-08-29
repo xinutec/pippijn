@@ -66,14 +66,15 @@ in  { name = "pippijn"
             rendered YAML. Found by eye; restored by three-way merge the same day
             in de509130.
 
-            The 50% threshold is measured against all 118 commits touching the
-            tree: deliberate culls lose at most 15% of a file, the formatter took
-            87%. Nothing sits between.
+            The threshold is any drop at all, with `DHALL_COMMENTS_OK=1` as the
+            escape. It was 50% — measured, and correct while formatting the tree
+            cost 46% of its comments. dcc155ec moved every doc block below its
+            `let`'s `=` and brought that to 4%, which passes a 50% bar. The
+            script's own header carries the reasoning.
 
             ⚠ It does not make the tree formattable — a comment trailing a field
-            or inside a list has no position that survives, so moving every
-            `let`-attached block below its `=` still loses half of types.dhall.
-            The rule is still "do not format here"; this is the net under it.
+            or inside a union has no position that survives. The rule is still
+            "do not format here"; this is the net under it.
         -}
         G.Check::{
         , name = "the dhall model keeps its comments"
