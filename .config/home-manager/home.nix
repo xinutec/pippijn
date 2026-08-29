@@ -178,7 +178,17 @@ in {
 
       # Fix some permissions in case they went wrong after git clone
       # and decrypt. `creb` rebuilds it.
-      chmod 0600 $(cat .git-crypt/cache)
+      #
+      # ⚠ SKIP WHAT IS NOT THERE. The cache is DERIVED from `.gitattributes` and
+      # goes stale the moment an encrypted file is added or removed — deleting
+      # the retired keypairs (health #1250) left `.ssh/id_rsa` listed in it, and
+      # a bare `chmod 0600 $(cat …)` then printed `cannot access` on EVERY
+      # PROMPT on every host. A file that does not exist needs no permissions,
+      # so skipping it is correct rather than a mask; and `creb` cannot be the
+      # answer on isis or amun, where git-crypt is not installed.
+      for f in $(cat .git-crypt/cache 2>/dev/null); do
+        [ -e "$f" ] && chmod 0600 "$f"
+      done
 
       # XXX: set this again, because something is overriding it.
       # TODO: remove once I figure out why.
