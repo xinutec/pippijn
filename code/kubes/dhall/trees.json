@@ -1,0 +1,19 @@
+{
+  "coach": "coach/k8s",
+  "fleetwatch": "fleetwatch/k8s",
+  "health": "health/k8s",
+  "home": "home/k8s",
+  "ircd": "ircd/k8s",
+  "life": "life/k8s",
+  "memview": "memview/k8s",
+  "messages": "messages/k8s",
+  "observe": "observe/k8s",
+  "recall": "recall/k8s",
+  "scanner": "scanner/k8s",
+  "signal": "signal/k8s",
+  "tasks": "tasks/k8s",
+  "utterance": "utterance/k8s",
+  "vps-pippijn": "vps/irssi/k8s/pippijn",
+  "vps-simon": "vps/irssi/k8s/simon",
+  "web": "web/k8s"
+}

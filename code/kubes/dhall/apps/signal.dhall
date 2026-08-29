@@ -152,6 +152,7 @@ in  { name = "signal"
     , labels = [] : T.Labels
     , unowned = [] : List T.Unowned
     , acme = None T.AcmeDelegation
+    , tree = None Text
     , placement = T.on T.Cluster.isis
     , db = Some
       { dbName = "signal"

@@ -130,6 +130,27 @@ let clusterHosts
     = λ(ns : T.Namespace) →
         L.map T.Cluster Text hostOf (T.placedOn ns.placement)
 
+let treeOf
+    : Text → T.Namespace → Text
+    =
+      --| Where this namespace's LIVE manifests sit, relative to `kubes/`.
+      --
+      -- ⚠ Renders NO manifest byte. It is rendered into `trees.json` for
+      -- `plan-run deploy`, which used to compute `<app>/k8s` unconditionally
+      -- and therefore could not reach either irssi namespace (#1262). The
+      -- default is that shape; `ns.tree` is the exception, stated once in the
+      -- model rather than in `generate.sh`'s bash.
+      --
+      -- ⚠ THE DEFAULT KEYS ON THE FILE LEAF, NOT `ns.name`, and they are not
+      -- the same: `apps/messages.dhall` declares the namespace `signal` and
+      -- deploys from `messages/k8s`. Using `ns.name` produced `signal/k8s` for
+      -- messages — a wrong tree for a working app, which the generated file
+      -- showed on its first render. Dhall cannot see its own filename, so the
+      -- leaf is passed in by whoever knows it.
+      λ(leaf : Text) →
+      λ(ns : T.Namespace) →
+        merge { None = "${leaf}/k8s", Some = λ(t : Text) → t } ns.tree
+
 let k8sResources
     : T.Resources → K.Resources
     =
@@ -2091,6 +2112,7 @@ in  { storageWaiver
     , mariadbVersion
     , secretName
     , clusterHosts
+    , treeOf
     , hostOf
     , hasDb
     , hasAppliedNetpol

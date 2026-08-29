@@ -102,6 +102,7 @@ in  { name = "signal"
         }
       ]
     , acme = None T.AcmeDelegation
+    , tree = None Text
     , placement = T.on T.Cluster.isis
     , -- It reads signal's. The `sessions` table it owns is created on boot in
       -- that same database, which is why there is no second one to declare.

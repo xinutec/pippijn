@@ -55,6 +55,13 @@ in  λ ( who
       { name = "vps-${who.user}"
       , owner = T.Owner.Own
       , labels = [] : T.Labels
+      , -- ⚠ THE EXCEPTION, STATED ONCE. These two namespaces are two
+        -- deployments of ONE image, so their manifests live beside the source
+        -- they deploy rather than in two top-level directories that would
+        -- separate them from it. `generate.sh` knew this and `plan-run deploy`
+        -- did not, so the model checked a tree the deployer could not reach
+        -- (#1262).
+        tree = Some "vps/irssi/k8s/${who.user}"
       , placement = T.on T.Cluster.amun
       , db = None T.Database
       , configMap = None T.ConfigMapDoc

@@ -56,5 +56,6 @@ in  { name = "web"
       netpol = T.Netpol.Unpoliced
     , unowned = [] : List T.Unowned
     , acme = None T.AcmeDelegation
+    , tree = None Text
     }
     : T.Namespace

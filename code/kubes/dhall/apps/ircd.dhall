@@ -57,6 +57,7 @@ in  { name = "ircd"
         , "rather than served here. Nothing else on this hostname is routed."
         ]
       }
+    , tree = None Text
     , workloads =
       [ T.Workload::{
         , name = "inspircd"

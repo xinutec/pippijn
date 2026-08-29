@@ -90,11 +90,13 @@ app_tree() { # app -> its live manifest directory, relative to kubes/
   # Splitting them was chosen over making every renderer list-valued (which would
   # touch all 17 trees) or teaching `compare` per-file ownership (which would
   # weaken the check that caught the ircd cert drift on 2026-07-27).
-  case $1 in
-    vps-pippijn) printf 'vps/irssi/k8s/pippijn' ;;
-    vps-simon) printf 'vps/irssi/k8s/simon' ;;
-    *) printf '%s/k8s' "$1" ;;
-  esac
+  # ⚠ READ FROM THE MODEL, not from a case statement here. The exception used
+  # to live in this function and nowhere else, so `plan-run deploy` — which
+  # cannot read this repository — composed `<app>/k8s` unconditionally and could
+  # not reach either irssi namespace (#1262). `trees.json` is rendered below and
+  # is what both sides read now. Proved identical to the case statement it
+  # replaced, for all 17 apps, before that was deleted.
+  jq -r --arg a "$1" '.[$a] // ($a + "/k8s")' "$here/trees.json"
 }
 
 # ⚠ A FAILED `ask` IS WORSE THAN A FAILED RENDER, and needs its own mechanism.
@@ -813,6 +815,36 @@ clusters_expr() {
   printf '\n}\n'
 }
 
+# ── trees.json: where each app's LIVE manifests sit, as DATA ────────────────
+#
+# ⚠ SAME ARGUMENT AS clusters.json, and the same failure it avoids. `plan-run
+# deploy` composed `<repo>/<app>/k8s` unconditionally, so it could not reach
+# either irssi namespace — `deploy.sh vps-simon` died on a directory that does
+# not exist (#1262). The mapping existed, in `app_tree()` below, in bash, in a
+# repository the plan cannot read. A second copy in the plan's own tables would
+# be two sources of truth for a question that already has one, which is the
+# failure #692 was.
+#
+# Apps only: sites have no exception today, and inventing a field they do not
+# use would be a claim nobody checks.
+trees_expr() {
+  local first=1 leaf
+  printf 'let R = %s/lib/render.dhall\nin  toMap\n{ ' "$here"
+  for src in "$here"/apps/*.dhall; do
+    leaf=$(basename "$src" .dhall)
+    (( first )) || printf '\n, '
+    first=0
+    printf '%s = R.treeOf "%s" %s/apps/%s.dhall' "$leaf" "$leaf" "$here" "$leaf"
+  done
+  printf '\n}\n'
+}
+
+trees_rendered=$(trees_expr | dhall-to-json 2>"$render_err") || {
+  printf 'generate.sh: the app -> tree map did not evaluate:\n' >&2
+  cat "$render_err" >&2
+  exit 1
+}
+
 clusters_rendered=$(clusters_expr | dhall-to-json 2>"$render_err") || {
   printf 'generate.sh: the app -> cluster map did not evaluate:\n' >&2
   cat "$render_err" >&2
@@ -821,7 +853,14 @@ clusters_rendered=$(clusters_expr | dhall-to-json 2>"$render_err") || {
 
 if [[ $mode == write ]]; then
   printf '%s\n' "$clusters_rendered" > "$here/clusters.json"
+  printf '%s\n' "$trees_rendered" > "$here/trees.json"
 else
+  if ! printf '%s\n' "$trees_rendered" | diff -u "$here/trees.json" - > "$tmp/trees.diff" 2>/dev/null; then
+    printf 'generate.sh: trees.json is stale — the model says otherwise.\n' >&2
+    printf 'Run ./generate.sh to update it; plan-run deploy reads this file.\n' >&2
+    sed 's/^/   /' "$tmp/trees.diff" >&2
+    status=1
+  fi
   # Committed, so `--check` compares against the file rather than re-deriving
   # it: the question this row answers is whether what the OTHER repository reads
   # still matches the model, and re-deriving both sides could not answer it.

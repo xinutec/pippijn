@@ -1185,6 +1185,21 @@ let Namespace =
       , labels : Labels
       , unowned : List Unowned
       , acme : Optional AcmeDelegation
+      , {-| Where this namespace's LIVE manifests sit, relative to `kubes/`,
+            when it is not `<name>/k8s`. `None` means the ordinary shape.
+
+            ⚠ **This is read by `plan-run deploy`, not by any renderer** — it
+            changes no manifest byte. It exists because the exception used to
+            live only in `generate.sh`'s `app_tree()` bash case, so the model
+            CHECKED trees the deployer could not reach: `deploy.sh vps-simon`
+            died on a directory that does not exist (#1262).
+
+            The same argument as `clusters.json`: a second copy of the mapping
+            in the plan's own tables would be two sources of truth for a
+            question that already has one, which is the failure #692 was. So
+            the model states it and the plan reads what the model renders.
+        -}
+        tree : Optional Text
       }
 
 let App =
@@ -1276,6 +1291,9 @@ let namespaceOf
               , labels = [] : Labels
               , unowned = [] : List Unowned
               , acme = None AcmeDelegation
+              , -- An app's tree IS `<name>/k8s`; only a namespace written
+                -- directly can need otherwise.
+                tree = None Text
               , claims
               , workloads =
                 [   a.workload
