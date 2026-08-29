@@ -34,7 +34,24 @@ let storage =
       , chown = T.FsGroupChange.Always
       }
 
-in  λ(who : { user : Text, hostPort : Natural }) →
+in  λ ( who
+        : { user : Text
+          , hostPort : Natural
+          , -- ⚠ NOT cosmetic, and not a permanent difference. `vps-pippijn`
+            -- carries a liveness probe and `vps-simon` does not, because
+            -- adding one edits the POD TEMPLATE and therefore rolls a bouncer
+            -- holding live IRC sessions — and an idle bouncer is the worst
+            -- window to do it in, since nobody is attached to log the IRC
+            -- identities back in.
+            --
+            -- So the difference is MODELLED rather than closed, which is the
+            -- rule `vps-pippijn` set: the model does not get to charge a
+            -- restart for tidiness. Giving simon the probe is a deliberate
+            -- cluster change for a window when Simon IS attached, and it is
+            -- one line here plus one apply — not a modelling problem.
+            liveness : Optional { initialDelaySeconds : Natural, periodSeconds : Natural }
+          }
+      ) →
       { name = "vps-${who.user}"
       , owner = T.Owner.Own
       , labels = [] : T.Labels
@@ -104,7 +121,7 @@ in  λ(who : { user : Text, hostPort : Natural }) →
             -- than having no liveness probe at all.
             probeTiming =
             { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
-            , liveness = Some { initialDelaySeconds = 30, periodSeconds = 10 }
+            , liveness = who.liveness
             }
           , resources =  Some
             { requests = { cpu = "10m", memory = "64Mi" }

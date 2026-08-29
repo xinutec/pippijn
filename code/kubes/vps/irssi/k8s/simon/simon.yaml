@@ -25,6 +25,10 @@ metadata:
   namespace: vps-simon
   name: irssi
 spec:
+  # Explicit because the model states it. Kubernetes defaults to 1 anyway, and
+  # replicas lives in spec rather than spec.template, so adding it is an apply
+  # with NO rollout — unlike anything inside the pod template.
+  replicas: 1
   selector:
     matchLabels:
       run: irssi
