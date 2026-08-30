@@ -597,12 +597,28 @@ let redirect
     =
       --| Redirect-only hosts, rendered to their OWN file.
       --
-      -- ⚠ Not decoration: `nginx.ingress.kubernetes.io/permanent-redirect` is
-      -- validated as a URL by the ingress admission webhook, and `$request_uri` is not
-      -- one — so a redirect carrying it is REFUSED on apply even though an identical
-      -- object created before the webhook gained that check is still running. Keeping
-      -- these in a separate manifest means one un-appliable document cannot block the
-      -- site it sits beside. See task #692.
+      -- ⚠ **NO `$request_uri`, and that is the whole point.**
+      -- `nginx.ingress.kubernetes.io/permanent-redirect` is validated as a URL by
+      -- the ingress admission webhook, and `$request_uri` is not one. amun runs
+      -- ingress-nginx v1.9.4, which does not check; isis runs v1.15.1, which
+      -- REFUSES:
+      --
+      --     admission webhook "validate.nginx.ingress.kubernetes.io" denied the
+      --     request: annotation nginx.ingress.kubernetes.io/permanent-redirect
+      --     contains invalid value
+      --
+      -- So carrying it meant a manifest that worked exactly where it already was
+      -- and could not move — and moving amun's workloads to isis is a plan, not a
+      -- hypothetical. Dropped 2026-08-30 (#692).
+      --
+      -- The cost is that `xinutec.org/<path>` now lands on the site ROOT rather
+      -- than the same path. Checked before changing it, not assumed: a grep for
+      -- `https://xinutec.org/<path>` across the fleet finds NOTHING — every hit
+      -- for "xinutec.org/" is a SUBDOMAIN (`nextcloud.xinutec.org/…`), which this
+      -- redirect never sees.
+      --
+      -- These still render to their OWN file, so one un-appliable document cannot
+      -- block the site it sits beside.
       λ(site : Site) →
         let issuer = toMap { `cert-manager.io/cluster-issuer` = "letsencrypt-prod" }
 
@@ -629,7 +645,7 @@ let redirect
                           (   issuer
                             # toMap
                                 { `nginx.ingress.kubernetes.io/permanent-redirect` =
-                                    "https://${r.to}\$request_uri"
+                                    "https://${r.to}"
                                 }
                           )
                     , spec =
