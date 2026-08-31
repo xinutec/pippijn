@@ -1,12 +1,16 @@
+# GENERATED from dhall/apps/vaultwarden.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: vaultwarden-data
+  name: "vaultwarden-data"
   namespace: vaultwarden
 spec:
   accessModes:
-    - ReadWriteOnce
-  storageClassName: local-path
+  - ReadWriteOnce
   resources:
     requests:
       storage: 5Gi
+  storageClassName: "local-path"

@@ -1,0 +1,76 @@
+# GENERATED from dhall/apps/vaultwarden.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+#
+# dev-lint: allow-unhardened — the alpine image's process runs as root; non-root additionally needs an fsGroup ownership migration of the live /data sqlite DB (currently 0777 root:root), which is a deliberate watched deploy of its own and must not ride along with this one
+# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vaultwarden
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: vaultwarden
+    spec:
+      containers:
+      - env:
+        - name: DOMAIN
+          value: "https://vault.xinutec.org"
+        - name: SIGNUPS_ALLOWED
+          value: 'false'
+        - name: INVITATIONS_ALLOWED
+          value: 'false'
+        - name: SHOW_PASSWORD_HINT
+          value: 'false'
+        - name: ADMIN_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: ADMIN_TOKEN
+              name: "vaultwarden-secret"
+        image: "vaultwarden/server:1.37.0-alpine"
+        name: vaultwarden
+        ports:
+        - containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /alive
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        volumeMounts:
+        - mountPath: /data
+          name: data
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: "vaultwarden-data"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+  selector:
+    app: vaultwarden

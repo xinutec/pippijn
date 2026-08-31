@@ -1,0 +1,29 @@
+# GENERATED from dhall/apps/vaultwarden.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    "cert-manager.io/cluster-issuer": "letsencrypt-dns"
+    "nginx.ingress.kubernetes.io/proxy-body-size": 128m
+  name: "vaultwarden-ingress"
+  namespace: vaultwarden
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: vault.xinutec.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: vaultwarden
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - vault.xinutec.org
+    secretName: "vaultwarden-tls"

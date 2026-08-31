@@ -13,6 +13,7 @@
   "signal": "signal/k8s",
   "tasks": "tasks/k8s",
   "utterance": "utterance/k8s",
+  "vaultwarden": "vaultwarden/k8s",
   "vps-pippijn": "vps/irssi/k8s/pippijn",
   "vps-simon": "vps/irssi/k8s/simon",
   "web": "web/k8s"

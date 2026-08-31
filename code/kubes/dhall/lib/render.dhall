@@ -1036,6 +1036,7 @@ let deploymentFor
               merge
                 { FsGroup = if anyClaim w then Some w.uid else None Natural
                 , EntrypointChowns = λ(_ : { why : Text }) → None Natural
+                , RunsAsRoot = λ(_ : { why : Text }) → None Natural
                 }
                 w.volumeOwnership
 
@@ -1531,10 +1532,20 @@ let ingressFor
                       , metadata =
                             meta (ingressNameOf ns) ns.name
                           ⫽ { annotations = Some
-                                ( toMap
-                                    { `cert-manager.io/cluster-issuer` =
-                                        T.issuerFor r.exposure
-                                    }
+                                (   toMap
+                                      { `cert-manager.io/cluster-issuer` =
+                                          T.issuerFor r.exposure
+                                      }
+                                  # merge
+                                      { None = [] : Annotations
+                                      , Some =
+                                          λ(size : Text) →
+                                            toMap
+                                              { `nginx.ingress.kubernetes.io/proxy-body-size` =
+                                                  size
+                                              }
+                                      }
+                                      w.maxBodySize
                                 )
                             }
                       , spec =

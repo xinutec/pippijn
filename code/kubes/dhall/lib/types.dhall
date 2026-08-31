@@ -644,8 +644,19 @@ let VolumeOwnership =
       -- hand-written YAML, and that is exactly how `RootFs`'s three reasons were lost
       -- when their file was generated away.
       --
+      -- ⚠ **A THIRD CAUSE, added 2026-08-31 for vaultwarden.** `EntrypointChowns` is
+      -- a claim about what the image DOES; borrowing it for a container that simply
+      -- runs as root would plant a false statement in the model, and the model is
+      -- worth having only because its statements are true. vaultwarden is
+      -- `Unhardened` root against a 0777 root-owned volume, so ownership is already
+      -- correct and an `fsGroup` would both add a field the live pod does not carry
+      -- and trigger a recursive chown of the vault's sqlite DB.
+      --
       -- `FsGroup` is the default, so all 15 existing workloads are unchanged.
-      < FsGroup | EntrypointChowns : { why : Text } >
+      < FsGroup
+      | EntrypointChowns : { why : Text }
+      | RunsAsRoot : { why : Text }
+      >
 
 let WorkloadType =
       --| A long-running container plus the Service in front of it.
@@ -675,6 +686,19 @@ let WorkloadType =
       , rootFs : RootFs
       , selector : Selector
       , volumeOwnership : VolumeOwnership
+      , {-| `nginx.ingress.kubernetes.io/proxy-body-size`, when the default 1m is
+            too small. `None` omits the annotation entirely.
+
+            ⚠ On the WORKLOAD rather than inside `Reach.Ingress`, for the reason
+            `volumeOwnership` is: a defaulted field costs the other workloads
+            nothing, where widening the union arm's record would make all ten
+            existing `Reach.Ingress` constructors name a value they do not care
+            about.
+
+            Added 2026-08-31 for vaultwarden, whose live Ingress carries `128m`
+            because Bitwarden clients' sync payloads exceed nginx's default.
+        -}
+        maxBodySize : Optional Text
       , -- Overrides what the image kind implies. `None` means "ask
         -- `pullPolicyFor`", which is right for every generated tree: a Fleet
         -- image names no policy and Kubernetes defaults `:latest` to `Always`.
@@ -762,6 +786,7 @@ let Workload =
         , readiness = None Readiness
         , tasks = [] : List ScheduledTask
         , volumeOwnership = VolumeOwnership.FsGroup
+        , maxBodySize = None Text
         , pullPolicy = None Text
         , containerName = None Text
         }
