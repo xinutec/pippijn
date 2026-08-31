@@ -81,8 +81,6 @@ spec:
           value: '1'
         - name: USE_REACQUIRE_ROBUST_SPEED
           value: '1'
-        - name: WALK_BUILDING_ESCAPE
-          value: '1'
         image: "xinutec/health-sync:latest"
         livenessProbe:
           initialDelaySeconds: 15

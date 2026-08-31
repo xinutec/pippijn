@@ -281,20 +281,19 @@ in  T.namespaceOf
                 }
               ]
             # decodeFlags
-            # [ { -- Building-escape walk corrector (case-based: route a drawn
-                  -- walk around building blocks it falsely crosses; leave
-                  -- genuine visits — doorsteps, hospitals, concourses — alone).
-                  -- Display-geometry only; measured on the 2026-07-01 fixture
-                  -- before enabling. ON by default in code since 2026-07-02 (an
-                  -- opt-in flag made local replays diverge from prod); "0" is
-                  -- the emergency off-switch, so the explicit "1" here is
-                  -- documentation, not activation.
-                  --
-                  -- NOT in `decodeFlags`: the cron does not carry it.
-                  name = "WALK_BUILDING_ESCAPE"
-                , value = lit "1"
-                }
-              ]
+            -- ⚠ `WALK_BUILDING_ESCAPE = "1"` STOOD HERE AND WAS REMOVED
+            -- 2026-08-31 (#1268). Its comment said "0" is the emergency
+            -- off-switch. That was FALSE: nothing read the variable. The
+            -- corrector's flag is a Lean `Flags` field
+            -- (`Verified.Geo.WalkAnnotate`) that no request populates and no
+            -- shell sets, so "0" would have changed nothing — and an operator
+            -- would have discovered that during the emergency.
+            --
+            -- Deleted rather than wired, deliberately: three sibling flags
+            -- (WALK_MATCH_DISABLE, WALK_RECON, WALK_REFINE_DISABLE) are equally
+            -- unwired and were never in this manifest, and a switch that has
+            -- never been exercised is not safety. The corrector itself is ON,
+            -- unconditionally, which is what it has always actually been.
         , probeTiming =
             -- Readiness is the live tree's own 3/10 rather than
             -- `T.standardTiming`'s 5/10: it is behind an Ingress with no
