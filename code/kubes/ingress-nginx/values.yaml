@@ -2,3 +2,22 @@
 controller:
   service:
     loadBalancerIP: "10.51.0.100"
+
+    # ⚠ **`Local` is what makes the client's real IP survive the hop into the
+    # cluster, and it is HALF a fix — the other half is Nextcloud's
+    # TRUSTED_PROXIES in nextcloud/nextcloud/nextcloud-server.yaml.** Either
+    # alone is worse than useless: this alone changes nothing Nextcloud can see,
+    # and widening trusted_proxies alone starts trusting a header that today
+    # carries a FAKE address.
+    #
+    # Under the default `Cluster`, k3s's klipper LB MASQUERADEs in the svclb pod,
+    # so every request reaches nginx as 10.42.0.x. Measured 2026-08-26: 584 of
+    # 584 requests from one address, and Nextcloud's brute-force counter is
+    # therefore ONE GLOBAL COUNTER — a single dead token 429s every other client.
+    #
+    # ⚠ **`Local`'s usual cost is traffic dropped on nodes with no controller
+    # pod, and that cost is ZERO here ONLY because isis is a single node**
+    # (re-verified 2026-08-31: one node, v1.35.6+k3s1, controller on isis).
+    # If isis ever gains a node, or amun serves this LB, this line starts
+    # dropping traffic on ingress-less nodes and the cause will not be obvious.
+    externalTrafficPolicy: Local
