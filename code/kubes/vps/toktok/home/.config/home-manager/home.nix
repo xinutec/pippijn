@@ -29,5 +29,13 @@ in
 
   home.packages = [
     claude-code-flake.packages.${system}.default
+
+    # The long-running processes in this container live in a multiplexer, and
+    # the thing that drives them is usually a program rather than a person at a
+    # keyboard. tmux is here for that side of it: `capture-pane -p` writes to
+    # stdout instead of to a file that then has to be read back, and it can read
+    # scrollback rather than only the visible window. screen stays installed --
+    # it comes from the shared home.nix this file imports, and .screenrc with it.
+    pkgs.tmux
   ];
 }
