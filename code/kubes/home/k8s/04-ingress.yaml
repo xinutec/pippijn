@@ -1,11 +1,10 @@
 # GENERATED from dhall/apps/home.dhall by dhall/generate.sh — do not edit.
 # Change the model and re-render; hand edits are overwritten.
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  annotations:
-    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
   name: "home-ingress"
   namespace: home
 spec:
@@ -21,7 +20,3 @@ spec:
               number: 80
         path: /
         pathType: Prefix
-  tls:
-  - hosts:
-    - home.xinutec.org
-    secretName: "home-tls"

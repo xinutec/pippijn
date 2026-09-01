@@ -5,7 +5,6 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   annotations:
-    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
     "nginx.ingress.kubernetes.io/permanent-redirect": "https://amun.xinutec.org"
   name: "xinutec-apex-redirect"
   namespace: web
@@ -22,7 +21,3 @@ spec:
               number: 80
         path: /
         pathType: Prefix
-  tls:
-  - hosts:
-    - xinutec.org
-    secretName: "xinutec-apex-tls"

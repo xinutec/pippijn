@@ -6,7 +6,6 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   annotations:
-    "cert-manager.io/cluster-issuer": "letsencrypt-dns"
     "nginx.ingress.kubernetes.io/proxy-body-size": 128m
   name: "vaultwarden-ingress"
   namespace: vaultwarden
@@ -23,7 +22,3 @@ spec:
               number: 80
         path: /
         pathType: Prefix
-  tls:
-  - hosts:
-    - vault.xinutec.org
-    secretName: "vaultwarden-tls"

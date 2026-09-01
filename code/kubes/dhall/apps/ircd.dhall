@@ -36,13 +36,16 @@ in  { name = "ircd"
     , netpol = T.Netpol.Unpoliced
     , acme = Some
       { host = "irc.xinutec.net"
-      , -- Public, and `issuerFor` turns that into `letsencrypt-prod`.
-        -- ⚠ THAT ANNOTATION IS THE SOLE DEFINITION OF THE `irc-tls` CERTIFICATE:
-        -- cert-manager creates it owned by this Ingress. The file once said
-        -- `letsencrypt-staging` while the live object had been changed to prod by
-        -- hand, so applying it would have reissued IRC's certificate from an
-        -- untrusted CA and broken TLS for every connected client. Found by the
-        -- 2026-07-27 drift sweep, the first run that ever compared ircd.
+      , -- ⚠ **THIS NO LONGER DEFINES A CERTIFICATE.** Until 2026-09-01 it
+        -- rendered a `cert-manager.io/cluster-issuer` annotation that was the
+        -- SOLE definition of `irc-tls`, and the danger was real: the file once
+        -- said `letsencrypt-staging` while the live object had been changed to
+        -- prod by hand, so applying it would have reissued IRC's certificate
+        -- from an untrusted CA and broken TLS for every connected client (found
+        -- by the 2026-07-27 drift sweep, the first run that ever compared ircd).
+        -- `security.acme` on the host issues this name now (#1294), so the
+        -- annotation is gone and that hazard with it. The field still decides
+        -- which socket serves the name.
         exposure = T.Exposure.Public
       , tlsSecret = "irc-tls"
       , -- ⚠ `/barfooze`, NOT `/.well-known`. The live manifest carries the

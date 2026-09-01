@@ -410,28 +410,31 @@ let fileMode =
       { ownerRead = 256, ownerReadWrite = 384, anyoneRead = 292 }
 
 let Exposure =
-      --| How the internet sees an app's hostname, and therefore how its certificate
-      --  can be issued.
+      --| Which socket serves an app's hostname.
       --
-      -- `Public` resolves to the node's public address, so Let's Encrypt can reach it
-      -- and HTTP-01 works. `VpnOnly` resolves to the WireGuard address instead — the
-      -- record exists, but nothing outside the tunnel can complete an HTTP challenge,
-      -- so the certificate must come from DNS-01.
+      -- `Public` is served on the node's public address and on the tunnel.
+      -- `VpnOnly` is served on the WireGuard address and NOWHERE ELSE.
       --
-      -- This is one field rather than two because the issuer is not an independent
-      -- choice: pairing HTTP-01 with a VPN-only name yields a certificate stuck
-      -- pending forever, and the failure surfaces as a browser TLS error days later.
-      -- Naming the exposure makes the issuer follow from it.
+      -- ⚠ **THIS BECAME A REAL BOUNDARY ON 2026-09-01 (#1294), AND THE OLD
+      -- WARNING HERE IS THE THING THAT CHANGED.** It used to read "VpnOnly is
+      -- obscurity at the DNS layer, not a firewall — the ingress still answers
+      -- on the public IP for anyone who knows it". That was true while one
+      -- shared ingress-nginx answered every name on every address. Host nginx
+      -- now emits a `server` block per name whose `listen` addresses come from
+      -- this field, so a VpnOnly name has no listener on the public interface
+      -- at all. Verified: `vault`, `tasks`, `memview`, `messages` and
+      -- `fleetwatch` refuse against the public address while `dash` and `isis`
+      -- answer on it.
       --
-      -- ⚠ VpnOnly is obscurity at the DNS layer, not a firewall — the ingress still
-      -- answers on the public IP for anyone who knows it. The app's own sign-in wall
-      -- is the real gate.
+      -- ⚠ **AND IT IS CHECKED RATHER THAN TRUSTED.** `plan-run frontdoor-check
+      -- --vpn-addr` reads the host's generated nginx.conf and fails if a
+      -- VpnOnly name appears in a block listening on anything else. The app's
+      -- own sign-in wall is no longer the only gate.
+      --
+      -- Certificates no longer follow from this field: every name is issued by
+      -- DNS-01 from `security.acme` on the host, so there is no issuer to
+      -- derive. `issuerFor` was deleted with the annotation it fed.
       < Public | VpnOnly >
-
-let issuerFor
-    : Exposure → Text
-    = λ(e : Exposure) →
-        merge { Public = "letsencrypt-prod", VpnOnly = "letsencrypt-dns" } e
 
 let Published =
       --| How anything outside the pod gets to it. ONE field, replacing the pair
@@ -1372,7 +1375,6 @@ in  { Cluster
     , Database
     , SecretKey
     , Exposure
-    , issuerFor
     , wgAddress
     , Reach
     , NetpolPeer

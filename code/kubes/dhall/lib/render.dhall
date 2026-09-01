@@ -1533,12 +1533,26 @@ let ingressFor
                       , kind = "Ingress"
                       , metadata =
                             meta (ingressNameOf ns) ns.name
-                          ⫽ { annotations = Some
-                                (   toMap
-                                      { `cert-manager.io/cluster-issuer` =
-                                          T.issuerFor r.exposure
-                                      }
-                                  # merge
+                          ⫽ { annotations =
+                                --  ⚠ **NO `cert-manager.io/cluster-issuer`, AND NO
+                                --  `tls` BELOW — the certificates moved to the HOST
+                                --  (#1294).** `security.acme` on isis issues every
+                                --  name by DNS-01 and nginx serves them; these
+                                --  Ingresses route nothing, so a Kubernetes
+                                --  certificate for the same name was unused. Worse
+                                --  than unused: 9 of them renewed by HTTP-01, and
+                                --  the challenge path now reaches host nginx, which
+                                --  answers with the APP rather than the token. They
+                                --  failed by construction.
+                                --
+                                --  ⚠ `L.nonEmpty`, not `Some`: nine of these have no
+                                --  other annotation, and `Some ([] : Annotations)`
+                                --  renders `annotations: {}` where the live tree has
+                                --  the field ABSENT — twelve spurious `--check`
+                                --  failures.
+                                L.nonEmpty
+                                  { mapKey : Text, mapValue : Text }
+                                  ( merge
                                       { None = [] : Annotations
                                       , Some =
                                           λ(size : Text) →
@@ -1548,13 +1562,11 @@ let ingressFor
                                               }
                                       }
                                       w.maxBodySize
-                                )
+                                  )
                             }
                       , spec =
                         { ingressClassName = "nginx"
-                        , tls =
-                          [ { hosts = [ host ], secretName = "${slugOf ns}-tls" }
-                          ]
+                        , tls = [] : List { hosts : List Text, secretName : Text }
                         , rules =
                           [ { host
                             , http.paths
@@ -1581,13 +1593,18 @@ let ingressFor
 let acmeIngresses
     : T.Namespace → List K.Ingress
     =
-      --| The Ingress half of an `AcmeDelegation`: TLS for the host, and one path
-      --  handed to the external service below.
+      --| The Ingress half of an `AcmeDelegation`: one path handed to an external
+      --  service.
       --
       -- ⚠ It routes NOTHING to any workload, and that is not an omission. `ircd`
-      -- serves IRC on hostPorts; this Ingress exists to hold a certificate and to
-      -- delegate the challenge. A default `/` backend here would put a workload on
-      -- the public web that was deliberately never there.
+      -- serves IRC on hostPorts. A default `/` backend here would put a workload
+      -- on the public web that was deliberately never there.
+      --
+      -- ⚠ **IT USED TO HOLD A CERTIFICATE TOO, AND NO LONGER DOES.** `security.acme`
+      -- on the host issues `irc.xinutec.net` now (#1294), so the `tls` block and
+      -- the cert-manager annotation were removed. The DELEGATION is the surviving
+      -- reason for this object: `/barfooze` is answered on somebody else's behalf,
+      -- which the host front door still proxies.
       λ(ns : T.Namespace) →
         merge
           { None = [] : List K.Ingress
@@ -1597,16 +1614,10 @@ let acmeIngresses
                   , kind = "Ingress"
                   , metadata =
                         meta a.ingressName ns.name
-                      ⫽ { annotations = Some
-                            ( toMap
-                                { `cert-manager.io/cluster-issuer` =
-                                    T.issuerFor a.exposure
-                                }
-                            )
-                        }
+                      ⫽ { annotations = None Annotations }
                   , spec =
                     { ingressClassName = "nginx"
-                    , tls = [ { hosts = [ a.host ], secretName = a.tlsSecret } ]
+                    , tls = [] : List { hosts : List Text, secretName : Text }
                     , rules =
                       [ { host = a.host
                         , http.paths

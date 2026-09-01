@@ -1,11 +1,10 @@
 # GENERATED from dhall/apps/fleetwatch.dhall by dhall/generate.sh — do not edit.
 # Change the model and re-render; hand edits are overwritten.
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  annotations:
-    "cert-manager.io/cluster-issuer": "letsencrypt-dns"
   name: "fleetwatch-ingress"
   namespace: fleetwatch
 spec:
@@ -21,7 +20,3 @@ spec:
               number: 80
         path: /
         pathType: Prefix
-  tls:
-  - hosts:
-    - fleetwatch.xinutec.org
-    secretName: "fleetwatch-tls"

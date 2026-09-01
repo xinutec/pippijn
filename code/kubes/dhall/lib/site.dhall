@@ -154,11 +154,16 @@ let meta
 
 let annotated
     : Text → List Doc → K.Meta
-    = λ(name : Text) →
+    =
+      --| ⚠ `L.nonEmpty`, not `Some`: since the certificates moved to the host
+      --  (#1294) a site Ingress may carry NO annotation at all, and
+      --  `Some ([] : List Doc)` renders `annotations: {}` where the live tree
+      --  has the field absent — a `--check` failure describing nothing.
+      λ(name : Text) →
       λ(a : List Doc) →
         { name
         , namespace = Some namespace
-        , annotations = Some a
+        , annotations = L.nonEmpty Doc a
         , labels = None (List Doc)
         }
 
@@ -542,8 +547,6 @@ let ingress
     =
       --| The site's own Ingress. Redirects render separately — see `redirect`.
       λ(site : Site) →
-        let issuer = toMap { `cert-manager.io/cluster-issuer` = "letsencrypt-prod" }
-
         let basicAuth =
               merge
                 { None = [] : List Doc
@@ -577,14 +580,11 @@ let ingress
                       [ { apiVersion = "networking.k8s.io/v1"
                         , kind = "Ingress"
                         , metadata =
-                            annotated "${site.slug}-ingress" (issuer # basicAuth)
+                            annotated "${site.slug}-ingress" basicAuth
                         , spec =
                           { ingressClassName = "nginx"
                           , tls =
-                            [ { hosts = [ host ]
-                              , secretName = "${site.slug}-tls"
-                              }
-                            ]
+                              [] : List { hosts : List Text, secretName : Text }
                           , rules = [ backend host ]
                           }
                         }
@@ -622,8 +622,6 @@ let redirect
       -- These still render to their OWN file, so one un-appliable document cannot
       -- block the site it sits beside.
       λ(site : Site) →
-        let issuer = toMap { `cert-manager.io/cluster-issuer` = "letsencrypt-prod" }
-
         let backend =
               λ(host : Text) →
                 { host
@@ -644,16 +642,15 @@ let redirect
                     , metadata =
                         annotated
                           r.name
-                          (   issuer
-                            # toMap
-                                { `nginx.ingress.kubernetes.io/permanent-redirect` =
-                                    "https://${r.to}"
-                                }
+                          ( toMap
+                              { `nginx.ingress.kubernetes.io/permanent-redirect` =
+                                  "https://${r.to}"
+                              }
                           )
                     , spec =
                       { ingressClassName = "nginx"
                       , tls =
-                        [ { hosts = [ r.host ], secretName = r.tlsSecret } ]
+                          [] : List { hosts : List Text, secretName : Text }
                       , rules = [ backend r.host ]
                       }
                     }
@@ -700,15 +697,19 @@ let frontDoor
     : Site → List F.Entry
     =
       --| Every hostname this site makes the cluster answer for — its own, and
-      --  any redirect-only host it holds a certificate for.
+      --  any redirect-only host it serves.
       --
       -- ⚠ **`exposure` IS `"Public"` FOR EVERY SITE, and that is an assumption
       --  rather than a reading.** `Site` has no `T.Exposure` field, because no
-      --  site has ever been VPN-only. It is checkable instead of believed: a
-      --  public name is issued by `letsencrypt-prod` and a VPN-only one by
-      --  `letsencrypt-dns`, so the front-door check reads the live
-      --  `cert-manager.io/cluster-issuer` back and fails if this stops being
-      --  true. Give `Site` the field on the day that happens, not before.
+      --  site has ever been VPN-only. It is checkable instead of believed:
+      --  `plan-run frontdoor-check --vpn-addr` reads the host's generated
+      --  nginx.conf and fails if a name claimed Public has no `server` block
+      --  listening on a public address. Give `Site` the field on the day a site
+      --  goes VPN-only, not before.
+      --
+      -- ⚠ That check USED to read `cert-manager.io/cluster-issuer` instead. The
+      --  annotation is gone (#1294) and the oracle is now the socket, which is
+      --  the property rather than evidence about it.
       λ(site : Site) →
         let here = clusterHosts site
 
