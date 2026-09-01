@@ -220,15 +220,17 @@ in  T.namespaceOf
             T.Reach.Ingress { host = dns.health, exposure = T.Exposure.Public }
         , name = "health-auth"
         , image = T.Image.Fleet "health-sync"
-        , -- The Rust+Lean HTTP server (#982). The image ships BOTH this and
-          -- `dist/server.js`, so reverting is this one line and a re-apply —
-          -- no rebuild.
+        , -- The Rust+Lean HTTP server (#982).
+          --
+          -- ⚠ REVERTING IS NOT ONE LINE. This comment said twice that the image
+          -- ships `dist/server.js` beside this, so a revert was a re-apply with
+          -- no rebuild. It has not been true since the TypeScript backend was
+          -- deleted (#975): the Dockerfile ships no `dist/` at all, and a
+          -- revert now means building one first. Corrected 2026-09-01.
           --
           -- ⚠ It reads AUTH_PORT, the same variable the TypeScript read and the
           -- one set below. It used to read PORT and fall back to 8081, which
           -- would have bound the wrong port behind a Service expecting 3000.
-          -- The Rust+Lean HTTP server (#982). The image ships BOTH this and
-          -- `dist/server.js`, so reverting is this one line and a re-apply.
           --
           -- ⚠ It needs the writable /tmp mounted below. The first attempt at
           -- this flip, earlier on 2026-08-23, was reverted within the hour
