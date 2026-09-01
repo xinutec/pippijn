@@ -16,6 +16,8 @@ let K = ./k8s.dhall
 
 let L = ./list.dhall
 
+let F = ./frontdoor.dhall
+
 let mariadbVersion =
       --| The fleet's MariaDB. Bumping this line bumps every database at once, which
       --  is the entire reason it is a line and not a copy-pasted image string.
@@ -2102,6 +2104,82 @@ let netpolApp
           }
           ns.netpol
 
+let frontDoorOf
+    : T.Namespace → T.Workload.Type → List F.Entry
+    =
+      --| One workload's rows in the front-door table.
+      --
+      -- ⚠ Only `Reach.Ingress` produces a row, and the other arms return empty
+      -- for the same reason `serviceFor` does: a hostPort workload is reached
+      -- by dialling the node, and putting it in a table of things an HTTP front
+      -- door proxies would invite exactly the mistake `Reach.HostPorts` exists
+      -- to prevent. `ircd` still appears below, via its `AcmeDelegation`.
+      λ(ns : T.Namespace) →
+      λ(w : T.Workload.Type) →
+        merge
+          { Ingress =
+              λ(i : { host : Text, exposure : T.Exposure }) →
+                [     F.default
+                  ⫽ { host = i.host
+                    , upstream = F.svcFqdn w.name ns.name
+                    , port = servicePort w
+                    , exposure =
+                        merge
+                          { Public = "Public", VpnOnly = "VpnOnly" }
+                          i.exposure
+                    , clusters = clusterHosts ns
+                    , maxBodySize = w.maxBodySize
+                    }
+                ]
+          , WireGuard = [] : List F.Entry
+          , Internal = [] : List F.Entry
+          , HostPorts =
+              λ(_ : { published : List T.Published, why : Text }) →
+                [] : List F.Entry
+          , NoService = [] : List F.Entry
+          }
+          w.reach
+
+let frontDoorAcme
+    : T.Namespace → List F.Entry
+    =
+      --| The `AcmeDelegation`'s row. It routes to an `ExternalName` Service, so
+      --  its upstream resolves through CoreDNS to a machine outside the cluster
+      --  — which the resolver-based front door handles unchanged.
+      --
+      -- ⚠ **A ROW HERE IS NOT A PROMISE THAT THE FRONT DOOR SHOULD KEEP IT.**
+      -- `ircd`'s Ingress exists to hold a certificate and hand one path to
+      -- somebody else; once `security.acme` on the host issues that certificate,
+      -- the delegation may have nothing left to do. The table states what the
+      -- cluster answers TODAY, which is what the check needs; deciding what the
+      -- front door serves is a separate question and #1294 owns it.
+      λ(ns : T.Namespace) →
+        merge
+          { None = [] : List F.Entry
+          , Some =
+              λ(a : T.AcmeDelegation) →
+                [     F.default
+                  ⫽ { host = a.host
+                    , path = a.path
+                    , upstream = F.svcFqdn a.serviceName ns.name
+                    , exposure =
+                        merge
+                          { Public = "Public", VpnOnly = "VpnOnly" }
+                          a.exposure
+                    , clusters = clusterHosts ns
+                    }
+                ]
+          }
+          ns.acme
+
+let frontDoor
+    : T.Namespace → List F.Entry
+    =
+      --| Every hostname this namespace makes the cluster answer for.
+      λ(ns : T.Namespace) →
+          L.concatMap T.Workload.Type F.Entry (frontDoorOf ns) ns.workloads
+        # frontDoorAcme ns
+
 in  { storageWaiver
     , hostPathWaiver
     , containerWaivers
@@ -2129,4 +2207,5 @@ in  { storageWaiver
     , hasAppliedNetpol
     , usesHostPort
     , unownedFiles
+    , frontDoor
     }

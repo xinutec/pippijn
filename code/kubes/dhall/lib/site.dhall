@@ -25,6 +25,8 @@ let K = ./k8s.dhall
 
 let L = ./list.dhall
 
+let F = ./frontdoor.dhall
+
 let nginxImage =
       --| Every site runs this. Pinned, unlike a fleet image: an unpinned nginx would
       --  silently major-upgrade the thing serving every static host at once.
@@ -661,9 +663,6 @@ let redirect
 let clusterHosts
     : Site → List Text
     =
-      --| The declared-unowned filenames, one per line, for the generator's `--check`.
-      --  A fold rather than a Prelude import: this directory deliberately vendors the
-      --  two list helpers it needs instead of pulling a package over the network.
       --| The host this site deploys to, from the model rather than from whoever is
       --  typing. Rendered into `dhall/clusters.json` and read by `plan-run deploy`.
       --  See `Site.cluster`.
@@ -697,6 +696,55 @@ let unownedFiles
           )
           ""
 
+let frontDoor
+    : Site → List F.Entry
+    =
+      --| Every hostname this site makes the cluster answer for — its own, and
+      --  any redirect-only host it holds a certificate for.
+      --
+      -- ⚠ **`exposure` IS `"Public"` FOR EVERY SITE, and that is an assumption
+      --  rather than a reading.** `Site` has no `T.Exposure` field, because no
+      --  site has ever been VPN-only. It is checkable instead of believed: a
+      --  public name is issued by `letsencrypt-prod` and a VPN-only one by
+      --  `letsencrypt-dns`, so the front-door check reads the live
+      --  `cert-manager.io/cluster-issuer` back and fails if this stops being
+      --  true. Give `Site` the field on the day that happens, not before.
+      λ(site : Site) →
+        let here = clusterHosts site
+
+        let own =
+              merge
+                { None = [] : List F.Entry
+                , Some =
+                    λ(host : Text) →
+                      [     F.default
+                        ⫽ { host
+                          , upstream = F.svcFqdn site.name namespace
+                          , exposure = "Public"
+                          , clusters = here
+                          , basicAuth = site.auth
+                          }
+                      ]
+                }
+                site.host
+
+        let redirects =
+              L.map
+                Redirect
+                F.Entry
+                ( λ(r : Redirect) →
+                        F.default
+                    ⫽ { host = r.host
+                      , upstream = ""
+                      , redirectTo = Some r.to
+                      , exposure = "Public"
+                      , clusters = here
+                      }
+                )
+                site.redirects
+
+        in  own # redirects
+
 in  { Doc
     , Webroot
     , Overlay
@@ -709,6 +757,7 @@ in  { Doc
     , netpolWaiver
     , clusterHosts
     , unownedFiles
+    , frontDoor
     , configMaps
     , pvc
     , deployment

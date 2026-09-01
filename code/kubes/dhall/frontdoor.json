@@ -1,0 +1,255 @@
+[
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "coach.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "coach-app.coach.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "VpnOnly",
+    "host": "fleetwatch.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "fleetwatch-app.fleetwatch.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "health.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "health-auth.health.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "home.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "home.home.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "irc.xinutec.net",
+    "modelled": true,
+    "path": "/barfooze",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "certbot-forward.ircd.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "life.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "life-app.life.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "VpnOnly",
+    "host": "memview.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "memview.memview.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "VpnOnly",
+    "host": "messages.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "messages.signal.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "VpnOnly",
+    "host": "tasks.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "tasks.tasks.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "utterance.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "utterance.utterance.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "VpnOnly",
+    "host": "vault.xinutec.org",
+    "maxBodySize": "128m",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "vaultwarden.vaultwarden.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "amun.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "amun.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "httpd-amun.web.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "amun.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "redirectTo": "amun.xinutec.org",
+    "scheme": "http",
+    "upstream": "",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "isis.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "httpd-isis.web.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "basicAuth": "web/slides-auth",
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "slides.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "slides.web.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "dash.xinutec.org",
+    "maxBodySize": "4096m",
+    "modelled": false,
+    "path": "/",
+    "port": 80,
+    "readTimeout": 300,
+    "scheme": "http",
+    "upstream": "nextcloud-server.nextcloud.svc.cluster.local",
+    "why": "kubes/nextcloud/ is hand-written YAML with no apps/ entry, so --check has never looked at it. Modelling Nextcloud means its database, shared PVC and redis too; the front door does not need that, and this row does."
+  },
+  {
+    "basicAuth": "web/basic-auth",
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "isis.xinutec.org",
+    "modelled": false,
+    "path": "/share/share-cc58ab5c727c4a25",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "httpd-isis.web.svc.cluster.local",
+    "why": "the second Ingress on isis.xinutec.org, already declared unowned in sites/isis.dhall as share-auth.yaml: it and its bcrypt Secret are git-crypt'd because this repository is public. Site.unowned names the FILE; the front door needs the ROUTE."
+  },
+  {
+    "clusters": [
+      "amun.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "mail.xinutec.org",
+    "modelled": false,
+    "path": "/",
+    "port": 443,
+    "scheme": "https",
+    "upstream": "mailu-front.mailu-mailserver.svc.cluster.local",
+    "why": "mailu is deployed from its own chart and has never been in this model. Its Ingress names the backend port by NAME (https), which resolves to 443, and carries backend-protocol: HTTPS — the only upstream in the fleet that is not plain http."
+  },
+  {
+    "clusters": [
+      "amun.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "nocodb.xinutec.org",
+    "modelled": false,
+    "path": "/",
+    "port": 8080,
+    "scheme": "http",
+    "upstream": "nocodb-server.nocodb.svc.cluster.local",
+    "why": "nocodb is hand-written YAML on amun with no apps/ entry. odin's nightly staging already ssh's in to snapshot its database, so the deployment is known to the fleet everywhere except here."
+  }
+]

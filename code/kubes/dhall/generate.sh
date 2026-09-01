@@ -815,6 +815,35 @@ clusters_expr() {
   printf '\n}\n'
 }
 
+# ── frontdoor.json: every hostname the fleet answers, as DATA ──────────────────
+#
+# The table #1294's host-nginx front door is generated from, and the input to the
+# check that the model still describes the live cluster. `lib/frontdoor.dhall`
+# carries the long version of why it exists.
+#
+# ⚠ A FLAT LIST, not a map keyed by leaf like clusters.json. One host can be
+# served by two rules — `isis.xinutec.org` is, by `/` and the share path — so a
+# host is not a key, and neither is an app: a map would have to invent one.
+#
+# ⚠ `frontdoor-unowned.dhall` is concatenated LAST and is derived from nothing.
+# It is the hand-written half: hosts whose trees have no model file at all, which
+# no per-tree `unowned` declaration can reach because there is no tree to declare
+# it in.
+frontdoor_expr() {
+  local leaf
+  printf 'let R = %s/lib/render.dhall\nlet S = %s/lib/site.dhall\nin  ' "$here" "$here"
+  for src in "$here"/apps/*.dhall; do
+    leaf=$(basename "$src" .dhall)
+    printf 'R.frontDoor %s/apps/%s.dhall\n  # ' "$here" "$leaf"
+  done
+  for src in "$here"/sites/*.dhall; do
+    leaf=$(basename "$src" .dhall)
+    printf 'S.frontDoor %s/sites/%s.dhall\n  # ' "$here" "$leaf"
+  done
+  printf '%s/frontdoor-unowned.dhall\n' "$here"
+}
+
+
 # ── trees.json: where each app's LIVE manifests sit, as DATA ────────────────
 #
 # ⚠ SAME ARGUMENT AS clusters.json, and the same failure it avoids. `plan-run
@@ -851,9 +880,16 @@ clusters_rendered=$(clusters_expr | dhall-to-json 2>"$render_err") || {
   exit 1
 }
 
+frontdoor_rendered=$(frontdoor_expr | dhall-to-json 2>"$render_err") || {
+  printf 'generate.sh: the front-door table did not evaluate:\n' >&2
+  cat "$render_err" >&2
+  exit 1
+}
+
 if [[ $mode == write ]]; then
   printf '%s\n' "$clusters_rendered" > "$here/clusters.json"
   printf '%s\n' "$trees_rendered" > "$here/trees.json"
+  printf '%s\n' "$frontdoor_rendered" > "$here/frontdoor.json"
 else
   if ! printf '%s\n' "$trees_rendered" | diff -u "$here/trees.json" - > "$tmp/trees.diff" 2>/dev/null; then
     printf 'generate.sh: trees.json is stale — the model says otherwise.\n' >&2
@@ -868,6 +904,12 @@ else
     printf 'generate.sh: clusters.json is stale — the model says otherwise.\n' >&2
     printf 'Run ./generate.sh to update it; plan-run deploy reads this file.\n' >&2
     sed 's/^/   /' "$tmp/clusters.diff" >&2
+    status=1
+  fi
+  if ! printf '%s\n' "$frontdoor_rendered" | diff -u "$here/frontdoor.json" - > "$tmp/frontdoor.diff" 2>/dev/null; then
+    printf 'generate.sh: frontdoor.json is stale — the model says otherwise.\n' >&2
+    printf 'Run ./generate.sh to update it; the front-door check reads this file.\n' >&2
+    sed 's/^/   /' "$tmp/frontdoor.diff" >&2
     status=1
   fi
 fi
