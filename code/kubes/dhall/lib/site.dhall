@@ -554,9 +554,12 @@ let ingressTerminatesTls
       -- (e50c5645) was unconditional: amun still fronts with ingress-nginx, and
       -- ingress-nginx answers a host with no `tls` with its self-signed "Fake
       -- Certificate" — so https://xinutec.org and https://amun.xinutec.org
-      -- served that fake certificate for a day. Nothing caught it because the
-      -- post-cutover baseline covered the isis front door's names, and these two
-      -- are the only model-rendered Ingresses on amun.
+      -- served that fake certificate for ~18 hours. fleetwatch's "Public TLS
+      -- certs" check went red within the hour and STAYED red the whole time —
+      -- the monitoring worked; what failed was reading it. The session that made
+      -- the change verified only the isis front door's names (these two are the
+      -- only model-rendered Ingresses on amun) and closed the ticket against a
+      -- red board it had no way to read (#1312).
       --
       -- When amun gets its own host front door, flipping its arm here is part of
       -- the SAME change that cuts amun over — not a cleanup before it.
