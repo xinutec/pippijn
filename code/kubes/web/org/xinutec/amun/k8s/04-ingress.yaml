@@ -4,6 +4,8 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  annotations:
+    "cert-manager.io/cluster-issuer": "letsencrypt-prod"
   name: "amun-ingress"
   namespace: web
 spec:
@@ -19,3 +21,7 @@ spec:
               number: 80
         path: /
         pathType: Prefix
+  tls:
+  - hosts:
+    - amun.xinutec.org
+    secretName: "amun-tls"

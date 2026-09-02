@@ -542,6 +542,35 @@ let service
           }
         ]
 
+let ingressTerminatesTls
+    : Site → Bool
+    =
+      --| Whether this site's Ingress still carries a `tls` block and a
+      --  cert-manager issuer annotation — true exactly while its cluster fronts
+      --  with ingress-nginx.
+      --
+      -- ⚠ **RESTORED 2026-09-02, one day after being removed for both clusters
+      -- at once.** #1294 moved TLS to host nginx ON ISIS ONLY, but the removal
+      -- (e50c5645) was unconditional: amun still fronts with ingress-nginx, and
+      -- ingress-nginx answers a host with no `tls` with its self-signed "Fake
+      -- Certificate" — so https://xinutec.org and https://amun.xinutec.org
+      -- served that fake certificate for a day. Nothing caught it because the
+      -- post-cutover baseline covered the isis front door's names, and these two
+      -- are the only model-rendered Ingresses on amun.
+      --
+      -- When amun gets its own host front door, flipping its arm here is part of
+      -- the SAME change that cuts amun over — not a cleanup before it.
+      λ(site : Site) → merge { isis = False, amun = True } site.cluster
+
+let noTls = [] : List { hosts : List Text, secretName : Text }
+
+let issuerFor
+    : Site → List Doc
+    = λ(site : Site) →
+        if    ingressTerminatesTls site
+        then  toMap { `cert-manager.io/cluster-issuer` = "letsencrypt-prod" }
+        else  [] : List Doc
+
 let ingress
     : Site → List K.Ingress
     =
@@ -580,11 +609,18 @@ let ingress
                       [ { apiVersion = "networking.k8s.io/v1"
                         , kind = "Ingress"
                         , metadata =
-                            annotated "${site.slug}-ingress" basicAuth
+                            annotated
+                              "${site.slug}-ingress"
+                              (issuerFor site # basicAuth)
                         , spec =
                           { ingressClassName = "nginx"
                           , tls =
-                              [] : List { hosts : List Text, secretName : Text }
+                              if    ingressTerminatesTls site
+                              then  [ { hosts = [ host ]
+                                      , secretName = "${site.slug}-tls"
+                                      }
+                                    ]
+                              else  noTls
                           , rules = [ backend host ]
                           }
                         }
@@ -642,15 +678,21 @@ let redirect
                     , metadata =
                         annotated
                           r.name
-                          ( toMap
-                              { `nginx.ingress.kubernetes.io/permanent-redirect` =
-                                  "https://${r.to}"
-                              }
+                          (   issuerFor site
+                            # toMap
+                                { `nginx.ingress.kubernetes.io/permanent-redirect` =
+                                    "https://${r.to}"
+                                }
                           )
                     , spec =
                       { ingressClassName = "nginx"
                       , tls =
-                          [] : List { hosts : List Text, secretName : Text }
+                          if    ingressTerminatesTls site
+                          then  [ { hosts = [ r.host ]
+                                  , secretName = r.tlsSecret
+                                  }
+                                ]
+                          else  noTls
                       , rules = [ backend r.host ]
                       }
                     }
