@@ -5,8 +5,13 @@
 #   ./secret.sh                    # default: a single 'mac-mini' producer token
 #   FLEETWATCH_SOURCES="mac-mini odin" ./secret.sh   # a token per named producer
 #
-# ⚠ THE LIVE SOURCES ARE mac-mini, amun AND isis (isis added 2026-08-11, when the
-# picade fleet moved there from amun). This script REGENERATES EVERYTHING — DB
+# ⚠ THE LIVE SOURCES ARE mac-mini, amun, isis, odin, shu AND geb — read from the
+# live secret 2026-09-04, not from memory. isis was added 2026-08-11 when the
+# picade fleet moved there from amun; shu and geb on 2026-09-04, when the one-way
+# firewall block moved onto the home machines and the plan that checks it had to
+# follow. This list had drifted three sources behind, which matters BECAUSE of
+# the sentence below: re-running with a stale list silently DEAUTHORISES every
+# producer it omits. This script REGENERATES EVERYTHING — DB
 # passwords, the read token the Android app holds, the session secret — so it is
 # the wrong tool for adding one producer. To add a source without rotating the
 # rest, append a `source:token` pair to the live secret's FLEETWATCH_TOKENS and
