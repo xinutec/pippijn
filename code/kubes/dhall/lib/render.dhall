@@ -1019,6 +1019,94 @@ let dbService
           }
           ns.db
 
+let sidecarContainerFor =
+      --| A `T.Sidecar` rendered beside the main container: same image, same
+      --  pull policy, same hardening — its own name, command, port, env and
+      --  probe. Ports follow the WORKLOAD's reach, so on a WireGuard workload
+      --  the sidecar's port is pinned to the tunnel address exactly as the
+      --  main one is (an unpinned hostPort would publish it — see
+      --  `T.wgAddress`).
+      λ(ns : T.Namespace) →
+      λ(w : T.Workload.Type) →
+      λ(s : T.Sidecar.Type) →
+        let plainPort =
+              λ(p : Natural) →
+                { containerPort = p, hostPort = None Natural, hostIP = None Text }
+
+        in    baseContainer
+            ⫽ { name = s.name
+              , image = T.imageRef w.image
+              , imagePullPolicy =
+                  merge
+                    { None = T.pullPolicyFor w.image
+                    , Some = λ(p : Text) → Some p
+                    }
+                    w.pullPolicy
+              , command = Some s.command
+              , securityContext =
+                  merge
+                    { NonRoot = Some (containerSecurityContext w.rootFs)
+                    , Unhardened =
+                        λ(_ : { why : Text }) → None K.ContainerSecurityContext
+                    }
+                    w.hardening
+              , ports =
+                  merge
+                    { None = None (List K.ContainerPort)
+                    , Some =
+                        λ(p : Natural) →
+                          Some
+                            [ merge
+                                { WireGuard =
+                                  { containerPort = p
+                                  , hostPort = Some p
+                                  , hostIP = Some
+                                      ( T.wgAddress
+                                          (T.soleCluster ns.placement)
+                                      )
+                                  }
+                                , Ingress =
+                                    λ ( _
+                                      : { host : Text, exposure : T.Exposure }
+                                      ) →
+                                      plainPort p
+                                , HostPorts =
+                                    λ ( _
+                                      : { published : List T.Published
+                                        , why : Text
+                                        }
+                                      ) →
+                                      plainPort p
+                                , Internal = plainPort p
+                                , NoService = plainPort p
+                                }
+                                w.reach
+                            ]
+                    }
+                    s.port
+              , env =
+                  L.nonEmpty
+                    K.EnvVar
+                    ( L.map
+                        T.EnvVar
+                        K.EnvVar
+                        (renderEnv (secretNameFor (slugOf ns)))
+                        s.env
+                    )
+              , readinessProbe = renderProbe s.probe
+              , livenessProbe = renderProbe s.probe
+              , -- Absent, like every container that has not measured a number
+                -- (`Resources`' own rule: no inventing requests for a running
+                -- pod).
+                resources = None K.Resources
+              , volumeMounts =
+                  if    s.shareMounts
+                  then  L.nonEmpty
+                          K.VolumeMount
+                          (L.map T.VolumeMount K.VolumeMount k8sMount w.mounts)
+                  else  None (List K.VolumeMount)
+              }
+
 let deploymentFor
     : T.Namespace → T.Workload.Type → K.Deployment
     = λ(ns : T.Namespace) →
@@ -1325,6 +1413,11 @@ let deploymentFor
                               )
                         }
                     ]
+                    # L.map
+                        T.Sidecar.Type
+                        K.Container
+                        (sidecarContainerFor ns w)
+                        w.sidecars
                   , volumes =
                       L.nonEmpty
                         K.Volume

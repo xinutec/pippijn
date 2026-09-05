@@ -104,6 +104,51 @@ spec:
           name: logs
         - mountPath: /data
           name: "app-data"
+      - command:
+        - recalld
+        - "--root"
+        - /data
+        - "--bind"
+        - "0.0.0.0:8001"
+        env:
+        - name: RECALLD_READ_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: SYNC_TOKEN
+              name: "recall-secret"
+        - name: RECALLD_INGEST_TOKENS
+          valueFrom:
+            secretKeyRef:
+              key: INGEST_TOKENS
+              name: "recall-secret"
+              optional: true
+        image: "xinutec/recall:latest"
+        livenessProbe:
+          httpGet:
+            path: /ingest/v1/health
+            port: 8001
+        name: recalld
+        ports:
+        - containerPort: 8001
+          hostIP: '10.100.0.2'
+          hostPort: 8001
+        readinessProbe:
+          httpGet:
+            path: /ingest/v1/health
+            port: 8001
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /app/logs
+          name: logs
+        - mountPath: /data
+          name: "app-data"
       securityContext:
         fsGroup: 1000
         runAsGroup: 1000

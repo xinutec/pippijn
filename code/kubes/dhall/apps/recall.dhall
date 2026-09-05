@@ -29,6 +29,11 @@ let keys =
       , NC_CLIENT_ID = "NC_CLIENT_ID"
       , NC_CLIENT_SECRET = "NC_CLIENT_SECRET"
       , DEVICE_TOKEN = "DEVICE_TOKEN"
+      , -- The fourth credential plane (recall/docs/architecture.md): the
+        -- per-source write-only ingest token table recalld reads, one
+        -- `<source> <token>` per line. Held as ONE secret value because it is
+        -- one table; the per-device split lives in its lines.
+        INGEST_TOKENS = "INGEST_TOKENS"
       }
 
 let required = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False }
@@ -182,6 +187,40 @@ in  T.namespaceOf
             , subPath = None Text
             , -- Log rotation and the client-error log.
               readOnly = False
+            }
+          ]
+        , sidecars =
+          [ T.Sidecar::{
+            , -- recalld, the Rust system-of-record daemon (recall/docs/
+              -- architecture.md, stage A): the store-and-forward ingest plane.
+              -- Same image as the api container — the Dockerfile builds the
+              -- binary into it — so one push rolls both tiers together.
+              name = "recalld"
+            , command =
+              [ "recalld", "--root", "/data", "--bind", "0.0.0.0:8001" ]
+            , -- Its own wg-pinned hostPort beside the api's 8000: recorders
+              -- deliver segments here from anywhere on the tunnel.
+              port = Some 8001
+            , probe = T.Probe.Http { path = "/ingest/v1/health", port = 8001 }
+            , -- The same PVC: the ingest tree lands under /data/ingest, inside
+              -- what odin's nightly restic already rsyncs.
+              shareMounts = True
+            , env =
+              [ { -- The read side (listing, blobs, later the work queue) is
+                  -- the Mac's plane, so it presents the same sync token it
+                  -- already holds.
+                  name = "RECALLD_READ_TOKEN"
+                , value = required keys.SYNC_TOKEN
+                }
+              , { -- Optional means the pod starts without it — and what is
+                  -- lost is the WRITE gate: an absent table leaves ingest
+                  -- open to anything on the tunnel. Appends are not the
+                  -- fleet's threat (destruction is; the plane has no delete),
+                  -- but set the key at deploy rather than leaving this open.
+                  name = "RECALLD_INGEST_TOKENS"
+                , value = optional keys.INGEST_TOKENS
+                }
+              ]
             }
           ]
         }

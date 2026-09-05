@@ -661,6 +661,44 @@ let VolumeOwnership =
       | RunsAsRoot : { why : Text }
       >
 
+let SidecarType =
+      --| A SECOND long-running container in a workload's pod, from the SAME image.
+      --
+      -- Modelled for recall (2026-09-05): the pod gains `recalld`, the Rust
+      -- ingest daemon, beside the Python api container — one image, two
+      -- commands, one PVC (recall/docs/architecture.md, stage A5). A sidecar
+      -- deliberately CANNOT name its own image: two images in one pod is a
+      -- different decision with different rollout coupling, and nothing in the
+      -- fleet wants it. It inherits the workload's uid, hardening, rootFs and
+      -- pull policy for the same reason — one pod, one posture.
+      { name : Text
+      , command : List Text
+      , -- The port this container serves, rendered under the WORKLOAD's reach:
+        -- on a WireGuard workload it gets its own wg-pinned hostPort beside the
+        -- main container's. `None` = serves nothing (a pure worker).
+        port : Optional Natural
+      , env : List EnvVar
+      , -- What kubelet asks this container — both probes, kubelet's default
+        -- timings. The main container's `probeTiming` is not borrowed: those
+        -- numbers were measured for THAT process.
+        probe : Probe
+      , -- Mount everything the main container mounts, at the same paths. The
+        -- honest grain for a sidecar that exists to share the workload's data
+        -- (recalld shares recall's /data); a sidecar needing its OWN mounts is
+        -- a future field, not a reinterpretation of this one.
+        shareMounts : Bool
+      }
+
+let Sidecar =
+      { Type = SidecarType
+      , default =
+        { port = None Natural
+        , env = [] : List EnvVar
+        , probe = Probe.Unprobed
+        , shareMounts = False
+        }
+      }
+
 let WorkloadType =
       --| A long-running container plus the Service in front of it.
       { name : Text
@@ -758,6 +796,8 @@ let WorkloadType =
         -- image a task runs once a namespace holds more than one workload, and
         -- picking the first would be a silent answer to a real question.
         tasks : List ScheduledTask
+      , -- Further containers in this pod — see `Sidecar`.
+        sidecars : List SidecarType
       }
 
 let Workload =
@@ -788,6 +828,7 @@ let Workload =
         { command = None (List Text)
         , readiness = None Readiness
         , tasks = [] : List ScheduledTask
+        , sidecars = [] : List SidecarType
         , volumeOwnership = VolumeOwnership.FsGroup
         , maxBodySize = None Text
         , pullPolicy = None Text
@@ -1366,6 +1407,7 @@ in  { Cluster
     , Hardening
     , RootFs
     , Workload
+    , Sidecar
     , ScheduledTask
     , Owner
     , Unowned
