@@ -3,15 +3,16 @@ let T =
       -- here — the Mac keeps capture/ASR/diarize/LLM — so this is a light FastAPI +
       -- SQLite + static frontend over the archive on its own volume.
       --
-      -- ⚠ THE FIVE SECRET KEYS ARE THE WHOLE RISK IN THIS FILE, and four of them are
+      -- ⚠ THE SECRET KEYS ARE THE WHOLE RISK IN THIS FILE (count them in `keys`
+      -- below, not here — a number in prose rots), and most are
       -- OPTIONAL, which is the dangerous kind. A missing required key crash-loops the
       -- pod and somebody notices within a minute. A missing optional one starts
       -- cleanly and leaves the web UI with NO LOGIN — the archive is transcripts of
       -- conversations in this house, so that failure is silent and serious. This model
       -- was checked field-by-field against the live Deployment on isis before it was
       -- rendered (2026-08-12: nine env vars, in this order, four carrying
-      -- `optional: true`, and all five keys present in `recall-secret`), not against
-      -- the committed manifest alone.
+      -- `optional: true`, and every then-current key present in `recall-secret`),
+      -- not against the committed manifest alone.
       --
       -- Modelled LAST of the twelve for that reason.
       ../lib/types.dhall
