@@ -868,6 +868,33 @@ trees_expr() {
   printf '\n}\n'
 }
 
+# ── namespaces.json: which namespace each app deploys INTO, as DATA ─────────
+#
+# ⚠ IT IS NOT THE APP'S NAME, and assuming it was cost a 26-hour outage. The
+# runner's post-deploy front-door check filters the modelled names by the
+# namespace their upstream sits in, and derived that namespace from the app's
+# own name — right for seventeen of the nineteen fronted names and wrong for
+# `messages`, whose pod runs in `signal` because a `secretKeyRef` cannot cross
+# namespaces (see apps/messages.dhall). So the check that re-probes a name after
+# a deploy found nothing to re-check, said so reassuringly, and let
+# messages.xinutec.org 502 from 2026-09-04 to 2026-09-05 across two deploys.
+#
+# The model has always known: an app file's `name` IS its namespace, and
+# `messages.dhall` says so in as many words. This renders it rather than leaving
+# the runner to guess — the same argument as trees.json above, and the same
+# failure (#692) that a second source of truth would be.
+namespaces_expr() {
+  local first=1 leaf
+  printf 'toMap\n{ '
+  for src in "$here"/apps/*.dhall; do
+    leaf=$(basename "$src" .dhall)
+    (( first )) || printf '\n, '
+    first=0
+    printf '%s = (%s/apps/%s.dhall).name' "$leaf" "$here" "$leaf"
+  done
+  printf '\n}\n'
+}
+
 trees_rendered=$(trees_expr | dhall-to-json 2>"$render_err") || {
   printf 'generate.sh: the app -> tree map did not evaluate:\n' >&2
   cat "$render_err" >&2
@@ -876,6 +903,12 @@ trees_rendered=$(trees_expr | dhall-to-json 2>"$render_err") || {
 
 clusters_rendered=$(clusters_expr | dhall-to-json 2>"$render_err") || {
   printf 'generate.sh: the app -> cluster map did not evaluate:\n' >&2
+  cat "$render_err" >&2
+  exit 1
+}
+
+namespaces_rendered=$(namespaces_expr | dhall-to-json 2>"$render_err") || {
+  printf 'generate.sh: the app -> namespace map did not evaluate:\n' >&2
   cat "$render_err" >&2
   exit 1
 }
@@ -889,6 +922,7 @@ frontdoor_rendered=$(frontdoor_expr | dhall-to-json 2>"$render_err") || {
 if [[ $mode == write ]]; then
   printf '%s\n' "$clusters_rendered" > "$here/clusters.json"
   printf '%s\n' "$trees_rendered" > "$here/trees.json"
+  printf '%s\n' "$namespaces_rendered" > "$here/namespaces.json"
   printf '%s\n' "$frontdoor_rendered" > "$here/frontdoor.json"
 else
   if ! printf '%s\n' "$trees_rendered" | diff -u "$here/trees.json" - > "$tmp/trees.diff" 2>/dev/null; then
@@ -904,6 +938,12 @@ else
     printf 'generate.sh: clusters.json is stale — the model says otherwise.\n' >&2
     printf 'Run ./generate.sh to update it; plan-run deploy reads this file.\n' >&2
     sed 's/^/   /' "$tmp/clusters.diff" >&2
+    status=1
+  fi
+  if ! printf '%s\n' "$namespaces_rendered" | diff -u "$here/namespaces.json" - > "$tmp/namespaces.diff" 2>/dev/null; then
+    printf 'generate.sh: namespaces.json is stale — the model says otherwise.\n' >&2
+    printf 'Run ./generate.sh to update it; the post-deploy front-door check reads this file.\n' >&2
+    sed 's/^/   /' "$tmp/namespaces.diff" >&2
     status=1
   fi
   if ! printf '%s\n' "$frontdoor_rendered" | diff -u "$here/frontdoor.json" - > "$tmp/frontdoor.diff" 2>/dev/null; then

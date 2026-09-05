@@ -1,0 +1,20 @@
+{
+  "coach": "coach",
+  "fleetwatch": "fleetwatch",
+  "health": "health",
+  "home": "home",
+  "ircd": "ircd",
+  "life": "life",
+  "memview": "memview",
+  "messages": "signal",
+  "observe": "observe",
+  "recall": "recall",
+  "scanner": "scanner",
+  "signal": "signal",
+  "tasks": "tasks",
+  "utterance": "utterance",
+  "vaultwarden": "vaultwarden",
+  "vps-pippijn": "vps-pippijn",
+  "vps-simon": "vps-simon",
+  "web": "web"
+}
