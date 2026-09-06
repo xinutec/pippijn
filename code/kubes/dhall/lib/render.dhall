@@ -2233,6 +2233,7 @@ let frontDoorOf
                           i.exposure
                     , clusters = clusterHosts ns
                     , maxBodySize = w.maxBodySize
+                    , healthPath = w.serviceCheck
                     }
                 ]
           , WireGuard = [] : List F.Entry

@@ -95,6 +95,7 @@
       "isis.xinutec.org"
     ],
     "exposure": "VpnOnly",
+    "healthPath": "/healthz/deep",
     "host": "messages.xinutec.org",
     "modelled": true,
     "path": "/",

@@ -171,6 +171,17 @@ in  { name = "signal"
             , liveness = Some { initialDelaySeconds = 5, periodSeconds = 20 }
             }
         , probe = T.Probe.Http { path = "/healthz", port }
+        , -- ⚠ **NOT `/healthz`, AND THAT IS THE WHOLE POINT.** The line above is
+          -- kubelet's LIVENESS target and answers a literal `"ok"`; it has to
+          -- stay dumb, because a liveness probe that checks the database turns a
+          -- blip into a crashloop. This is the front door's question instead —
+          -- can the archive be READ — and it may be expensive and honest.
+          --
+          -- `/` would not do: this app serves its Angular bundle from the same
+          -- process, so `/` answers 200 while the database is unreachable. The
+          -- 26-hour outage of 2026-09-04/05 was a dead pod, which a root probe
+          -- does see; an app that is up and blind is the one it does not.
+          serviceCheck = Some "/healthz/deep"
         , resources =  Some
           { requests = { cpu = "25m", memory = "64Mi" }
           , limits = Some

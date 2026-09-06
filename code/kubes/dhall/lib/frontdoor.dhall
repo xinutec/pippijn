@@ -85,6 +85,16 @@ let Entry =
           --  shared controller answers :443 with its own fake one — which is
           --  what a browser reports. `xinutec.org` on amun is the only one.
           Optional Text
+      , healthPath :
+          --| The path the front door should ASK FOR to judge this name working,
+          --  when `/` is not a fair question. Comes from the workload's
+          --  `serviceCheck`; absent for unowned entries and for anything whose
+          --  root already exercises what matters.
+          --
+          -- ⚠ NOT the workload's kubelet probe path. A liveness probe must stay
+          --  dumb — checking a dependency there turns a blip into a crashloop —
+          --  so the two paths are deliberately separate fields.
+          Optional Text
       , modelled :
           --| False for an entry declared in `frontdoor-unowned.dhall` because
           --  the model does not own its tree. See the header.
@@ -99,6 +109,7 @@ let Entry =
 let default =
       --| Everything an ordinary modelled entry does not have to repeat.
       { path = "/"
+      , healthPath = None Text
       , port = 80
       , scheme = "http"
       , redirectTo = None Text

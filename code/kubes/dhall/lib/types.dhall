@@ -740,6 +740,25 @@ let WorkloadType =
             because Bitwarden clients' sync payloads exceed nginx's default.
         -}
         maxBodySize : Optional Text
+      , {-  The path the FRONT DOOR should ask for to decide this name is
+            working — not the path kubelet probes.
+
+            ⚠ **THEY ARE DIFFERENT QUESTIONS AND MUST NOT BE THE SAME PATH.**
+            `probe` is kubelet's LIVENESS target, and a liveness probe that
+            checks a dependency turns a database blip into a crashloop: the pod
+            is killed for something a restart cannot fix, and the restarts add
+            load to whatever was already struggling. So a liveness path stays
+            dumb, and this one is allowed to be expensive and honest.
+
+            `None` means the front door asks for `/`, which is right for a
+            redirect, a static site, or anything whose root already exercises
+            what matters. It is WRONG for a single-page app: `/` is the bundle,
+            served by the same process, and it answers 200 while the app's
+            database is unreachable. messages.xinutec.org spent 26 hours at 502
+            on 2026-09-04/05 with every front-door goal green, and a root-only
+            probe would still not have seen an app that was up but blind.
+        -}
+        serviceCheck : Optional Text
       , -- Overrides what the image kind implies. `None` means "ask
         -- `pullPolicyFor`", which is right for every generated tree: a Fleet
         -- image names no policy and Kubernetes defaults `:latest` to `Always`.
@@ -831,6 +850,7 @@ let Workload =
         , sidecars = [] : List SidecarType
         , volumeOwnership = VolumeOwnership.FsGroup
         , maxBodySize = None Text
+        , serviceCheck = None Text
         , pullPolicy = None Text
         , containerName = None Text
         }
