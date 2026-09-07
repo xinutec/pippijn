@@ -119,6 +119,16 @@ let amunTunnel =
       -- using the other would be blocked anyway.
       "10.100.0.1"
 
+let isisFrontDoor =
+      --| isis's own public address, which is what `dash.xinutec.org` resolves to.
+      --
+      -- ⚠ Not the tunnel address, and that is forced rather than chosen: the pod
+      -- resolves the name through cluster DNS and gets this one, so this is the
+      -- destination kube-router filters on. Naming 10.100.0.2 would read as the
+      -- safer choice and match nothing. The packet never reaches the wire either
+      -- way — the address is LOCAL on this node, so it is routed in the kernel.
+      "188.165.200.180"
+
 let irclogSources =
       -- Spelled out rather than folded from `irclogNetworks`: there is no Prelude
       -- import here, and a hand-rolled fold would be more machinery than six names
@@ -627,14 +637,15 @@ in  { name = "signal"
                 }
               ]
             }
-          , { -- The `messages` viewer's SSO callback, declared here because
-              -- this is the namespace that owns the policies even though the
-              -- workload's tree is `kubes/messages/`.
-              --
-              -- ⚠ It reaches the ingress controller by the SVCLB POD, not by
-              -- the node address. #781 measured an `ipBlock` naming isis's
-              -- public IP matching nothing: CNI-HOSTPORT-DNAT rewrites the
-              -- destination before kube-router's filter rules ever see it.
+          , { -- ⚠ THREE RULES NOW NAME THE SAME ADDRESS AND PORT, and that is
+              -- the honest shape rather than a redundancy to fold away. A
+              -- NetworkPolicy's vocabulary stops at "may open 2230"; what
+              -- separates these three is the KEY each pod presents, and each is
+              -- pinned to a different forced command on the far side —
+              -- `irclog-pull` reads the log tree, `irc-send` speaks, `irc-tail`
+              -- listens. Merging them into one namespace-wide rule would hand
+              -- every pod here the union of three capabilities it cannot
+              -- exercise but should not be granted.
               name = "${ircTail}-egress-amun"
             , target = T.NetpolTarget.OneWorkload ircTail
             , egress =
@@ -649,28 +660,30 @@ in  { name = "signal"
                 }
               ]
             }
-          , { -- ⚠ THREE RULES NOW NAME THE SAME ADDRESS AND PORT, and that is
-              -- the honest shape rather than a redundancy to fold away. A
-              -- NetworkPolicy's vocabulary stops at "may open 2230"; what
-              -- separates these three is the KEY each pod presents, and each is
-              -- pinned to a different forced command on the far side —
-              -- `irclog-pull` reads the log tree, `irc-send` speaks, `irc-tail`
-              -- listens. Merging them into one namespace-wide rule would hand
-              -- every pod here the union of three capabilities it cannot
-              -- exercise but should not be granted.
+          , { -- The `messages` viewer's SSO callback, declared here because
+              -- this is the namespace that owns the policies even though the
+              -- workload's tree is `kubes/messages/`.
+              --
+              -- ⚠ THE FRONT DOOR IS A HOST PROCESS NOW, WHICH REVERSED #781.
+              -- That ticket measured this same `ipBlock` matching nothing and
+              -- selected klipper's svclb pod instead, correctly: svclb held :443
+              -- by CNI hostport DNAT, so the packet was rewritten before
+              -- kube-router's filter rules ever saw it. The front-door cutover
+              -- (nixos-config `be19eff`, 2026-09-01) deleted the ingress-nginx
+              -- LoadBalancer Service and with it that pod, so this selector
+              -- matched nothing and every token exchange was rejected for six
+              -- days. Re-measured 2026-09-07: no CNI-HOSTPORT-DNAT entry for 443
+              -- survives, and a pod carrying an ipBlock rule opens 443 to this
+              -- address. A "cannot be named" verdict outlives the arrangement
+              -- that produced it; this one did, silently.
               name = "messages-egress-sso"
             , target = T.NetpolTarget.OneWorkload "messages"
             , egress =
               [ { to =
-                  [ T.NetpolPeer.NamespacedWorkload
-                      { namespace = "kube-system"
-                      , labels =
-                          toMap
-                            { `svccontroller.k3s.cattle.io/svcname` =
-                                "ingress-nginx-controller"
-                            , `svccontroller.k3s.cattle.io/svcnamespace` =
-                                "ingress-nginx"
-                            }
+                  [ T.NetpolPeer.Host
+                      { cidr = "${isisFrontDoor}/32"
+                      , why =
+                          "the Nextcloud token exchange: dash.xinutec.org resolves to isis's own address, where host nginx terminates TLS, so the packet is routed locally and never reaches the wire"
                       }
                   ]
                 , ports = [ { port = 443, protocol = "TCP" } ]

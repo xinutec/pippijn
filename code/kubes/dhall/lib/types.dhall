@@ -1022,9 +1022,18 @@ let NetpolPeer =
       --   * `Internet` — an ipBlock of everything except the ranges listed.
       --
       -- ⚠ `Internet` is how you say "the public internet" and there is no shorter
-      -- way. `ipBlock` cannot name the node's own address either: see #781, where a
-      -- rule naming isis's public IP matched nothing because CNI-HOSTPORT-DNAT
-      -- rewrites the destination before kube-router's filter rules see it.
+      -- way.
+      --
+      -- ⚠ WHETHER `ipBlock` CAN NAME THE NODE'S OWN ADDRESS DEPENDS ON THE PORT,
+      -- so re-measure rather than reusing a verdict. A port published by a
+      -- container's `hostPort` is rewritten by `nat PREROUTING -m addrtype
+      -- --dst-type LOCAL -j CNI-HOSTPORT-DNAT` before kube-router's filter rules
+      -- see it, and no ipBlock can match: that is #781, measured 2026-08-12 on
+      -- :443 while klipper's svclb still held it. A port served by a HOST process
+      -- has no such rule and the ipBlock matches — the isis front-door cutover
+      -- (2026-09-01) turned :443 into exactly that, and the pod-selector rule
+      -- #781 chose instead silently stopped matching anything for six days.
+      -- `iptables-save -t nat | grep CNI-HOSTPORT` answers it for a given port.
       < Namespace : Text
       | Workload : Text
       | --| Any pod in THIS namespace — `podSelector: {}`, a selector with no

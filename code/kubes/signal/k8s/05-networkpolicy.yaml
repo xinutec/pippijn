@@ -124,13 +124,8 @@ spec:
     - port: 443
       protocol: TCP
     to:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: "kube-system"
-      podSelector:
-        matchLabels:
-          svccontroller.k3s.cattle.io/svcname: "ingress-nginx-controller"
-          svccontroller.k3s.cattle.io/svcnamespace: "ingress-nginx"
+    - ipBlock:
+        cidr: "188.165.200.180/32"
   podSelector:
     matchLabels:
       app: messages
