@@ -247,6 +247,16 @@ in  T.namespaceOf
                 -- pod. A FALLBACK, never an override: a ported route always wins.
                 "--upstream"
               , "http://127.0.0.1:${Natural/show apiPort}"
+              , -- The built Angular app. ⚠ Restored 2026-09-07 only AFTER the
+                -- fallback learned that /sync/* belongs to the upstream. With a
+                -- frontend mounted, anything not matched and not under an
+                -- upstream prefix is answered with the app SHELL — and /sync/*
+                -- fell into that gap, so the Mac's sync and jobs agents received
+                -- index.html with a 200 and died parsing it. Dropping this flag
+                -- was the mitigation, because with no frontend every unmatched
+                -- path proxies instead.
+                "--frontend"
+              , "/app/frontend/dist/recall-web/browser"
               ]
             , -- Its own wg-pinned hostPort beside the api's 8000: recorders
               -- deliver segments here from anywhere on the tunnel.

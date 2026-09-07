@@ -116,6 +116,8 @@ spec:
         - "0.0.0.0:8000"
         - "--upstream"
         - "http://127.0.0.1:8002"
+        - "--frontend"
+        - "/app/frontend/dist/recall-web/browser"
         env:
         - name: RECALLD_READ_TOKEN
           valueFrom:
