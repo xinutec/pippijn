@@ -247,9 +247,6 @@ in  T.namespaceOf
                 -- pod. A FALLBACK, never an override: a ported route always wins.
                 "--upstream"
               , "http://127.0.0.1:${Natural/show apiPort}"
-              , -- The built Angular app, served by recalld from the cutover on.
-                "--frontend"
-              , "/app/frontend/dist/recall-web/browser"
               ]
             , -- Its own wg-pinned hostPort beside the api's 8000: recorders
               -- deliver segments here from anywhere on the tunnel.
