@@ -274,6 +274,40 @@ in  T.namespaceOf
                   name = "RECALLD_INGEST_TOKENS"
                 , value = optional keys.INGEST_TOKENS
                 }
+              , { -- ⚠ THE SAME SSO KEYS THE API HOLDS, and without them recalld
+                  -- serves NONE of its ported browsing routes. `webauth = None`
+                  -- means ABSENT there, not open — these routes serve household
+                  -- transcripts, so an unconfigured recalld answers them 404
+                  -- rather than answering them to anyone. Deploying the cutover
+                  -- without these left every ported route falling through to the
+                  -- proxy: the app worked, and none of the Rust was reached.
+                  --
+                  -- ⚠ The session secret must be the SAME VALUE as the api's.
+                  -- The token format is byte-identical on purpose, so one cookie
+                  -- verifies in both halves and a route group can move between
+                  -- them with nobody signing in again. Two different secrets and
+                  -- every proxied route 401s while the ported ones work.
+                  name = "RECALL_SESSION_SECRET"
+                , value = optional keys.SESSION_SECRET
+                }
+              , { name = "NC_CLIENT_ID", value = optional keys.NC_CLIENT_ID }
+              , { name = "NC_CLIENT_SECRET"
+                , value = optional keys.NC_CLIENT_SECRET
+                }
+              , { name = "RECALL_ALLOWED_USERS", value = lit "pippijn" }
+              , { -- Server-to-server OAuth goes over plain HTTP in-cluster,
+                  -- presenting the public host so Nextcloud's trusted-domain
+                  -- routing treats it like the public request. recalld's ureq is
+                  -- built without TLS, so this is not optional for it.
+                  name = "NC_INTERNAL_URL"
+                , value =
+                    lit "http://nextcloud-server.nextcloud.svc.cluster.local"
+                }
+              , { -- The meeting recorder's upload credential, on the same terms
+                  -- as the api's: one route, not a reader of transcripts.
+                  name = "RECALL_DEVICE_TOKEN"
+                , value = optional keys.DEVICE_TOKEN
+                }
               ]
             }
           ]

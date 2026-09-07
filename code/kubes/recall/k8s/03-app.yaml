@@ -130,6 +130,34 @@ spec:
               key: INGEST_TOKENS
               name: "recall-secret"
               optional: true
+        - name: RECALL_SESSION_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: SESSION_SECRET
+              name: "recall-secret"
+              optional: true
+        - name: NC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_ID
+              name: "recall-secret"
+              optional: true
+        - name: NC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: NC_CLIENT_SECRET
+              name: "recall-secret"
+              optional: true
+        - name: RECALL_ALLOWED_USERS
+          value: pippijn
+        - name: NC_INTERNAL_URL
+          value: "http://nextcloud-server.nextcloud.svc.cluster.local"
+        - name: RECALL_DEVICE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: DEVICE_TOKEN
+              name: "recall-secret"
+              optional: true
         image: "xinutec/recall:latest"
         livenessProbe:
           httpGet:
