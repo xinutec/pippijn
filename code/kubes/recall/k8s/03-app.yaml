@@ -29,7 +29,7 @@ spec:
         - "--host"
         - '0.0.0.0'
         - "--port"
-        - '8000'
+        - '8002'
         env:
         - name: RECALL_ROLE
           value: fleet
@@ -70,20 +70,22 @@ spec:
           value: "http://nextcloud-server.nextcloud.svc.cluster.local"
         image: "xinutec/recall:latest"
         livenessProbe:
+          httpGet:
+            path: /api/capture
+            port: 8002
           initialDelaySeconds: 10
           periodSeconds: 30
-          tcpSocket:
-            port: 8000
         name: recall
         ports:
         - containerPort: 8000
           hostIP: '10.100.0.2'
           hostPort: 8000 # dev-lint: allow-host-port — bound to wg0 only, see hostIP
         readinessProbe:
+          httpGet:
+            path: /api/capture
+            port: 8002
           initialDelaySeconds: 3
           periodSeconds: 10
-          tcpSocket:
-            port: 8000
         resources:
           limits:
             cpu: '1'
@@ -110,6 +112,12 @@ spec:
         - /data
         - "--bind"
         - "0.0.0.0:8001"
+        - "--bind"
+        - "0.0.0.0:8000"
+        - "--upstream"
+        - "http://127.0.0.1:8002"
+        - "--frontend"
+        - "/app/frontend/dist/recall-web/browser"
         env:
         - name: RECALLD_READ_TOKEN
           valueFrom:

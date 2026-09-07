@@ -21,6 +21,18 @@ let dataPath = "/data"
 
 let port = 8000
 
+let ingestPort = 8001
+
+let -- ⚠ POD-INTERNAL ONLY, and that is the whole cutover. recalld became the
+    -- front door on 2026-09-07: it binds BOTH 8000 (what the browser and the
+    -- registered OAuth redirect already use) and 8001 (what recorders already
+    -- push to), and forwards whatever it has not ported yet to the Python here.
+    -- The hostPort DNATs into the pod's shared network namespace, so WHICH
+    -- container binds 8000 is not something Kubernetes polices — which is why
+    -- nothing external moves: no recorder reconfigured, no redirect
+    -- re-registered, no bookmark changed.
+    apiPort = 8002
+
 let keys =
       -- The keys as a RECORD, so a typo is a type error rather than a pod that boots
       -- with an empty credential. `secrets = toMap keys` publishes the same
@@ -94,9 +106,19 @@ in  T.namespaceOf
           , "--host"
           , "0.0.0.0"
           , "--port"
-          , "${Natural/show port}"
+          , "${Natural/show apiPort}"
           ]
-        , port
+        , -- ⚠ DECLARED here, but SERVED by the recalld sidecar since 2026-09-07.
+          -- The declaration is what installs the CNI portmap DNAT from the
+          -- tunnel address to the POD's 8000, and the containers share one
+          -- network namespace — so the mapping is the pod's, not this
+          -- container's, and recalld is what answers on it. This container now
+          -- listens on `apiPort` behind recalld's proxy.
+          --
+          -- It stays here because `Sidecar.port` holds ONE port and recalld
+          -- needs 8001 for the recorders. Moving it would need the model to take
+          -- a list per container, which is a bigger change than this cutover.
+          port
         , uid = 1000
         , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
@@ -163,10 +185,24 @@ in  T.namespaceOf
             { readiness = { initialDelaySeconds = 3, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 10, periodSeconds = 30 }
             }
-        , -- `Tcp`, not `Http`: it is honest about what is actually checked.
-          -- There is no health endpoint, and probing `/` would exercise the
-          -- session middleware on every tick.
-          probe = T.Probe.Tcp { port }
+        , -- ⚠ This container's probe must test THIS container, and since
+          -- 2026-09-07 that means `apiPort`, not `port`. recalld binds `port`
+          -- now, so a check there would pass whenever RECALLD is up — including
+          -- with this one dead and every unported route 502ing behind the proxy.
+          -- Kubernetes would call the pod healthy while most of the app was
+          -- broken.
+          --
+          -- `/api/capture` because it is the one Python route that needs no
+          -- session (webauth's exempt set: the phones poll it login-free), so
+          -- probing it exercises no session middleware — the property the old
+          -- `Tcp` probe was chosen for, now with an actual answer behind it.
+          --
+          -- recalld is covered by the sidecar's OWN probe below. Each container
+          -- probes ITSELF: an earlier draft had this one testing Python THROUGH
+          -- the proxy, which silently stops testing Python the moment recalld
+          -- ports the probed route. And recalld binds every port before serving
+          -- any, so its 8001 answering proves 8000 is bound too.
+          probe = T.Probe.Http { path = "/api/capture", port = apiPort }
         , resources =  Some
           { requests = { cpu = "100m", memory = "256Mi" }
           , limits = Some { cpu = Some "1", memory = "1Gi" }
@@ -198,11 +234,28 @@ in  T.namespaceOf
               -- binary into it — so one push rolls both tiers together.
               name = "recalld"
             , command =
-              [ "recalld", "--root", "/data", "--bind", "0.0.0.0:8001" ]
+              [ "recalld"
+              , "--root"
+              , "/data"
+              , -- BOTH: the ingest port recorders already push to, and the port
+                -- the browser and the OAuth redirect already use.
+                "--bind"
+              , "0.0.0.0:${Natural/show ingestPort}"
+              , "--bind"
+              , "0.0.0.0:${Natural/show port}"
+              , -- Whatever recalld has not ported yet, over loopback inside this
+                -- pod. A FALLBACK, never an override: a ported route always wins.
+                "--upstream"
+              , "http://127.0.0.1:${Natural/show apiPort}"
+              , -- The built Angular app, served by recalld from the cutover on.
+                "--frontend"
+              , "/app/frontend/dist/recall-web/browser"
+              ]
             , -- Its own wg-pinned hostPort beside the api's 8000: recorders
               -- deliver segments here from anywhere on the tunnel.
-              port = Some 8001
-            , probe = T.Probe.Http { path = "/ingest/v1/health", port = 8001 }
+              port = Some ingestPort
+            , probe = T.Probe.Http
+                { path = "/ingest/v1/health", port = ingestPort }
             , -- The same PVC: the ingest tree lands under /data/ingest, inside
               -- what odin's nightly restic already rsyncs.
               shareMounts = True
