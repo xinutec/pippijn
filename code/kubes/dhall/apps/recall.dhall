@@ -273,6 +273,24 @@ in  T.namespaceOf
                   name = "RECALLD_READ_TOKEN"
                 , value = required keys.SYNC_TOKEN
                 }
+              , { -- ⚠ THE SAME SECRET AS ABOVE, AND A DIFFERENT GATE. This one
+                  -- does not open or close anything: it decides whether recalld
+                  -- MOUNTS the `/sync/*` routes at all. Absent, they are not
+                  -- mounted and the Mac's requests fall through the proxy to the
+                  -- api container, exactly as before recalld had them.
+                  --
+                  -- So this line IS the cutover, and removing it is the
+                  -- rollback — no image build either way, which matters because
+                  -- fleet images are `:latest` only and a rollback would
+                  -- otherwise be a roll-forward.
+                  --
+                  -- It reads the same `SYNC_TOKEN` key the api reads, so the two
+                  -- halves agree by construction rather than by remembering.
+                  -- Named separately from RECALLD_READ_TOKEN because they are
+                  -- two planes that happen to share one secret today.
+                  name = "RECALL_SYNC_TOKEN"
+                , value = required keys.SYNC_TOKEN
+                }
               , { -- Optional means the pod starts without it — and what is
                   -- lost is the WRITE gate: an absent table leaves ingest
                   -- open to anything on the tunnel. Appends are not the

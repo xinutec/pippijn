@@ -124,6 +124,11 @@ spec:
             secretKeyRef:
               key: SYNC_TOKEN
               name: "recall-secret"
+        - name: RECALL_SYNC_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: SYNC_TOKEN
+              name: "recall-secret"
         - name: RECALLD_INGEST_TOKENS
           valueFrom:
             secretKeyRef:
