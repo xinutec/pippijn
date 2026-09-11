@@ -53,7 +53,7 @@ in  T.namespaceOf
           -- a network-layer gate — and `T.wgAddress` derives the hostIP from
           -- `cluster`, because a bare hostPort DNATs on every address the node
           -- has and the rule bypasses the NixOS firewall entirely.
-          reach = T.Reach.WireGuard
+          reach = T.Reach.WireGuard { alsoPublish = [] : List Natural }
         , name = "scanner"
         , -- NOT on Docker Hub. The scanner repo is local-only — its eval golden
           -- embeds a private letter — so there is no CI and no registry;

@@ -90,7 +90,7 @@ in  T.namespaceOf
           -- confirmed 2026-07-09 — and this archive is transcripts of
           -- conversations in the house. The hostPort pinned to the tunnel address
           -- IS the gate.
-          reach = T.Reach.WireGuard
+          reach = T.Reach.WireGuard { alsoPublish = [] : List Natural }
         , name = "recall"
         , image = T.Image.Fleet "recall"
         , -- ⚠ `--out` is what binds the archive to /data. `recall api`
@@ -115,9 +115,19 @@ in  T.namespaceOf
           -- container's, and recalld is what answers on it. This container now
           -- listens on `apiPort` behind recalld's proxy.
           --
-          -- It stays here because `Sidecar.port` holds ONE port and recalld
-          -- needs 8001 for the recorders. Moving it would need the model to take
-          -- a list per container, which is a bigger change than this cutover.
+          -- ⚠ **THE MODEL CAN NOW MOVE IT; THE DEPLOY IS WHAT IS NOT READY.**
+          -- This note used to say the declaration stayed because `Sidecar.port`
+          -- holds one port and recalld needs 8001 — true when it was written,
+          -- false since `Reach.WireGuard` took an `alsoPublish` list. The
+          -- cutover is `alsoPublish = [ ingestPort ]` on a recalld that is the
+          -- MAIN container, and dropping this one.
+          --
+          -- It waits on recall #1500: the Rust sync plane has never taken a
+          -- production WRITE (every push since the cutover was a no-op, capture
+          -- having been paused), and the front door is not a thing to move on an
+          -- untested write path. Order when it goes: publish from recalld FIRST,
+          -- verify, drop this container SECOND — the other way unpublishes the
+          -- front door.
           port
         , uid = 1000
         , selector = T.Selector.App

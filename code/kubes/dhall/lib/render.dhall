@@ -81,9 +81,11 @@ let usesHostPort
       --| Does this app's Deployment carry a `hostPort`?
       --
       -- Asked by `generate.sh` to decide whether to emit the `allow-host-port` waiver.
-      -- `WireGuard` is the only arm that renders one, and it always does — the hostPort
-      -- pinned to the tunnel address IS how such an app is reached, so the question is
-      -- answered by the reach and never per-ns.
+      -- Two arms render one and both always do: `WireGuard` pins its ports to the
+      -- tunnel address, `HostPorts` binds every interface. Either way the hostPort IS
+      -- how the app is reached, so the question is answered by the reach and never
+      -- per-ns. (This comment said "`WireGuard` is the only arm" while the `HostPorts`
+      -- case two lines below already answered True.)
       --
       -- Same discipline as `hasAppliedNetpol`: dev-lint fails a waiver that waives
       -- nothing, so this must be the model's answer rather than a list in the
@@ -98,7 +100,7 @@ let usesHostPort
                   merge
                     { Ingress =
                         λ(_ : { host : Text, exposure : T.Exposure }) → False
-                    , WireGuard = True
+                    , WireGuard = λ(_ : { alsoPublish : List Natural }) → True
                     , HostPorts = λ(_ : { published : List T.Published, why : Text }) → True
                     , Internal = False
                     , NoService = False
@@ -1058,13 +1060,14 @@ let sidecarContainerFor =
                           Some
                             [ merge
                                 { WireGuard =
-                                  { containerPort = p
-                                  , hostPort = Some p
-                                  , hostIP = Some
-                                      ( T.wgAddress
-                                          (T.soleCluster ns.placement)
-                                      )
-                                  }
+                                    λ(_ : { alsoPublish : List Natural }) →
+                                      { containerPort = p
+                                      , hostPort = Some p
+                                      , hostIP = Some
+                                          ( T.wgAddress
+                                              (T.soleCluster ns.placement)
+                                          )
+                                      }
                                 , Ingress =
                                     λ ( _
                                       : { host : Text, exposure : T.Exposure }
@@ -1158,7 +1161,7 @@ let deploymentFor
               merge
                 { Ingress =
                     λ(_ : { host : Text, exposure : T.Exposure }) → False
-                , WireGuard = True
+                , WireGuard = λ(_ : { alsoPublish : List Natural }) → True
                 , -- Same reason as `WireGuard`, and the live manifests say so in
                   -- their own words: "hostPort binds the node interface, so two
                   -- pods can't coexist during a rollout — recreate (brief blip)
@@ -1253,28 +1256,50 @@ let deploymentFor
                                       }
                                     ]
                               , WireGuard =
-                                [ { containerPort = w.port
-                                  , -- ⚠ Same number by POLICY, not by necessity,
-                                    -- and this comment claimed otherwise until
-                                    -- 2026-08-27. It read "a hostPort that
-                                    -- disagrees with the containerPort forwards
-                                    -- to nothing, silently" — false: the CNI
-                                    -- portmap plugin DNATs host dport to the
-                                    -- container's port and the two may differ
-                                    -- (`vps/irssi` has run 2230 -> 22 for 51
-                                    -- days; evidence in `T.Reach`). `25fdbee5`
-                                    -- corrected the copy in types.dhall and
-                                    -- MISSED this one, so the falsified claim
-                                    -- outlived its own correction by a day.
-                                    --
-                                    -- What is true: a WireGuard app is reached
-                                    -- at the port it serves, so one number is
-                                    -- named once. That is a choice, and it is
-                                    -- why a deliberate remap is inexpressible.
-                                    hostPort = Some w.port
-                                  , hostIP = Some (T.wgAddress (T.soleCluster ns.placement))
-                                  }
-                                ]
+                                  λ(r : { alsoPublish : List Natural }) →
+                                    L.map
+                                      Natural
+                                      K.ContainerPort
+                                      ( λ(n : Natural) →
+                                          { containerPort = n
+                                          , -- ⚠ Same number for both by POLICY,
+                                            -- not necessity, and this comment
+                                            -- claimed otherwise until
+                                            -- 2026-08-27. It read "a hostPort
+                                            -- that disagrees with the
+                                            -- containerPort forwards to
+                                            -- nothing, silently" — false: the
+                                            -- CNI portmap plugin DNATs host
+                                            -- dport to the container's port and
+                                            -- the two may differ (`vps/irssi`
+                                            -- has run 2230 -> 22 for 51 days;
+                                            -- evidence in `T.Published`).
+                                            --
+                                            -- ⚠ `25fdbee5` corrected the copy
+                                            -- in types.dhall and MISSED THIS
+                                            -- ONE, so the falsified claim
+                                            -- outlived its own correction by a
+                                            -- day. A correction applied to one
+                                            -- copy leaves the belief alive in
+                                            -- the other; grep for the sentence,
+                                            -- not for the file you were in.
+                                            --
+                                            -- What is true: a wg app is reached
+                                            -- at the port it serves, so one
+                                            -- number is named once. That is a
+                                            -- choice. A deliberate remap is
+                                            -- still inexpressible HERE — it
+                                            -- belongs in `HostPorts`, which has
+                                            -- had it since 2026-08-27.
+                                            hostPort = Some n
+                                          , hostIP =
+                                              Some
+                                                ( T.wgAddress
+                                                    (T.soleCluster ns.placement)
+                                                )
+                                          }
+                                      )
+                                      ([ w.port ] # r.alsoPublish)
                               , -- ⚠ `hostIP` UNSET, unlike `WireGuard`: these
                                 -- bind every interface because the clients are
                                 -- people on the internet, not the fleet. And the
@@ -1458,7 +1483,7 @@ let servicePort
       λ(w : T.Workload.Type) →
         merge
           { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → 80
-          , WireGuard = w.port
+          , WireGuard = λ(_ : { alsoPublish : List Natural }) → w.port
           , Internal = w.port
           , -- Never evaluated, same as `NoService` below.
             HostPorts = λ(_ : { published : List T.Published, why : Text }) → w.port
@@ -1599,7 +1624,7 @@ let serviceFor
 
         in  merge
               { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → svc
-              , WireGuard = svc
+              , WireGuard = λ(_ : { alsoPublish : List Natural }) → svc
               , Internal = svc
               , HostPorts = λ(_ : { published : List T.Published, why : Text }) → [] : List K.Service
               , NoService = [] : List K.Service
@@ -1676,7 +1701,7 @@ let ingressFor
                         }
                       }
                     ]
-          , WireGuard = [] : List K.Ingress
+          , WireGuard = λ(_ : { alsoPublish : List Natural }) → [] : List K.Ingress
           , Internal = [] : List K.Ingress
           , HostPorts = λ(_ : { published : List T.Published, why : Text }) → [] : List K.Ingress
           , NoService = [] : List K.Ingress
@@ -2236,7 +2261,7 @@ let frontDoorOf
                     , healthPath = w.serviceCheck
                     }
                 ]
-          , WireGuard = [] : List F.Entry
+          , WireGuard = λ(_ : { alsoPublish : List Natural }) → [] : List F.Entry
           , Internal = [] : List F.Entry
           , HostPorts =
               λ(_ : { published : List T.Published, why : Text }) →

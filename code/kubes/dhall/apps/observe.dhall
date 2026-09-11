@@ -111,7 +111,7 @@ in  T.namespaceOf
           -- the shared nginx ingress answers on isis's PUBLIC address whatever DNS
           -- says, so an Ingress here would be obscurity rather than a gate. These
           -- are reconstructions of rooms in the house.
-          reach = T.Reach.WireGuard
+          reach = T.Reach.WireGuard { alsoPublish = [] : List Natural }
         , name = "observe-viewer"
         , -- Third-party and PINNED to a tag, as `Upstream` requires. The
           -- unprivileged variant specifically: it listens on 8091 as uid 101

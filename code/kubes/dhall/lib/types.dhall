@@ -449,36 +449,42 @@ let Published =
       -- `Exposure.VpnOnly` provides. Three apps do it (scanner, recall, observe) and
       -- each said so in a comment beginning "same as recall".
       --
-      -- The port is NOT a field: it is the workload's own, so the three apps above
-      -- cannot name a hostPort that no container is listening on.
-      --
-      -- ⚠ THE REASON THIS COMMENT USED TO GIVE WAS FALSE, and the correction bounds
-      -- what `Reach` can describe. It claimed "a hostPort that disagrees with the
-      -- containerPort forwards to nothing, silently". It does not: the CNI portmap
-      -- plugin installs a DNAT from the host dport to the container's port, and the
-      -- two are free to differ. Checked on amun 2026-08-26 against `vps/irssi`, which
-      -- has run 2230 -> 22 for 51 days:
-      --
-      --     -A CNI-DN-ae12ea... -p tcp --dport 2230 -j DNAT --to-destination 10.42.0.154:22
-      --
-      -- and the banner answers. So deriving the hostPort from the containerPort is a
-      -- POLICY -- one port, named once, for the apps modelled here -- and not the
-      -- safety property it was written as. It is also the reason `vps/irssi` and
-      -- `ircd` are not expressible: irssi remaps the port deliberately (a per-user SSH
-      -- endpoint on a shared node cannot have every user listening on 22), and ircd
-      -- publishes three ports from one container where `Workload.port` holds one.
       --| A container port and the node port it is published at.
       --
       -- ⚠ **The two are FREE TO DIFFER**, which this model denied until 2026-08-27.
       -- The CNI portmap plugin DNATs the host dport to the container's port; measured
-      -- on amun against `vps/irssi`, running 2230 -> 22 for 51 days. `WireGuard` still
-      -- names one number for both, but that is now a POLICY it chooses rather than a
-      -- rule the cluster enforces.
+      -- on amun against `vps/irssi`, running 2230 -> 22 for 51 days:
+      --
+      --     -A CNI-DN-ae12ea... -p tcp --dport 2230 -j DNAT --to-destination 10.42.0.154:22
+      --
+      -- and the banner answers. `WireGuard` still names one number for both, but that
+      -- is a POLICY it chooses rather than a rule the cluster enforces.
+      --
+      -- ⚠ **A paragraph here used to end "vps/irssi and ircd are not expressible".**
+      -- It had been true, and `Published` plus `Reach.HostPorts` made it false the
+      -- same day they were added — while the sentence sat directly above the type
+      -- that fixed it. Both apps have been modelled and generated since 2026-08-27.
       { containerPort : Natural, hostPort : Natural }
 
 let Reach =
       < Ingress : { host : Text, exposure : Exposure }
-      | WireGuard
+      | -- ⚠ **`alsoPublish` NAMES THE EXTRA PORTS, NOT ALL OF THEM.**
+        -- `Workload.port` is always published here — it is the port the probes
+        -- ask about — and these are published beside it, each at the same number
+        -- on the tunnel address. Written that way so "probing a port you do not
+        -- publish" is UNREPRESENTABLE, where `HostPorts` can only state the same
+        -- invariant in a comment. The asymmetry is deliberate: this arm's policy
+        -- is one number for container and host, so there is nothing left to get
+        -- wrong except the set.
+        --
+        -- A list because one container can serve two doors: recall's recalld
+        -- answers 8000 (browser, and the registered OAuth redirect) and 8001
+        -- (what the recorders push to). Until this field existed the second door
+        -- was published by DECLARING it on a sibling container that did not serve
+        -- it — legal, because a hostPort DNATs into the POD's namespace and any
+        -- container in it may answer — but it made deleting that sibling cost a
+        -- port rather than a process.
+        WireGuard : { alsoPublish : List Natural }
       | -- Published straight onto every node interface, with NO Service.
         --
         -- ⚠ **NOT Kubernetes' `type: NodePort`** — deliberately not named that.
