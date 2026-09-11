@@ -55,7 +55,8 @@ let linkImages
       -- gone — a link from 2014 cannot be re-fetched — and that is accepted rather
       -- than overlooked: the conversation still holds the link, which is what was
       -- actually said, and backing it up would mean keeping copies of other people's
-      -- files against the day their own server forgets them.
+      -- files against the day their own server forgets them. Nothing lands here
+      -- unasked, so it grows with what somebody chose to look at.
       T.Claim::{ name = "messages-link-images-pvc"
       , storageGi = 2
       , durability =
@@ -279,17 +280,17 @@ in  { name = "signal"
               -- the reader as bytes on a volume — the same shape as a Signal
               -- attachment, which is already how a picture gets on screen.
               name = "messages-link-fetch"
-            , -- Hourly, and the cadence is about the far side rather than about us.
-              -- A run is capped (LINK_FETCH_BATCH) so a first pass over years of
-              -- archive is spread out instead of arriving at somebody's server all
-              -- at once, and every decision is recorded — "not a picture" included
-              -- — so a link is asked about ONCE, ever.
-              schedule = "17 * * * *"
+            , -- ⚠ **EVERY TWO MINUTES BECAUSE SOMEBODY IS WAITING.** Nothing here
+              -- is speculative: a link reaches the queue only when a reader taps
+              -- "show this picture", so this cadence is how long they watch a
+              -- "fetching…" label. It was hourly when the job walked the archive
+              -- on nobody's behalf, which is the design this replaced.
+              schedule = "*/2 * * * *"
             , command = [ "link-fetch" ]
-            , -- Far past a capped batch of 25 fetches at a 20s timeout apiece; what
-              -- it bounds is a run wedged on a server that accepts a connection and
-              -- then says nothing.
-              deadlineSeconds = 1200
+            , -- A batch of ten at a 20s timeout apiece cannot exceed this, so a
+              -- wedged run is what it actually bounds — and `Forbid` means a slow
+              -- run delays its successor rather than racing it.
+              deadlineSeconds = 300
             , suspended = False
             , rootFs = T.RootFs.ReadOnly
             , volumes =
@@ -312,6 +313,12 @@ in  { name = "signal"
               , { name = "DB_USER", value = signalSecret "DB_USER" }
               , { name = "DB_PASSWORD", value = signalSecret "DB_PASSWORD" }
               , { name = "LINK_IMAGES_DIR", value = lit linkImagesPath }
+              , { -- Ten per run against a two-minute cadence: enough that a tap is
+                  -- answered in the next run or two, small enough that a queue of
+                  -- them is still a trickle to whoever is being asked.
+                  name = "LINK_FETCH_BATCH"
+                , value = lit "10"
+                }
               , { -- `Config::from_env` wants these whatever the binary does with
                   -- them, and it refuses to start on an empty allow-list. The
                   -- fetcher serves nothing and logs nobody in.

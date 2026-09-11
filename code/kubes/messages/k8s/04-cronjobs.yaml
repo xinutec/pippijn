@@ -11,7 +11,7 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
-      activeDeadlineSeconds: 1200
+      activeDeadlineSeconds: 300
       template:
         metadata:
           labels:
@@ -37,6 +37,8 @@ spec:
                   name: "signal-secret"
             - name: LINK_IMAGES_DIR
               value: "/link-images"
+            - name: LINK_FETCH_BATCH
+              value: '10'
             - name: ALLOWED_USERS
               value: pippijn
             - name: SESSION_SECRET
@@ -86,5 +88,5 @@ spec:
           - name: "link-images"
             persistentVolumeClaim:
               claimName: "messages-link-images-pvc"
-  schedule: "17 * * * *"
+  schedule: "*/2 * * * *"
   successfulJobsHistoryLimit: 3
