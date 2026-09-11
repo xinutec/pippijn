@@ -266,81 +266,65 @@ in  { name = "signal"
           , { name = "link-images"
             , mountPath = linkImagesPath
             , subPath = None Text
-            , -- ⚠ The READER may not write here, and that is the shape of the
-              -- whole feature: the pod that answers the internet holds no route
-              -- off the cluster and no pen. Fetching is the task's job, below.
-              readOnly = True
+            , -- ⚠ **THE READER WRITES THESE, AND THE FETCHER DOES NOT.** That is
+              -- the wrong way round until you see what each pod is: this one owns
+              -- the archive and the stored pictures and has NO route off the
+              -- cluster; the fetcher below has a socket to the internet and
+              -- nothing else — no database, no volume, no credential. The bytes
+              -- travel between them on one in-cluster request, so a fetcher that
+              -- a hostile page has talked into something has nothing to read and
+              -- nowhere to write.
+              readOnly = False
             }
           ]
-        , tasks =
-          [ { -- ⚠ **THE ONLY THING IN THIS TREE THAT LEAVES THE CLUSTER**, and the
-              -- reason it is a task rather than a code path in the pod. `messages`
-              -- answers the internet; it must not also be able to call it. A
-              -- picture behind a link is fetched here, on a schedule, and reaches
-              -- the reader as bytes on a volume — the same shape as a Signal
-              -- attachment, which is already how a picture gets on screen.
-              name = "messages-link-fetch"
-            , -- ⚠ **EVERY TWO MINUTES BECAUSE SOMEBODY IS WAITING.** Nothing here
-              -- is speculative: a link reaches the queue only when a reader taps
-              -- "show this picture", so this cadence is how long they watch a
-              -- "fetching…" label. It was hourly when the job walked the archive
-              -- on nobody's behalf, which is the design this replaced.
-              schedule = "*/2 * * * *"
-            , command = [ "link-fetch" ]
-            , -- A batch of ten at a 20s timeout apiece cannot exceed this, so a
-              -- wedged run is what it actually bounds — and `Forbid` means a slow
-              -- run delays its successor rather than racing it.
-              deadlineSeconds = 300
-            , suspended = False
-            , rootFs = T.RootFs.ReadOnly
-            , volumes =
-              [ { name = "link-images"
-                , source = T.VolumeSource.Claim linkImages
-                }
-              ]
-            , mounts =
-              [ { name = "link-images"
-                , mountPath = linkImagesPath
-                , subPath = None Text
-                , -- The one writer. The reader's mount of this same claim is
-                  -- readOnly, which is the whole arrangement in two lines.
-                  readOnly = False
-                }
-              ]
-            , env =
-              [ { name = "DB_HOST", value = lit "signal-db" }
-              , { name = "DB_NAME", value = lit "signal" }
-              , { name = "DB_USER", value = signalSecret "DB_USER" }
-              , { name = "DB_PASSWORD", value = signalSecret "DB_PASSWORD" }
-              , { name = "LINK_IMAGES_DIR", value = lit linkImagesPath }
-              , { -- Ten per run against a two-minute cadence: enough that a tap is
-                  -- answered in the next run or two, small enough that a queue of
-                  -- them is still a trickle to whoever is being asked.
-                  name = "LINK_FETCH_BATCH"
-                , value = lit "10"
-                }
-              , { -- `Config::from_env` wants these whatever the binary does with
-                  -- them, and it refuses to start on an empty allow-list. The
-                  -- fetcher serves nothing and logs nobody in.
-                  name = "ALLOWED_USERS"
-                , value = lit "pippijn"
-                }
-              , { name = "SESSION_SECRET", value = secret keys.SESSION_SECRET }
-              , { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
-              , { name = "NC_CLIENT_SECRET"
-                , value = secret keys.NC_CLIENT_SECRET
-                }
-              , { name = "NC_BASE_URL", value = lit "https://dash.xinutec.org" }
-              , { name = "NC_REDIRECT_URI"
-                , value = lit "https://messages.xinutec.org/auth/callback"
-                }
-              ]
-            , resources =
-              { requests = { cpu = "25m", memory = "64Mi" }
-              , limits = Some { cpu = None Text, memory = "192Mi" }
-              }
+        }
+      , T.Workload::{ name = "messages-link-fetch"
+        , -- ⚠ **THE ONLY THING IN THIS NAMESPACE THAT LEAVES THE CLUSTER, AND THE
+          -- ONLY ONE THAT KNOWS NOTHING ELSE.** It follows links strangers wrote
+          -- into a chat years ago, so it is the component most likely to meet
+          -- something hostile — and there is nothing behind it to take:
+          --
+          --   * NO env at all, so no database credential. The archive's
+          --     `signal-secret` is a field of the workload above, not of this one.
+          --   * NO volume. The pictures it returns are written by the reader.
+          --   * `Internal`, so nothing outside the cluster can reach it, and the
+          --     only caller is the pod that asks it for one URL at a time.
+          --
+          -- What it can still do if compromised is lie about the bytes of a
+          -- picture somebody asked for — which the remote server could have done
+          -- anyway — and reach the namespace's own 3306/8080, which it has no
+          -- credential for. Closing that last one needs a policy that says "every
+          -- pod EXCEPT this", which `NetpolTarget` cannot express today.
+          reach = T.Reach.Internal
+        , image = T.Image.Fleet "messages"
+        , -- Same image, second binary. One build, and the fetcher cannot drift
+          -- from the reader's idea of what a picture is.
+          command = Some [ "link-fetch" ]
+        , port = 8080
+        , uid = 65532
+        , selector = T.Selector.App
+        , hardening = T.Hardening.NonRoot
+        , rootFs = T.RootFs.ReadOnly
+        , probeTiming =
+            { readiness = { initialDelaySeconds = 2, periodSeconds = 10 }
+            , liveness = Some { initialDelaySeconds = 5, periodSeconds = 20 }
             }
-          ]
+        , probe = T.Probe.Http { path = "/healthz", port = 8080 }
+        , -- ⚠ EMPTY, AND THAT IS THE POINT — stated rather than defaulted. No
+          -- database host, no user, no password: a process with no credential
+          -- cannot be made to use one.
+          env = [] : List T.EnvVar
+        , volumes = [] : List T.Volume
+        , mounts = [] : List T.VolumeMount
+        , resources = Some
+          { requests = { cpu = "25m", memory = "64Mi" }
+          , limits = Some
+            { -- A capped body is 12Mi and it holds one at a time; the ceiling is
+              -- what stops a pathological page rather than a guess at a picture.
+              cpu = None Text
+            , memory = "192Mi"
+            }
+          }
         }
       ]
     , secrets = toMap keys

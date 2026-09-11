@@ -104,7 +104,6 @@ spec:
           name: sendwork
         - mountPath: "/link-images"
           name: "link-images"
-          readOnly: true
       securityContext:
         fsGroup: 65532
         fsGroupChangePolicy: OnRootMismatch
@@ -126,6 +125,60 @@ spec:
       - name: "link-images"
         persistentVolumeClaim:
           claimName: "messages-link-images-pvc"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "messages-link-fetch"
+  namespace: signal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "messages-link-fetch"
+  template:
+    metadata:
+      labels:
+        app: "messages-link-fetch"
+    spec:
+      containers:
+      - command:
+        - "link-fetch"
+        image: "xinutec/messages:latest"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 20
+        name: "messages-link-fetch"
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 10
+        resources:
+          limits:
+            memory: 192Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      securityContext:
+        runAsGroup: 65532
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
 ---
 apiVersion: v1
 kind: Service
@@ -138,3 +191,16 @@ spec:
     targetPort: 8080
   selector:
     app: messages
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "messages-link-fetch"
+  namespace: signal
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: "messages-link-fetch"
