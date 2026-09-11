@@ -717,6 +717,45 @@ in  { name = "signal"
                 }
               ]
             }
+          , { -- ⚠ **THE ONE POD IN THIS NAMESPACE THAT MAY LEAVE IT**, and it is a
+                -- scheduled batch job rather than the web app on purpose: a picture
+                -- somebody linked is fetched here and reaches the reader as bytes on
+                -- a volume, so `messages` itself keeps having no route to the
+                -- internet at all. See `messages-link-fetch` in `apps/messages.dhall`.
+                --
+                -- ⚠ **`except` IS THE SECURITY CONTROL, not a tidy-up.** The fetcher
+                -- follows links that strangers wrote into a chat years ago, so the
+                -- one thing it must never be talked into is reaching back inside:
+                -- the private ranges and the VPN are carved out HERE, at the network,
+                -- where an app-level check cannot be argued past by a redirect, a
+                -- DNS answer that resolves inward, or a page naming an internal
+                -- address. The app also refuses an off-origin picture; this is the
+                -- half that does not depend on the app being right.
+                name = "messages-link-fetch-egress"
+            , target = T.NetpolTarget.OneWorkload "messages-link-fetch"
+            , egress =
+              [ { to =
+                  [ T.NetpolPeer.Internet
+                      { -- The same five as `signal-cli-egress-internet` above,
+                        -- and for a sharper reason: that one talks to a server
+                        -- it chose, this one follows links strangers wrote into
+                        -- a chat years ago.
+                        except =
+                        [ "10.0.0.0/8"
+                        , "172.16.0.0/12"
+                        , "192.168.0.0/16"
+                        , "169.254.0.0/16"
+                        , "127.0.0.0/8"
+                        ]
+                      }
+                  ]
+                , ports =
+                  [ { port = 443, protocol = "TCP" }
+                  , { port = 80, protocol = "TCP" }
+                  ]
+                }
+              ]
+            }
           ]
     }
     : T.Namespace

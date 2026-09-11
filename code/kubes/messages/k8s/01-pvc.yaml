@@ -1,0 +1,16 @@
+# GENERATED from dhall/apps/messages.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+
+---
+# dev-lint: allow-backup-coverage a cache of pictures behind links; the links themselves are in the archive, and what is still live re-fetches
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: "messages-link-images-pvc"
+  namespace: signal
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi

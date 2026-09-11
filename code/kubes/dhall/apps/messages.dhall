@@ -39,6 +39,38 @@ let port = 8080
 
 let attachmentsPath = "/attachments"
 
+let linkImagesPath = "/link-images"
+
+let linkImages
+    : T.Claim.Type
+    =
+      --| Pictures fetched for links people posted — see `link_image.rs` in the app.
+      --
+      -- ⚠ **THE FIRST CLAIM THIS TREE CREATES**, and it may because only this tree's
+      -- own workloads touch it: the scheduled fetcher writes it, the reader mounts it
+      -- read-only. `signal-claims.dhall` exists for the other case, where two TREES
+      -- must agree about one volume.
+      --
+      -- A cache, deliberately. Losing it costs the pictures whose shares have since
+      -- gone — a link from 2014 cannot be re-fetched — and that is accepted rather
+      -- than overlooked: the conversation still holds the link, which is what was
+      -- actually said, and backing it up would mean keeping copies of other people's
+      -- files against the day their own server forgets them.
+      T.Claim::{ name = "messages-link-images-pvc"
+      , storageGi = 2
+      , durability =
+          T.Durability.LossAccepted
+            { why =
+                "a cache of pictures behind links; the links themselves are in the archive, and what is still live re-fetches"
+            }
+      , writers =
+          T.Writers.Concurrent
+            { why =
+                "the link-fetch task writes, the messages pod reads it readOnly"
+            }
+      , chown = T.FsGroupChange.OnRootMismatch
+      }
+
 let sendKeySecret =
       -- The send path. `messages` is a reader everywhere else; this is the one thing
       -- it does that leaves the cluster and the one thing it does that another person
@@ -108,10 +140,11 @@ in  { name = "signal"
       -- that same database, which is why there is no second one to declare.
       db = None T.Database
     , configMap = None T.ConfigMapDoc
-    , -- Empty because the claim it mounts is signal's — `claims` is what a tree
+    , -- The attachments claim it mounts is signal's — `claims` is what a tree
       -- CREATES, and `VolumeSource.Claim` carries the claim value, so mounting
-      -- one this tree does not own needs nothing here.
-      claims = [] : List T.Claim.Type
+      -- one this tree does not own needs nothing here. The link-images volume is
+      -- this tree's own: only its workload and its task touch it.
+      claims = [ linkImages ]
     , workloads =
       [ T.Workload::{ name = "messages"
         , reach =
@@ -156,6 +189,7 @@ in  { name = "signal"
           , { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
           , { name = "NC_CLIENT_SECRET", value = secret keys.NC_CLIENT_SECRET }
           , { name = "ATTACHMENTS_DIR", value = lit attachmentsPath }
+          , { name = "LINK_IMAGES_DIR", value = lit linkImagesPath }
           , { -- irssi over WireGuard, by address rather than by name: the same
               -- host and port the importer pulls the logs from, reached with a
               -- different key that may only send.
@@ -208,6 +242,7 @@ in  { name = "signal"
                   }
             }
           , { name = "sendwork", source = T.VolumeSource.EmptyDir }
+          , { name = "link-images", source = T.VolumeSource.Claim linkImages }
           ]
         , mounts =
           [ { name = "attachments"
@@ -226,6 +261,77 @@ in  { name = "signal"
             , mountPath = sendWorkMount
             , subPath = None Text
             , readOnly = False
+            }
+          , { name = "link-images"
+            , mountPath = linkImagesPath
+            , subPath = None Text
+            , -- ⚠ The READER may not write here, and that is the shape of the
+              -- whole feature: the pod that answers the internet holds no route
+              -- off the cluster and no pen. Fetching is the task's job, below.
+              readOnly = True
+            }
+          ]
+        , tasks =
+          [ { -- ⚠ **THE ONLY THING IN THIS TREE THAT LEAVES THE CLUSTER**, and the
+              -- reason it is a task rather than a code path in the pod. `messages`
+              -- answers the internet; it must not also be able to call it. A
+              -- picture behind a link is fetched here, on a schedule, and reaches
+              -- the reader as bytes on a volume — the same shape as a Signal
+              -- attachment, which is already how a picture gets on screen.
+              name = "messages-link-fetch"
+            , -- Hourly, and the cadence is about the far side rather than about us.
+              -- A run is capped (LINK_FETCH_BATCH) so a first pass over years of
+              -- archive is spread out instead of arriving at somebody's server all
+              -- at once, and every decision is recorded — "not a picture" included
+              -- — so a link is asked about ONCE, ever.
+              schedule = "17 * * * *"
+            , command = [ "link-fetch" ]
+            , -- Far past a capped batch of 25 fetches at a 20s timeout apiece; what
+              -- it bounds is a run wedged on a server that accepts a connection and
+              -- then says nothing.
+              deadlineSeconds = 1200
+            , suspended = False
+            , rootFs = T.RootFs.ReadOnly
+            , volumes =
+              [ { name = "link-images"
+                , source = T.VolumeSource.Claim linkImages
+                }
+              ]
+            , mounts =
+              [ { name = "link-images"
+                , mountPath = linkImagesPath
+                , subPath = None Text
+                , -- The one writer. The reader's mount of this same claim is
+                  -- readOnly, which is the whole arrangement in two lines.
+                  readOnly = False
+                }
+              ]
+            , env =
+              [ { name = "DB_HOST", value = lit "signal-db" }
+              , { name = "DB_NAME", value = lit "signal" }
+              , { name = "DB_USER", value = signalSecret "DB_USER" }
+              , { name = "DB_PASSWORD", value = signalSecret "DB_PASSWORD" }
+              , { name = "LINK_IMAGES_DIR", value = lit linkImagesPath }
+              , { -- `Config::from_env` wants these whatever the binary does with
+                  -- them, and it refuses to start on an empty allow-list. The
+                  -- fetcher serves nothing and logs nobody in.
+                  name = "ALLOWED_USERS"
+                , value = lit "pippijn"
+                }
+              , { name = "SESSION_SECRET", value = secret keys.SESSION_SECRET }
+              , { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
+              , { name = "NC_CLIENT_SECRET"
+                , value = secret keys.NC_CLIENT_SECRET
+                }
+              , { name = "NC_BASE_URL", value = lit "https://dash.xinutec.org" }
+              , { name = "NC_REDIRECT_URI"
+                , value = lit "https://messages.xinutec.org/auth/callback"
+                }
+              ]
+            , resources =
+              { requests = { cpu = "25m", memory = "64Mi" }
+              , limits = Some { cpu = None Text, memory = "192Mi" }
+              }
             }
           ]
         }

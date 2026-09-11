@@ -55,6 +55,8 @@ spec:
               name: "messages-secret"
         - name: ATTACHMENTS_DIR
           value: /attachments
+        - name: LINK_IMAGES_DIR
+          value: "/link-images"
         - name: IRC_SEND_HOST
           value: '10.100.0.1'
         - name: IRC_SEND_PORT
@@ -100,6 +102,9 @@ spec:
           readOnly: true
         - mountPath: /run/irc
           name: sendwork
+        - mountPath: "/link-images"
+          name: "link-images"
+          readOnly: true
       securityContext:
         fsGroup: 65532
         fsGroupChangePolicy: OnRootMismatch
@@ -118,6 +123,9 @@ spec:
           secretName: "messages-irc-send"
       - emptyDir: {}
         name: sendwork
+      - name: "link-images"
+        persistentVolumeClaim:
+          claimName: "messages-link-images-pvc"
 ---
 apiVersion: v1
 kind: Service

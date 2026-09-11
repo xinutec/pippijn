@@ -125,7 +125,7 @@ spec:
       protocol: TCP
     to:
     - ipBlock:
-        cidr: "188.165.200.180/32"
+        cidr: 188.165.200.180/32
   podSelector:
     matchLabels:
       app: messages
@@ -149,5 +149,33 @@ spec:
   podSelector:
     matchLabels:
       app: messages
+  policyTypes:
+  - Egress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "messages-link-fetch-egress"
+  namespace: signal
+spec:
+  egress:
+  - ports:
+    - port: 443
+      protocol: TCP
+    - port: 80
+      protocol: TCP
+    to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 169.254.0.0/16
+        - 127.0.0.0/8
+  podSelector:
+    matchLabels:
+      app: "messages-link-fetch"
   policyTypes:
   - Egress
