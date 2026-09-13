@@ -2,12 +2,16 @@ let T =
       -- The `signal` namespace: a Signal archive, and the first model written as a
       -- NAMESPACE rather than through the `App` sugar.
       --
-      -- Three workloads share it, which is why `T.App` could never describe it:
+      -- Several workloads share it, which is why `T.App` could never describe it.
+      -- They are listed rather than counted, because a count in a comment rots the
+      -- moment somebody adds one — as Telegram did:
       --
       --   * `signal-db` — MariaDB, the archive's system of record
       --   * `signal-cli-rest-api` — the bridge to Signal itself, third-party
       --   * `signal-ingester` — a websocket CLIENT that dials the bridge and writes
       --     rows; nothing dials IT
+      --   * `signal-irc-tail` — the live IRC tier, a long poll out to irssi
+      --   * `signal-telegram` — the Telegram feed, history and live in one session
       --
       -- A FOURTH pod lives here and is NOT in this file: the `messages` viewer, whose
       -- tree is `kubes/messages/`. It is in this namespace because a `secretKeyRef`
@@ -15,18 +19,16 @@ let T =
       -- is declared HERE, where the namespace's policies live, exactly as the live
       -- tree has it.
       --
-      -- ⚠⚠ RENDERED BUT NOT APPLIED. Three deltas remain against the live tree and
-      -- every one is deliberate:
+      -- ⚠ **THE MODEL AND THE COMMITTED TREE AGREE** — `generate.sh --check` says so,
+      -- and the three deltas this note used to list are in `signal/k8s/` now:
+      -- container names took the workload's, the bridge gained a liveness probe, and
+      -- `signal-db-from-app-only` admits 3306 from the namespace.
       --
-      --   1. container names become the workload's (`rest-api` → `signal-cli-rest-api`,
-      --      `ingester` → `signal-ingester`). Cosmetic; costs a pod restart.
-      --   2. a liveness probe appears on the bridge, which has readiness only today.
-      --      Same call health-auth got — a `tcpSocket` check is answered by the
-      --      kernel's accept queue rather than the process, so a busy pod cannot fail
-      --      it — but it IS new behaviour on a live pod.
-      --   3. `netpolDb` adds `signal-db-from-app-only`, admitting 3306 from the whole
-      --      namespace. The live tree has no such policy: additive hardening, not a
-      --      change to anything that works.
+      -- ⚠ **WHICH IS NOT THE SAME AS THE CLUSTER HAVING THEM, and this note
+      -- conflated the two until 2026-09-13.** "Applied" is a question about isis,
+      -- answerable only by asking isis; what is checkable from here is that the
+      -- model and the tree describe one thing. `deploy.sh signal` is what closes the
+      -- remaining gap, and it applies nothing the cluster already matches.
       --
       -- ⚠ APPLYING THIS NEEDS `scripts/netpol-reach.sh` RUN FIRST, against
       -- `signal/k8s/netpol-reach.table`. The policies below were proved by connecting
@@ -50,6 +52,14 @@ let keys =
         -- which says as much as the nick itself.
         IRC_SELF_NICK = "IRC_SELF_NICK"
       , IRC_SELF_NICK_ALT = "IRC_SELF_NICK_ALT"
+      , -- Pippijn's own Telegram application credentials, from
+        -- <https://my.telegram.org>. Secret-held rather than written here for the
+        -- ordinary reason — `kubes` is public — and they are not interchangeable
+        -- with the SESSION: these identify the application, while the session in
+        -- `telegram_session` identifies the account and is the one that costs a
+        -- flood wait to replace.
+        TELEGRAM_API_ID = "TELEGRAM_API_ID"
+      , TELEGRAM_API_HASH = "TELEGRAM_API_HASH"
       }
 
 let irclogImport = "signal-irclog-import"
@@ -95,6 +105,8 @@ let irclogSecret =
       "signal-irclog-sync"
 
 let ircTail = "signal-irc-tail"
+
+let telegram = "signal-telegram"
 
 let tailSecret =
       --| The tail key's own Secret, for the same two-lifetimes reason as
@@ -254,6 +266,15 @@ in  { name = "signal"
           -- reviewer as an integration point that exists.
           reach = T.Reach.NoService
         , image = T.Image.Fleet "signal-archiver"
+        , -- ⚠ **THE IMAGE'S OWN ENTRYPOINT, STATED, and it is not redundant.** One
+          -- image holds four programs, and a container that names none of them says
+          -- only "some of signal-archiver runs here" — which is how this one came to
+          -- be reported as owing `TELEGRAM_API_ID`, a credential it has no business
+          -- holding. dev-lint reads `command` to know which binary's environment a
+          -- container is answerable for, so an unstated entrypoint makes it
+          -- answerable for ALL FOUR, and the suggested cure would have handed the
+          -- Signal ingester Pippijn's Telegram keys. Changes nothing at runtime.
+          command = Some [ "/usr/local/bin/signal-archiver" ]
         , -- Not reachable, so this number names nothing outside the pod. It is
           -- required by `T.Workload` and the bridge's port is the honest value
           -- to carry.
@@ -563,7 +584,84 @@ in  { name = "signal"
           -- tier would say the two depend on each other. They deliberately do
           -- not: the import is what still works when this is down.
           tasks = [] : List T.ScheduledTask
-        }      ]
+        }
+      , T.Workload::{ name = telegram
+        , -- ⚠ NOTHING DIALS THIS, like the other two feeds: it speaks MTProto
+          -- OUTWARD to Telegram and writes rows.
+          reach = T.Reach.NoService
+        , image = T.Image.Fleet "signal-archiver"
+        , -- ⚠ **BOTH FEEDS IN ONE PROCESS, which is why there is one workload and
+          -- not two.** Telegram keeps history server-side, so the same authorised
+          -- session pages backwards through a decade AND holds the live update
+          -- stream — and they MUST share it: two pods would be two sessions, each
+          -- acknowledging update state the other needs, which is how an archive
+          -- develops a gap that nothing reports. The binary runs them as
+          -- concurrent tasks for the reason irc-tail exists beside its importer: a
+          -- message arriving now must not wait on 2019.
+          --
+          -- ⚠ THE FIRST RUN NEEDS A HUMAN, once per account lifetime. Telegram
+          -- sends a code to the phone, so `telegram login` is interactive, and this
+          -- pod refuses to start until a session exists rather than retrying
+          -- forever — a feed that is quietly not logged in looks exactly like a
+          -- quiet week. See the `signal` repo's README for the one-off command.
+          command = Some [ "/usr/local/bin/telegram" ]
+        , -- Not reachable; required by `T.Workload`. 443 is the port MTProto
+          -- actually leaves on, so it is the honest value to carry.
+          port = 443
+        , uid = 65532
+        , selector = T.Selector.App
+        , hardening = T.Hardening.NonRoot
+        , -- ⚠ READ-ONLY, unlike all three of its neighbours, and that follows from
+          -- a design decision rather than luck. The session — the one piece of
+          -- state this feed must keep — is a row in MariaDB, not a file: see
+          -- `telegram::session` for why (a PVC that one pod writes is how
+          -- `messages` spent 26 hours answering 502 over a 0400 file it could no
+          -- longer write). Nothing else here touches a filesystem, so there is no
+          -- `why` to write down.
+          rootFs = T.RootFs.ReadOnly
+        , env =
+          [ { name = "DB_HOST", value = lit "signal-db" }
+          , { name = "DB_NAME", value = lit "signal" }
+          , { name = "DB_USER", value = secret keys.DB_USER }
+          , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
+          , { name = "TELEGRAM_API_ID", value = secret keys.TELEGRAM_API_ID }
+          , { name = "TELEGRAM_API_HASH", value = secret keys.TELEGRAM_API_HASH }
+          ]
+        , probeTiming = T.standardTiming
+        , -- ⚠ INERT under `Unprobed`, like the ingester, and for a reason worth
+          -- stating rather than inheriting: there is nothing here a probe could
+          -- ask. The process holds an outgoing connection and listens on no port,
+          -- so a `tcpSocket` check would be answered by nothing, and a liveness
+          -- file would say only "this process was alive a moment ago" — which is
+          -- what irc-tail's heartbeat says, and it needs that because a long poll
+          -- which has stopped asking looks identical to a quiet channel. This one
+          -- does not have that failure mode: if the update stream ends, the task
+          -- ends, and the process ends with it.
+          probe = T.Probe.Unprobed
+        , resources = Some
+          { requests = { cpu = "50m", memory = "64Mi" }
+          , -- Bounded by construction: no media is downloaded (a Telegram photo is
+            -- recorded as having BEEN a photo), and a history page is 100 messages
+            -- of text. The session's peer cache is the only thing that grows with
+            -- the account, and it is thousands of small records rather than
+            -- anything proportional to the archive. 128Mi is the ceiling the
+            -- ingester carries, with the same meaning: a kill at it is a leak
+            -- rather than a big message.
+            --
+            -- No cpu limit, for the ingester's reason: a throttle would stall an
+            -- ingest nobody is waiting on and show up as latency nobody can
+            -- attribute.
+            limits = Some { cpu = None Text, memory = "128Mi" }
+          }
+        , -- ⚠ NO VOLUMES AT ALL, which is the same statement as `rootFs` above
+          -- made from the other side: the session is a database row, so this feed
+          -- keeps nothing on disk and there is nothing to mount, claim or back up
+          -- separately from the archive it writes into.
+          volumes = [] : List T.Volume
+        , mounts = [] : List T.VolumeMount
+        , tasks = [] : List T.ScheduledTask
+        }
+      ]
     , secrets = toMap keys
     , netpol =
         T.Netpol.Policies
@@ -753,6 +851,43 @@ in  { name = "signal"
                   [ { port = 443, protocol = "TCP" }
                   , { port = 80, protocol = "TCP" }
                   ]
+                }
+              ]
+            }
+          , { -- The Telegram feed reaches Telegram, and nothing inside.
+              --
+              -- ⚠ **THE SAME FIVE CARVE-OUTS, and the reason sits between the two
+              -- above.** The bridge talks to a server it chose; the link fetcher
+              -- follows links strangers wrote. This one talks to a server it chose
+              -- — Telegram's datacentres — but everything it then parses is
+              -- content those strangers control, over a protocol this fleet speaks
+              -- through a crate whose author says it has not been audited
+              -- (`grammers`). So the reach is carved at the network, where being
+              -- wrong about a parser costs nothing inward.
+              --
+              -- ⚠ It needs 3306 to `signal-db` as well, and does NOT get it here:
+              -- that is `signal-db-from-app-only`, which admits the whole
+              -- namespace. A second policy naming this workload for the database
+              -- would be a second statement of one fact.
+              name = "${telegram}-egress-internet"
+            , target = T.NetpolTarget.OneWorkload telegram
+            , egress =
+              [ { to =
+                  [ T.NetpolPeer.Internet
+                      { except =
+                        [ "10.0.0.0/8"
+                        , "172.16.0.0/12"
+                        , "192.168.0.0/16"
+                        , "169.254.0.0/16"
+                        , "127.0.0.0/8"
+                        ]
+                      }
+                  ]
+                , -- ⚠ 443 ALONE. MTProto has several transports — 80, 443, 5222
+                  -- and Telegram's obfuscated ports — and `grammers` dials 443. A
+                  -- wider hole would grant reach that nothing uses, which is the
+                  -- kind of allowance nobody later dares remove.
+                  ports = [ { port = 443, protocol = "TCP" } ]
                 }
               ]
             }
