@@ -177,21 +177,16 @@ let Readiness =
       --| A readiness probe that asks a DIFFERENT question from liveness, with the two
       --  timings a deep probe cannot leave at kubelet's defaults.
       --
-      -- ⚠ WHY THIS IS NOT JUST ANOTHER `Probe`. Pointing readiness at an endpoint that
-      -- does real work changes what the default timings mean:
+      -- ⚠ Pointing readiness at an endpoint that does real work changes what the
+      -- defaults mean. `timeoutSeconds` defaults to 1, and at that a handler reaching a
+      -- database is cut off as a probe TIMEOUT: NotReady with no status code, no log
+      -- line and no cause named anywhere. Set it above the handler's own budget and the
+      -- failure arrives as a 503 the app wrote down instead. `failureThreshold` decides
+      -- how much slowness is a fault — withdrawing the only pod of a single-replica app
+      -- on one slow answer turns a slow dashboard into no dashboard.
       --
-      --   * `timeoutSeconds` defaults to 1. A handler that reaches a database can
-      --     legitimately take longer than that under load, and at the default kubelet
-      --     cuts it off as a probe TIMEOUT — the pod goes NotReady with no status
-      --     code, no log line, and no cause named anywhere. Set it ABOVE the handler's
-      --     own budget and the failure arrives instead as a 503 the app wrote down.
-      --   * `failureThreshold` decides how much slowness is a fault. Withdrawing the
-      --     only pod of a single-replica app on one slow answer turns a slow dashboard
-      --     into no dashboard, which is worse than what it was reporting.
-      --
-      -- Both are required rather than optional: a workload writing this field has
-      -- already decided the fleet defaults do not fit, so leaving them implicit would
-      -- be the one shape that is never right.
+      -- Both required rather than optional: a workload writing this field has already
+      -- decided the fleet defaults do not fit.
       { probe : Probe, timeoutSeconds : Natural, failureThreshold : Natural }
 
 let Quantity = { cpu : Text, memory : Text }
@@ -410,60 +405,35 @@ let fileMode =
       { ownerRead = 256, ownerReadWrite = 384, anyoneRead = 292 }
 
 let Exposure =
-      --| Which socket serves an app's hostname.
+      --| Which socket serves an app's hostname. `Public` is served on the node's public
+      -- address and on the tunnel; `VpnOnly` on the WireGuard address and NOWHERE ELSE.
       --
-      -- `Public` is served on the node's public address and on the tunnel.
-      -- `VpnOnly` is served on the WireGuard address and NOWHERE ELSE.
+      -- ⚠ This became a REAL boundary on 2026-09-01 (#1294). It used to be obscurity at
+      -- the DNS layer, because one shared ingress answered every name on every address.
+      -- Host nginx now emits a `server` block per name whose `listen` addresses come
+      -- from this field, so a VpnOnly name has no public listener at all — and
+      -- `plan-run frontdoor-check --vpn-addr` reads the generated nginx.conf and fails
+      -- if one appears in a block listening on anything else. Checked, not trusted.
       --
-      -- ⚠ **THIS BECAME A REAL BOUNDARY ON 2026-09-01 (#1294), AND THE OLD
-      -- WARNING HERE IS THE THING THAT CHANGED.** It used to read "VpnOnly is
-      -- obscurity at the DNS layer, not a firewall — the ingress still answers
-      -- on the public IP for anyone who knows it". That was true while one
-      -- shared ingress-nginx answered every name on every address. Host nginx
-      -- now emits a `server` block per name whose `listen` addresses come from
-      -- this field, so a VpnOnly name has no listener on the public interface
-      -- at all. Verified: `vault`, `tasks`, `memview`, `messages` and
-      -- `fleetwatch` refuse against the public address while `dash` and `isis`
-      -- answer on it.
-      --
-      -- ⚠ **AND IT IS CHECKED RATHER THAN TRUSTED.** `plan-run frontdoor-check
-      -- --vpn-addr` reads the host's generated nginx.conf and fails if a
-      -- VpnOnly name appears in a block listening on anything else. The app's
-      -- own sign-in wall is no longer the only gate.
-      --
-      -- Certificates no longer follow from this field: every name is issued by
-      -- DNS-01 from `security.acme` on the host, so there is no issuer to
-      -- derive. `issuerFor` was deleted with the annotation it fed.
+      -- Certificates no longer follow from this field: every name is issued by DNS-01
+      -- from `security.acme` on the host.
       < Public | VpnOnly >
 
 let Published =
-      --| How anything outside the pod gets to it. ONE field, replacing the pair
-      --  `host : Optional Text` + `exposure : Exposure`, because they were never
-      --  independent: a host with no exposure has no issuer, and an exposure with no
-      --  host describes nothing. Both inconsistent pairings were writable and are now
-      --  not.
+      --| How anything outside the pod gets to it. ONE field, replacing a `host` +
+      -- `exposure` pair that were never independent — a host with no exposure has no
+      -- issuer, an exposure with no host describes nothing, and both inconsistent
+      -- pairings were writable.
       --
-      -- The third arm is why this exists. `WireGuard` is not "an Ingress with a
-      -- private DNS name" — it is NO Ingress at all, a hostPort DNAT'd to the node's
-      -- tunnel address only, which is a network-layer gate rather than the obscurity
-      -- `Exposure.VpnOnly` provides. Three apps do it (scanner, recall, observe) and
-      -- each said so in a comment beginning "same as recall".
+      -- ⚠ The third arm is why this exists: `WireGuard` is NOT an Ingress with a
+      -- private name. It is no Ingress at all — a hostPort DNAT'd to the node's tunnel
+      -- address only, a network-layer gate rather than obscurity.
       --
       --| A container port and the node port it is published at.
-      --
-      -- ⚠ **The two are FREE TO DIFFER**, which this model denied until 2026-08-27.
-      -- The CNI portmap plugin DNATs the host dport to the container's port; measured
-      -- on amun against `vps/irssi`, running 2230 -> 22 for 51 days:
-      --
-      --     -A CNI-DN-ae12ea... -p tcp --dport 2230 -j DNAT --to-destination 10.42.0.154:22
-      --
-      -- and the banner answers. `WireGuard` still names one number for both, but that
-      -- is a POLICY it chooses rather than a rule the cluster enforces.
-      --
-      -- ⚠ **A paragraph here used to end "vps/irssi and ircd are not expressible".**
-      -- It had been true, and `Published` plus `Reach.HostPorts` made it false the
-      -- same day they were added — while the sentence sat directly above the type
-      -- that fixed it. Both apps have been modelled and generated since 2026-08-27.
+      -- ⚠ The two are FREE TO DIFFER, which this model denied until 2026-08-27: the CNI
+      -- portmap plugin DNATs the host dport to the container's port, measured against a
+      -- container running 2230 -> 22. `WireGuard` still names one number for both, but
+      -- that is a POLICY it chooses, not a rule the cluster enforces.
       { containerPort : Natural, hostPort : Natural }
 
 let Reach =
