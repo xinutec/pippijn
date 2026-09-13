@@ -82,7 +82,33 @@ Then log in ONCE, interactively: Telegram sends a code to the phone.
 ⚠ NOT `kubectl exec` into the Deployment. That pod refuses to start until a
 session exists — deliberately, because a feed which is quietly not logged in
 looks exactly like a quiet week — so there is no running container to exec into.
-It is a throwaway pod with the same environment instead:
+It is a throwaway pod with the same environment instead.
+
+⚠⚠ AND THE POD NEEDS EGRESS GRANTED TO IT FIRST, or it hangs with no explanation.
+`default-deny-egress` covers every pod in this namespace and allows only DNS and
+in-namespace 3306/8080 — so a throwaway pod reaches the database and NOT Telegram.
+The feed's own 443 allowance is keyed on `app=signal-telegram`, and giving the
+login pod that label is not the answer: the Deployment's ReplicaSet selects on
+exactly it, would adopt the orphan pod, see two replicas for one desired, and
+delete one — possibly mid-login. So grant it transiently, by the label
+`kubectl run` sets, and delete the policy afterwards:
+
+  cat <<'NETPOL' | kubectl apply -f -
+  apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata: {name: tg-login-egress-internet, namespace: signal}
+  spec:
+    podSelector: {matchLabels: {run: tg-login}}
+    policyTypes: [Egress]
+    egress:
+    - ports: [{port: 443, protocol: TCP}]
+      to:
+      - ipBlock:
+          cidr: 0.0.0.0/0
+          except: ["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16","127.0.0.0/8"]
+  NETPOL
+
+Then the login itself:
 
   kubectl -n signal run tg-login -it --rm --restart=Never \
     --image=xinutec/signal-archiver:latest \
@@ -96,6 +122,10 @@ It is a throwaway pod with the same environment instead:
     --env=TELEGRAM_API_HASH="$(kubectl -n signal get secret signal-secret \
         -o jsonpath='{.data.TELEGRAM_API_HASH}' | base64 -d)" \
     --command -- telegram login '+31...' 
+
+Then remove the transient policy — it exists for one command:
+
+  kubectl -n signal delete netpol tg-login-egress-internet
 
 The session lands in the database, so the Deployment picks it up on its next
 restart and never needs the phone again.
