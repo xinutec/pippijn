@@ -281,6 +281,8 @@ spec:
             secretKeyRef:
               key: TELEGRAM_API_HASH
               name: "signal-secret"
+        - name: TELEGRAM_MEDIA_DIR
+          value: "/telegram-media"
         image: "xinutec/signal-archiver:latest"
         name: "signal-telegram"
         resources:
@@ -295,12 +297,21 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: "/telegram-media"
+          name: media
       securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
         runAsGroup: 65532
         runAsNonRoot: true
         runAsUser: 65532
         seccompProfile:
           type: RuntimeDefault
+      volumes:
+      - name: media
+        persistentVolumeClaim:
+          claimName: "signal-telegram-media-pvc"
 ---
 apiVersion: v1
 kind: Service

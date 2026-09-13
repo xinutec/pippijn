@@ -588,21 +588,30 @@ let storageWaiver
       -- into the model means a second app cannot be added without answering the
       -- question, and the answer sits beside the volume it describes rather than in a
       -- shell `case` far away from it.
+      -- ⚠ **JOINED WITH A SEPARATOR, because the fold used to concatenate them
+      -- BARE.** With one claim nothing showed; `signal` has four, and the rendered
+      -- waiver read
+      -- "…re-link from the phone insteadre-downloadable from Signal…a staging
+      -- copy; amun holds the originalsre-downloadable from Telegram…" — four reasons
+      -- run together into one unreadable sentence. A waiver exists to be READ by
+      -- whoever asks why a volume is not backed up, so one that cannot be parsed
+      -- into its claims has stopped doing its job while still suppressing the
+      -- finding. `unhardenedWaiver` below already joins for exactly this reason.
       λ(ns : T.Namespace) →
-        List/fold
-          T.Claim.Type
-          ns.claims
-          Text
-          ( λ(c : T.Claim.Type) →
-            λ(acc : Text) →
+        L.joinWith
+          "; "
+          ( L.concatMap
+              T.Claim.Type
+              Text
+              ( λ(c : T.Claim.Type) →
                   merge
-                    { BackedUp = ""
-                    , LossAccepted = λ(r : { why : Text }) → r.why
+                    { BackedUp = [] : List Text
+                    , LossAccepted = λ(r : { why : Text }) → [ r.why ]
                     }
                     c.durability
-              ++  acc
+              )
+              ns.claims
           )
-          ""
 
 let hostPathWaiver
     : T.Namespace → Text

@@ -55,6 +55,8 @@ spec:
               name: "messages-secret"
         - name: ATTACHMENTS_DIR
           value: /attachments
+        - name: TELEGRAM_MEDIA_DIR
+          value: "/telegram-media"
         - name: LINK_IMAGES_DIR
           value: "/link-images"
         - name: IRC_SEND_HOST
@@ -97,6 +99,9 @@ spec:
         - mountPath: /attachments
           name: attachments
           readOnly: true
+        - mountPath: "/telegram-media"
+          name: "telegram-media"
+          readOnly: true
         - mountPath: "/ssh-irc"
           name: sendkey
           readOnly: true
@@ -125,6 +130,9 @@ spec:
       - name: "link-images"
         persistentVolumeClaim:
           claimName: "messages-link-images-pvc"
+      - name: "telegram-media"
+        persistentVolumeClaim:
+          claimName: "signal-telegram-media-pvc"
 
 ---
 apiVersion: apps/v1

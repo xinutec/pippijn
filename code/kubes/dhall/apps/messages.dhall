@@ -39,6 +39,14 @@ let port = 8080
 
 let attachmentsPath = "/attachments"
 
+let telegramMediaPath =
+      --| The same path the Telegram feed writes to, read-only here.
+      --
+      -- ⚠ Identical on both sides ON PURPOSE. The database stores a file NAME, not a
+      -- path, so that a remount cannot leave rows pointing at nothing — and a name
+      -- only means the same thing in two pods if the directory does too.
+      "/telegram-media"
+
 let linkImagesPath = "/link-images"
 
 let linkImages
@@ -190,6 +198,7 @@ in  { name = "signal"
           , { name = "NC_CLIENT_ID", value = secret keys.NC_CLIENT_ID }
           , { name = "NC_CLIENT_SECRET", value = secret keys.NC_CLIENT_SECRET }
           , { name = "ATTACHMENTS_DIR", value = lit attachmentsPath }
+          , { name = "TELEGRAM_MEDIA_DIR", value = lit telegramMediaPath }
           , { name = "LINK_IMAGES_DIR", value = lit linkImagesPath }
           , { -- irssi over WireGuard, by address rather than by name: the same
               -- host and port the importer pulls the logs from, reached with a
@@ -244,6 +253,10 @@ in  { name = "signal"
             }
           , { name = "sendwork", source = T.VolumeSource.EmptyDir }
           , { name = "link-images", source = T.VolumeSource.Claim linkImages }
+          , { name = "telegram-media"
+            , -- signal's claim again, by value, for the reason `attachments` is.
+              source = T.VolumeSource.Claim claims.telegramMedia
+            }
           ]
         , mounts =
           [ { name = "attachments"
@@ -251,6 +264,12 @@ in  { name = "signal"
             , subPath = None Text
             , -- The ingester writes these; this pod only shows them. RWO is
               -- satisfied because both pods land on the one node.
+              readOnly = True
+            }
+          , { name = "telegram-media"
+            , mountPath = telegramMediaPath
+            , subPath = None Text
+            , -- The Telegram feed writes these; this pod only shows them.
               readOnly = True
             }
           , { name = "sendkey"

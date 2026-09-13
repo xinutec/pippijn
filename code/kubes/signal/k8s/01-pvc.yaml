@@ -39,7 +39,6 @@ spec:
       storage: 20Gi
 
 ---
-# dev-lint: allow-backup-coverage linked-device keys; re-link from the phone insteadre-downloadable from Signal while the messages remaina staging copy; amun holds the originals
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -51,3 +50,17 @@ spec:
   resources:
     requests:
       storage: 5Gi
+
+---
+# dev-lint: allow-backup-coverage linked-device keys; re-link from the phone instead; re-downloadable from Signal while the messages remain; a staging copy; amun holds the originals; re-downloadable from Telegram while the messages remain
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: "signal-telegram-media-pvc"
+  namespace: signal
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi

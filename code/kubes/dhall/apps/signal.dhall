@@ -108,6 +108,12 @@ let ircTail = "signal-irc-tail"
 
 let telegram = "signal-telegram"
 
+let telegramMediaMount =
+      --| Where fetched Telegram media lands. The same path in the viewer, read-only,
+      --  so a stored file NAME means the same thing in both pods — which is what lets
+      --  the database hold names rather than paths.
+      "/telegram-media"
+
 let tailSecret =
       --| The tail key's own Secret, for the same two-lifetimes reason as
       --  `irclogSecret`: a third credential to the same host, pinned to a third forced
@@ -212,7 +218,8 @@ in  { name = "signal"
         }
       }
     , configMap = None T.ConfigMapDoc
-    , claims = [ claims.cli, claims.attachments, claims.irclogs ]
+    , claims =
+      [ claims.cli, claims.attachments, claims.irclogs, claims.telegramMedia ]
     , workloads =
       [ T.Workload::{ name = restApiName
         , -- A ClusterIP the ingester and the viewer resolve. Not `NoService`:
@@ -626,6 +633,7 @@ in  { name = "signal"
           , { name = "DB_PASSWORD", value = secret keys.DB_PASSWORD }
           , { name = "TELEGRAM_API_ID", value = secret keys.TELEGRAM_API_ID }
           , { name = "TELEGRAM_API_HASH", value = secret keys.TELEGRAM_API_HASH }
+          , { name = "TELEGRAM_MEDIA_DIR", value = lit telegramMediaMount }
           ]
         , probeTiming = T.standardTiming
         , -- ⚠ INERT under `Unprobed`, like the ingester, and for a reason worth
@@ -653,12 +661,24 @@ in  { name = "signal"
             -- attribute.
             limits = Some { cpu = None Text, memory = "128Mi" }
           }
-        , -- ⚠ NO VOLUMES AT ALL, which is the same statement as `rootFs` above
-          -- made from the other side: the session is a database row, so this feed
-          -- keeps nothing on disk and there is nothing to mount, claim or back up
-          -- separately from the archive it writes into.
-          volumes = [] : List T.Volume
-        , mounts = [] : List T.VolumeMount
+        , -- ⚠ **ONE VOLUME, AND THE `rootFs = ReadOnly` ABOVE STILL HOLDS.** The
+          -- feed's own STATE is still a database row — the session — and nothing
+          -- here writes to the container's root. What this mounts is the place
+          -- fetched pictures go, which is a volume precisely so that it is not the
+          -- root filesystem. The ingester's `RootFs.Writable` reason next door names
+          -- /tmp scratch as well as its mount; this needs neither.
+          volumes =
+          [ { name = "media"
+            , source = T.VolumeSource.Claim claims.telegramMedia
+            }
+          ]
+        , mounts =
+          [ { name = "media"
+            , mountPath = telegramMediaMount
+            , subPath = None Text
+            , readOnly = False
+            }
+          ]
         , tasks = [] : List T.ScheduledTask
         }
       ]
