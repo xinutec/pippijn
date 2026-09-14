@@ -90,7 +90,7 @@ spec:
           hostPort: 8000 # dev-lint: allow-host-port — bound to wg0 only, see hostIP
         - containerPort: 8001
           hostIP: '10.100.0.2'
-          hostPort: 8001
+          hostPort: 8001 # dev-lint: allow-host-port — bound to wg0 only, see hostIP
         readinessProbe:
           httpGet:
             path: /ingest/v1/health

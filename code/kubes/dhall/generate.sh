@@ -384,8 +384,14 @@ host_port_waiver() { # app file  (body on stdin) -> body, waiver injected
   # Failing loudly if the anchor is not there. A waiver silently not emitted is
   # the same class of bug as one emitted where nothing needs it: the model said
   # this app has a hostPort, so a body without one means the two have drifted.
+  # EVERY hostPort line, not just the first: DL-K8S-HOST-PORT is Scope.LINE, so a
+  # marker waives the line it sits on and nothing else. `Reach.WireGuard` with a
+  # non-empty `alsoPublish` renders two, and recall — 8000 plus the 8001 ingest
+  # port — carried a waiver on the first and a standing finding on the second.
+  # The justification is identical for all of them, being a fact about how
+  # WireGuard reach renders rather than about any one port.
   awk -v w="$waiver" '
-    /^ *hostPort: [0-9]+$/ && !done { print $0 " " w; done = 1; next }
+    /^ *hostPort: [0-9]+$/ { print $0 " " w; done = 1; next }
     { print }
     END {
       if (!done) {
