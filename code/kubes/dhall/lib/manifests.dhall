@@ -36,7 +36,7 @@ would silently not get it. Stated per renderer, neither can happen quietly.
 WHAT COULD NOT MOVE, measured 2026-08-17 rather than assumed:
 
   * The three waiver injectors. Their WHETHER and their WHY already come from
-    the model (`R.storageWaiver`, `R.usesHostPort`, `R.hostPathWaiver`); what is
+    the model (`R.storageWaiverRows`, `R.usesHostPort`, `R.hostPathWaiver`); what is
     left in shell is WHERE, and that is fixed by two things neither this file nor
     the model can reach. dev-lint's k8s engine scopes DL-K8S-HOST-PORT and
     DL-K8S-HOST-PATH to a LINE, so the marker must land on the flagged line

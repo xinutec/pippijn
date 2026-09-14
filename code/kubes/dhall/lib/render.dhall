@@ -575,38 +575,47 @@ let configMap
           }
           ns.configMap
 
-let storageWaiver
+let storageWaiverRows
     : T.Namespace → Text
     =
-      --| The backup-coverage waiver an app's own claim should carry, or "" for none.
+      --| One `<pvc-name>\t<why>` line per claim whose loss is accepted, for the
+      --  generator to place inside the document each one describes.
       --
       -- Empty means "no waiver": either the app has no volume of its own, or it
-      -- declared `BackedUp` and must genuinely appear in backup-prepare.sh — dev-lint
-      -- checks that join across the fleet, so the claim cannot be merely asserted.
+      -- declared `BackedUp` and must genuinely appear as a backup artifact —
+      -- dev-lint checks that join across the fleet, so the claim cannot be merely
+      -- asserted.
       --
-      -- The generator used to hold this as a hardcoded case for one ns. Moving it
-      -- into the model means a second app cannot be added without answering the
-      -- question, and the answer sits beside the volume it describes rather than in a
-      -- shell `case` far away from it.
-      -- ⚠ **JOINED WITH A SEPARATOR, because the fold used to concatenate them
-      -- BARE.** With one claim nothing showed; `signal` has four, and the rendered
-      -- waiver read
-      -- "…re-link from the phone insteadre-downloadable from Signal…a staging
-      -- copy; amun holds the originalsre-downloadable from Telegram…" — four reasons
-      -- run together into one unreadable sentence. A waiver exists to be READ by
-      -- whoever asks why a volume is not backed up, so one that cannot be parsed
-      -- into its claims has stopped doing its job while still suppressing the
-      -- finding. `unhardenedWaiver` below already joins for exactly this reason.
+      -- This lives in the model rather than as a case in the generator so that a
+      -- second app cannot be added without answering the question, and so the
+      -- answer sits beside the volume it describes rather than in a shell `case`
+      -- far away from it.
+      --
+      -- ⚠ **ONE ROW PER CLAIM, because a single joined marker can only be placed
+      -- once.** The predecessor folded every reason into one string; the generator
+      -- anchored it on the LAST claim, and the rest carried nothing. With one
+      -- waived claim that is invisible. `signal` has four: the marker sat on
+      -- `signal-telegram-media-pvc`, and `signal-irclogs-pvc` stood as an
+      -- uncovered PVC on the board while the model had stated its reason all
+      -- along. The same fold had already been caught once for running the reasons
+      -- together unreadably — a waiver exists to be READ by whoever asks why a
+      -- volume is not backed up, and joining was only ever papering over the
+      -- placement being wrong.
+      --
+      -- Per-claim rows also put each reason where DL-DEPLOY-BACKUP-COVERAGE looks:
+      -- the check walks up from the document's first key and stops at the leading
+      -- `---`, so a marker above the separator is never seen.
       λ(ns : T.Namespace) →
         L.joinWith
-          "; "
+          "\n"
           ( L.concatMap
               T.Claim.Type
               Text
               ( λ(c : T.Claim.Type) →
                   merge
                     { BackedUp = [] : List Text
-                    , LossAccepted = λ(r : { why : Text }) → [ r.why ]
+                    , LossAccepted =
+                        λ(r : { why : Text }) → [ "${c.name}\t${r.why}" ]
                     }
                     c.durability
               )
@@ -618,7 +627,7 @@ let hostPathWaiver
     =
       --| The `allow-host-path` justification an app's volumes need, or "" for none.
       --
-      -- Same discipline as `storageWaiver`: the model answers WHETHER and WHY, and the
+      -- Same discipline as `storageWaiverRows`: the model answers WHETHER and WHY, and the
       -- generator holds only the marker syntax. A list of host-path apps in the shell
       -- is the shape that let utterance go unwaived for months.
       --
@@ -669,7 +678,7 @@ let containerWaivers
       -- anything.
       --
       -- So the model answers WHICH CONTAINER and WHY, and `generate.sh` holds only the
-      -- placement — the same division as `hostPathWaiver` and `storageWaiver`.
+      -- placement — the same division as `hostPathWaiver` and `storageWaiverRows`.
       --
       -- ⚠ TASKS TOO, and they are the half that is easy to forget. A CronJob container
       -- fires ROOTFS-RW in a different FILE from the workload it is declared under, so
@@ -2319,7 +2328,7 @@ let frontDoor
           L.concatMap T.Workload.Type F.Entry (frontDoorOf ns) ns.workloads
         # frontDoorAcme ns
 
-in  { storageWaiver
+in  { storageWaiverRows
     , hostPathWaiver
     , containerWaivers
     , unhardenedWaiver

@@ -306,15 +306,15 @@ doc_waiver() { # app file body -> body, with any in-document waiver injected
   # DL-DEPLOY-BACKUP-COVERAGE walks up from the document's first key and stops
   # at the leading `---`, so a line emitted above the separator is never seen.
   #
-  # The REASON comes from the model (R.storageWaiver), not from a case here.
+  # The REASON comes from the model (R.storageWaiverRows), not from a case here.
   # This used to name one app and its justification inline, which meant adding a
   # second app with a volume was a shell edit far away from the volume — and
   # nothing forced the question to be answered at all. T.Durability is now a
   # required field, so a claim whose fate nobody stated does not typecheck.
   [[ $2 == 01-pvc.yaml ]] || { printf '%s' "$3"; return; }
-  local why
-  why=$(ask_text "$1" storageWaiver)
-  [[ -n $why ]] || { printf '%s' "$3"; return; }
+  local rows
+  rows=$(ask_text "$1" storageWaiverRows)
+  [[ -n $rows ]] || { printf '%s' "$3"; return; }
 
   # The marker is spelled in two pieces because a generator that EMITS a waiver
   # necessarily names it, and a whole `dev-lint: allow-<suffix>` string in this
@@ -322,21 +322,40 @@ doc_waiver() { # app file body -> body, with any in-document waiver injected
   # dev-lint reports DL-WAIVER-INEFFECTIVE. That audit is right ("a waiver that
   # waives nothing is a baseline entry nobody can see"); the marker belongs in
   # the rendered claim, not in the renderer.
-  local waiver="# dev-lint: allow-""backup-coverage $why"
-
-  # The LAST separator, not the first: `01-pvc.yaml:pvc appPvc` renders the
-  # database's claim before the app's own, and only the app's is being waived.
-  # Anchoring on the first would waive a db PVC that IS backed up, and dev-lint
-  # fails a waiver that waives nothing.
-  printf '%s' "$3" | awk '
-    /^---$/ { last = NR }
+  #
+  # ⚠ ONE MARKER PER CLAIM, matched by PVC NAME. This used to join every reason
+  # into a single marker and anchor it on the LAST separator, on the reasoning
+  # that a tree renders the database's claim before the app's own and only the
+  # app's is waived. That holds for one waived claim and fails for several:
+  # `signal` has four, so the marker landed on `signal-telegram-media-pvc` and
+  # the other three carried nothing — `signal-irclogs-pvc` stood on the board as
+  # an uncovered PVC while the model had stated its reason all along. Matching on
+  # the name also stops the render ORDER of claims mattering at all.
+  printf '%s' "$3" | awk -v ROWS="$rows" '
+    BEGIN {
+      n = split(ROWS, row, "\n")
+      for (i = 1; i <= n; i++) {
+        t = index(row[i], "\t")
+        if (t > 0) why[substr(row[i], 1, t - 1)] = substr(row[i], t + 1)
+      }
+      # Spelled in two pieces here for the same reason as above.
+      mark = "# dev-lint: allow-" "backup-coverage "
+    }
     { line[NR] = $0 }
+    /^---$/ { sep = NR }
+    # The metadata name, at its fixed two-space indent — not a name: appearing
+    # in a label, which would attach the wrong waiver to a document.
+    /^  name: "/ {
+      rest = substr($0, index($0, "\"") + 1)
+      nm = substr(rest, 1, index(rest, "\"") - 1)
+      if (sep > 0 && nm in why) want[sep] = mark why[nm]
+    }
     END {
       for (i = 1; i <= NR; i++) {
         print line[i]
-        if (i == last) print WAIVER
+        if (i in want) print want[i]
       }
-    }' WAIVER="$waiver"
+    }'
 }
 
 host_port_waiver() { # app file  (body on stdin) -> body, waiver injected

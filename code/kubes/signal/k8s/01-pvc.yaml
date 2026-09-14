@@ -13,6 +13,7 @@ spec:
     requests:
       storage: 10Gi
 ---
+# dev-lint: allow-backup-coverage linked-device keys; re-link from the phone instead
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -26,6 +27,7 @@ spec:
       storage: 2Gi
 
 ---
+# dev-lint: allow-backup-coverage re-downloadable from Signal while the messages remain
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -39,6 +41,7 @@ spec:
       storage: 20Gi
 
 ---
+# dev-lint: allow-backup-coverage a staging copy; amun holds the originals
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -52,7 +55,7 @@ spec:
       storage: 5Gi
 
 ---
-# dev-lint: allow-backup-coverage linked-device keys; re-link from the phone instead; re-downloadable from Signal while the messages remain; a staging copy; amun holds the originals; re-downloadable from Telegram while the messages remain
+# dev-lint: allow-backup-coverage re-downloadable from Telegram while the messages remain
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
