@@ -83,7 +83,7 @@ in  { name = "vaultwarden"
         , rootFs =
             T.RootFs.Writable
               { why =
-                  "third-party image: it writes its own /tmp and rocket state, and that filesystem is not ours to constrain"
+                  "third-party image, and that filesystem is not ours to constrain: a release that began using /tmp would take the vault down on a routine image bump. ⚠ The claim this said before — that it writes its own /tmp and rocket state — was not true when checked: measured 2026-09-15 against the live 1.37.0-alpine pod, /tmp was empty since June and the process held no write handle outside /data. Read-only would hold TODAY. It is refused because that binds one release, not because the filesystem is busy"
               }
         , volumeOwnership =
             T.VolumeOwnership.RunsAsRoot
