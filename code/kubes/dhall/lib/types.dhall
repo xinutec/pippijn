@@ -24,21 +24,14 @@ is still the net. What changed is the size of the hole: 46% of the tree's
 comments to 4%. If you add a doc block, put it after the `=`, not above the
 `let`, or the next person to run the formatter deletes it and no test will fail.
 -}
--- The typed fleet model.
+-- The typed fleet model: the schema every app is written against.
 --
--- This file is the schema every app is written against. The point of putting
--- it in Dhall rather than YAML is that the invariants below stop being things
--- a linter re-derives after the fact and start being things the type checker
--- refuses to let you write:
+-- The types make these unwritable rather than lint-able: a fleet image with a
+-- version tag, an env var that is ambiguously literal or secret, a mistyped secret
+-- key (it is a record field, so a typo is a type error rather than a pod booting
+-- with an empty password).
 --
---   * a fleet image cannot carry a version tag (see `Image`)
---   * an env var is either a literal or a secret reference, never ambiguous
---   * a secret key is a *record field*, so a typo is a type error, not a pod
---     that boots with an empty password (see `apps/*.dhall`)
---   * a container must state its resource limits
---
--- Nothing here performs IO. Rendering a manifest is pure evaluation, which is
--- why `generate.sh --check` can be trusted as a dry run.
+-- Nothing here performs IO, so `generate.sh --check` is a true dry run.
 
 let Cluster =
       --| Which k3s cluster an app is scheduled on.
@@ -47,17 +40,14 @@ let Cluster =
 let Image =
       --| A container image.
       --
-      -- `Fleet` deliberately has no tag field. Every image we build is published as
-      -- `xinutec/<name>:latest` and rolled forward by restarting the deployment; a
-      -- version- or digest-pinned fleet deploy is not expressible in this model, so
-      -- it cannot be reintroduced by copy-paste. Third-party images DO pin, because
-      -- an unpinned `mariadb` would silently major-upgrade a database.
-      -- `Local` is the third case and the awkward one: an image built ON the node with
-      -- nix and imported straight into containerd, for a repo that has no CI and no
-      -- registry because its test data is private. It is NOT on Docker Hub, so a pull
-      -- would reach whatever stranger holds that name — which is why it is a
-      -- constructor rather than an `Upstream` with a `:local` tag. Carrying its own
-      -- `imagePullPolicy: Never` is the whole point: the two must not be separable.
+      -- `Fleet` has no tag: our images are `xinutec/<name>:latest`, rolled forward by
+      -- restarting. `Upstream` pins, because an unpinned `mariadb` would silently
+      -- major-upgrade a database.
+      --
+      -- ⚠ `Local` is built on the node and imported into containerd. It is NOT on
+      -- Docker Hub, so a pull reaches whatever stranger holds that name — hence a
+      -- constructor rather than an `Upstream` tag, inseparable from its
+      -- `imagePullPolicy: Never`.
       < Fleet : Text
       | Upstream : { repo : Text, tag : Text }
       | Local : Text
@@ -78,10 +68,9 @@ let pullPolicyFor
     =
       --| Never, for a `Local` image; the cluster's own default for anything else.
       --
-      -- Derived rather than declared, so "hand-imported" and "do not pull" cannot come
-      -- apart. A `Local` image whose policy was left at the default pulls on the first
-      -- restart after the node reboots, fails, and takes the app down at the moment
-      -- nobody is watching.
+      -- Derived, so "hand-imported" and "do not pull" cannot come apart: a `Local`
+      -- image left at the default pulls on the first restart after a reboot, fails,
+      -- and takes the app down when nobody is watching.
       λ(i : Image) →
         merge
           { Fleet = λ(_ : Text) → None Text
@@ -93,15 +82,9 @@ let pullPolicyFor
 let EnvValue =
       --| Where an environment variable's value comes from.
       --
-      -- `FromSecret` reads the app's OWN secret — the one `secrets` declares and
-      -- `secret.sh` writes, named `<app>-secret`. `FromUnmanagedSecret` names a
-      -- different one, and the distinction is the point rather than a convenience:
-      -- the app's secret is a thing this model knows the key list of, so a typo is
-      -- caught; a foreign secret is provisioned out-of-band and the model can only
-      -- state what it expects to find. health-sync's Google Health credentials live in
-      -- `health-google` for exactly that reason (long-lived OAuth refresh token,
-      -- managed by hand), so the arm exists to say so rather than to let any app quote
-      -- any secret.
+      -- `FromSecret` reads the app's OWN `<app>-secret`, whose key list this model
+      -- knows, so a typo is caught. `FromUnmanagedSecret` names one provisioned
+      -- out-of-band, where the model can only state what it expects to find.
       < Literal : Text
       | FromSecret : { key : Text, optional : Bool }
       | FromUnmanagedSecret : { secret : Text, key : Text, optional : Bool }
@@ -117,20 +100,12 @@ let Probe =
       | --| Just "is anything listening". For a server that has no health
         --  endpoint, which is honest about what is actually being checked.
         Tcp : { port : Natural }
-      | --| NOTHING is probed, because there is nothing to probe.
+      | --| NOTHING is probed, because there is nothing to probe: a websocket CLIENT
+        --  listens on no port, so `Tcp` has nothing to ask and `Exec` would invent a
+        --  health command the image does not ship.
         --
-        -- signal's archiver is a websocket CLIENT: it dials signal-cli and
-        -- writes rows, and listens on no port at all. A `Tcp` probe needs a
-        -- port it does not have, and an `Exec` probe would be inventing a
-        -- health command the image does not ship. It has carried
-        -- `allow-no-probe` for months saying exactly this.
-        --
-        -- ⚠ `probeTiming` is then INERT — the pair is writable in a state where
-        -- one half means nothing. `Reach` unified `host` + `exposure` for
-        -- precisely that reason, and the same treatment (one `Probing` union
-        -- carrying probe and timings together) is what this should become if a
-        -- SECOND probeless workload appears. One case did not justify editing
-        -- every model to move two fields into a constructor; two would.
+        -- ⚠ `probeTiming` is then INERT. Fold the two into one `Probing` union if a
+        -- SECOND probeless workload appears.
         Unprobed
       >
 
@@ -183,30 +158,17 @@ let Readiness =
       -- 503 the app wrote down. `failureThreshold` decides how much slowness is a
       -- fault; on a single-replica app, one slow answer withdraws the only pod.
       --
-      -- Both required rather than optional: a workload writing this field has already
-      -- decided the fleet defaults do not fit.
+      -- Both required: a workload writing this field has already decided the fleet
+      -- defaults do not fit.
       { probe : Probe, timeoutSeconds : Natural, failureThreshold : Natural }
 
 let Quantity = { cpu : Text, memory : Text }
 
 let Limits =
-      -- ⚠ A LIMIT IS NOT A REQUEST, and this is why `limits` is not a `Quantity`.
-      -- `memory` is required and `cpu` is not, which states the fleet's actual policy
-      -- rather than a symmetry:
-      --
-      --   * a memory limit is a KILL threshold. Exceeding it is an OOM-kill, which is
-      --     abrupt and legible. Omitting it is what `DL-K8S-NO-MEM-LIMIT` exists to
-      --     catch, so a `limits` block without one is a block that fails the check it
-      --     appears to satisfy — not a state worth being able to write.
-      --   * a CPU limit is a THROTTLE. Exceeding it does not kill anything; the CFS
-      --     quota simply stalls the container until the period rolls over, which shows
-      --     up as latency nobody can attribute. Whether that trade is worth making
-      --     depends on the workload, so it stays optional.
-      --
-      -- `messages` is the case that forced it: `limits: {memory: 256Mi}` with no cpu,
-      -- live and deliberate for months. Under `Quantity` the only way to model it was
-      -- to invent a CPU limit for a running pod — changing the cluster to satisfy a
-      -- type, which is backwards.
+      -- ⚠ `memory` is required and `cpu` is not, which is the fleet's policy rather
+      -- than a symmetry: a memory limit is a KILL threshold and an OOM-kill is
+      -- legible, where a CPU limit is a THROTTLE that shows up as latency nobody can
+      -- attribute.
       { cpu : Optional Text, memory : Text }
 
 let Resources =
@@ -219,11 +181,9 @@ let VolumeMount =
       --| `readOnly` is stated, not defaulted: a read-only mirror and a scratch
       --  directory are otherwise the same three fields.
       --
-      -- `subPath` is Optional and that is a DATA-SAFETY property, not tidiness: a
-      -- mount that gains one stops seeing the volume's root and starts seeing an
-      -- empty child. To the app that is indistinguishable from its data having been
-      -- lost. So a mount that has none must be able to say so rather than being given
-      -- one to satisfy the type.
+      -- ⚠ `subPath` is Optional for DATA SAFETY: a mount that gains one stops seeing
+      -- the volume's root and starts seeing an empty child, which to the app is
+      -- indistinguishable from its data having been lost.
       { name : Text
       , mountPath : Text
       , subPath : Optional Text
@@ -231,22 +191,8 @@ let VolumeMount =
       }
 
 let Durability =
-      --| A persistent volume the app's *own* container writes to.
-      --
-      -- Distinct from a `Database`'s storage, which the engine owns and the app never
-      -- touches. Optional because most apps keep their state in a database.
-      --
-      -- Size, path and subdirectory are one value rather than three, so the PVC, the
-      -- pod's volume and the container's mount are all rendered from the same
-      -- declaration. Stated as a `VolumeMount` on the workload instead, a mount could
-      -- name a volume nobody created — which kubelet reports as a pod stuck in
-      -- `ContainerCreating` with the reason several layers down in an event.
-      --
-      -- `subPath` for the same reason MariaDB uses one: a volume's root can come with
-      -- filesystem furniture (`lost+found` on ext4), and code that lists its data
-      -- directory should not have to know that.
       --| What happens to an app's own volume when the cluster is restored from
-      --  backup. Required, so that declaring storage forces an answer: a volume whose
+      --  backup. Required, so declaring storage forces an answer: a volume whose
       --  durability nobody stated is one nobody will miss until a restore.
       < --| A backup-prepare.sh block copies it. dev-lint's PVC ⊗ backup join
         --  checks that claim across the whole fleet, so stating it here without
@@ -268,10 +214,7 @@ let Writers =
       -- a half-written file and does nothing about two pods each holding a whole
       -- document, where the one that renames last erases the other's update (#744).
       --
-      -- `Concurrent` carries `why` and `Exclusive` does not, deliberately: the safe
-      -- answer is free and the permissive one has to be argued. Only the apps that
-      -- declare their OWN storage answer this — five of the seven modelled apps keep
-      -- their state in a database and never reach it.
+      -- `Concurrent` carries `why`; `Exclusive` does not. The safe answer is free.
       < --| One pod at a time. The volume holds a document the pod rewrites
         --  whole, so a second instance's stale copy would overwrite the first's
         --  work rather than merge with it.
@@ -283,16 +226,12 @@ let Writers =
 let FsGroupChange =
       --| Whether the volume is re-chowned on every start.
       --
-      -- Upstream's own taxonomy (`fsGroupChangePolicy`), not an invention. `Always`
-      -- is the Kubernetes default and renders as ABSENT, so saying it changes no
-      -- manifest; `OnRootMismatch` skips the recursive chown when the volume root
-      -- already carries the right group.
+      -- `fsGroupChangePolicy`. `Always` is the Kubernetes default and renders as
+      -- ABSENT; `OnRootMismatch` skips the recursive chown when the root already
+      -- carries the right group.
       --
-      -- ⚠ On the CLAIM rather than the pod, though the API field is pod-level,
-      -- because the reason is the volume's SIZE: signal's attachments claim is 20 Gi
-      -- and re-chowning it at every start costs real time for nothing. A pod mounting
-      -- several claims takes `OnRootMismatch` if ANY of them asks — the cheap
-      -- direction, and the safe one.
+      -- ⚠ On the CLAIM though the API field is pod-level, because the reason is the
+      -- volume's SIZE. A pod mounting several takes `OnRootMismatch` if ANY asks.
       < Always | OnRootMismatch >
 
 let ClaimType =
@@ -301,15 +240,12 @@ let ClaimType =
       , durability : Durability
       , writers : Writers
       , chown : FsGroupChange
-      , -- ⚠ **`None` OMITS IT, and that is right for every generated tree** —
-        -- k3s's default StorageClass IS `local-path`, so naming it adds a line
-        -- that says what the cluster already does.
+      , -- `None` omits it, which is right for a generated tree: k3s's default IS
+        -- `local-path`.
         --
-        -- ⚠ **But it is IMMUTABLE on a live PVC and recorded in
-        -- last-applied-configuration.** The four hand-written trees that declare
-        -- it (ircd, vaultwarden, mailu, irssi) therefore cannot stop: a
-        -- generated manifest omitting it is REJECTED on apply, not silently
-        -- ignored. Modelling what IS beats modelling what would be tidy.
+        -- ⚠ IMMUTABLE on a live PVC and recorded in last-applied-configuration, so a
+        -- tree that already declares it cannot stop — omitting it is REJECTED on
+        -- apply, not ignored.
         storageClass : Optional Text
       }
 
@@ -319,6 +255,11 @@ let Claim =
       { Type = ClaimType, default.storageClass = None Text }
 
 let Storage =
+      --| A persistent volume the app's *own* container writes to, as against a
+      --  `Database`'s, which the engine owns and the app never touches.
+      --
+      -- One value, so the PVC, the pod's volume and the container's mount all render
+      -- from the same declaration and a mount cannot name a volume nobody created.
       { storageGi : Natural
       , mountPath : Text
       , -- Optional for the reason `VolumeMount.subPath` is — adding one to a
@@ -357,43 +298,34 @@ let fileMode =
       --| The file modes worth mounting a secret with, named because the API wants
       --  them in decimal and nobody reads 384 as `rw-------`.
       --
-      -- ⚠ `ownerRead` (0400) is a trap on a secret volume unless the pod also sets
-      -- `fsGroup`: those files are owned by **root**, not by `runAsUser`, so 0400
-      -- means the process cannot read its own secret. It surfaces as the file being
-      -- silently empty — an unreadable `known_hosts` reads to ssh as "no host key
-      -- known", not as a permissions error.
+      -- ⚠ `ownerRead` (0400) is a TRAP unless the pod sets `fsGroup`: secret files are
+      -- owned by root, not `runAsUser`, so the process cannot read its own secret —
+      -- and it surfaces as an empty file, not a permissions error.
       --
-      -- `anyoneRead` (0444) is the honest mode for a secret a non-root process must
-      -- read, and it is not the exposure it looks like: the volume exists only inside
-      -- that pod. Anything needing tighter (ssh refuses a private key with ANY group
-      -- or other bit set) should copy the file and chmod it, which is what
-      -- `signal-irclog-import` does.
+      -- `anyoneRead` (0444) is the honest mode for a non-root reader; the volume
+      -- exists only inside that pod. Anything tighter (ssh refuses a private key with
+      -- any group or other bit) must copy the file and chmod it.
       { ownerRead = 256, ownerReadWrite = 384, anyoneRead = 292 }
 
 let Exposure =
       --| Which socket serves an app's hostname. `Public` is served on the node's public
       -- address and on the tunnel; `VpnOnly` on the WireGuard address and NOWHERE ELSE.
       --
-      -- ⚠ A REAL boundary (#1294), not obscurity at the DNS layer: one shared ingress
-      -- answering every name on every address would be the latter.
-      -- Host nginx emits a `server` block per name whose `listen` addresses come
-      -- from this field, so a VpnOnly name has no public listener at all — and
-      -- `plan-run frontdoor-check --vpn-addr` reads the generated nginx.conf and fails
-      -- if one appears in a block listening on anything else. Checked, not trusted.
+      -- A REAL boundary (#1294): host nginx emits a `server` block per name whose
+      -- `listen` addresses come from this field, so a VpnOnly name has no public
+      -- listener at all. `plan-run frontdoor-check --vpn-addr` verifies that against
+      -- the generated nginx.conf.
       --
-      -- Certificates no longer follow from this field: every name is issued by DNS-01
-      -- from `security.acme` on the host.
+      -- Certificates do NOT follow from this field — every name is DNS-01 from
+      -- `security.acme` on the host.
       < Public | VpnOnly >
 
 let Published =
-      --| How anything outside the pod gets to it. ONE field, replacing a `host` +
-      -- `exposure` pair that were never independent — a host with no exposure has no
-      -- issuer, an exposure with no host describes nothing, and both inconsistent
-      -- pairings were writable.
+      --| How anything outside the pod gets to it. One field, because a host and an
+      -- exposure are not independent.
       --
-      -- ⚠ The third arm is why this exists: `WireGuard` is NOT an Ingress with a
-      -- private name. It is no Ingress at all — a hostPort DNAT'd to the node's tunnel
-      -- address only, a network-layer gate rather than obscurity.
+      -- ⚠ `WireGuard` is NOT an Ingress with a private name. It is no Ingress at all —
+      -- a hostPort DNAT'd to the node's tunnel address only, a network-layer gate.
       --
       --| A container port and the node port it is published at.
       -- ⚠ The two are FREE TO DIFFER: the CNI portmap plugin DNATs the host dport to
@@ -408,10 +340,8 @@ let Reach =
         -- unrepresentable here. Each is bound at the same number on the tunnel
         -- address.
         WireGuard : { alsoPublish : List Natural }
-      | -- Published straight onto every node interface, with NO Service.
-        --
-        -- ⚠ **NOT Kubernetes' `type: NodePort`** — deliberately not named that.
-        -- There is no Service at all here; a Service is the thing being avoided.
+      | -- Published straight onto every node interface, with NO Service — not
+        -- Kubernetes' `type: NodePort`, which is a Service.
         --
         -- ⚠ `hostIP` is UNSET — the difference from `WireGuard`, which pins to the
         -- tunnel address. These bind every interface because the clients are people
@@ -439,49 +369,26 @@ let ScheduledTask =
       --| Work that runs on a schedule and exits, as against a `Workload`, which runs
       --  until something stops it.
       --
-      -- ⚠ `deadlineSeconds` is REQUIRED, and it is the field this type exists for. A
-      -- batch workload has no Service, no probe and no readiness — nothing watches it,
-      -- so the ONLY thing standing between a wedged run and a job that never ends is
-      -- this number. Kubernetes defaults it to unset, i.e. forever. Every one of
-      -- health's crons sets it and each has a different value, so it is neither
-      -- derivable nor safely defaulted.
+      -- ⚠ `deadlineSeconds` is REQUIRED. A batch workload has no Service, probe or
+      -- readiness, so this number is the only thing between a wedged run and a job
+      -- that never ends — and Kubernetes defaults it to forever.
       { name : Text
       , -- `*/15 * * * *`. In the cluster's timezone, which is UTC.
         schedule : Text
       , command : List Text
       , deadlineSeconds : Natural
-      , -- Defined but not running. Kubernetes keeps this in `spec.suspend`, and
-        -- it is the field most likely to exist ONLY in the cluster: suspending
-        -- is what you do from a terminal at the moment something misbehaves, and
-        -- `kubectl patch` leaves no trace in any repo.
-        --
-        -- ⚠ A model that omitted the field would declare a daily job that does
-        -- not run, which is worse than the drift it replaces: it reads as
-        -- reviewed.
+      , -- ⚠ Modelled because `kubectl patch --suspend` leaves no trace in any repo,
+        -- so omitting the field declares a daily job that does not run — worse than
+        -- the drift, because it reads as reviewed.
         suspended : Bool
-      , -- ⚠ ITS OWN, not the workload's, and one live case is why. A task shares
-        -- its workload's image and uid, and it shared the root-filesystem
-        -- posture too — including the REASON, once `RootFs` started carrying
-        -- one. `signal-irclog-import` runs under the ingester and inherited
-        -- "writes downloaded blobs under /attachments", which is not what it
-        -- does: it does `install -m 400 …/id_ed25519 /tmp/key`, and its writable
-        -- filesystem is the same ssh-key story as irc-tail's. A waiver stating
-        -- the wrong reason is worse than a missing one — it reads as reviewed.
-        --
-        -- The posture may now differ from the workload's as well, which is
-        -- strictly more precise: a batch container that needs nothing writable
-        -- can say so even where the long-running one does.
+      , -- ⚠ ITS OWN, not the workload's: a task shares its image and uid but not
+        -- necessarily its reason for a writable filesystem, and a waiver stating the
+        -- wrong reason is worse than a missing one — it reads as reviewed.
         rootFs : RootFs
       , env : List EnvVar
       , resources : Resources
-      , -- A task's OWN storage, not the workload's.
-        --
-        -- ⚠ These are separate from the workload's `volumes`/`mounts` on
-        -- purpose. Inheriting the workload's would give a batch job write access
-        -- to the
-        -- long-running pod's data — the ingester's attachment store, say — to
-        -- get at a scratch directory it wanted for something else entirely. A
-        -- job that needs storage should have to say which.
+      , -- ⚠ A task's OWN storage. Inheriting the workload's would give a batch job
+        -- write access to the long-running pod's data to get at a scratch directory.
         volumes : List Volume
       , mounts : List VolumeMount
       }
@@ -545,14 +452,11 @@ let SidecarType =
         -- main container's. `None` = serves nothing (a pure worker).
         port : Optional Natural
       , env : List EnvVar
-      , -- What kubelet asks this container — both probes, kubelet's default
-        -- timings. The main container's `probeTiming` is not borrowed: those
-        -- numbers were measured for THAT process.
+      , -- Both probes, at kubelet's default timings — the main container's
+        -- `probeTiming` was measured for THAT process and is not borrowed.
         probe : Probe
-      , -- Mount everything the main container mounts, at the same paths. The
-        -- honest grain for a sidecar that exists to share the workload's data
-        -- (recalld shares recall's /data); a sidecar needing its OWN mounts is
-        -- a future field, not a reinterpretation of this one.
+      , -- Mount everything the main container mounts, at the same paths. A sidecar
+        -- needing its OWN mounts is a future field, not a reinterpretation of this.
         shareMounts : Bool
       }
 
@@ -572,19 +476,14 @@ let WorkloadType =
       , containerName :
           --| The container's own name, when it is not the workload's.
           --
-          -- `None` means "the same as `name`", which is every tree but one and is
-          -- why this is Optional rather than required — seventeen models would
-          -- otherwise restate a name the Deployment already carries.
+          -- `None` means the same as `name`.
           --
-          -- ⚠ `ircd` is the exception and it is not tidiness: the Deployment is
-          -- `inspircd` and the container inside it is `ircd`. Renaming the
-          -- container to match would change the pod template and RESTART a live
-          -- IRC server — the rule `vps-pippijn` set, that the model does not get
-          -- to charge a rollout for a name.
+          -- ⚠ The exception exists because renaming a container to match its
+          -- Deployment changes the pod template and RESTARTS it. The model does not
+          -- get to charge a rollout for a name.
           Optional Text
-      , -- How anything outside this pod gets to it. ON THE WORKLOAD, not the
-        -- namespace: signal runs a REST bridge (Internal), an archiver
-        -- (NoService) and, in another repo tree entirely, a viewer (Ingress).
+      , -- ON THE WORKLOAD, not the namespace: one namespace can hold a REST bridge
+        -- (Internal), an archiver (NoService) and a viewer (Ingress).
         reach : Reach
       , image : Image
       , command : Optional (List Text)
@@ -597,90 +496,62 @@ let WorkloadType =
       , {-| `nginx.ingress.kubernetes.io/proxy-body-size`, when the default 1m is
             too small. `None` omits the annotation entirely.
 
-            ⚠ On the WORKLOAD rather than inside `Reach.Ingress`, for the reason
-            `volumeOwnership` is: a defaulted field costs the other workloads
-            nothing, where widening the union arm's record would make all ten
-            existing `Reach.Ingress` constructors name a value they do not care
-            about.
-
-            vaultwarden is the user: Bitwarden clients' sync payloads exceed
-            nginx's default, so its Ingress carries `128m`.
+            On the WORKLOAD rather than inside `Reach.Ingress`: a defaulted field
+            costs the other workloads nothing, where widening the union arm would
+            make every existing `Reach.Ingress` name a value it does not care about.
         -}
         maxBodySize : Optional Text
       , {-  The path the FRONT DOOR should ask for to decide this name is
             working — not the path kubelet probes.
 
-            ⚠ **THEY ARE DIFFERENT QUESTIONS AND MUST NOT BE THE SAME PATH.**
-            `probe` is kubelet's LIVENESS target, and a liveness probe that
-            checks a dependency turns a database blip into a crashloop: the pod
-            is killed for something a restart cannot fix, and the restarts add
-            load to whatever was already struggling. So a liveness path stays
-            dumb, and this one is allowed to be expensive and honest.
+            ⚠ NOT the same path as `probe`. That is kubelet's LIVENESS target, and
+            a liveness probe that checks a dependency turns a database blip into a
+            crashloop. A liveness path stays dumb; this one may be expensive.
 
-            `None` means the front door asks for `/`, which is right for a
-            redirect, a static site, or anything whose root already exercises
-            what matters. It is WRONG for a single-page app: `/` is the bundle,
-            served by the same process, and it answers 200 while the app's
-            database is unreachable — a name can serve 502 for a day with every
-            front-door goal green, and a root-only probe still would not see an
-            app that is up but blind.
+            `None` asks for `/`, which is WRONG for a single-page app: `/` is the
+            bundle, served by the same process, and answers 200 while the database
+            is unreachable.
         -}
         serviceCheck : Optional Text
       , -- Overrides what the image kind implies. `None` means "ask
         -- `pullPolicyFor`", which is right for every generated tree: a Fleet
         -- image names no policy and Kubernetes defaults `:latest` to `Always`.
         --
-        -- ⚠ Exists so a HAND-WRITTEN tree that spells the default out can be
-        -- modelled WITHOUT a rollout. irssi's live container says
-        -- `imagePullPolicy: Always` — redundant, but removing it would change
-        -- the pod template and restart a bouncer holding live IRC sessions. The
-        -- model describes what is; it does not get to charge a restart for
-        -- tidiness.
+        -- ⚠ Exists so a hand-written tree that spells the default out can be
+        -- modelled WITHOUT a rollout: removing a redundant `imagePullPolicy` still
+        -- changes the pod template.
         pullPolicy : Optional Text
       , env : List EnvVar
       , -- The question kubelet asks. Asked for BOTH probes unless `readiness`
         -- below names a different one.
         --
-        -- ⚠ ONE probe answering both is right for most of these — a static site,
-        -- a UI with no backing store — and wrong the moment the two questions
-        -- have different answers. It fails in the direction that hurts:
-        -- fleetwatch pointed both at `/healthz`, which returned the constant
-        -- `"ok"`, so readiness asserted "this pod can serve" while every read
-        -- 500'd on an exhausted pool. A probe that cannot fail does not merely
-        -- miss the fault, it asserts the opposite of it.
+        -- ⚠ One probe answering both is wrong the moment the two questions differ,
+        -- and it fails in the direction that hurts: a `/healthz` returning a
+        -- constant asserts "this pod can serve" while every read 500s. A probe that
+        -- cannot fail asserts the opposite of the fault.
         probe : Probe
       , -- A different question for readiness, when "is the process up" and "can
         -- it serve" are not the same question.
         --
-        -- `None` means ask `probe` twice, which is what every workload here did
-        -- before this field existed. Deliberately not the other way round:
-        -- making LIVENESS deep is the dangerous mistake, because a liveness
-        -- probe that depends on the database restarts the container in a loop
-        -- for the duration of a database outage — the restart cannot fix a
-        -- dependency, and it destroys the part still working.
+        -- `None` asks `probe` twice. ⚠ Deepen READINESS, never liveness: a liveness
+        -- probe that depends on the database restarts the container in a loop for
+        -- the length of an outage, destroying the part still working.
         readiness : Optional Readiness
       , probeTiming : ProbeTiming
       , resources :
           --| ⚠ OPTIONAL, because a container that states NO resources is a real
           --  state and the model must be able to say it.
           --
-          -- `ircd` forced it: the live container has no `resources` block at all,
-          -- and `Resources.requests` is required — so modelling it would have
-          -- meant inventing a request for a running pod and restarting it to
-          -- match. That is the move `Resources`' own comment calls backwards,
-          -- made once already for `limits` when signal's two containers had none.
+          -- Otherwise modelling a container that has no `resources` block means
+          -- inventing a request for a running pod and restarting it to match.
           --
-          -- ⚠ WORKLOAD ONLY. `ScheduledTask` and `Database` keep theirs required:
-          -- every live one states resources, so nothing there is being forced.
+          -- ⚠ WORKLOAD ONLY — `ScheduledTask` and `Database` keep theirs required.
           Optional Resources
       , volumes : List Volume
       , mounts : List VolumeMount
-      , -- Batch work sharing THIS workload's image, uid and root-filesystem
-        -- posture. On the workload rather than the namespace because that is
-        -- where the sharing is: a scheduled task is the same program with a
-        -- different entrypoint. A namespace-level list could not say WHICH
-        -- image a task runs once a namespace holds more than one workload, and
-        -- picking the first would be a silent answer to a real question.
+      , -- Batch work sharing THIS workload's image and uid. On the workload rather
+        -- than the namespace, which could not say which image a task runs once a
+        -- namespace holds more than one.
         tasks : List ScheduledTask
       , -- Further containers in this pod — see `Sidecar`.
         sidecars : List SidecarType
@@ -818,29 +689,11 @@ let SecretKey =
 let EgressTo =
       --| One thing an app is allowed to reach, and on which ports.
       --
-      -- Addressed by NAMESPACE, not by pod labels: a chart's pod labels change across
-      -- versions where `kubernetes.io/metadata.name` is set by Kubernetes itself and
-      -- cannot drift.
-      { namespace : Text, ports : List { port : Natural, protocol : Text } }
-
-
-let EgressTo =
-      --| One thing an app is allowed to reach, and on which ports.
-      --
-      -- Addressed by NAMESPACE, not by pod labels: a chart's pod labels change across
-      -- versions where `kubernetes.io/metadata.name` is set by Kubernetes itself and
-      -- cannot drift.
+      -- Addressed by NAMESPACE, not by pod labels: a chart's labels change across
+      -- versions where `kubernetes.io/metadata.name` is set by Kubernetes itself.
       { namespace : Text, ports : List { port : Natural, protocol : Text } }
 
 let NetpolPeer =
-      --| What NetworkPolicy an app declares, if any.
-      --
-      -- ⚠ The arms differ in whether they are APPLIED. `IngressFromNginx` renders to
-      -- its own `-held.yaml` and stays out of the applied set: kube-router does not
-      -- exempt node-sourced kubelet probe traffic, so applying it as written drops
-      -- the liveness probes and takes the app down. `Egress` is applied.
-      --
-      -- A union, not a record of two optionals: no app has both.
       --| One thing a rule may allow traffic TO.
       --
       --   * `Namespace` — every pod in another namespace, by the automatic
@@ -901,6 +754,12 @@ let NetpolPolicy =
       { name : Text, target : NetpolTarget, egress : List NetpolRule }
 
 let Netpol =
+      --| What NetworkPolicy an app declares, if any.
+      --
+      -- ⚠ The arms differ in whether they are APPLIED. `IngressFromNginx` renders to
+      -- its own `-held.yaml` and stays out of the applied set: kube-router does not
+      -- exempt node-sourced kubelet probe traffic, so applying it as written drops
+      -- the liveness probes and takes the app down. `Egress` is applied.
       < --| No policy of its own. `generate.sh` emits the `allow-no-netpol`
         --  waiver for these, which is the honest record of a namespace that has
         --  not been hardened yet.
@@ -937,20 +796,6 @@ let ConfigMapDoc =
       { name : Text, files : List { mapKey : Text, mapValue : Text } }
 
 let Owner =
-      --| A namespace and everything in it.
-      --
-      -- `App` below is the one-workload case; `namespaceOf` is the embedding.
-      --
-      -- ⚠ FOUR INVARIANTS THIS TYPE CANNOT STATE, all uniqueness or cardinality
-      -- claims over the list, all checked by dev-lint over the rendered manifests:
-      --
-      --   1. workload names are unique — two sharing a name gives one Service
-      --      selecting two different pods, failing as intermittent wrong answers;
-      --   2. a NetworkPolicy peer names a workload that exists — one that does not
-      --      matches nothing, silently (#781);
-      --   3. hostPorts do not collide — the second binder never schedules;
-      --   4. one writer per PVC — `Writers.Exclusive` constrains a workload, not a
-      --      set of them.
       --| Who creates the namespace this tree deploys into.
       --
       -- `Own` is every tree but one. `Elsewhere` exists because `messages` is a pod
@@ -1057,6 +902,19 @@ let AcmeDelegation =
       }
 
 let Namespace =
+      --| A namespace and everything in it. `App` below is the one-workload case, and
+      --  `namespaceOf` is the embedding.
+      --
+      -- ⚠ FOUR INVARIANTS THIS TYPE CANNOT STATE, all uniqueness or cardinality
+      -- claims over a list, all checked by dev-lint over the rendered manifests:
+      --
+      --   1. workload names are unique — two sharing a name gives one Service
+      --      selecting two different pods, failing as intermittent wrong answers;
+      --   2. a NetworkPolicy peer names a workload that exists — one that does not
+      --      matches nothing, silently (#781);
+      --   3. hostPorts do not collide — the second binder never schedules;
+      --   4. one writer per PVC — `Writers.Exclusive` constrains a workload, not a
+      --      set of them.
       { name : Text
       , owner : Owner
       , placement : Placement

@@ -49,23 +49,15 @@ let irclogMount = "/irclogs"
 let irclogNetworks =
       --| Which of irssi's log trees the archive holds.
       --
-      -- ⚠ **THE NETWORKS PIPPIJN STILL HAS TABS OPEN ON**, and that is the rule rather
-      -- than a list somebody curated. It is the same rule the send path uses — an open
-      -- window item is what may be sent to — so the two halves cannot disagree about
-      -- what a live conversation is.
+      -- ⚠ THE NETWORKS WITH TABS STILL OPEN — the same rule the send path uses, so
+      -- the two halves cannot disagree about what a live conversation is.
       --
-      -- These five are a small part of the tree, and what the rule leaves out is the
-      -- point:
+      -- What it leaves out is the point: `freenode` is most of the bytes and no
+      -- conversations, and `minbif` is an IM gateway carrying private conversations
+      -- with many named people, where both repositories here are PUBLIC.
       --
-      --   * `freenode` — most of the bytes, and a network nobody has been on for
-      --     years. No conversations to go with them.
-      --   * `minbif` — not IRC at all: it is an IM gateway, so those are Facebook-
-      --     and MSN-era contacts bridged through it. Private conversations with a
-      --     great many named people, and both repositories here are public.
-      --
-      -- `xinutec2` is not a network. It is the tag irssi invents for a second
-      -- simultaneous connection, long dead, and `--map` folds it back into
-      -- `xinutec` so the app shows one conversation per person rather than two.
+      -- `xinutec2` is irssi's tag for a second simultaneous connection, not a
+      -- network; `--map` folds it back into `xinutec`.
       [ "euirc", "libera", "schmorp", "teranova", "xinutec" ]
 
 let sshMount = "/ssh"
@@ -323,15 +315,12 @@ in  { name = "signal"
               -- dump, where it was measured doing most of the D-state blocking.
               -- At `*/15` its share of that window is a few percent.
               --
-              -- The cadence is free to choose at all only because
-              -- `irc_import_state` makes a run cost what ARRIVED. Without it a
-              -- run re-reads every staged file and re-issues `INSERT IGNORE` for
-              -- every line, costing the same whatever happened.
+              -- The cadence is free to choose only because `irc_import_state` makes
+              -- a run cost what ARRIVED; without it every run re-reads every staged
+              -- file.
               --
-              -- ⚠ Safe to overlap-proof rather than by luck: `concurrencyPolicy`
-              -- is `Forbid` for every task in this model (see `render.dhall`), so
-              -- a run that ever outlasts its window delays the next rather than
-              -- racing it into the same rows.
+              -- Overlap is safe by construction: `concurrencyPolicy` is `Forbid` for
+              -- every task in this model.
               schedule = "*/15 * * * *"
             , -- ⚠ TWO STEPS, so a shell. The logs are on the OTHER CLUSTER —
               -- irssi runs in `vps-pippijn` on amun — so they are pulled over
@@ -339,21 +328,14 @@ in  { name = "signal"
               -- pins this key to `irclog-pull`, so what this command can do
               -- there is read that one directory and nothing else.
               --
-              -- NOT `rrsync`, which is what a `command=` for this should be and
-              -- is what this said until the send path was built: it is a python3
-              -- script in an image with no python3, so a key pinned to it is
-              -- inert rather than restricted.
+              -- ⚠ NOT `rrsync`: it is a python3 script and that image has no
+              -- python3, so a key pinned to it is inert rather than restricted.
               --
-              -- ⚠ NO `--delete`, and not as an oversight. irssi's autolog only
-              -- ever appends, so there is nothing upstream to mirror away; and
-              -- `--delete` with two sources into one destination is a documented
-              -- way to remove files that the other source put there. A stale
-              -- file costs one re-read of rows the importer already has.
+              -- ⚠ NO `--delete`: irssi's autolog only appends, and `--delete` with
+              -- two sources into one destination removes what the other put there.
               --
-              -- `--map` folds irssi's second-connection tag into one network,
-              -- and `--self-nick` is how a line is known to be Pippijn's; both
-              -- are arguments rather than constants because this repository is
-              -- public and a nick is not a thing to commit.
+              -- `--self-nick` is an argument rather than a constant because this
+              -- repository is public.
               command =
               [ "/bin/sh"
               , "-c"

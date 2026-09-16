@@ -1,16 +1,11 @@
 let Meta =
       -- The subset of Kubernetes this fleet actually uses, as types.
       --
-      -- Only the fields we use are here, deliberately. Two consequences:
+      -- Only the fields we use, so a misspelled API field (`containerPorts`,
+      -- `readinessprobe`) is a type error rather than a key kubectl silently ignores,
+      -- and widening the fleet's surface means editing this file.
       --
-      --   * a misspelled API field (`containerPorts`, `readinessprobe`) is a type
-      --     error at render time instead of a silently-ignored key that kubectl
-      --     accepts and does nothing with;
-      --   * reaching for a field that isn't modelled forces a decision in this file,
-      --     which is where a reviewer can see the fleet's surface area grow.
-      --
-      -- Optional fields are rendered away by `dhall-to-yaml-ng --omit-empty`, as are
-      -- empty lists, so an app with no volumes emits no `volumes:` key at all.
+      -- `--omit-empty` renders Optional fields and empty lists away.
       { name : Text
       , namespace : Optional Text
       , annotations : Optional (List { mapKey : Text, mapValue : Text })
@@ -23,20 +18,14 @@ let Meta =
 let Quantity = { cpu : Text, memory : Text }
 
 let Limits =
-      --| A limits block, where BOTH halves are Optional because the API's are: `limits`
-      --  is a resource map, and a container may cap memory without capping CPU or the
-      --  other way round. This file is the API's shape, so it says so.
-      --
-      -- Which containers may omit which half is a fleet policy rather than an API
-      -- fact, and it lives on `T.Limits` — memory required, cpu not. Keeping the two
-      -- apart is what lets `T.Limits` tighten without this file claiming the API
-      -- forbids what it permits.
+      --| Both halves Optional because the API's are. Fleet POLICY — memory required,
+      --  cpu not — lives on `T.Limits`, so it can tighten without this file claiming
+      --  the API forbids what it permits.
       { cpu : Optional Text, memory : Optional Text }
 
 let Resources =
-      --| `limits` is Optional because the API's is: a container may reserve without
-      --  capping. Which containers MAY do that is not decided here — see `T.Resources`,
-      --  which leaves it to dev-lint's `image_profile`, a fact about the image.
+      --| Optional because the API's is. Which containers may omit it is decided by
+      --  dev-lint's `image_profile`, not here.
       { requests : Quantity, limits : Optional Limits }
 
 let SecretKeyRef = { name : Text, key : Text, optional : Optional Bool }
@@ -97,11 +86,9 @@ let ContainerSecurityContext =
       }
 
 let PodSecurityContext =
-      --| The three identity fields are Optional because one pod in the fleet must
-      --  omit them. `signal-cli-rest-api`'s entrypoint runs `usermod`/`groupmod` as
-      --  root before dropping to uid 1000; under `runAsNonRoot` those calls fail with
-      --  "cannot lock /etc/group" and the container crash-loops. That was measured,
-      --  not assumed, and `T.Hardening` is where a workload says so.
+      --| The three identity fields are Optional because an image whose entrypoint
+      --  runs `usermod`/`groupmod` as root crash-loops under `runAsNonRoot`.
+      --  `T.Hardening` is where a workload says so.
       { runAsNonRoot : Optional Bool
       , runAsUser : Optional Natural
       , runAsGroup : Optional Natural

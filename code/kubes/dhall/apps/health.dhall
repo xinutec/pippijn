@@ -69,18 +69,13 @@ let ncEnv
 let tmpVolume
     : List T.Volume
     =
-      -- The nightly refreshes walk a 21-day window a day at a time, and each day
-      -- carries a full velocity computation. That is a WORKING SET, not a leak.
-      --
-      -- 1Gi is below what the job needs (#1133). 2Gi is ~2x the observed peak, and
-      -- chosen for the headroom: sampled RSS is a LOWER BOUND — a sample cannot see
-      -- a peak between samples, and two runs of the same work disagreed by ~140Mi —
-      -- so no figure here is the true maximum.
+      -- The nightly refreshes walk the window a day at a time, each carrying a full
+      -- velocity computation: a WORKING SET, not a leak. Sized for headroom over the
+      -- observed peak, which is a LOWER BOUND — a sample cannot see between samples.
       --
       -- ⚠ AN OOMKILL HERE READS AS A NETWORK FAILURE. SIGKILL gives the process no
-      -- chance to print, so the log simply STOPS mid-scan with no error and the last
-      -- visible line is an unrelated `velocity … INFEASIBLE` warning that looks like
-      -- a cause. Same failure and same fix as `decodeResources` below.
+      -- chance to print, so the log STOPS mid-scan and the last visible line is an
+      -- unrelated `velocity … INFEASIBLE` warning that looks like a cause.
       -- ⚠ A WRITABLE /tmp FOR THE CRONS TOO. `rootFs` is ReadOnly and the Lean serve
       -- path opens a `tempfile()` to capture Lean's stderr, so any job that reaches
       -- the day pipeline dies with "Read-only file system (os error 30)" without it.
@@ -88,9 +83,8 @@ let tmpVolume
       -- ⚠ And it fails QUIETLY: a day that dies this way pools 0 routes, upserts 0,
       -- and exits 0 (#1106).
       --
-      -- Given to every cron rather than the four that provably need it: an emptyDir
-      -- costs nothing, and picking the subset by inspection is how the ones that
-      -- need it get missed.
+      -- Given to every cron rather than the subset that provably needs it: an
+      -- emptyDir costs nothing, and picking by inspection is how one gets missed.
       [ { name = "tmp", source = T.VolumeSource.EmptyDir } ]
 
 let tmpMount
