@@ -84,8 +84,7 @@ let usesHostPort
       -- Two arms render one and both always do: `WireGuard` pins its ports to the
       -- tunnel address, `HostPorts` binds every interface. Either way the hostPort IS
       -- how the app is reached, so the question is answered by the reach and never
-      -- per-ns. (This comment said "`WireGuard` is the only arm" while the `HostPorts`
-      -- case two lines below already answered True.)
+      -- per-ns.
       --
       -- Same discipline as `hasAppliedNetpol`: dev-lint fails a waiver that waives
       -- nothing, so this must be the model's answer rather than a list in the
@@ -118,14 +117,12 @@ let hasDb
 let hostOf
     : T.Cluster → Text
     =
-      --| The host this app must deploy to. The cluster has been a field on `T.App`
-      --  since the model existed; until 2026-08-10 nothing read it, and the deploy
-      --  tool asked whoever was typing instead. Rendered into `dhall/clusters.json`
-      --  and read by `plan-run deploy`, which refuses a `--host` that contradicts it.
+      --| The host this app must deploy to. Rendered into `dhall/clusters.json` and
+      --  read by `plan-run deploy`, which refuses a `--host` that contradicts it.
       --  See `site.dhall`'s twin.
-      --  ⚠ Returns a LIST since 2026-08-26: a subject may be placed on more than one
-      --  cluster (`web` is, on both), and `plan-run deploy` runs its one-host plan
-      --  once per host rather than learning about two.
+      --  ⚠ A LIST: a subject may be placed on more than one cluster (`web` is, on
+      --  both), and `plan-run deploy` runs its one-host plan once per host rather
+      --  than learning about two.
       λ(c : T.Cluster) →
         merge { isis = "isis.xinutec.org", amun = "amun.xinutec.org" } c
 
@@ -140,8 +137,8 @@ let treeOf
       --| Where this namespace's LIVE manifests sit, relative to `kubes/`.
       --
       -- ⚠ Renders NO manifest byte. It is rendered into `trees.json` for
-      -- `plan-run deploy`, which used to compute `<app>/k8s` unconditionally
-      -- and therefore could not reach either irssi namespace (#1262). The
+      -- `plan-run deploy`, which would otherwise compute `<app>/k8s`
+      -- unconditionally and never reach either irssi namespace (#1262). The
       -- default is that shape; `ns.tree` is the exception, stated once in the
       -- model rather than in `generate.sh`'s bash.
       --
@@ -955,8 +952,7 @@ let dbDeployment
                               , -- startupProbe holds liveness off until the
                                 -- server accepts connections, so a major-version
                                 -- MARIADB_AUTO_UPGRADE (start→upgrade→shutdown→
-                                -- restart) cannot be SIGKILLed mid-run the way
-                                -- health-db and life-db were on 2026-07-22/23.
+                                -- restart) cannot be SIGKILLed mid-run.
                                 startupProbe = Some
                                   (   execProbe
                                         [ "healthcheck.sh", "--connect" ]
@@ -1281,34 +1277,19 @@ let deploymentFor
                                       ( λ(n : Natural) →
                                           { containerPort = n
                                           , -- ⚠ Same number for both by POLICY,
-                                            -- not necessity, and this comment
-                                            -- claimed otherwise until
-                                            -- 2026-08-27. It read "a hostPort
-                                            -- that disagrees with the
-                                            -- containerPort forwards to
-                                            -- nothing, silently" — false: the
-                                            -- CNI portmap plugin DNATs host
-                                            -- dport to the container's port and
-                                            -- the two may differ (`vps/irssi`
-                                            -- has run 2230 -> 22 for 51 days;
-                                            -- evidence in `T.Published`).
-                                            --
-                                            -- ⚠ `25fdbee5` corrected the copy
-                                            -- in types.dhall and MISSED THIS
-                                            -- ONE, so the falsified claim
-                                            -- outlived its own correction by a
-                                            -- day. A correction applied to one
-                                            -- copy leaves the belief alive in
-                                            -- the other; grep for the sentence,
-                                            -- not for the file you were in.
-                                            --
-                                            -- What is true: a wg app is reached
+                                            -- not necessity: the CNI portmap
+                                            -- plugin DNATs host dport to the
+                                            -- container's port and the two may
+                                            -- differ (`vps/irssi` runs
+                                            -- 2230 -> 22). A wg app is reached
                                             -- at the port it serves, so one
-                                            -- number is named once. That is a
-                                            -- choice. A deliberate remap is
-                                            -- still inexpressible HERE — it
-                                            -- belongs in `HostPorts`, which has
-                                            -- had it since 2026-08-27.
+                                            -- number is named once. A deliberate
+                                            -- remap is inexpressible HERE — it
+                                            -- belongs in `HostPorts`.
+                                            --
+                                            -- ⚠ `types.dhall` states the same
+                                            -- thing. Correcting one copy leaves
+                                            -- the belief alive in the other.
                                             hostPort = Some n
                                           , hostIP =
                                               Some
@@ -1736,11 +1717,11 @@ let acmeIngresses
       -- serves IRC on hostPorts. A default `/` backend here would put a workload
       -- on the public web that was deliberately never there.
       --
-      -- ⚠ **IT USED TO HOLD A CERTIFICATE TOO, AND NO LONGER DOES.** `security.acme`
-      -- on the host issues `irc.xinutec.net` now (#1294), so the `tls` block and
-      -- the cert-manager annotation were removed. The DELEGATION is the surviving
-      -- reason for this object: `/barfooze` is answered on somebody else's behalf,
-      -- which the host front door still proxies.
+      -- ⚠ **IT HOLDS NO CERTIFICATE.** `security.acme` on the host issues
+      -- `irc.xinutec.net` (#1294), so there is no `tls` block and no cert-manager
+      -- annotation here. The DELEGATION is the whole reason this object exists:
+      -- `/barfooze` is answered on somebody else's behalf, which the host front
+      -- door proxies.
       λ(ns : T.Namespace) →
         merge
           { None = [] : List K.Ingress
@@ -1887,10 +1868,8 @@ let netpolDb
                           -- apply` replaces it wholesale. Omit the protocol and
                           -- the patch drops the `TCP` the API defaulted in, the
                           -- API puts it back, and the object reports
-                          -- `configured` on every apply for ever. Measured
-                          -- 2026-08-14: every db policy in the fleet did this,
-                          -- so `apply.sh`'s "no changes" verdict was false about
-                          -- netpols everywhere.
+                          -- `configured` on every apply for ever, which makes a
+                          -- "no changes" verdict false about every netpol.
                           ports = [ { port = 3306, protocol = Some "TCP" } ]
                         }
                       ]

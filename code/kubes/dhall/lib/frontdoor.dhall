@@ -17,8 +17,8 @@ to be worth anything — a front door generated from an incomplete list silently
 drops a host, which is an outage that looks like a DNS problem. But the model
 does not own every tree in the cluster: `kubes/nextcloud/` is hand-written YAML
 with no app file, so `generate.sh --check` has never looked at it, and
-`dash.xinutec.org` was invisible to the model until it was counted by hand on
-2026-09-01. So entries come from two places and say which they are, and the
+`dash.xinutec.org` is only in it because it was counted by hand. So entries come
+from two places and say which they are, and the
 check compares the union against the live cluster in BOTH directions. A host in
 the cluster and not in this table is a failure; a host here and not in the
 cluster is also a failure. That is what makes an exception a declaration rather
@@ -37,7 +37,7 @@ let Entry =
           --| The cluster-internal name to proxy to, fully qualified.
           --
           -- ⚠ **A NAME, NEVER A ClusterIP.** CoreDNS answers `cluster.local`
-          --  with TTL 5 (measured on isis, 2026-09-01), so nginx re-resolves
+          --  with TTL 5, so nginx re-resolves
           --  within five seconds of a Service being recreated. An emitted
           --  ClusterIP is a fact that stops being true the moment kubectl
           --  recreates the Service, and stays wrong until a human re-renders.

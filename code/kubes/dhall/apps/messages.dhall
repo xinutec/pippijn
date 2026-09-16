@@ -222,9 +222,9 @@ in  { name = "signal"
           -- can the archive be READ — and it may be expensive and honest.
           --
           -- `/` would not do: this app serves its Angular bundle from the same
-          -- process, so `/` answers 200 while the database is unreachable. The
-          -- 26-hour outage of 2026-09-04/05 was a dead pod, which a root probe
-          -- does see; an app that is up and blind is the one it does not.
+          -- process, so `/` answers 200 while the database is unreachable. A
+          -- dead pod is what a root probe does see; an app that is up and blind
+          -- is the one it does not.
           serviceCheck = Some "/healthz/deep"
         , resources =  Some
           { requests = { cpu = "25m", memory = "64Mi" }

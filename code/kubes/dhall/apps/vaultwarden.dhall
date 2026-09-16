@@ -83,7 +83,7 @@ in  { name = "vaultwarden"
         , rootFs =
             T.RootFs.Writable
               { why =
-                  "third-party image, and that filesystem is not ours to constrain: a release that began using /tmp would take the vault down on a routine image bump. ⚠ The claim this said before — that it writes its own /tmp and rocket state — was not true when checked: measured 2026-09-15 against the live 1.37.0-alpine pod, /tmp was empty since June and the process held no write handle outside /data. Read-only would hold TODAY. It is refused because that binds one release, not because the filesystem is busy"
+                  "third-party image, and that filesystem is not ours to constrain: a release that began using /tmp would take the vault down on a routine image bump. ⚠ Not because the filesystem is busy — checked against the live pod, /tmp is empty and the process holds no write handle outside /data, so read-only would hold TODAY. It is refused because that would bind one release"
               }
         , volumeOwnership =
             T.VolumeOwnership.RunsAsRoot
@@ -96,8 +96,8 @@ in  { name = "vaultwarden"
           [ { name = "DOMAIN"
             , value = T.EnvValue.Literal "https://vault.xinutec.org"
             }
-          , -- ⚠ Single-user instance: pippijn registered 2026-06-10 and signups
-            -- were closed behind him. Re-opening these is a security decision.
+          , -- ⚠ Single-user instance: the one account is registered and signups
+            -- are closed behind it. Re-opening these is a security decision.
             { name = "SIGNUPS_ALLOWED", value = T.EnvValue.Literal "false" }
           , { name = "INVITATIONS_ALLOWED", value = T.EnvValue.Literal "false" }
           , { name = "SHOW_PASSWORD_HINT", value = T.EnvValue.Literal "false" }

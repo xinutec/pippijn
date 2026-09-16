@@ -27,7 +27,7 @@ spec:
       # fix datadir ownership/permissions, then drops to the mysql user itself;
       # forcing runAsNonRoot breaks first-boot init on the PVC.
       - name: mariadb
-        # 12.3 is the current LTS (GA 2026-05-28, supported to Jun 2029). MariaDB has
+        # 12.3 is the current LTS, supported to Jun 2029. MariaDB has
         # no downgrade path; a verified app-user dump of the nextcloud schema is taken
         # before every bump (root pw here diverges from the secret, so root can't dump).
         image: mariadb:12.3
@@ -57,9 +57,9 @@ spec:
         # version, MARIADB_AUTO_UPGRADE starts the server, runs mariadb-upgrade,
         # then shuts it down and restarts it. That internal restart lands after
         # the liveness initialDelaySeconds and the server is briefly down, so
-        # liveness fails 3x and kubelet SIGKILLs the container mid-upgrade
-        # (observed on health-db, 4 GB, and life-db, 175 MB, on 2026-07-22/23 --
-        # size did not matter, timing did). A startupProbe holds liveness off
+        # liveness fails 3x and kubelet SIGKILLs the container mid-upgrade —
+        # observed on databases 20x apart in size, so timing decides it, not
+        # size. A startupProbe holds liveness off
         # until the server actually answers, giving startup up to 10 minutes
         # while steady-state liveness stays strict. This is in place BEFORE the
         # version bump so the eventual upgrade cannot be killed for being slow.

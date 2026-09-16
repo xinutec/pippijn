@@ -13,17 +13,14 @@ kind: Ingress
 metadata:
   namespace: ircd
   name: irc-ingress
-  # NO cert-manager annotation and no tls block since 2026-09-01 (#1294):
-  # security.acme on isis issues irc.xinutec.net by DNS-01 and host nginx serves
-  # it. This object exists ONLY to delegate /barfooze to someone else.
+  # NO cert-manager annotation and no tls block (#1294): security.acme on isis
+  # issues irc.xinutec.net by DNS-01 and host nginx serves it. This object exists
+  # ONLY to delegate /barfooze to someone else.
   #
-  # What was here mattered, and is worth keeping in mind rather than just
-  # deleting: the annotation was the SOLE definition of the irc-tls Certificate
-  # (cert-manager created it owned by this Ingress). It read "letsencrypt-staging"
-  # while the live object had been changed to prod by hand, so applying this file
-  # would have reissued IRC's certificate from an untrusted CA and broken TLS for
-  # every connected client. Found 2026-07-27 by the drift sweep, the first run
-  # that ever compared ircd. That whole hazard leaves with the annotation.
+  # ⚠ DO NOT PUT ONE BACK. An issuer annotation here is the SOLE definition of
+  # the irc-tls Certificate — cert-manager creates it owned by this Ingress — so
+  # a stale value in this file reissues IRC's certificate on the next apply and
+  # breaks TLS for every connected client.
 spec:
   ingressClassName: nginx
   rules:

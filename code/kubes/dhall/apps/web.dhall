@@ -17,13 +17,9 @@ somewhere to be. `S.Site` renders no Namespace precisely because THIS is what
 renders it. So it is written as a literal `T.Namespace`, like `messages` and
 `signal`, rather than through `namespaceOf`.
 
-⚠ **AND IT IS THE FLEET'S FIRST MULTI-CLUSTER SUBJECT.** The same object is
-applied to isis AND amun — verified 2026-08-26 by comparing
-`kubectl.kubernetes.io/last-applied-configuration` on both, which are identical.
-Before `T.Placement` the model could only say a subject lived on ONE cluster, so
-this tree could not be described truthfully at all: modelling it would have
-pinned it to one and made `plan-run deploy` REFUSE the other. That is why the
-type came first and this file second.
+⚠ **AND IT IS A MULTI-CLUSTER SUBJECT.** The same object is applied to isis AND
+amun. Without `T.Placement` the model can only say a subject lives on ONE cluster,
+which would pin this tree to one and make `plan-run deploy` REFUSE the other.
 
 ⚠ **`labels` IS THE WHOLE OBJECT, so it cannot be dropped.** The live namespace
 carries `name: web` and nothing else. `clusterMeta` rendered `labels = None`

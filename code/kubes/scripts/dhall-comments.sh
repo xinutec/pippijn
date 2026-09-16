@@ -6,20 +6,13 @@
 # record before a field name — and discards everything else, including the `--|`
 # doc blocks above `let` bindings that carry this model's reasoning.
 #
-# It has fired once. 8bb958ea ("kubes: reach belongs to a workload, not a
-# namespace", 2026-08-13) is a semantic change whose diff also took types.dhall
-# from 313 comment lines to 42 and render.dhall from 217 to 79. Nothing caught
-# it: comments never reach the rendered YAML, so `generate.sh --check` was green,
-# every test was green, and the loss was found by eye. de509130 restored it from
-# a three-way merge the same day.
+# ⚠ NOTHING ELSE CAN SEE THIS HAPPEN. Comments never reach the rendered YAML, so
+# `generate.sh --check` stays green, every test stays green, and a formatter that
+# ate two thirds of a file is found by eye or not at all.
 #
-# The threshold is ANY DROP, and it got there by being wrong once. It started at
-# 50%, which was measured: across all 118 commits touching `code/kubes/dhall`,
-# deliberate culls lose at most 15% of a file (34906949, 8%) while the formatter
-# took 87%, 64% and 57% of three files in one commit, so 50% separated them with
-# nothing in between. Then dcc155ec moved every doc block below its `let`'s `=`
-# and the hazard fell from 46% of the tree to 4% — which sails under a 50% bar. A
-# guard sized to a hazard that has since shrunk is not a guard. See `LOSS_PCT`.
+# The threshold is ANY DROP. A percentage bar has to be sized to the hazard, and
+# the hazard shrank once doc blocks moved below their `let`'s `=` — a guard sized
+# to a hazard that no longer exists is not a guard. See `LOSS_PCT`.
 #
 # ⚠ This does not make the tree safe to format. It costs 4% now rather than 46%,
 # but a comment trailing a field or inside a `<A | B>` union has no surviving
@@ -30,14 +23,9 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 readonly TREE="code/kubes/dhall"
-# ANY drop, not a percentage. The threshold was 50% when the hazard was 46% —
-# formatting the tree cost 1292 of 2824 comment lines. dcc155ec moved every doc
-# block below its `let`'s `=`, so a format now costs 115 lines (4%), which sailed
-# under a 50% bar. A guard sized to the old hazard is not a guard.
-#
-# Cheap, measured: across all 118 commits touching this tree only 12 dropped a
-# file's comment count at all, so a deliberate cull reaching for
-# DHALL_COMMENTS_OK is rare rather than routine.
+# ANY drop, not a percentage: a percentage bar is sized to whatever the formatter
+# costs TODAY, and that number moves. Cheap, because a deliberate cull reaching
+# for DHALL_COMMENTS_OK is rare rather than routine.
 readonly LOSS_PCT=0
 
 comments() { grep -cE '^[[:space:]]*(--|\{-)' || true; }

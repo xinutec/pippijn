@@ -1,9 +1,8 @@
 ---
 # dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
-# Backed up since 2026-07-28 (odin backup-prepare.sh, "isis: rsync ircd-storage").
-# The waiver that used to sit here claimed permchannels.conf was "cheaply
-# regenerated" — it is not regenerable at all. InspIRCd rewrites it as permanent
-# channels/topics/modes change, and it is gitignored on purpose, so it lived
+# Backed up: odin's `backup` plan claims `ircd/ircd-storage`, and it must.
+# permchannels.conf is NOT regenerable — InspIRCd rewrites it as permanent
+# channels/topics/modes change, and it is gitignored on purpose, so it lives
 # nowhere but this PVC.
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -27,7 +26,7 @@ metadata:
 spec:
   # Stated rather than defaulted so the model and this file agree. ⚠ Safe: it
   # lives in `spec`, NOT `spec.template`, so it forces no rollout — unset and 1
-  # are the same running pod. The same change vps-pippijn made 2026-08-27.
+  # are the same running pod.
   replicas: 1
   selector:
     matchLabels:

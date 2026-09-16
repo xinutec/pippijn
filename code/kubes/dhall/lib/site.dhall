@@ -94,16 +94,12 @@ let Site =
       , --| Which k3s cluster serves it. NOT decoration and not derivable: isis
         --  and amun are two clusters, and of the three sites `amun` is served by
         --  amun while `isis` and `slides` are served by isis. Without this field
-        --  a site could not say where it lives, and the deploy tool asked
-        --  whoever was typing — so a dry run against the wrong cluster reported
-        --  "nothing exists here", which reads exactly like a first deploy rather
-        --  than like a mistake. That happened, and cost a bug report filed
-        --  against the wrong cluster.
+        --  a site could not say where it lives, and a dry run against the wrong
+        --  cluster reports "nothing exists here" — which reads exactly like a
+        --  first deploy rather than like a mistake.
         --
         --  `generate.sh` renders this into `dhall/clusters.json` and `plan-run
-        --  deploy` reads it, refusing a `--host` that contradicts it. (The
-        --  `scripts/apply.sh` that first read this field was deleted on
-        --  2026-08-16, once the plan could do the same.)
+        --  deploy` reads it, refusing a `--host` that contradicts it.
         cluster : T.Cluster
       , host : Optional Text
       , replicas : Natural
@@ -549,17 +545,12 @@ let ingressTerminatesTls
       --  cert-manager issuer annotation — true exactly while its cluster fronts
       --  with ingress-nginx.
       --
-      -- ⚠ **RESTORED 2026-09-02, one day after being removed for both clusters
-      -- at once.** #1294 moved TLS to host nginx ON ISIS ONLY, but the removal
-      -- (e50c5645) was unconditional: amun still fronts with ingress-nginx, and
-      -- ingress-nginx answers a host with no `tls` with its self-signed "Fake
-      -- Certificate" — so https://xinutec.org and https://amun.xinutec.org
-      -- served that fake certificate for ~18 hours. fleetwatch's "Public TLS
-      -- certs" check went red within the hour and STAYED red the whole time —
-      -- the monitoring worked; what failed was reading it. The session that made
-      -- the change verified only the isis front door's names (these two are the
-      -- only model-rendered Ingresses on amun) and closed the ticket against a
-      -- red board it had no way to read (#1312).
+      -- ⚠ **PER CLUSTER, NEVER BOTH AT ONCE.** #1294 moved TLS to host nginx ON
+      -- ISIS ONLY; amun still fronts with ingress-nginx, which answers a host with
+      -- no `tls` using its self-signed "Fake Certificate" rather than failing. So
+      -- dropping amun's arm publishes a fake certificate on https://xinutec.org
+      -- and https://amun.xinutec.org, the only model-rendered Ingresses there,
+      -- while every pod stays green (#1312).
       --
       -- When amun gets its own host front door, flipping its arm here is part of
       -- the SAME change that cuts amun over — not a cleanup before it.
@@ -648,15 +639,14 @@ let redirect
       --     request: annotation nginx.ingress.kubernetes.io/permanent-redirect
       --     contains invalid value
       --
-      -- So carrying it meant a manifest that worked exactly where it already was
-      -- and could not move — and moving amun's workloads to isis is a plan, not a
-      -- hypothetical. Dropped 2026-08-30 (#692).
+      -- So carrying it means a manifest that works exactly where it already is and
+      -- cannot move — and moving amun's workloads to isis is a plan, not a
+      -- hypothetical (#692).
       --
-      -- The cost is that `xinutec.org/<path>` now lands on the site ROOT rather
-      -- than the same path. Checked before changing it, not assumed: a grep for
-      -- `https://xinutec.org/<path>` across the fleet finds NOTHING — every hit
-      -- for "xinutec.org/" is a SUBDOMAIN (`nextcloud.xinutec.org/…`), which this
-      -- redirect never sees.
+      -- The cost is that `xinutec.org/<path>` lands on the site ROOT rather than
+      -- the same path. Nothing in the fleet links that way: every "xinutec.org/"
+      -- reference is a SUBDOMAIN (`nextcloud.xinutec.org/…`), which this redirect
+      -- never sees.
       --
       -- These still render to their OWN file, so one un-appliable document cannot
       -- block the site it sits beside.
@@ -752,9 +742,9 @@ let frontDoor
       --  listening on a public address. Give `Site` the field on the day a site
       --  goes VPN-only, not before.
       --
-      -- ⚠ That check USED to read `cert-manager.io/cluster-issuer` instead. The
-      --  annotation is gone (#1294) and the oracle is now the socket, which is
-      --  the property rather than evidence about it.
+      -- ⚠ The oracle is the SOCKET, not a `cert-manager.io/cluster-issuer`
+      --  annotation (#1294): the socket is the property, the annotation was only
+      --  ever evidence about it.
       λ(site : Site) →
         let here = clusterHosts site
 

@@ -38,15 +38,9 @@ esac
 # Output file -> the renderers whose documents it concatenates, and which of
 # those renderers must keep their empty values.
 #
-# ⚠ READ FROM THE MODEL since 2026-08-17 (#65), where they were two literal bash
-# arrays and a `case` glob. All three are facts about the renderers, and they sat
-# in a different file from the renderers. `lib/manifests.dhall` carries the long
-# version of why, including which of #65's other candidates were measured and
-# could NOT move.
-#
-# The shapes are unchanged — `<file>:<renderer> <renderer>` per line, and a
-# space-separated name list — so the parsing below is the same parsing it always
-# was, and this is a change of SOURCE rather than of format.
+# ⚠ READ FROM THE MODEL (#65), never restated here: these are facts about the
+# renderers, and a copy in this file is a copy that can disagree.
+# `lib/manifests.dhall` carries the long version, including what could NOT move.
 #
 # `dhall text`, not `dhall-to-yaml`: these are already text and a YAML round trip
 # would only add quoting to strip again.
@@ -82,20 +76,17 @@ app_tree() { # app -> its live manifest directory, relative to kubes/
   # manifests live beside the source they deploy rather than in two top-level
   # directories that would separate them from it.
   #
-  # ⚠ They were ONE DIRECTORY holding two manifests until 2026-08-27, and that is
-  # unmodellable rather than merely untidy: `compare` concatenates every *.yaml in
-  # the directory and diffs the whole SET against one model file, so two models
-  # pointing at one directory would each read the other's manifest as an
-  # undeclared extra — and an undeclared manifest is deliberately a failure.
-  # Splitting them was chosen over making every renderer list-valued (which would
-  # touch all 17 trees) or teaching `compare` per-file ownership (which would
-  # weaken the check that caught the ircd cert drift on 2026-07-27).
-  # ⚠ READ FROM THE MODEL, not from a case statement here. The exception used
-  # to live in this function and nowhere else, so `plan-run deploy` — which
-  # cannot read this repository — composed `<app>/k8s` unconditionally and could
-  # not reach either irssi namespace (#1262). `trees.json` is rendered below and
-  # is what both sides read now. Proved identical to the case statement it
-  # replaced, for all 17 apps, before that was deleted.
+  # ⚠ ONE DIRECTORY PER MODEL, always: `compare` concatenates every *.yaml in the
+  # directory and diffs the whole SET against one model file, so two models
+  # sharing a directory each read the other's manifest as an undeclared extra —
+  # and an undeclared manifest is deliberately a failure. The alternatives are
+  # list-valued renderers (touching every tree) or per-file ownership in
+  # `compare`, which would weaken the check that catches cert drift.
+  #
+  # ⚠ READ FROM THE MODEL, not from a case statement here. `plan-run deploy`
+  # cannot read this repository, so an exception living only in this function
+  # leaves it composing `<app>/k8s` unconditionally (#1262). `trees.json` is
+  # rendered below and is what both sides read.
   jq -r --arg a "$1" '.[$a] // ($a + "/k8s")' "$here/trees.json"
 }
 
@@ -159,17 +150,15 @@ ask_text() { # app expr -> the model's answer, as raw text
 # ⚠ A FAILED RENDER MUST STOP THE SCRIPT, and neither `set -e` nor a return code
 # will do it. Every renderer below is called inside `$( )`, and the substitution's
 # status is whatever its LAST command returned — `printf "%s" "$out"`, which
-# succeeds on the empty string. Measured 2026-08-14: with `set -euo pipefail` in
-# force, `body+=$(render ...)` over a model with a type error carried on with rc=0.
+# succeeds on the empty string — so with `set -euo pipefail` in force,
+# `body+=$(render ...)` over a model with a type error carries on with rc=0.
 #
-# What that produced was not a visible failure. In WRITE mode the app's directory
-# had already been emptied, so the run wrote nothing into it and printed
-# "rendered to ..." — and copying that directory over a live tree deletes every
-# manifest in it. In CHECK mode it printed `@@ -1,254 +0,0 @@`, the whole live
-# tree removed and nothing on the model side, which reads exactly like a tree
-# nobody has modelled yet: the ONE state a reader is trained to ignore. Three
-# sites regressed that way at once (#815), and three apps did it again on
-# 2026-08-14 while `T.Limits` was landing.
+# ⚠ AND THAT FAILURE IS INVISIBLE. In WRITE mode the app's directory has already
+# been emptied, so the run writes nothing into it and prints "rendered to ..." —
+# and copying that directory over a live tree deletes every manifest in it. In
+# CHECK mode it prints the whole live tree removed and nothing on the model side,
+# which reads exactly like a tree nobody has modelled yet: the ONE state a reader
+# is trained to ignore (#815).
 #
 # `exit` DOES propagate: it kills the substitution's subshell with a non-zero
 # status, and `set -e` then aborts the assignment in the caller. Also measured,
@@ -267,16 +256,13 @@ render() { # app renderer -> YAML documents (nothing if the renderer opts out)
   # exception is load-bearing rather than cosmetic. A default-deny selects the
   # whole namespace with `podSelector: {}` and denies a direction with an empty
   # rule list — both empty, both deleted by that flag. dev-lint then cannot
-  # RECOGNISE the policy: measured 2026-08-11 by rendering scanner and running
-  # the linter over the result, which reported `DL-K8S-NP-DEFAULT-DENY namespace
-  # scanner has no default-deny NetworkPolicy` on a tree that had one.
+  # RECOGNISE the policy, and reports a tree that has one as having none.
   #
   # With the flag off, "empty" and "absent" become expressible separately, which
   # is why K.NetworkPolicy's rule lists are Optional — see lib/k8s.dhall.
   #
-  # ⚠ This was `case $2 in netpol*|appDeployment)` until 2026-08-17 — a GLOB over
-  # renderer names deciding a dev-lint-visible property. A renderer added as
-  # `netpolExtra` would have inherited the exception silently, and one needing it
+  # ⚠ NEVER A GLOB OVER RENDERER NAMES for a dev-lint-visible property: a renderer
+  # added as `netpolExtra` would inherit the exception silently, and one needing it
   # under another name would silently not get it. `lib/manifests.dhall` states it
   # per renderer instead, and the space-padded match below is whole-word, so
   # `netpolApp` cannot match `netpolAppHeld` by prefix the way the glob could.
@@ -407,7 +393,7 @@ host_path_waiver() { # app file  (body on stdin) -> body, waiver injected
   # the hostPath's `path` VALUE, and the k8s engine honours a line-scoped waiver
   # on the flagged line or in the contiguous COMMENT block directly above it —
   # so a trailing marker on the `hostPath:` key line waives nothing, because a
-  # key line ends the block. Measured both ways on observe, 2026-08-12.
+  # key line ends the block.
   #
   # Injected on the `path:` line itself. Same division of labour as the other
   # two: the model answers WHETHER and WHY (R.hostPathWaiver returns the
@@ -453,12 +439,10 @@ container_waivers() { # app file  (body on stdin) -> body, per-container waivers
   # container in the file — 03-app.yaml holds three and only two are writable —
   # and over-waiving is how a rule stops meaning anything.
   #
-  # ⚠ THIS IS A RESTORATION, not a new rule. The hand-written manifests carried
-  # these markers with their reasons; `5a00cd49` generated signal's tree from the
-  # model on 2026-08-14 and they left with the file. dev-lint has reported all
-  # four ever since, correctly, about decisions nobody disagreed with. What was
-  # missing was somewhere for a reason to live that survives rendering, which is
-  # what `T.RootFs.Writable { why }` now is.
+  # ⚠ A REASON HAS TO LIVE SOMEWHERE THAT SURVIVES RENDERING, which is what
+  # `T.RootFs.Writable { why }` is. Written in the manifest instead, it leaves
+  # with the file the moment the tree is generated, and dev-lint then reports a
+  # decision nobody disagreed with.
   #
   # The model answers WHICH CONTAINER, WHICH RULE and WHY (R.containerWaivers,
   # tab-separated, one per line); this holds only the placement — the same
@@ -580,23 +564,18 @@ header() { # app file netpol_anchor
       fi
       ;;
     *-held.yaml)
-      # The marker string below is LOAD-BEARING, not decoration. TWO readers,
-      # and there were three until scripts/apply.sh was deleted on 2026-08-16:
+      # The marker string below is LOAD-BEARING, not decoration. TWO readers:
       # fleet_health.py's drift sweep skips it so a deliberately-unapplied
       # manifest is not reported as permanent drift, and plan-run's
-      # ManifestsUnmixed probe — the one the fleet's deploys actually go
-      # through, via deploy.sh — refuses any file containing it. Both also skip
-      # on the *held* filename, so this is defence in depth.
-      # Both spellings are now compared by mac-mini/test_held_marker.py, which
-      # covers the whole convention for the first time: the third reader was the
-      # one it could not reach.
+      # ManifestsUnmixed probe — the one the fleet's deploys go through, via
+      # deploy.sh — refuses any file containing it. Both also skip on the *held*
+      # filename, so this is defence in depth, and both spellings are compared by
+      # mac-mini/test_held_marker.py.
       #
-      # "Losing either would silently arm the policy below" was written when
-      # there were two, and it has since been proven the hard way: plan-run
-      # grepped for "dev-lint: held" from the day it was written until
-      # 2026-08-05, a string no file here has ever contained, so its refusal
-      # could not fire. Only the filename check stood. Add a reader here when one
-      # appears — a marker with one reader is a guard that cannot fail.
+      # ⚠ A READER THAT GREPS FOR THE WRONG SPELLING CANNOT FIRE, and nothing
+      # says so: the refusal simply never triggers and the filename check stands
+      # alone. Add a reader to that test when one appears — a marker with one
+      # reader is a guard that cannot fail.
       printf '#\n'
       printf '# NOT YET APPLIED. k3s enforces NetworkPolicy via kube-router, which does NOT\n'
       printf '# exempt node-sourced kubelet health-probe traffic, so this policy as written\n'
@@ -630,11 +609,10 @@ header() { # app file netpol_anchor
   # nothing, so this asks the model rather than keeping a second list here.
   #
   # `allow-''<suffix>` — the same split as doc_waiver's and host_port_waiver's,
-  # and for the same reason. It was added here on 2026-08-12: dev-lint's YAML
-  # engines started reporting which rules they ran, which let it condemn a waiver
-  # that suppressed nothing — and it read these three printf strings as waivers
-  # sited in generate.sh, where they suppress nothing at all. The emitted text is
-  # unchanged; `''` closes and reopens the quote and contributes no character.
+  # and for the same reason: a whole marker string HERE registers as a waiver
+  # sited in generate.sh, where it suppresses nothing, and dev-lint condemns a
+  # waiver that waives nothing. `''` closes and reopens the quote and contributes
+  # no character, so the emitted text is unaffected.
   if [[ ${3:-0} == 1 && $(ask "$1" hasAppliedNetpol) == False ]]; then
     printf '# dev-lint: allow-''no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
   fi
@@ -646,12 +624,10 @@ site_header() { # site file
   case $2 in
     02-deployment.yaml)
       # NO rootfs-rw / no-mem-limit waiver here, and it is worth saying why one
-      # is not missing. Both WERE emitted until 2026-08-12, and both waived
-      # nothing: dev-lint's `image_profile` already carves every `nginx` image
-      # out of DL-K8S-ROOTFS-RW and DL-K8S-LIMITS-MEM, because they are facts
-      # about a stock image nobody here builds. Two mechanisms said the same
-      # thing and the quieter one won, so the marker sat inert in three live
-      # trees until the linter learned to condemn a waiver that waives nothing.
+      # is not missing: dev-lint's `image_profile` already carves every `nginx`
+      # image out of DL-K8S-ROOTFS-RW and DL-K8S-LIMITS-MEM, because those are
+      # facts about a stock image nobody here builds. A waiver as well would be a
+      # second mechanism saying the same thing, sitting inert.
       #
       # The remaining waiver below is a different kind of statement: it is about
       # THIS namespace, not about the image, so no carve-out can pre-empt it.
@@ -817,11 +793,10 @@ done
 # assembled here, so a tree whose model lacks `placement`, or a misspelled
 # `clusterHosts`, is a Dhall type error rather than a quoting accident in bash.
 #
-# ⚠ Values are ARRAYS since 2026-08-26 — a subject may be placed on more than one
-# cluster. `plan-run` reads this file, so its reader changed in the same breath.
+# ⚠ Values are ARRAYS — a subject may be placed on more than one cluster.
 #
 # Keyed by LEAF name: `web/org/xinutec/slides` is the site `slides`. An app and a
-# site cannot share a name, which `scripts/apply.sh` already relied on.
+# site cannot share a name, and this relies on that.
 clusters_expr() {
   local first=1 leaf
   printf 'let R = %s/lib/render.dhall\nlet S = %s/lib/site.dhall\nin  toMap\n{ ' "$here" "$here"
@@ -900,9 +875,9 @@ trees_expr() {
 # namespace their upstream sits in, and derived that namespace from the app's
 # own name — right for seventeen of the nineteen fronted names and wrong for
 # `messages`, whose pod runs in `signal` because a `secretKeyRef` cannot cross
-# namespaces (see apps/messages.dhall). So the check that re-probes a name after
-# a deploy found nothing to re-check, said so reassuringly, and let
-# messages.xinutec.org 502 from 2026-09-04 to 2026-09-05 across two deploys.
+# namespaces (see apps/messages.dhall). A check that re-probes a name after a
+# deploy then finds nothing to re-check and says so reassuringly, across as many
+# deploys as it takes to notice.
 #
 # The model has always known: an app file's `name` IS its namespace, and
 # `messages.dhall` says so in as many words. This renders it rather than leaving

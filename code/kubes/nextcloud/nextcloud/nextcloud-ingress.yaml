@@ -5,16 +5,16 @@ metadata:
   namespace: nextcloud
   name: nextcloud-ingress
   annotations:
-    # NO cert-manager.io/cluster-issuer and no tls block since 2026-09-01
-    # (#1294): security.acme on isis issues dash.xinutec.org by DNS-01 and host
-    # nginx serves it. The Kubernetes certificate was unused, and it renewed by
-    # HTTP-01 — whose challenge path now reaches host nginx and is answered with
-    # Nextcloud rather than the token, so it could only fail.
+    # NO cert-manager.io/cluster-issuer and no tls block (#1294): security.acme
+    # on isis issues dash.xinutec.org by DNS-01 and host nginx serves it. A
+    # Kubernetes certificate here would be unused and would renew by HTTP-01,
+    # whose challenge path reaches host nginx and is answered with Nextcloud
+    # rather than the token — so it could only fail.
     #
     # ⚠ This tree is NOT in the Dhall model, so nothing re-renders it and
-    # `generate.sh --check` has never compared it. Deleting the Certificate was
-    # not enough: ingress-shim recreated dash-tls 13 seconds later from the
-    # annotation that used to be here. See frontdoor-unowned.dhall.
+    # `generate.sh --check` has never compared it. ⚠ Deleting the Certificate is
+    # not enough on its own — ingress-shim recreates dash-tls within seconds from
+    # the annotation. See frontdoor-unowned.dhall.
     #
     # The body-size and read-timeout below are live behaviour, not certificate
     # machinery — host nginx renders them as client_max_body_size and

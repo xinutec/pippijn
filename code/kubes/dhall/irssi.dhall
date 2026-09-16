@@ -8,15 +8,14 @@ of ONE image, whose Dockerfile, `init.sh` and both home trees live together unde
 `vps/irssi/`. Restating the whole workload twice would work until one of the two
 changed.
 
-⚠ **They were ONE DIRECTORY holding two manifests until 2026-08-27.** `compare`
-diffs a whole directory as one set against one model file, so two namespaces
-sharing a directory was unmodellable rather than untidy. `generate.sh`'s
-`app_tree()` now maps each name to its own directory.
+⚠ **ONE DIRECTORY EACH.** `compare` diffs a whole directory as one set against
+one model file, so two namespaces sharing a directory is unmodellable rather than
+untidy; `generate.sh`'s `app_tree()` maps each name to its own.
 
 ⚠ **A PER-USER SSH ENDPOINT IS WHY THE PORTS DIFFER FROM THE CONTAINER'S.** Every
 user's terminal server listens on 22 inside its own pod; they cannot all publish
-22 on a shared node, so each gets a distinct hostPort DNAT'd to 22. That the two
-numbers may differ was denied by this model until 2026-08-27 — see `T.Published`.
+22 on a shared node, so each gets a distinct hostPort DNAT'd to 22 — see
+`T.Published`.
 -}
 
 let T = ./lib/types.dhall
@@ -115,13 +114,12 @@ in  λ ( who
             -- saying so is honest about what is actually checked.
             probe = T.Probe.Tcp { port = 22 }
           , -- ⚠ **LIVENESS IS DELIBERATELY SLOWER THAN READINESS, and copying
-            -- readiness's timing here would have CRASH-LOOPED this pod.**
-            -- Measured 2026-08-27 across two starts: 16s to Ready, then 31s on
-            -- the very next one. With `initialDelaySeconds = 5` and
-            -- `failureThreshold` 3 the kubelet kills at ~25s — before the 31s
-            -- start was ready. The entrypoint chowns /home/irssi and
-            -- /etc/ssh_keys as root before starting sshd, and that varies with
-            -- the home directory.
+            -- readiness's timing here CRASH-LOOPS this pod.** Start time varies
+            -- by a factor of two between consecutive starts — the entrypoint
+            -- chowns /home/irssi and /etc/ssh_keys as root before starting sshd,
+            -- and that scales with the home directory — so readiness's
+            -- `initialDelaySeconds = 5` at `failureThreshold` 3 kills a slow
+            -- start before it is ready.
             --
             -- A liveness probe that kills a container which is merely slow to
             -- start turns a slow boot into a crash loop, which is strictly worse

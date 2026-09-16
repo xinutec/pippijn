@@ -2,8 +2,8 @@
 # Create `vaultwarden-secret` (the /admin panel token) in the `vaultwarden`
 # namespace. Run once on isis (as root).
 #
-# ⚠ **RENAMED 2026-08-31 from `vaultwarden-admin`/`admin-token` to
-# `vaultwarden-secret`/`ADMIN_TOKEN`**, because this tree is now generated from
+# ⚠ **RENAMED from `vaultwarden-admin`/`admin-token` to
+# `vaultwarden-secret`/`ADMIN_TOKEN`**, because this tree is generated from
 # `dhall/apps/vaultwarden.dhall` and the model derives the secret's name from the
 # namespace. The rename is the model's, not a decision taken here.
 #

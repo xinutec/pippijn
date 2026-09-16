@@ -60,10 +60,9 @@ in  T.namespaceOf
           --
           -- ⚠ Obscurity, NOT a firewall: the isis ingress answers on the public IP
           -- too. The real gate on the WRITE path is the ingest bearer token. A
-          -- `whitelist-source-range: 10.100.0.0/24` annotation was tried and
-          -- REMOVED (2026-07-03): behind k3s servicelb the client's WireGuard
-          -- source IP is SNAT'd before nginx sees it, so the rule 403s a legitimate
-          -- VPN client. Making the source IP survive needs a cluster-wide ingress
+          -- ⚠ A `whitelist-source-range: 10.100.0.0/24` annotation does NOT work
+          -- here: behind k3s servicelb the client's WireGuard source IP is SNAT'd
+          -- before nginx sees it, so the rule 403s a legitimate VPN client. Making the source IP survive needs a cluster-wide ingress
           -- change (externalTrafficPolicy: Local + forwarded-headers) affecting
           -- every service, and is deliberately not done.
           reach =

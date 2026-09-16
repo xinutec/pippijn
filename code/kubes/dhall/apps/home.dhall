@@ -53,9 +53,7 @@ in  T.namespaceOf
         , hardening = T.Hardening.NonRoot
         , -- Nothing in the server writes to disk: state is the database and
           -- the session cookie, and `src/` has no `writeFile`,
-          -- `createWriteStream` or `mkdir`. It was `False` and said nothing
-          -- about why, which went unnoticed because dev-lint carved
-          -- `xinutec/home` out of DL-K8S-ROOTFS-RW by name until 2026-08-12.
+          -- `createWriteStream` or `mkdir`.
           rootFs = T.RootFs.ReadOnly
         , env =
           [ { name = "PORT", value = lit "3000" }

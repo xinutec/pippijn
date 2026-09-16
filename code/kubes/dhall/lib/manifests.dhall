@@ -22,18 +22,17 @@ a PVC that is backed up, which dev-lint then reports as a waiver waiving nothing
 ⚠ `keepEmpty` IS NOT COSMETIC. `dhall-to-yaml-ng --omit-empty` deletes empty
 values, and a default-deny NetworkPolicy is empty twice over: it selects the
 whole namespace with `podSelector: {}` and denies a direction with an empty rule
-list. With the flag on, dev-lint cannot RECOGNISE the policy — measured
-2026-08-11 by rendering scanner and linting the result, which reported
-`DL-K8S-NP-DEFAULT-DENY namespace scanner has no default-deny NetworkPolicy` on
-a tree that had one. It is why `K.NetworkPolicy`'s rule lists are `Optional`:
-with the flag off, "empty" and "absent" become expressible separately.
+list. With the flag on, dev-lint cannot RECOGNISE the policy and reports a tree
+that has one as having none. It is why `K.NetworkPolicy`'s rule lists are
+`Optional`: with the flag off, "empty" and "absent" become expressible
+separately.
 
-It was a glob — `netpol*|appDeployment` — which decided a dev-lint-visible
-property by matching NAMES. A renderer added as `netpolExtra` would have
-inherited the exception silently, and one that needed it under another name
-would silently not get it. Stated per renderer, neither can happen quietly.
+⚠ STATED PER RENDERER, never by a name glob. A glob decides a dev-lint-visible
+property by matching NAMES: a renderer added as `netpolExtra` would inherit the
+exception silently, and one that needed it under another name would silently not
+get it.
 
-WHAT COULD NOT MOVE, measured 2026-08-17 rather than assumed:
+WHAT COULD NOT MOVE:
 
   * The three waiver injectors. Their WHETHER and their WHY already come from
     the model (`R.storageWaiverRows`, `R.usesHostPort`, `R.hostPathWaiver`); what is
@@ -122,9 +121,8 @@ let apps
       , { -- `keep`, because a cron's writable /tmp is an `emptyDir`, and an
           -- emptyDir IS an empty value: `--omit-empty` deleted the source and
           -- left `- name: tmp` alone. Kubernetes defaults a source-less volume
-          -- to emptyDir, so nothing broke — measured 2026-08-25, server-side
-          -- dry-run and the live objects both — but the manifest stopped saying
-          -- what it meant and dev-lint reported six volumes with no source.
+          -- to emptyDir, so nothing breaks — but the manifest stops saying what
+          -- it means and dev-lint reports a volume with no source.
           file = "04-cronjobs.yaml"
         , renderers = [ keep "cronJobs" ]
         }

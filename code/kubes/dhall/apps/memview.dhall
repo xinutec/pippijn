@@ -120,10 +120,10 @@ in  T.namespaceOf
               -- Optional in the same way: absent, a turn opens to nothing
               -- rather than erroring.
               --
-              -- ⚠ The first artefact carrying COMMAND TEXT. Pippijn settled
-              -- that on 2026-08-13 ("Isis should be trusted. Everything can go
-              -- there."). It is owner-only at /api/effects, never behind a
-              -- share token, and 35 MB — the largest thing the sync pushes.
+              -- ⚠ It carries COMMAND TEXT. Pippijn's call: "Isis should be
+              -- trusted. Everything can go there." Owner-only at /api/effects,
+              -- never behind a share token, and the largest thing the sync
+              -- pushes.
               name = "EFFECTS_FILE"
             , value = lit "${statePath}/effects.json"
             }

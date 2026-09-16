@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # Deploy one app to isis, through the reconciler.
 #
-# THE single implementation. Until 2026-07-31 there were ten hand-written
-# `sync.sh` scripts, 323 lines, six of them the same procedure differing only in
-# namespace and file list — and they had diverged. observe's copy was missing the
-# `rollout restart` line the others had, so a ConfigMap change applied and never
-# took effect: the nginx telemetry endpoint was live-but-inert for a day, and the
-# drift collector found it rather than anything in the deploy path.
+# THE single implementation, and the per-app `sync.sh` scripts are doors onto it.
+# Ten copies of one procedure differing only in namespace and file list DIVERGE:
+# one loses the `rollout restart` line the others have, a ConfigMap change applies
+# and never takes effect, and nothing in the deploy path notices — the drift
+# collector finds it.
 #
 # What this does that the scripts did not:
 #

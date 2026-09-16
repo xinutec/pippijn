@@ -6,9 +6,9 @@ WHY THIS FILE EXISTS AND WHY IT IS SHORT. `generate.sh --check` compares each
 app and site against its live tree, and `Site.unowned` / `T.Unowned` let a tree
 declare a file the model does not render. Neither mechanism can see a tree that
 has NO model file at all: `kubes/nextcloud/` is hand-written YAML with no entry
-under `apps/`, so nothing has ever compared it against anything, and
-`dash.xinutec.org` was invisible to the model until it was counted by hand on
-2026-09-01 (#1294).
+under `apps/`, so nothing compares it against anything and its hosts —
+`dash.xinutec.org` among them — reach this table only by being counted by hand
+(#1294).
 
 ⚠ **AN ENTRY HERE IS A DEBT, NOT A DESIGN.** Every row is a host whose front
 door would be generated from a hand-written statement rather than from the thing
@@ -23,7 +23,7 @@ the cluster serves and this table lacks is a failure; a host this table names
 and the cluster does not serve is also a failure. Without the second direction
 these rows would rot silently the first time one of them was retired.
 
-MEASURED 2026-09-01 against both clusters, from the live Ingress objects.
+Every row comes from a live Ingress object on one of the two clusters.
 -}
 let F = ./lib/frontdoor.dhall
 

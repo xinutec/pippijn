@@ -14,9 +14,8 @@ done
 
 # The `irc-tls` secret, mounted by the Deployment. inspircd reads its
 # certificate at rehash and never again, so a renewal reaches the wire only when
-# something sends a HUP. Until 2026-08-16 that something was a person running
-# `kubectl cp`, and the cert came within 26 days of expiring while a good one
-# sat unused in the secret.
+# something sends a HUP. Without that, a renewed certificate sits unused in the
+# secret while the one on the wire runs down to its expiry.
 CERT=conf/tls/tls.crt
 
 # What the server would serve if it rehashed now: the config commit and the

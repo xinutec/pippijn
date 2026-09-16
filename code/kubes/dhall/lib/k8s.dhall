@@ -346,8 +346,6 @@ let NetworkPolicyPeer =
         -- — which the API server then strips. The stored object and the manifest
         -- disagree for ever after, so every `apply.sh` run reports the policy as
         -- `configured` and the drift check cries wolf on an unchanged cluster.
-        -- Measured on `messages-egress-irssi` and
-        -- `signal-irclog-import-egress-amun`, 2026-08-14.
         ipBlock : Optional { cidr : Text, except : Optional (List Text) }
       , podSelector : Optional { matchLabels : Optional Labels }
       , namespaceSelector :
@@ -371,11 +369,11 @@ let NetworkPolicy =
       --| `podSelector` is `Optional` so an empty selector — the whole namespace, which
       --  is what a default-deny selects — can be expressed at all.
       --
-      -- ⚠ An earlier version of this comment said `matchLabels: {}` "selects
-      -- nothing". That is WRONG: a Kubernetes `LabelSelector` with no terms matches
-      -- EVERYTHING, so `podSelector: {}` and `podSelector: {matchLabels: {}}` are the
-      -- same selector. The real problem is narrower and is about rendering rather
-      -- than meaning — under `--omit-empty` an empty `matchLabels` collapses the
+      -- ⚠ `matchLabels: {}` does NOT select nothing. A Kubernetes `LabelSelector`
+      -- with no terms matches EVERYTHING, so `podSelector: {}` and
+      -- `podSelector: {matchLabels: {}}` are the same selector. The real problem is
+      -- about rendering rather than meaning — under `--omit-empty` an empty
+      -- `matchLabels` collapses the
       -- whole `podSelector` key away, and `spec.podSelector` is a required field
       -- whose absence works only because Go unmarshals it to its zero value. A
       -- manifest that relies on that reads as "no selector stated" where the intent

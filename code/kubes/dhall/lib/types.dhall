@@ -2,7 +2,7 @@
 WHERE A COMMENT MAY SIT, and why every doc block here is BELOW its `let`'s `=`.
 
 `dhall format` deletes most comments. It keeps only those following a token that
-opens an expression, measured across thirteen positions on 2026-08-27:
+opens an expression, measured across thirteen positions:
 
   KEPT     top of the file
            after a `let`'s `=`            <- where every block in this file now is
@@ -137,12 +137,12 @@ let Probe =
 let ProbeTiming =
       --| How often kubelet asks, and how long it waits first.
       --
-      -- This USED to be literals in the renderer, on the argument that the timings are
-      -- a property of the workload kind rather than of the app. That held while every
-      -- modelled app was a web service behind an Ingress. It stopped holding at the
-      -- three tunnel-only apps, which start in two to three seconds and want to be
-      -- marked ready in that time rather than in five — and, being reached by a
-      -- hostPort that cannot roll, spend that delay as downtime on every deploy.
+      -- NOT literals in the renderer. "The timings are a property of the workload
+      -- kind" holds only while every modelled app is a web service behind an
+      -- Ingress; it breaks on the tunnel-only apps, which start in two to three
+      -- seconds and want to be marked ready in that time rather than in five — and,
+      -- being reached by a hostPort that cannot roll, spend the difference as
+      -- downtime on every deploy.
       --
       -- Required rather than optional, and `standardTiming` is one definition: an app
       -- says which set it uses and a reader can see it, but there is still exactly one
@@ -168,7 +168,7 @@ let ProbeTiming =
 let standardTiming
     : ProbeTiming
     =
-      --| The reviewed set the renderer used to hardcode for everything.
+      --| The reviewed set: the fleet default, written down once.
       { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
       , liveness = Some { initialDelaySeconds = 15, periodSeconds = 20 }
       }
@@ -328,9 +328,8 @@ let ClaimType =
       , writers : Writers
       , chown : FsGroupChange
       , -- ⚠ **`None` OMITS IT, and that is right for every generated tree** —
-        -- k3s's default StorageClass IS `local-path` (verified on amun
-        -- 2026-08-27), so naming it adds a line that says what the cluster
-        -- already does.
+        -- k3s's default StorageClass IS `local-path`, so naming it adds a line
+        -- that says what the cluster already does.
         --
         -- ⚠ **But it is IMMUTABLE on a live PVC and recorded in
         -- last-applied-configuration.** The four hand-written trees that declare
@@ -408,9 +407,9 @@ let Exposure =
       --| Which socket serves an app's hostname. `Public` is served on the node's public
       -- address and on the tunnel; `VpnOnly` on the WireGuard address and NOWHERE ELSE.
       --
-      -- ⚠ This became a REAL boundary on 2026-09-01 (#1294). It used to be obscurity at
-      -- the DNS layer, because one shared ingress answered every name on every address.
-      -- Host nginx now emits a `server` block per name whose `listen` addresses come
+      -- ⚠ A REAL boundary (#1294), not obscurity at the DNS layer: one shared ingress
+      -- answering every name on every address would be the latter.
+      -- Host nginx emits a `server` block per name whose `listen` addresses come
       -- from this field, so a VpnOnly name has no public listener at all — and
       -- `plan-run frontdoor-check --vpn-addr` reads the generated nginx.conf and fails
       -- if one appears in a block listening on anything else. Checked, not trusted.
@@ -430,9 +429,8 @@ let Published =
       -- address only, a network-layer gate rather than obscurity.
       --
       --| A container port and the node port it is published at.
-      -- ⚠ The two are FREE TO DIFFER, which this model denied until 2026-08-27: the CNI
-      -- portmap plugin DNATs the host dport to the container's port, measured against a
-      -- container running 2230 -> 22. `WireGuard` still names one number for both, but
+      -- ⚠ The two are FREE TO DIFFER: the CNI portmap plugin DNATs the host dport to
+      -- the container's port. `WireGuard` still names one number for both, but
       -- that is a POLICY it chooses, not a rule the cluster enforces.
       { containerPort : Natural, hostPort : Natural }
 
@@ -486,19 +484,13 @@ let Reach =
 let RootFs =
       --| Whether the container's root filesystem is read-only.
       --
-      -- ⚠ THIS WAS `readOnlyRootFs : Bool`, AND THE `why` IS THE WHOLE POINT. Three
-      -- workloads set it `False` — the bridge (a third-party image whose filesystem is
-      -- not ours to constrain), the ingester (writes blobs under a mount and uses
-      -- /tmp) and irc-tail (copies its ssh key to /tmp at 0400, because a secret
-      -- volume is root-owned). Every one of those reasons was already written down.
-      -- None of them survived the render: the hand-written YAML carried
-      -- `allow-rootfs-rw` markers, `5a00cd49` generated the tree from the model on
-      -- 2026-08-14, and the markers left with the file they were written in. dev-lint
-      -- has reported all three ever since, correctly, about a decision nobody
-      -- disagreed with.
-      --
-      -- A Bool cannot carry a reason, so the reasons lived in Dhall comments, which
-      -- the renderer cannot read. This is `Hardening`'s shape for the same reason
+      -- ⚠ THE `why` IS THE WHOLE POINT, and a Bool cannot carry one. Three workloads
+      -- set it permissive — the bridge (a third-party image whose filesystem is not
+      -- ours to constrain), the ingester (writes blobs under a mount and uses /tmp)
+      -- and irc-tail (copies its ssh key to /tmp at 0400, because a secret volume is
+      -- root-owned). A reason written in a Dhall comment instead is one the renderer
+      -- cannot read, so it does not reach the waiver and dev-lint reports a decision
+      -- nobody disagreed with. This is `Hardening`'s shape for the same reason
       -- `Hardening` has it: the permissive arm has to be argued, the argument belongs
       -- where the decision is, and the generator can then emit it as the waiver rather
       -- than a human remembering to re-add one.
@@ -527,11 +519,9 @@ let ScheduledTask =
         -- is what you do from a terminal at the moment something misbehaves, and
         -- `kubectl patch` leaves no trace in any repo.
         --
-        -- ⚠ health-bus-refresh was found exactly that way on 2026-08-13 —
-        -- suspended in the cluster, no `suspend:` in its manifest, and never run
-        -- in the 62 days since it was created. A model that omitted the field
-        -- would have declared a daily job that does not run, which is worse than
-        -- the drift it replaced: it would read as reviewed.
+        -- ⚠ A model that omitted the field would declare a daily job that does
+        -- not run, which is worse than the drift it replaces: it reads as
+        -- reviewed.
         suspended : Bool
       , -- ⚠ ITS OWN, not the workload's, and one live case is why. A task shares
         -- its workload's image and uid, and it shared the root-filesystem
@@ -551,8 +541,8 @@ let ScheduledTask =
       , -- A task's OWN storage, not the workload's.
         --
         -- ⚠ These are separate from the workload's `volumes`/`mounts` on
-        -- purpose, and the CronJob renderer used to emit no volumes at all.
-        -- Inheriting the workload's would give a batch job write access to the
+        -- purpose. Inheriting the workload's would give a batch job write access
+        -- to the
         -- long-running pod's data — the ingester's attachment store, say — to
         -- get at a scratch directory it wanted for something else entirely. A
         -- job that needs storage should have to say which.
@@ -606,13 +596,8 @@ let VolumeOwnership =
       --
       -- ⚠ **`fsGroup` IS NOT DERIVABLE FROM POSTURE, AND THE OBVIOUS RULE IS REFUTED.**
       -- The renderer used `if anyClaim w then Some w.uid`, which is right for most
-      -- trees and wrong for irssi. Measured 2026-08-27 against the live cluster:
-      --
-      --     workload      hardening     claim   live fsGroup
-      --     signal app    Unhardened    yes     1000
-      --     irssi         Unhardened    yes     NONE
-      --
-      -- Both are `Unhardened` with claims and they genuinely differ, so "derive it
+      -- trees and wrong for irssi: both are `Unhardened` with claims, and the live
+      -- cluster gives signal's app an `fsGroup` and irssi none. So "derive it
       -- from `Hardening`" does not work either. The difference is a fact about the
       -- IMAGE: irssi's entrypoint runs as root and chowns the mounted volumes itself
       -- before dropping to uid 1000, so an `fsGroup` would be redundant. signal's does
@@ -623,15 +608,15 @@ let VolumeOwnership =
       -- hand-written YAML, and that is exactly how `RootFs`'s three reasons were lost
       -- when their file was generated away.
       --
-      -- ⚠ **A THIRD CAUSE, added 2026-08-31 for vaultwarden.** `EntrypointChowns` is
-      -- a claim about what the image DOES; borrowing it for a container that simply
-      -- runs as root would plant a false statement in the model, and the model is
-      -- worth having only because its statements are true. vaultwarden is
-      -- `Unhardened` root against a 0777 root-owned volume, so ownership is already
-      -- correct and an `fsGroup` would both add a field the live pod does not carry
-      -- and trigger a recursive chown of the vault's sqlite DB.
+      -- ⚠ **`RunsAsRoot` IS A THIRD CAUSE, not a spelling of the second.**
+      -- `EntrypointChowns` is a claim about what the image DOES; borrowing it for a
+      -- container that simply runs as root plants a false statement in the model,
+      -- and the model is worth having only because its statements are true.
+      -- vaultwarden is `Unhardened` root against a 0777 root-owned volume, so
+      -- ownership is already correct and an `fsGroup` would both add a field the
+      -- live pod does not carry and trigger a recursive chown of its sqlite DB.
       --
-      -- `FsGroup` is the default, so all 15 existing workloads are unchanged.
+      -- `FsGroup` is the default, so an existing workload is unchanged.
       < FsGroup
       | EntrypointChowns : { why : Text }
       | RunsAsRoot : { why : Text }
@@ -640,10 +625,8 @@ let VolumeOwnership =
 let SidecarType =
       --| A SECOND long-running container in a workload's pod, from the SAME image.
       --
-      -- Modelled for recall (2026-09-05): the pod gains `recalld`, the Rust
-      -- ingest daemon, beside the Python api container — one image, two
-      -- commands, one PVC (recall/docs/architecture.md, stage A5). A sidecar
-      -- deliberately CANNOT name its own image: two images in one pod is a
+      -- One image, two commands, one PVC. A sidecar deliberately CANNOT name its
+      -- own image: two images in one pod is a
       -- different decision with different rollout coupling, and nothing in the
       -- fleet wants it. It inherits the workload's uid, hardening, rootFs and
       -- pull policy for the same reason — one pod, one posture.
@@ -712,8 +695,8 @@ let WorkloadType =
             existing `Reach.Ingress` constructors name a value they do not care
             about.
 
-            Added 2026-08-31 for vaultwarden, whose live Ingress carries `128m`
-            because Bitwarden clients' sync payloads exceed nginx's default.
+            vaultwarden is the user: Bitwarden clients' sync payloads exceed
+            nginx's default, so its Ingress carries `128m`.
         -}
         maxBodySize : Optional Text
       , {-  The path the FRONT DOOR should ask for to decide this name is
@@ -730,9 +713,9 @@ let WorkloadType =
             redirect, a static site, or anything whose root already exercises
             what matters. It is WRONG for a single-page app: `/` is the bundle,
             served by the same process, and it answers 200 while the app's
-            database is unreachable. messages.xinutec.org spent 26 hours at 502
-            on 2026-09-04/05 with every front-door goal green, and a root-only
-            probe would still not have seen an app that was up but blind.
+            database is unreachable — a name can serve 502 for a day with every
+            front-door goal green, and a root-only probe still would not see an
+            app that is up but blind.
         -}
         serviceCheck : Optional Text
       , -- Overrides what the image kind implies. `None` means "ask
@@ -799,11 +782,9 @@ let Workload =
       --| `Workload` as a SCHEMA, so a field that is `None`/empty for almost every
       -- workload costs one line in the ONE file that differs, not fifteen everywhere.
       --
-      -- ⚠ **THE FIRST USE OF `{ Type, default }` IN THIS MODEL, so it sets the
-      -- convention.** Adopted 2026-08-27 after three fields landed in one day at ~15
-      -- edits each (`T.Labels`, `T.Selector`, `Reach.HostPorts`) and a fourth
-      -- (`fsGroup`, for irssi) was queued behind the same cost. The conversion is paid
-      -- once; every later optional field is one line.
+      -- ⚠ **`{ Type, default }` IS THE CONVENTION HERE.** Without it every new
+      -- optional field costs an edit at every call site; with it the conversion is
+      -- paid once and each later field is one line.
       --
       -- ⚠ **A FIELD BELONGS IN `default` ONLY IF ITS DEFAULT IS THE SAFE ANSWER**, not
       -- merely the common one. `resources` is deliberately ABSENT: nocodb runs with
@@ -888,11 +869,9 @@ let Placement =
       -- subject that should follow it — the same reason `plan-run.nix` pins a revision
       -- instead of tracking `main`.
       --
-      -- The first user is the `web` namespace, which is applied to BOTH clusters
-      -- today: identical `last-applied-configuration` on isis and amun, checked
-      -- 2026-08-26. Before this existed the model could only say it lived on one, so
-      -- the model stated something false and modelling it would have REFUSED the
-      -- deploy to the other cluster.
+      -- The user is the `web` namespace, applied to BOTH clusters. Without this
+      -- the model could only say it lived on one, which is false and would make
+      -- `plan-run deploy` REFUSE the other cluster.
       { first : Cluster, rest : List Cluster }
 
 let on
@@ -923,8 +902,8 @@ let soleCluster
       -- and a subject spanning clusters has no single one.
       --
       -- ⚠ **DHALL CANNOT REFUSE THIS, AND AN `assert` HERE IS WORSE THAN NOTHING.**
-      -- Tried 2026-08-26: `assert : List/length Cluster p.rest ≡ 0` inside this
-      -- function fails to TYPECHECK for every subject, not just multi-cluster ones,
+      -- `assert : List/length Cluster p.rest ≡ 0` inside this function fails to
+      -- TYPECHECK for every subject, not just multi-cluster ones,
       -- because `p` is lambda-bound so the length never normalises to a literal.
       -- Dhall's `assert` is a typecheck-time equality on normal forms, not a runtime
       -- precondition — the whole model stopped building. The idea that it would "fire
@@ -1004,11 +983,10 @@ let NetpolPeer =
       -- so re-measure rather than reusing a verdict. A port published by a
       -- container's `hostPort` is rewritten by `nat PREROUTING -m addrtype
       -- --dst-type LOCAL -j CNI-HOSTPORT-DNAT` before kube-router's filter rules
-      -- see it, and no ipBlock can match: that is #781, measured 2026-08-12 on
-      -- :443 while klipper's svclb still held it. A port served by a HOST process
-      -- has no such rule and the ipBlock matches — the isis front-door cutover
-      -- (2026-09-01) turned :443 into exactly that, and the pod-selector rule
-      -- #781 chose instead silently stopped matching anything for six days.
+      -- see it, and no ipBlock can match: that is #781, measured on :443 while
+      -- klipper's svclb still held it. A port served by a HOST process has no such
+      -- rule and the ipBlock matches — so moving a port between the two silently
+      -- stops the other kind of rule from matching anything.
       -- `iptables-save -t nat | grep CNI-HOSTPORT` answers it for a given port.
       < Namespace : Text
       | Workload : Text

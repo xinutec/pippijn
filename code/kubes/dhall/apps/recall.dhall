@@ -4,22 +4,12 @@ let T =
       -- capture/ASR/diarize/LLM — so this is a light Rust + SQLite + static
       -- frontend over the archive on its own volume.
       --
-      -- ⚠ Said "a light FastAPI" until 2026-09-12, when the Python container was
-      -- dropped: it had been serving nothing but its own kubelet probe (7,053
-      -- requests over a pod lifetime, measured the day before).
-      --
       -- ⚠ THE SECRET KEYS ARE THE WHOLE RISK IN THIS FILE (count them in `keys`
       -- below, not here — a number in prose rots), and most are
       -- OPTIONAL, which is the dangerous kind. A missing required key crash-loops the
       -- pod and somebody notices within a minute. A missing optional one starts
       -- cleanly and leaves the web UI with NO LOGIN — the archive is transcripts of
-      -- conversations in this house, so that failure is silent and serious. This model
-      -- was checked field-by-field against the live Deployment on isis before it was
-      -- rendered (2026-08-12: nine env vars, in this order, four carrying
-      -- `optional: true`, and every then-current key present in `recall-secret`),
-      -- not against the committed manifest alone. That audit describes the PYTHON
-      -- container's environment; the one below is recalld's, and the rendered
-      -- output was read directly rather than diffed when it changed.
+      -- conversations in this house, so that failure is silent and serious.
       --
       -- Modelled LAST of the twelve for that reason.
       ../lib/types.dhall
@@ -67,9 +57,6 @@ in  T.namespaceOf
         , -- The mount is the volume ROOT: `recalld --root /data` binds the
           -- archive to it, and a subPath would point the app at an empty child
           -- that it would happily populate as a second, invisible archive.
-          --
-          -- (Said `recall api --out /data` until 2026-09-12. The flag and the
-          -- command both went with the Python container; the trap did not.)
           subPath = None Text
         , -- One RWO PVC holding a SQLite database. Two pods writing it is
           -- corruption, not a race — and the hostPort would forbid a rolling
@@ -86,22 +73,22 @@ in  T.namespaceOf
         configMap = None T.ConfigMapDoc
       , workload =
         T.Workload::{ -- No Ingress and no DNS record. The shared nginx ingress answers on
-          -- isis's PUBLIC address whatever DNS says — obscurity, not a gate,
-          -- confirmed 2026-07-09 — and this archive is transcripts of
+          -- isis's PUBLIC address whatever DNS says — obscurity, not a gate —
+          -- and this archive is transcripts of
           -- conversations in the house. The hostPort pinned to the tunnel address
           -- IS the gate.
           reach = T.Reach.WireGuard { alsoPublish = [ ingestPort ] }
         , name = "recall"
         , image = T.Image.Fleet "recall"
-        , -- recalld, the Rust system-of-record daemon, and THE only container
-          -- since 2026-09-12. It binds both doors itself.
+        , -- recalld, the Rust system-of-record daemon, and the only container.
+          -- It binds both doors itself.
           --
           -- ⚠ **NO `--upstream`, and that needed a CODE change first.** Without
           -- one, recalld's fallback is the SPA, so `/sync/anything-unmatched`
-          -- would answer index.html with a 200 — exactly how the Mac's sync and
-          -- jobs agents died on 2026-09-07. recall `45f9a40` makes an unmatched
-          -- path under `/api/` or `/sync/` a 404 instead. Do not restore this
-          -- flag without restoring that reasoning.
+          -- would answer index.html with a 200, which is how the Mac's sync and
+          -- jobs agents die. recalld makes an unmatched path under `/api/` or
+          -- `/sync/` a 404 instead. Do not restore this flag without restoring
+          -- that reasoning.
           command = Some
           [ "recalld"
           , "--root"
@@ -112,19 +99,18 @@ in  T.namespaceOf
           , "0.0.0.0:${Natural/show port}"
           , "--bind"
           , "0.0.0.0:${Natural/show ingestPort}"
-          , -- ⚠ Restored 2026-09-07 only AFTER the fallback learned that
-            -- `/sync/*` is not a UI route. See the command note above.
+          , -- ⚠ Safe only BECAUSE the fallback knows `/sync/*` is not a UI
+            -- route. See the command note above.
             "--frontend"
           , "/app/frontend/dist/recall-web/browser"
           ]
         , -- The browser's door and the registered OAuth redirect. `alsoPublish`
           -- above carries `ingestPort` beside it, from this same container.
           --
-          -- ⚠ This used to be DECLARED here and SERVED by a recalld sidecar: the
-          -- declaration installs the CNI portmap DNAT into the POD's namespace,
-          -- and any container in it may answer. That indirection is gone with the
-          -- sidecar — the container that declares the port is now the one that
-          -- binds it.
+          -- ⚠ The container that DECLARES a port need not be the one that binds
+          -- it: the declaration installs the CNI portmap DNAT into the POD's
+          -- namespace, and any container in it may answer. Here they are the
+          -- same container, and that is worth keeping true.
           port
         , uid = 1000
         , selector = T.Selector.App
@@ -164,9 +150,8 @@ in  T.namespaceOf
           , { -- ⚠ Without these recalld serves NONE of its browsing routes.
               -- `webauth = None` means ABSENT, not open — these routes serve
               -- household transcripts, so an unconfigured recalld answers them
-              -- 404 rather than answering them to anyone. That used to be
-              -- survivable because the proxy carried the app; now it is the
-              -- whole UI.
+              -- 404 rather than answering them to anyone — and recalld is the
+              -- whole UI, so that is the site gone rather than a degraded one.
               name = "RECALL_SESSION_SECRET"
             , value = optional keys.SESSION_SECRET
             }
@@ -178,8 +163,8 @@ in  T.namespaceOf
           , { -- The Android meeting recorder's upload credential. A phone cannot
               -- do the OAuth login — the WebView that can is a SEPARATE app with
               -- its own cookie jar — so without this every `POST /api/sessions`
-              -- from the recorder is a 401, which is exactly what happened until
-              -- 2026-08-07. Accepted on that one route and no other, so it does
+              -- from the recorder is a 401. Accepted on that one route and no
+              -- other, so it does
               -- not become a reader of the transcripts. Deliberately NOT
               -- SYNC_TOKEN: a phone is easier to lose than the Mac, and that key
               -- opens all of /sync/*.

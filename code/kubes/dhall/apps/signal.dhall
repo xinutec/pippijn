@@ -19,13 +19,11 @@ let T =
       -- is declared HERE, where the namespace's policies live, exactly as the live
       -- tree has it.
       --
-      -- ⚠ **THE MODEL AND THE COMMITTED TREE AGREE** — `generate.sh --check` says so,
-      -- and the three deltas this note used to list are in `signal/k8s/` now:
-      -- container names took the workload's, the bridge gained a liveness probe, and
-      -- `signal-db-from-app-only` admits 3306 from the namespace.
+      -- ⚠ **THE MODEL AND THE COMMITTED TREE AGREE** — `generate.sh --check` says
+      -- so.
       --
-      -- ⚠ **WHICH IS NOT THE SAME AS THE CLUSTER HAVING THEM, and this note
-      -- conflated the two until 2026-09-13.** "Applied" is a question about isis,
+      -- ⚠ **WHICH IS NOT THE SAME AS THE CLUSTER HAVING THEM.** "Applied" is a
+      -- question about isis,
       -- answerable only by asking isis; what is checkable from here is that the
       -- model and the tree describe one thing. `deploy.sh signal` is what closes the
       -- remaining gap, and it applies nothing the cluster already matches.
@@ -74,19 +72,17 @@ let irclogNetworks =
       -- window item is what may be sent to — so the two halves cannot disagree about
       -- what a live conversation is.
       --
-      -- Measured 2026-08-14: the whole tree is ~89,000 files and 2.3G across twenty
-      -- tags, and these five are ~36,000 files and ~507M. What the rule leaves out is
-      -- the point:
+      -- These five are a small part of the tree, and what the rule leaves out is the
+      -- point:
       --
-      --   * `freenode` — 25,007 files, 1.4G, and a network nobody has been on for
-      --     years. Two thirds of the bytes for none of the conversations.
-      --   * `minbif` — 21,037 files that are not IRC at all: it is an IM gateway, so
-      --     those are Facebook- and MSN-era contacts bridged through it. Private
-      --     conversations with a great many named people, and both repositories here
-      --     are public.
+      --   * `freenode` — most of the bytes, and a network nobody has been on for
+      --     years. No conversations to go with them.
+      --   * `minbif` — not IRC at all: it is an IM gateway, so those are Facebook-
+      --     and MSN-era contacts bridged through it. Private conversations with a
+      --     great many named people, and both repositories here are public.
       --
       -- `xinutec2` is not a network. It is the tag irssi invents for a second
-      -- simultaneous connection, dead since 2022-01-25, and `--map` folds it back into
+      -- simultaneous connection, long dead, and `--map` folds it back into
       -- `xinutec` so the app shows one conversation per person rather than two.
       [ "euirc", "libera", "schmorp", "teranova", "xinutec" ]
 
@@ -131,7 +127,7 @@ let amunTunnel =
       --
       -- ⚠ The public name resolves to 94.23.247.133 and routes out of the building
       -- and back; the tunnel address is a direct peer (isis 10.100.0.2 ↔ amun
-      -- 10.100.0.1, measured 2026-08-14). Both work. This one keeps thirteen years of
+      -- 10.100.0.1). Both work. This one keeps thirteen years of
       -- private conversation off the public path even in the seconds it would be
       -- inside an ssh session, and it is the address the NetworkPolicy names, so
       -- using the other would be blocked anyway.
@@ -184,21 +180,17 @@ in  { name = "signal"
     , placement = T.on T.Cluster.isis
     , db = Some
       { dbName = "signal"
-      , -- ⚠ MEASURED 2026-08-14, and the default 128 MiB stopped being tenable
-        -- the day IRC ingestion opened to five networks: `irc_messages` went to
-        -- 3.7M rows, 502 MiB of data and 289 MiB of index, so a search scanned
-        -- the whole table through a pool a fifth its size and did ~43,000
-        -- physical page reads every time. With 1 GiB the table is resident and
-        -- the same search is **4.1s against 10.0s**.
+      , -- ⚠ SIZED TO HOLD `irc_messages` DATA + INDEX RESIDENT. IRC ingestion
+        -- across five networks takes it to millions of rows, and a pool smaller
+        -- than the table turns every search into a full scan of physical page
+        -- reads. 1 GiB rather than 2 because this box also runs the rest of the
+        -- fleet.
         --
-        -- 1 GiB rather than 2: it covers data + index with room, and this box
-        -- also runs the rest of the fleet. What it does NOT help is the
-        -- conversation list — 1.5s before and after, because that one is
-        -- answered from the index alone and is CPU-bound, not I/O-bound. Only
-        -- the queries that touch row data gain.
+        -- It does NOT help the conversation list, which is answered from the
+        -- index alone and is CPU-bound. Only queries touching row data gain.
         --
-        -- ⚠ The first query after a restart is still slow (27.7s measured) —
-        -- the pool starts empty and that scan is what fills it.
+        -- ⚠ The first query after a restart is still slow — the pool starts
+        -- empty and that scan is what fills it.
         innodbBufferPoolGi = Some 1
       , -- Text messages are small; 10Gi covers years plus the history backfill.
         storageGi = 10
@@ -313,16 +305,13 @@ in  { name = "signal"
           probe = T.Probe.Unprobed
         , resources =  Some
           { requests = { cpu = "50m", memory = "64Mi" }
-          , -- ⚠ THIS LIMIT ONLY BECAME MEANINGFUL ON 2026-08-17, and the order
-            -- matters. It carried none because `download_attachment` did
-            -- `resp.bytes().await` — the whole blob resident before the write —
-            -- so peak memory was the largest thing anybody sent, which this pod
-            -- does not choose. A cap set from the 5Mi steady state would have
-            -- been a cap on somebody else's video, and the OOM-kill would have
-            -- read as an unexplained crash-loop. The binary now streams the body
-            -- chunk by chunk (`attach::write_stream`), so resident size is one
-            -- chunk and 128Mi is a real ceiling: ~20x the measured 5Mi, and a
-            -- kill at it means a leak rather than a big attachment.
+          , -- ⚠ THIS LIMIT DEPENDS ON THE DOWNLOAD STREAMING. `attach::write_stream`
+            -- writes the body chunk by chunk, so resident size is one chunk and
+            -- 128Mi is a real ceiling — a kill at it means a leak rather than a
+            -- big attachment. Hold the whole blob in memory instead and peak is
+            -- the largest thing anybody sent, which this pod does not choose: the
+            -- cap becomes a cap on somebody else's video and the OOM-kill reads
+            -- as an unexplained crash-loop.
             --
             -- No cpu limit: a throttle here would stall an ingest nobody is
             -- waiting on, and show up as latency nobody can attribute.
@@ -346,28 +335,16 @@ in  { name = "signal"
               -- `ircTail` below is the live tier and writes each line in under a
               -- second on the same dedupe key; this task is its RECONCILER, so
               -- what the cadence sets is how fast a line the tail DROPPED is
-              -- recovered, not how fresh the archive is. The comment here used to
-              -- say the long-poll tier "is not needed" — it was built, it runs,
-              -- and that sentence has been wrong since.
+              -- recovered, not how fresh the archive is.
               --
-              -- ⚠ IT WAS EVERY MINUTE, AND THAT COST THE HEALTH BACKUP 41%.
-              -- Ablated 2026-08-24 (import off 335s, on 473s, back to back on an
-              -- idle disk) and corroborated observationally 2026-08-26 by a 15s
-              -- sampler across the real backup window: of the sixteen D-state
-              -- blocking occurrences during the health dump, TEN were this
-              -- importer and two were rsync — and it was in D state ONLY inside
-              -- that window, never once in the other 59 minutes. The live dump
-              -- took 969s, twice the ablation's loaded arm. At `*/15` its share
-              -- of the window falls from ~40% to ~3%.
+              -- ⚠ NOT EVERY MINUTE: this is IO-heavy and it overlaps the health
+              -- dump, where it was measured doing most of the D-state blocking.
+              -- At `*/15` its share of that window is a few percent.
               --
-              -- Hourly was the ORIGINAL setting and was never a latency
-              -- judgement: it was the price of a run that cost the same whatever
-              -- had happened. MEASURED 2026-08-14: the importer re-read all
-              -- 36,201 staged files and re-issued `INSERT IGNORE` for all 3.68M
-              -- lines every time, taking 10m34s to write 14 rows. `signal`'s
-              -- `irc_import_state` made a run cost what ARRIVED — 20 seconds end
-              -- to end, zero files opened — which is what makes the cadence free
-              -- to choose on other grounds, as it now is.
+              -- The cadence is free to choose at all only because
+              -- `irc_import_state` makes a run cost what ARRIVED. Without it a
+              -- run re-reads every staged file and re-issues `INSERT IGNORE` for
+              -- every line, costing the same whatever happened.
               --
               -- ⚠ Safe to overlap-proof rather than by luck: `concurrencyPolicy`
               -- is `Forbid` for every task in this model (see `render.dhall`), so
@@ -558,8 +535,8 @@ in  { name = "signal"
           , -- Bounded BY CONSTRUCTION, unlike the ingester's was: the irssi
             -- plugin answers a poll from a 256-line ring and this holds one
             -- reply at a time, so there is no input size it does not control.
-            -- Measured on isis 2026-08-17 at 6Mi; 128Mi is ~20x that, so a kill
-            -- here means something is wrong rather than something is large.
+            -- 128Mi is far above its steady state, so a kill here means something
+            -- is wrong rather than something is large.
             limits = Some { cpu = None Text, memory = "128Mi" }
           }
         , volumes =
@@ -782,18 +759,13 @@ in  { name = "signal"
               -- this is the namespace that owns the policies even though the
               -- workload's tree is `kubes/messages/`.
               --
-              -- ⚠ THE FRONT DOOR IS A HOST PROCESS NOW, WHICH REVERSED #781.
-              -- That ticket measured this same `ipBlock` matching nothing and
-              -- selected klipper's svclb pod instead, correctly: svclb held :443
-              -- by CNI hostport DNAT, so the packet was rewritten before
-              -- kube-router's filter rules ever saw it. The front-door cutover
-              -- (nixos-config `be19eff`, 2026-09-01) deleted the ingress-nginx
-              -- LoadBalancer Service and with it that pod, so this selector
-              -- matched nothing and every token exchange was rejected for six
-              -- days. Re-measured 2026-09-07: no CNI-HOSTPORT-DNAT entry for 443
-              -- survives, and a pod carrying an ipBlock rule opens 443 to this
-              -- address. A "cannot be named" verdict outlives the arrangement
-              -- that produced it; this one did, silently.
+              -- ⚠ AN `ipBlock` WORKS HERE ONLY BECAUSE THE FRONT DOOR IS A HOST
+              -- PROCESS. #781 found the same rule matching nothing and selected
+              -- klipper's svclb pod instead, correctly for the time: svclb held
+              -- :443 by CNI hostport DNAT, so the packet was rewritten before
+              -- kube-router's filter rules saw it. No such DNAT entry survives
+              -- now. A "cannot be named" verdict outlives the arrangement that
+              -- produced it — re-measure before trusting one.
               name = "messages-egress-sso"
             , target = T.NetpolTarget.OneWorkload "messages"
             , egress =

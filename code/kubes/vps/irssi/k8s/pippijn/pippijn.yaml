@@ -77,11 +77,11 @@ spec:
           # honest about what is actually checked.
           #
           # ⚠ initialDelaySeconds is 30 here against readiness's 5, DELIBERATELY.
-          # Measured 2026-08-27: this pod goes Ready 16s after start, so a
-          # liveness probe sharing readiness's timing would fail once at t=5 and
-          # pass at t=15 — one failure against a threshold of 3, about 10s of
-          # margin. The entrypoint chowns /home/irssi and /etc/ssh_keys as root
-          # before starting sshd, and a larger home directory eats that margin.
+          # This pod takes tens of seconds to go Ready, so a liveness probe
+          # sharing readiness's timing has only a failure or two of margin before
+          # it kills a healthy start. The entrypoint chowns /home/irssi and
+          # /etc/ssh_keys as root before starting sshd, and a larger home
+          # directory eats whatever margin there is.
           # A liveness probe that kills a container which is merely slow to start
           # turns a slow boot into a crash loop, which is worse than no probe.
           livenessProbe:

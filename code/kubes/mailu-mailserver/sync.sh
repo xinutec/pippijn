@@ -8,10 +8,10 @@ set -euo pipefail
 # dev-lint: pvc mailu-mailserver/data-mailu-clamav-0 allow-backup-coverage clamav signature DB, re-downloaded on start
 # Chart-created workload the odin backup execs into (mailu-admin dumps roundcube).
 # dev-lint: workload mailu-mailserver/deploy/mailu-admin
-# (redis is no longer a chart PVC: bundled Bitnami redis was replaced by our own
-# mailu-redis-ext-data PVC in k8s/redis-ext.yaml — backed up via odin backup-prepare.sh.)
-# Chart-version BUMP gotchas (learned upgrading 2.1.1 -> 2.7.3, 2026-07-22). None of
-# these apply to a same-version re-run; they bite only when --version changes:
+# (redis is not a chart PVC: ours is mailu-redis-ext-data in k8s/redis-ext.yaml,
+# backed up by odin.)
+# Chart-version BUMP gotchas. None of these apply to a same-version re-run; they
+# bite only when --version changes:
 #   1. StatefulSet immutable fields: the chart changed a forbidden field on
 #      mailu-clamav, so `helm upgrade` errors "updates to statefulset spec ... are
 #      forbidden". Delete the SS first (pod stays; clamav is regenerable):
