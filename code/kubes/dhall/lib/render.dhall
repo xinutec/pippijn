@@ -37,29 +37,21 @@ let hasAppliedNetpol
       --  Deployment; it cannot come from the rendered YAML because a waiver is a
       --  comment and rendering drops comments.
       --
-      --  Asked of the model rather than inferred from which manifests come back
-      --  non-empty: the inference happened to work only because `manifests` in
-      --  generate.sh is ordered db-before-app, so reordering that list would have
-      --  silently moved the waiver onto the wrong file. Here it is a total function of
-      --  the model, checked by the typechecker.
+      --  ⚠ Asked of the MODEL, not inferred from which manifests render non-empty:
+      --  that inference depends on `manifests` being ordered db-before-app, so
+      --  reordering it would silently move the waiver onto the wrong file.
       --| Does this app render a NetworkPolicy the cluster will actually APPLY?
       --
-      -- Asked by `generate.sh` to decide whether to emit the `allow-no-netpol`
-      -- waiver. dev-lint fails a waiver that waives nothing, so an app with a real
-      -- default-deny must NOT carry one — and the answer has to come from the model
-      -- rather than from a list in the generator, which is the shape that let
-      -- utterance go unwaived for months.
+      -- Decides whether `generate.sh` emits the `allow-no-netpol` waiver. dev-lint
+      -- fails a waiver that waives nothing, so the answer must come from the model
+      -- rather than a list in the generator.
       --
-      -- `IngressFromNginx` counts as NO: it renders to a `-held.yaml` that is
-      -- deliberately outside the applied set, so the namespace is still undefended
-      -- and the waiver is still the honest record.
+      -- `IngressFromNginx` counts as NO: it renders to a `-held.yaml` outside the
+      -- applied set, so the namespace is still undefended.
       --
-      -- ⚠ A namespace owned ELSEWHERE also counts as YES, and this is the second half
-      -- of `T.Owner`'s point rather than a special case bolted on. `messages` renders
-      -- no policy — its egress rule is declared in signal's tree, where the namespace's
-      -- policies live — but the namespace it runs in has a default-deny all the same.
-      -- Asking only `ns.netpol` would read `Unpoliced` and emit a waiver for a
-      -- namespace that IS defended, which dev-lint fails as ineffective, correctly.
+      -- ⚠ A namespace owned ELSEWHERE counts as YES. `messages` renders no policy of
+      -- its own — signal's tree declares it — but the namespace IS defended, so a
+      -- waiver here would waive nothing.
       λ(ns : T.Namespace) →
         merge
           { Own =
@@ -578,30 +570,17 @@ let storageWaiverRows
       --| One `<pvc-name>\t<why>` line per claim whose loss is accepted, for the
       --  generator to place inside the document each one describes.
       --
-      -- Empty means "no waiver": either the app has no volume of its own, or it
-      -- declared `BackedUp` and must genuinely appear as a backup artifact —
-      -- dev-lint checks that join across the fleet, so the claim cannot be merely
-      -- asserted.
+      -- Empty means "no waiver": the app has no volume of its own, or declared
+      -- `BackedUp` and must genuinely appear as a backup artifact — dev-lint checks
+      -- that join across the fleet.
       --
-      -- This lives in the model rather than as a case in the generator so that a
-      -- second app cannot be added without answering the question, and so the
-      -- answer sits beside the volume it describes rather than in a shell `case`
-      -- far away from it.
+      -- ⚠ ONE ROW PER CLAIM. A single joined marker can only be placed once, so with
+      -- several waived claims the rest carry nothing and stand as uncovered PVCs on
+      -- the board while the model has stated their reasons all along.
       --
-      -- ⚠ **ONE ROW PER CLAIM, because a single joined marker can only be placed
-      -- once.** The predecessor folded every reason into one string; the generator
-      -- anchored it on the LAST claim, and the rest carried nothing. With one
-      -- waived claim that is invisible. `signal` has four: the marker sat on
-      -- `signal-telegram-media-pvc`, and `signal-irclogs-pvc` stood as an
-      -- uncovered PVC on the board while the model had stated its reason all
-      -- along. The same fold had already been caught once for running the reasons
-      -- together unreadably — a waiver exists to be READ by whoever asks why a
-      -- volume is not backed up, and joining was only ever papering over the
-      -- placement being wrong.
-      --
-      -- Per-claim rows also put each reason where DL-DEPLOY-BACKUP-COVERAGE looks:
-      -- the check walks up from the document's first key and stops at the leading
-      -- `---`, so a marker above the separator is never seen.
+      -- ⚠ Each row must land INSIDE the document it describes:
+      -- DL-DEPLOY-BACKUP-COVERAGE walks up from the first key and stops at the
+      -- leading `---`, so a marker above the separator is never seen.
       λ(ns : T.Namespace) →
         L.joinWith
           "\n"
@@ -667,26 +646,18 @@ let containerWaivers
     =
       --| Per-CONTAINER dev-lint waivers, one per line: `name<TAB>suffix<TAB>why`.
       --
-      -- The fourth injector, and the one the model was carrying blind. DL-K8S-ROOTFS-RW
-      -- and DL-K8S-NO-PROBE are LINE-scoped — dev-lint anchors them on the container's
-      -- first line — so a file-level marker would waive every container in the file,
-      -- including the ones that never fired. `03-app.yaml` holds three, and only two of
-      -- them are writable; over-waiving there is precisely how a rule stops meaning
-      -- anything.
+      -- ⚠ DL-K8S-ROOTFS-RW and DL-K8S-NO-PROBE are LINE-scoped, anchored on the
+      -- container's first line, so a file-level marker waives every container in the
+      -- file including the ones that never fired.
       --
-      -- So the model answers WHICH CONTAINER and WHY, and `generate.sh` holds only the
-      -- placement — the same division as `hostPathWaiver` and `storageWaiverRows`.
+      -- The model answers WHICH CONTAINER and WHY; `generate.sh` holds the placement.
       --
-      -- ⚠ TASKS TOO, and they are the half that is easy to forget. A CronJob container
-      -- fires ROOTFS-RW in a different FILE from the workload it is declared under, so
-      -- emitting only the workloads left `signal-irclog-import` unwaived. It states
-      -- its own reason (`T.ScheduledTask.rootFs`) rather than inheriting one, because
-      -- the first task to need this had a reason that was not its workload's.
+      -- ⚠ Tasks too: a CronJob container fires ROOTFS-RW in a different FILE from the
+      -- workload it is declared under, and states its own reason
+      -- (`T.ScheduledTask.rootFs`) rather than inheriting one.
       --
-      -- `no-probe` carries no `why` because `T.Probe.Unprobed` is not a Bool — the
-      -- constructor already says "there is nothing to probe", and its note explains
-      -- what would justify giving it a payload (a second probeless workload; there is
-      -- still one).
+      -- `no-probe` carries no `why` — `T.Probe.Unprobed` already says there is
+      -- nothing to probe.
       λ(ns : T.Namespace) →
         {-  ⚠ ONLY FOR AN IMAGE THE FLEET BUILDS, and this is a judgement call
             worth reading before changing. dev-lint's `image_profile` switches

@@ -2,28 +2,18 @@ let T =
       -- health.xinutec.org — the health app (a Rust server over a verified Lean
       -- core, serving an Angular frontend; the TypeScript backend is gone, #975).
       --
-      -- The largest tree in the fleet and the only one with BATCH workloads: the
-      -- CronJobs under `tasks` and two one-shot Jobs share this image and this
-      -- environment. They are not modelled here yet (they need `T.ScheduledTask`),
-      -- which is why one `let` below is exported-looking rather than inlined —
-      -- `decodeFlags` is the env the crons must agree with, and the live manifests
-      -- say so in prose today ("kept in step with 08-decode-recent.yaml"). The `let`
-      -- is what stops that being luck.
+      -- `decodeFlags` below is a `let` because the CronJobs, not yet modelled here,
+      -- must carry the same env (see 08-decode-recent.yaml).
       --
-      -- ⚠⚠ NOT DEPLOYABLE YET, and not for the obvious reason. Rendering this tree
-      -- emits `netpolDb` — `health-db-from-app-only`, which admits port 3306 from
-      -- `app: health-auth` and nothing else. SIX CRONJOBS TALK TO THIS DATABASE and
-      -- carry their own labels, so applying the rendered tree today cuts every batch
-      -- workload off from its data, at 04:00, where nobody is looking. That policy is
-      -- correct for a namespace holding one workload and false about this one — the
-      -- same conflation of "a namespace" with "a workload" that `signal` runs into
-      -- from the other direction. So `T.ScheduledTask` is not the next increment
-      -- after this file; it is part of the same one.
+      -- ⚠⚠ NOT DEPLOYABLE YET. This tree emits `health-db-from-app-only`, admitting
+      -- 3306 from `app: health-auth` alone — and six CronJobs talk to that database
+      -- under their own labels, so applying it cuts every batch workload off from its
+      -- data at 04:00. Modelling them with `T.ScheduledTask` is part of the same
+      -- increment, not the next one.
       --
-      -- ⚠ `rootFs = T.RootFs.ReadOnly` is a CHANGE to the live Deployment, and it is
-      -- measured rather than assumed: the app writes nothing to its overlay, every
-      -- entry there being a kubelet bind-mount. That is what retires this tree's
-      -- nine `allow-rootfs-rw` waivers.
+      -- ⚠ `rootFs = T.RootFs.ReadOnly` is a CHANGE to the live Deployment, measured:
+      -- the app writes nothing to its overlay. It retires nine `allow-rootfs-rw`
+      -- waivers.
       ../lib/types.dhall
 
 let dns = ../dns.dhall

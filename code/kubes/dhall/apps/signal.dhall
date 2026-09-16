@@ -2,9 +2,7 @@ let T =
       -- The `signal` namespace: a Signal archive, and the first model written as a
       -- NAMESPACE rather than through the `App` sugar.
       --
-      -- Several workloads share it, which is why `T.App` could never describe it.
-      -- They are listed rather than counted, because a count in a comment rots the
-      -- moment somebody adds one — as Telegram did:
+      -- Several workloads share it, which is why `T.App` cannot describe it:
       --
       --   * `signal-db` — MariaDB, the archive's system of record
       --   * `signal-cli-rest-api` — the bridge to Signal itself, third-party
@@ -13,30 +11,14 @@ let T =
       --   * `signal-irc-tail` — the live IRC tier, a long poll out to irssi
       --   * `signal-telegram` — the Telegram feed, history and live in one session
       --
-      -- A FOURTH pod lives here and is NOT in this file: the `messages` viewer, whose
-      -- tree is `kubes/messages/`. It is in this namespace because a `secretKeyRef`
-      -- cannot cross namespaces and it reads `signal-secret` — so its egress policy
-      -- is declared HERE, where the namespace's policies live, exactly as the live
-      -- tree has it.
+      -- A fourth pod lives here and is NOT in this file: the `messages` viewer, in
+      -- `kubes/messages/`. It is in this namespace because a `secretKeyRef` cannot
+      -- cross namespaces, so its egress policy is declared here with the rest.
       --
-      -- ⚠ **THE MODEL AND THE COMMITTED TREE AGREE** — `generate.sh --check` says
-      -- so.
-      --
-      -- ⚠ **WHICH IS NOT THE SAME AS THE CLUSTER HAVING THEM.** "Applied" is a
-      -- question about isis,
-      -- answerable only by asking isis; what is checkable from here is that the
-      -- model and the tree describe one thing. `deploy.sh signal` is what closes the
-      -- remaining gap, and it applies nothing the cluster already matches.
-      --
-      -- ⚠ APPLYING THIS NEEDS `scripts/netpol-reach.sh` RUN FIRST, against
-      -- `signal/k8s/netpol-reach.table`. The policies below were proved by connecting
-      -- in #781, and a policy that reads correct and is not is how the archive
-      -- quietly stops recording.
-      --
-      -- ⚠ THE ARCHIVE IS TRANSCRIPTS OF PRIVATE CONVERSATIONS. Every netpol below was
-      -- measured by connecting (#781, `scripts/netpol-reach.sh` + the
-      -- `netpol-reach.table` beside it), not reasoned about. Change one and re-run
-      -- that probe before believing it.
+      -- ⚠ CHANGE A NETPOL BELOW AND RE-RUN `scripts/netpol-reach.sh` against
+      -- `signal/k8s/netpol-reach.table` before believing it (#781). The archive is
+      -- transcripts of private conversations, and a policy that reads correct and is
+      -- not is how it quietly stops recording.
       ../lib/types.dhall
 
 let keys =
