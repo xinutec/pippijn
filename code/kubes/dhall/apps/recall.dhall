@@ -4,14 +4,10 @@ let T =
       -- capture/ASR/diarize/LLM — so this is a light Rust + SQLite + static
       -- frontend over the archive on its own volume.
       --
-      -- ⚠ THE SECRET KEYS ARE THE WHOLE RISK IN THIS FILE (count them in `keys`
-      -- below, not here — a number in prose rots), and most are
-      -- OPTIONAL, which is the dangerous kind. A missing required key crash-loops the
-      -- pod and somebody notices within a minute. A missing optional one starts
-      -- cleanly and leaves the web UI with NO LOGIN — the archive is transcripts of
-      -- conversations in this house, so that failure is silent and serious.
-      --
-      -- Modelled LAST of the twelve for that reason.
+      -- ⚠ MOST SECRET KEYS HERE ARE OPTIONAL, which is the dangerous kind: a missing
+      -- required key crash-loops the pod and somebody notices, where a missing
+      -- optional one starts cleanly and leaves the web UI with NO LOGIN. The archive
+      -- is transcripts of conversations in this house.
       ../lib/types.dhall
 
 let dataPath = "/data"

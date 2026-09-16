@@ -2,13 +2,10 @@ let T =
       -- fleetwatch.xinutec.org — where the fleet's machines report what they saw
       -- (Rust/axum + Angular).
       --
-      -- Two audiences, two gates, and the model only expresses one of them. The WRITE
-      -- path is token-only: `FLEETWATCH_TOKENS` is a comma-separated set of
-      -- source:token pairs, and a producer can only ever write as its mapped source
-      -- (`src/auth.rs`). Reads sit behind the Nextcloud login, with one hole —
-      -- `FLEETWATCH_READ_TOKENS` opens `GET /api/problems` alone, for the Android
-      -- app's half-hourly background poller. Both are secret references here; which
-      -- endpoints they unlock is the app's business and is written up beside the code.
+      -- Two gates. WRITE is token-only: `FLEETWATCH_TOKENS` maps source:token pairs
+      -- and a producer can only write as its mapped source (`src/auth.rs`). READ sits
+      -- behind the Nextcloud login, except `FLEETWATCH_READ_TOKENS`, which opens
+      -- `GET /api/problems` alone for the Android poller.
       ../lib/types.dhall
 
 let dns = ../dns.dhall
@@ -58,13 +55,13 @@ in  T.namespaceOf
           -- so HTTP-01 cannot validate and the certificate must come from DNS-01 —
           -- which is what this field decides.
           --
-          -- ⚠ Obscurity, NOT a firewall: the isis ingress answers on the public IP
-          -- too. The real gate on the WRITE path is the ingest bearer token. A
-          -- ⚠ A `whitelist-source-range: 10.100.0.0/24` annotation does NOT work
-          -- here: behind k3s servicelb the client's WireGuard source IP is SNAT'd
-          -- before nginx sees it, so the rule 403s a legitimate VPN client. Making the source IP survive needs a cluster-wide ingress
-          -- change (externalTrafficPolicy: Local + forwarded-headers) affecting
-          -- every service, and is deliberately not done.
+          -- ⚠ Obscurity, NOT a firewall — the isis ingress answers on the public IP
+          -- too. The real gate on the WRITE path is the ingest bearer token.
+          --
+          -- ⚠ A `whitelist-source-range` annotation does NOT help: behind k3s
+          -- servicelb the client's WireGuard source IP is SNAT'd before nginx sees
+          -- it, so the rule 403s a legitimate VPN client. Making it survive needs a
+          -- cluster-wide ingress change affecting every service.
           reach =
             T.Reach.Ingress
               { host = dns.fleetwatch, exposure = T.Exposure.VpnOnly }

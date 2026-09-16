@@ -54,11 +54,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: ircd-storage
-        # The certificate cert-manager renews, mounted so the process can reach
-        # it. Before this, `conf/secret` was a subPath of the PVC above filled in
-        # by a hand-run `kubectl cp`, so a renewed secret changed nothing — and
-        # ⚠ restarting the pod did not help, because it reloaded the same PVC
-        # files.
+        # ⚠ The renewed certificate, mounted from the Secret rather than copied
+        # into the PVC: a copy there is not refreshed by a renewal, and restarting
+        # the pod reloads the same stale files.
         - name: tls
           secret:
             secretName: irc-tls

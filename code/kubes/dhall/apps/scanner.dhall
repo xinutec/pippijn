@@ -6,9 +6,8 @@ let T =
       -- the phone talks to by default — reachable from anywhere over the VPN, which
       -- the Mac's LAN server never was.
       --
-      -- The FIRST app in the model whose image is neither built by CI nor pulled from
-      -- a registry, and the first with no Ingress at all. Both are types now rather
-      -- than comments: `Image.Local` and `Reach.WireGuard`.
+      -- Its image is neither built by CI nor pulled from a registry, and it has no
+      -- Ingress: `Image.Local` and `Reach.WireGuard` say both.
       ../lib/types.dhall
 
 let dataPath = "/srv/data"
