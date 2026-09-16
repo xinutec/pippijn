@@ -1,36 +1,19 @@
 let T =
       -- messages.xinutec.org — a reader for the Signal archive.
       --
-      -- ⚠ THE FIRST TREE THAT DOES NOT OWN ITS NAMESPACE, and that is the whole
-      -- reason this file was the last one modelled. Its pod runs in `signal`, which
-      -- `kubes/signal/k8s` creates, because a `secretKeyRef` CANNOT CROSS NAMESPACES
-      -- and this app reads `signal-secret` for the archive's database credentials.
-      -- Everything unusual below follows from that one fact — see `T.Owner`, where it
-      -- is one field rather than four flags.
+      -- ⚠ IT DOES NOT OWN ITS NAMESPACE. The pod runs in `signal`, created by
+      -- `kubes/signal/k8s`, because a `secretKeyRef` CANNOT CROSS NAMESPACES and this
+      -- reads `signal-secret`. Everything unusual below follows — see `T.Owner`:
       --
-      -- What it means in practice:
+      --   * no `00-namespace.yaml`, and no `allow-no-netpol` waiver even though this
+      --     tree renders no policy — the namespace IS defended, by signal's tree;
+      --   * `messages-secret` and `messages-tls`, not `signal-*`: only `meta`'s
+      --     namespace field uses `signal`.
       --
-      --   * no `00-namespace.yaml` — signal's tree has it;
-      --   * no `allow-no-netpol` waiver, though this tree renders no policy: the
-      --     namespace IS defended, and the rule admitting this pod's SSO callback is
-      --     declared in `apps/signal.dhall` where the namespace's policies live;
-      --   * `messages-secret` and `messages-tls`, not `signal-*`: the SLUG names what
-      --     belongs to the app, and only `meta`'s namespace field uses `signal`;
-      --   * an Ingress named `messages`, stated rather than derived.
-      --
-      -- ⚠ TWO DELTAS against the live tree, both on the pod's `securityContext`, both
-      -- additive and both measured rather than argued:
-      --
-      --   1. `fsGroup: 65532` and 2. `fsGroupChangePolicy: OnRootMismatch`. The live
-      --   manifest has neither, so this pod reads the attachments only because the
-      --   INGESTER's fsGroup happened to set the volume's group — an accident of
-      --   another tree's manifest (`signal/k8s/04-ingester.yaml` lines 24-25, both
-      --   values identical to these). Stating them makes the read permitted rather
-      --   than incidental. `OnRootMismatch` is what keeps it cheap: the root already
-      --   carries gid 65532, so kubelet checks and skips rather than re-chowning
-      --   20 Gi at every start.
-      --
-      -- It costs a pod restart, which for a reader nobody is reading is free.
+      -- ⚠ `fsGroup` and `fsGroupChangePolicy` are stated, so reading the attachments
+      -- is PERMITTED rather than an accident of the ingester's fsGroup having set the
+      -- volume's group. `OnRootMismatch` keeps it cheap: the root already carries the
+      -- gid, so kubelet checks and skips rather than re-chowning the volume.
       ../lib/types.dhall
 
 let claims = ../signal-claims.dhall

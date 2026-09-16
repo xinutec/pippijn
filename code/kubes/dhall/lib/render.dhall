@@ -134,12 +134,9 @@ let treeOf
       -- default is that shape; `ns.tree` is the exception, stated once in the
       -- model rather than in `generate.sh`'s bash.
       --
-      -- ⚠ THE DEFAULT KEYS ON THE FILE LEAF, NOT `ns.name`, and they are not
-      -- the same: `apps/messages.dhall` declares the namespace `signal` and
-      -- deploys from `messages/k8s`. Using `ns.name` produced `signal/k8s` for
-      -- messages — a wrong tree for a working app, which the generated file
-      -- showed on its first render. Dhall cannot see its own filename, so the
-      -- leaf is passed in by whoever knows it.
+      -- ⚠ The default keys on the FILE LEAF, not `ns.name`: `apps/messages.dhall`
+      -- declares the namespace `signal` and deploys from `messages/k8s`. Dhall cannot
+      -- see its own filename, so the leaf is passed in.
       λ(leaf : Text) →
       λ(ns : T.Namespace) →
         merge { None = "${leaf}/k8s", Some = λ(t : Text) → t } ns.tree
@@ -194,21 +191,14 @@ let slugOf
     =
       --| The name every object in this tree is named AFTER.
       --
-      -- ⚠ NOT `ns.name`, and the difference is the whole of `T.Owner`. For thirteen of
-      -- fourteen trees the two coincide and this is the identity; for `messages` they
-      -- do not, and `secretNameFor ns.name` would ask a pod in the `signal` namespace
-      -- to read `signal-secret` for its OWN session keys.
+      -- ⚠ NOT `ns.name`, which is the namespace a resource lives IN. For an
+      -- `Elsewhere` tree they differ, and `secretNameFor ns.name` would ask a pod in
+      -- the `signal` namespace to read `signal-secret` for its OWN session keys.
       --
-      -- Every derivation below goes through this, including the database and claim
-      -- names that no `Elsewhere` tree currently uses. That is deliberate: a second
-      -- one, with a database of its own, would otherwise render `signal-db` into a
-      -- namespace that already has a `signal-db`, and the collision would appear as
-      -- one Service selecting two different pods. Closing it now costs nothing —
-      -- `Own` makes every one of these the identity — and it cannot be closed later by
-      -- anyone who has not just read this comment.
-      --
-      -- `ns.name` survives in exactly one role: the namespace a resource lives IN,
-      -- which is `meta`'s second argument.
+      -- EVERY derivation goes through this, including database and claim names no
+      -- `Elsewhere` tree uses yet: a second one with a database would otherwise
+      -- render `signal-db` into a namespace that already has one, and the collision
+      -- appears as one Service selecting two different pods.
       λ(ns : T.Namespace) →
         merge
           { Own = ns.name
@@ -1622,22 +1612,16 @@ let ingressFor
                       , metadata =
                             meta (ingressNameOf ns) ns.name
                           ⫽ { annotations =
-                                --  ⚠ **NO `cert-manager.io/cluster-issuer`, AND NO
-                                --  `tls` BELOW — the certificates moved to the HOST
-                                --  (#1294).** `security.acme` on isis issues every
-                                --  name by DNS-01 and nginx serves them; these
-                                --  Ingresses route nothing, so a Kubernetes
-                                --  certificate for the same name was unused. Worse
-                                --  than unused: 9 of them renewed by HTTP-01, and
-                                --  the challenge path now reaches host nginx, which
-                                --  answers with the APP rather than the token. They
-                                --  failed by construction.
+                                --  ⚠ **NO `cert-manager.io/cluster-issuer` and no
+                                --  `tls` below (#1294).** `security.acme` on the host
+                                --  issues every name by DNS-01; a Kubernetes
+                                --  certificate here would be unused, and would renew
+                                --  by HTTP-01 whose challenge path reaches host nginx
+                                --  and is answered with the APP rather than the token.
                                 --
-                                --  ⚠ `L.nonEmpty`, not `Some`: nine of these have no
-                                --  other annotation, and `Some ([] : Annotations)`
+                                --  ⚠ `L.nonEmpty`, not `Some`: `Some ([] : Annotations)`
                                 --  renders `annotations: {}` where the live tree has
-                                --  the field ABSENT — twelve spurious `--check`
-                                --  failures.
+                                --  the field ABSENT.
                                 L.nonEmpty
                                   { mapKey : Text, mapValue : Text }
                                   ( merge
@@ -1796,23 +1780,16 @@ let netpolDb
                       [ { from =
                           [ { ipBlock = None { cidr : Text, except : Optional (List Text) }
                             , -- ⚠ AN APP WITH BATCH TASKS OPENS THIS TO THE
-                              -- WHOLE NAMESPACE, and the narrower rule is not
-                              -- available: a CronJob's pods carry only the
-                              -- labels the Job controller generates
-                              -- (`job-name`, `controller-uid`), which are
-                              -- per-run and cannot be named in advance. Naming
-                              -- the long-running workload alone would render a
-                              -- policy that reads correct and cuts every cron
-                              -- off from the database — silently, at 04:00,
-                              -- since a batch pod has no probe and no readiness
-                              -- for anything to notice. `--check` caught
-                              -- exactly that on health before it was applied.
+                              -- ⚠ WHOLE NAMESPACE, because the narrower rule is
+                              -- not available: a CronJob's pods carry only the
+                              -- per-run labels the Job controller generates.
+                              -- Naming the long-running workload alone renders a
+                              -- policy that reads correct and cuts every cron off
+                              -- from the database, silently, since a batch pod has
+                              -- no probe for anything to notice.
                               --
-                              -- `podSelector: {}` is a selector with no terms,
-                              -- which matches every pod IN THIS NAMESPACE. It
-                              -- is a real policy — nothing outside the app's own
-                              -- namespace reaches the database — just not a
-                              -- per-pod one.
+                              -- `podSelector: {}` matches every pod IN THIS
+                              -- NAMESPACE — a real policy, just not a per-pod one.
                               podSelector = Some
                               { matchLabels =
                                   merge

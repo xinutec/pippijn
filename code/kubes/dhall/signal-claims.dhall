@@ -97,23 +97,14 @@ let telegramMedia
       -- Telegram feed writes it and the `messages` viewer mounts it read-only. Hence
       -- `Concurrent`, and hence its living here rather than beside one workload.
       --
-      -- ⚠ **Its OWN claim rather than a prefix inside `signal-attachments-pvc`, and
-      -- the reason is writers rather than tidiness.** Sharing would give one volume
-      -- two writing workloads — the Signal ingester and this feed — so a fault in
-      -- either becomes the other's, and `Writers.Concurrent`'s `why` would have to
-      -- claim something about both. Two claims cost one more PVC and keep each
-      -- volume answerable to one writer.
+      -- ⚠ Its OWN claim rather than a prefix inside `signal-attachments-pvc`: sharing
+      -- would give one volume two WRITING workloads, so a fault in either becomes the
+      -- other's and `Writers.Concurrent`'s `why` would have to cover both.
       --
-      -- 20 Gi, chosen from measurement rather than symmetry with its neighbour: the
-      -- archive records every file's size from the message itself before fetching
-      -- anything, and at the time of building that was 0.9 GiB of photos against
-      -- 3.8 GiB of video. Only files under a few MiB are fetched without being
-      -- asked, so the eager half is the small half; the ceiling is for the asked-for
-      -- ones accumulating.
+      -- Sized for asked-for files accumulating; only small ones are fetched eagerly.
       --
-      -- `LossAccepted` for `attachments`' reason exactly: every byte is re-fetchable
-      -- from Telegram for as long as the message exists, and the messages are what
-      -- the database backup holds.
+      -- `LossAccepted` as for `attachments`: every byte is re-fetchable from Telegram
+      -- while the message exists, and the messages are in the database backup.
       T.Claim::{ name = "signal-telegram-media-pvc"
       , storageGi = 20
       , durability =
