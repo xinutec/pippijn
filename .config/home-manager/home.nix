@@ -79,21 +79,13 @@ in {
   programs.ssh = {
     enable = true;
 
-    # ⚠ NO GLOBAL `IdentityFile`. It used to name `~/.ssh/id_ed25519` and
-    # `~/.ssh/id_rsa` — the RETIRED `pippijn@xinutec.org` pair, deleted from this
-    # repo 2026-08-29 (health #1250) because a keypair whose private half was
-    # published does not belong in a public checkout.
+    # ⚠ NO GLOBAL `IdentityFile`, and adding one is narrower than it looks: an
+    # explicit `IdentityFile` REPLACES OpenSSH's built-in list rather than adding
+    # to it ([[reference_identityfile_replaces_the_default_list]]). Naming nothing
+    # keeps that list, which already contains `~/.ssh/id_ed25519`.
     #
-    # Nothing replaces the lines, deliberately: naming NO identity restores
-    # OpenSSH's built-in list, which already contains `~/.ssh/id_ed25519`. An
-    # explicit `IdentityFile` REPLACES that list rather than adding to it
-    # ([[reference_identityfile_replaces_the_default_list]]), so the old lines
-    # were narrowing the search to two keys and one of them no longer exists.
-    #
-    # Checked before removing, on the Mac: the live key is
-    # `SHA256:W+Hnhg9k…` (`pippijn@Mac.communityfibre.co.uk`), which is NOT the
-    # pair this repo tracked (`SHA256:zO4GK9lb…`). `ssh -v root@isis` offers and
-    # authenticates with the live one.
+    # This repo is PUBLIC, so it must not track a keypair at all — see health
+    # #1250.
 
     matchBlocks = {
       "*" = {
