@@ -122,12 +122,10 @@ let decodeResources
 let decodeFlags
     : List T.EnvVar
     =
-      -- C4 continuity flags (task #224). The auth pod does not READ them — it is the
-      -- decode that does — but `scripts/prod-db.sh` mirrors the pod env via printenv
-      -- so a Mac replay decodes the same day the cron wrote. A missing mirror is the
-      -- exact feedback_parity_tools_must_mirror_env failure, so these are carried
-      -- here deliberately. Rationale and the open defect (#366) are documented at the
-      -- cron: kubes/health/k8s/08-decode-recent.yaml.
+      -- C4 continuity flags (#224). ⚠ The auth pod does not READ them — the decode
+      -- does — but `scripts/prod-db.sh` mirrors the pod env via printenv, so a Mac
+      -- replay decodes the same day the cron wrote. Rationale and the open defect
+      -- (#366) are at the cron: kubes/health/k8s/08-decode-recent.yaml.
       [ { name = "USE_CADENCE_IMPUTATION", value = lit "1" }
       , { name = "USE_SEGMENT_EVIDENCE", value = lit "1" }
       , { name = "USE_CHAIN_CONTEXT", value = lit "1" }

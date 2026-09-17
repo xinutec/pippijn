@@ -629,27 +629,17 @@ let redirect
     =
       --| Redirect-only hosts, rendered to their OWN file.
       --
-      -- ⚠ **NO `$request_uri`, and that is the whole point.**
-      -- `nginx.ingress.kubernetes.io/permanent-redirect` is validated as a URL by
-      -- the ingress admission webhook, and `$request_uri` is not one. amun runs
-      -- ingress-nginx v1.9.4, which does not check; isis runs v1.15.1, which
-      -- REFUSES:
+      -- ⚠ NO `$request_uri`. `nginx.ingress.kubernetes.io/permanent-redirect` is
+      -- validated as a URL by the admission webhook, and the newer ingress-nginx
+      -- REFUSES one containing it — so carrying it pins the manifest to the cluster
+      -- running the older version (#692).
       --
-      --     admission webhook "validate.nginx.ingress.kubernetes.io" denied the
-      --     request: annotation nginx.ingress.kubernetes.io/permanent-redirect
-      --     contains invalid value
+      -- The cost is that `xinutec.org/<path>` lands on the site ROOT. Nothing in the
+      -- fleet links that way; every "xinutec.org/" reference is a SUBDOMAIN, which
+      -- this redirect never sees.
       --
-      -- So carrying it means a manifest that works exactly where it already is and
-      -- cannot move — and moving amun's workloads to isis is a plan, not a
-      -- hypothetical (#692).
-      --
-      -- The cost is that `xinutec.org/<path>` lands on the site ROOT rather than
-      -- the same path. Nothing in the fleet links that way: every "xinutec.org/"
-      -- reference is a SUBDOMAIN (`nextcloud.xinutec.org/…`), which this redirect
-      -- never sees.
-      --
-      -- These still render to their OWN file, so one un-appliable document cannot
-      -- block the site it sits beside.
+      -- Their OWN file, so one un-appliable document cannot block the site beside
+      -- it.
       λ(site : Site) →
         let backend =
               λ(host : Text) →

@@ -186,23 +186,19 @@ let PodSpec =
 let Labels =
       --| The pod a Job runs, plus the two bounds on running it.
       --
-      -- `activeDeadlineSeconds` is required here where the API makes it optional. An
-      -- unset deadline means a wedged run continues forever, and nothing watches a
-      -- batch pod — there is no Service and no probe — so the failure is a job that is
-      -- still "running" days later with `concurrencyPolicy: Forbid` suppressing every
-      -- scheduled successor. That is silent, and it is why the field is not Optional.
+      -- ⚠ `activeDeadlineSeconds` is required where the API makes it optional: unset
+      -- means a wedged run continues forever, and nothing watches a batch pod, so the
+      -- failure is a job still "running" days later with `concurrencyPolicy: Forbid`
+      -- suppressing every successor.
       --| The labels that tie a pod template, its Service and its policies together.
       --
-      -- A free-form map rather than a fixed `{ app : Text }` record, because the fleet
-      -- has two conventions and neither can be changed: the apps select on `app`, and
-      -- the static sites under `web/` select on `run`. **A Deployment's
-      -- `spec.selector` is immutable** — the API rejects an edit — so rewriting the
-      -- sites to `app` would mean deleting and recreating four live Deployments.
+      -- A free-form map rather than `{ app : Text }`, because the fleet has two
+      -- conventions and ⚠ `spec.selector` is IMMUTABLE — unifying them would mean
+      -- deleting and recreating live Deployments.
       --
-      -- What stops a Service selector disagreeing with its pod template is NOT the
-      -- record shape: it is that one expression (`render.dhall`'s `appLabels`,
-      -- `site.dhall`'s `runLabels`) produces the value everywhere it is needed. The
-      -- shape only ever documented the convention; the derivation is the guarantee.
+      -- What stops a Service selector disagreeing with its pod template is not the
+      -- record shape but that ONE expression produces the value everywhere it is
+      -- needed (`render.dhall`'s `appLabels`, `site.dhall`'s `runLabels`).
       List { mapKey : Text, mapValue : Text }
 
 let JobSpec =
@@ -356,27 +352,18 @@ let NetworkPolicy =
       --| `podSelector` is `Optional` so an empty selector — the whole namespace, which
       --  is what a default-deny selects — can be expressed at all.
       --
-      -- ⚠ `matchLabels: {}` does NOT select nothing. A Kubernetes `LabelSelector`
-      -- with no terms matches EVERYTHING, so `podSelector: {}` and
-      -- `podSelector: {matchLabels: {}}` are the same selector. The real problem is
-      -- about rendering rather than meaning — under `--omit-empty` an empty
-      -- `matchLabels` collapses the
-      -- whole `podSelector` key away, and `spec.podSelector` is a required field
-      -- whose absence works only because Go unmarshals it to its zero value. A
-      -- manifest that relies on that reads as "no selector stated" where the intent
-      -- is "every pod in the namespace".
+      -- ⚠ `matchLabels: {}` does NOT select nothing — a `LabelSelector` with no terms
+      -- matches EVERYTHING. The problem is rendering: under `--omit-empty` an empty
+      -- `matchLabels` collapses the whole `podSelector` key away, and a manifest
+      -- relying on Go's zero value reads as "no selector stated".
       --
-      -- `egress` is a list of rules, and an EMPTY list is meaningful: with `Egress` in
-      -- `policyTypes` it denies all egress. So the NetworkPolicy documents are the one
-      -- thing here rendered WITHOUT `--omit-empty` (see generate.sh's `render`), which
-      -- keeps both `podSelector: {}` and `egress: []` on the page.
+      -- An EMPTY `egress` list is meaningful — with `Egress` in `policyTypes` it
+      -- denies all egress — so NetworkPolicy documents render WITHOUT `--omit-empty`.
       --
-      -- That flips the burden onto the OTHER direction: with the flag off, a rule list
-      -- that is empty because the policy does not govern that direction at all would
-      -- render as a bare `ingress: []` — a term the live manifests do not carry and
-      -- which reads as "an ingress section, deliberately empty". Hence `Optional`:
-      -- `None` means "this policy says nothing about that direction" and disappears,
-      -- `Some ([] : ...)` means "this direction is denied outright" and stays.
+      -- ⚠ Hence `Optional` for each direction: `None` says this policy is silent
+      -- about it and disappears, `Some ([] : ...)` says it is denied outright and
+      -- stays. Without that, a bare `ingress: []` would appear and read as a
+      -- deliberately empty ingress section.
       { apiVersion : Text
       , kind : Text
       , metadata : Meta
