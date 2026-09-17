@@ -306,21 +306,16 @@ in  { name = "signal"
         , tasks =
           [ { name = irclogImport
             , -- ⚠ EVERY FIFTEEN MINUTES, AND THIS IS NOT A LATENCY NUMBER.
-              -- `ircTail` below is the live tier and writes each line in under a
-              -- second on the same dedupe key; this task is its RECONCILER, so
-              -- what the cadence sets is how fast a line the tail DROPPED is
-              -- recovered, not how fresh the archive is.
+              -- `ircTail` below is the live tier; this task is its RECONCILER, so
+              -- the cadence sets how fast a line the tail DROPPED is recovered, not
+              -- how fresh the archive is.
               --
-              -- ⚠ NOT EVERY MINUTE: this is IO-heavy and it overlaps the health
-              -- dump, where it was measured doing most of the D-state blocking.
-              -- At `*/15` its share of that window is a few percent.
+              -- ⚠ NOT every minute: it is IO-heavy and overlaps the health dump,
+              -- where it was measured doing most of the D-state blocking.
               --
-              -- The cadence is free to choose only because `irc_import_state` makes
-              -- a run cost what ARRIVED; without it every run re-reads every staged
-              -- file.
-              --
-              -- Overlap is safe by construction: `concurrencyPolicy` is `Forbid` for
-              -- every task in this model.
+              -- Choosable at all only because `irc_import_state` makes a run cost
+              -- what ARRIVED. Overlap is safe by construction — `concurrencyPolicy`
+              -- is `Forbid` for every task in this model.
               schedule = "*/15 * * * *"
             , -- ⚠ TWO STEPS, so a shell. The logs are on the OTHER CLUSTER —
               -- irssi runs in `vps-pippijn` on amun — so they are pulled over
@@ -539,19 +534,16 @@ in  { name = "signal"
           reach = T.Reach.NoService
         , image = T.Image.Fleet "signal-archiver"
         , -- ⚠ **BOTH FEEDS IN ONE PROCESS, which is why there is one workload and
-          -- not two.** Telegram keeps history server-side, so the same authorised
-          -- session pages backwards through a decade AND holds the live update
-          -- stream — and they MUST share it: two pods would be two sessions, each
-          -- acknowledging update state the other needs, which is how an archive
-          -- develops a gap that nothing reports. The binary runs them as
-          -- concurrent tasks for the reason irc-tail exists beside its importer: a
-          -- message arriving now must not wait on 2019.
+          -- not two.** History and the live stream MUST share one authorised
+          -- session: two pods are two sessions, each acknowledging update state the
+          -- other needs, which is how an archive develops a gap nothing reports.
+          -- The binary runs them as concurrent tasks so a message arriving now does
+          -- not wait on a decade of backfill.
           --
-          -- ⚠ THE FIRST RUN NEEDS A HUMAN, once per account lifetime. Telegram
-          -- sends a code to the phone, so `telegram login` is interactive, and this
-          -- pod refuses to start until a session exists rather than retrying
-          -- forever — a feed that is quietly not logged in looks exactly like a
-          -- quiet week. See the `signal` repo's README for the one-off command.
+          -- ⚠ THE FIRST RUN NEEDS A HUMAN, once per account lifetime: `telegram
+          -- login` is interactive. The pod REFUSES to start until a session exists
+          -- rather than retrying, because a feed quietly not logged in looks exactly
+          -- like a quiet week.
           command = Some [ "/usr/local/bin/telegram" ]
         , -- Not reachable; required by `T.Workload`. 443 is the port MTProto
           -- actually leaves on, so it is the honest value to carry.
@@ -777,14 +769,12 @@ in  { name = "signal"
                 -- a volume, so `messages` itself keeps having no route to the
                 -- internet at all. See `messages-link-fetch` in `apps/messages.dhall`.
                 --
-                -- ⚠ **`except` IS THE SECURITY CONTROL, not a tidy-up.** The fetcher
-                -- follows links that strangers wrote into a chat years ago, so the
-                -- one thing it must never be talked into is reaching back inside:
-                -- the private ranges and the VPN are carved out HERE, at the network,
-                -- where an app-level check cannot be argued past by a redirect, a
-                -- DNS answer that resolves inward, or a page naming an internal
-                -- address. The app also refuses an off-origin picture; this is the
-                -- half that does not depend on the app being right.
+                -- ⚠ **`except` IS THE SECURITY CONTROL.** This follows links
+                -- strangers wrote, so the one thing it must never be talked into is
+                -- reaching back INSIDE. Carving the private ranges and the VPN out
+                -- at the network cannot be argued past by a redirect, a DNS answer
+                -- resolving inward, or a page naming an internal address — unlike
+                -- the app-level check, which also exists.
                 name = "messages-link-fetch-egress"
             , target = T.NetpolTarget.OneWorkload "messages-link-fetch"
             , egress =
@@ -812,19 +802,14 @@ in  { name = "signal"
             }
           , { -- The Telegram feed reaches Telegram, and nothing inside.
               --
-              -- ⚠ **THE SAME FIVE CARVE-OUTS, and the reason sits between the two
-              -- above.** The bridge talks to a server it chose; the link fetcher
-              -- follows links strangers wrote. This one talks to a server it chose
-              -- — Telegram's datacentres — but everything it then parses is
-              -- content those strangers control, over a protocol this fleet speaks
-              -- through a crate whose author says it has not been audited
-              -- (`grammers`). So the reach is carved at the network, where being
-              -- wrong about a parser costs nothing inward.
+              -- ⚠ THE SAME FIVE CARVE-OUTS. It dials a server it chose, but parses
+              -- content strangers control, through a crate whose author says it is
+              -- unaudited (`grammers`) — so the reach is carved at the NETWORK,
+              -- where being wrong about a parser costs nothing inward.
               --
-              -- ⚠ It needs 3306 to `signal-db` as well, and does NOT get it here:
-              -- that is `signal-db-from-app-only`, which admits the whole
-              -- namespace. A second policy naming this workload for the database
-              -- would be a second statement of one fact.
+              -- ⚠ Its 3306 to `signal-db` comes from `signal-db-from-app-only`,
+              -- which admits the whole namespace. Naming this workload again here
+              -- would state one fact twice.
               name = "${telegram}-egress-internet"
             , target = T.NetpolTarget.OneWorkload telegram
             , egress =

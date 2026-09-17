@@ -127,16 +127,12 @@ let ProbeTiming =
           --| ⚠ OPTIONAL, because "no liveness probe" is a real and often correct
           --  state and the model must be able to SAY it rather than impose one.
           --
-          -- `ircd` is the case that forced it: the live Deployment has readiness
-          -- and no liveness, and requiring one would have added a probe to a
-          -- running IRC server — a cluster change to satisfy a type, which is
-          -- backwards, and a risky one. A liveness probe that kills a container
-          -- merely slow to start turns a slow boot into a crash loop, which is
-          -- strictly worse than having none; `vps-pippijn` measured that at 16s
-          -- then 31s to Ready against a kubelet that kills at ~25s.
+          -- ⚠ A liveness probe that kills a container merely SLOW TO START turns a
+          -- slow boot into a crash loop, which is worse than having none — and
+          -- start times vary by a factor of two between consecutive starts.
           --
-          -- ⚠ Absent is NOT the same as `standardTiming`'s. This says the
-          -- container has no liveness probe at all; that says it has the fleet's.
+          -- ⚠ Absent is NOT `standardTiming`'s: this says no liveness probe at all,
+          -- that says the fleet's.
           Optional { initialDelaySeconds : Natural, periodSeconds : Natural }
       }
 
@@ -280,8 +276,8 @@ let VolumeSource =
       -- Exactly ONE source per volume, which the API cannot say: its shape is four
       -- optional keys, and a record with two set is writable and then rejected.
       --
-      -- `Secret` mounts material a program insists on reading from a path with a mode
-      -- it approves of — ssh refuses a key any other user can read, and the API
+      -- `Secret` is for material a program insists on reading from a PATH with a
+      -- mode it approves of — ssh refuses a key any other user can read, and the API
       -- defaults to 0644.
       --
       -- ⚠ `mode` is the API's DECIMAL. Use [`fileMode`](#fileMode) rather than 384.
@@ -589,9 +585,9 @@ let Database =
       --| A MariaDB sidecar database. The engine version lives in `render.dhall`, so
       --  a fleet-wide major bump is one edit instead of six identical ones.
       --
-      -- `keys` names the three secret entries the engine needs. They are supplied by
-      -- the app (from its declared secret record) rather than hardcoded here, so the
-      -- keys MariaDB reads and the keys `secret.sh` writes are the same expressions.
+      -- `keys` comes from the app's declared secret record rather than being
+      -- hardcoded, so what MariaDB reads and what `secret.sh` writes are one
+      -- expression.
       { dbName : Text
       , storageGi : Natural
       , -- InnoDB's buffer pool, in GiB. `None` leaves the engine default, which
@@ -670,14 +666,10 @@ let soleCluster
       -- lambda-bound and the length never normalises to a literal — `assert` is a
       -- typecheck-time equality on normal forms, not a runtime precondition.
       --
-      -- So this takes the head and the obligation moves to dev-lint over the rendered
-      -- tree: a `hostIP` must be the tunnel address of the cluster its manifests
-      -- deploy to. Same division
-      -- `Resources`/`image_profile` already draws, where the type states the shape and
-      -- the linter judges what belongs in it.
-      --
-      -- Nothing hits this today: the only multi-cluster subject is `web`, which has no
-      -- workloads at all. The lint is owed before a SECOND one appears.
+      -- So this takes the head, and the obligation moves to dev-lint over the
+      -- rendered tree: a `hostIP` must be the tunnel address of the cluster its
+      -- manifests deploy to. ⚠ That lint is OWED — today's only multi-cluster
+      -- subject has no workloads, so nothing hits this until a second one appears.
       λ(p : Placement) → p.first
 
 let SecretKey =
@@ -705,11 +697,10 @@ let NetpolPeer =
       --     hold"; two separate peers mean "either", which silently widens a policy.
       --   * `Internet` — an ipBlock of everything except the ranges listed.
       --
-      -- ⚠ Whether an `ipBlock` can name the node's own address DEPENDS ON THE PORT,
-      -- so re-measure rather than reuse a verdict (#781). A `hostPort` is DNAT'd by
-      -- CNI before kube-router's filter rules see it and no ipBlock matches; a port
-      -- served by a HOST process has no such rule and one does.
-      -- `iptables-save -t nat | grep CNI-HOSTPORT` answers it for a given port.
+      -- ⚠ Whether an `ipBlock` can name the node's own address DEPENDS ON THE PORT
+      -- (#781): a `hostPort` is DNAT'd by CNI before kube-router's filter rules see
+      -- it and no ipBlock matches, where a HOST process has no such rule and one
+      -- does. `iptables-save -t nat | grep CNI-HOSTPORT` answers it per port.
       < Namespace : Text
       | Workload : Text
       | --| Any pod in THIS namespace — `podSelector: {}`, a selector with no
@@ -841,14 +832,13 @@ let Unowned =
 let Labels =
       --| Labels on the Namespace OBJECT ITSELF — not the pod labels a workload derives.
       --
-      -- ⚠ **Empty for 13 of the 14 trees, and that is the point.** Only `web` carries
-      -- one (`name: web`, redundant with `metadata.name` and selected by NOTHING —
-      -- checked in-repo and against the live netpols on isis). It is modelled rather
-      -- than stripped because the model's job is to state what the fleet IS; removing
-      -- a live label so a type fits is the move this model refuses everywhere else.
+      -- ⚠ Empty for almost every tree. The one that carries a label is selected by
+      -- NOTHING, and it is modelled rather than stripped because the model states
+      -- what the fleet IS — removing a live label so a type fits is the move this
+      -- model refuses everywhere else.
       --
-      -- A List, not an Optional: empty IS the answer for almost every tree, and
-      -- `clusterMeta` maps empty to an ABSENT key, so no manifest gains `labels: {}`.
+      -- A List, not an Optional: `clusterMeta` maps empty to an ABSENT key, so no
+      -- manifest gains `labels: {}`.
       List { mapKey : Text, mapValue : Text }
 
 
@@ -856,9 +846,8 @@ let AcmeDelegation =
       --| A certificate this namespace needs, whose ACME challenge is answered by a
       --  machine that is NOT in this cluster.
       --
-      -- `ircd` is the only one, and reading its manifests is what named the concept:
-      -- `net.xinutec.irc.yaml` looks like two objects and is one idea. The Ingress
-      -- routes NOTHING to the workload — IRC is on hostPorts — so it exists purely to
+      -- `ircd` is the only one. Its Ingress routes NOTHING to the workload — IRC is
+      -- on hostPorts — so it exists purely to
       -- (a) hold the certificate for its host and (b) hand one path to somebody else.
       --
       -- ⚠ ONE FIELD RENDERS BOTH OBJECTS, and that is the point rather than tidiness.
@@ -961,18 +950,12 @@ let namespaceOf
       --| The embedding ι : App → Namespace. An app IS a namespace holding one
       --  workload, and this is the only expression that says so.
       --
-      -- Every renderer that had to generalise takes a `Namespace`; the `App`-shaped
-      -- entry points the generator calls are one-line wrappers around this. So the 14
-      -- app models are unchanged and unchangeable by the refactor, and
-      -- `generate.sh --check` decides exactly the obligation that matters:
+      -- Every renderer takes a `Namespace`; the `App`-shaped entry points are
+      -- one-line wrappers around this, so `generate.sh --check` decides
+      -- `render(namespaceOf a) ≡ render(a)` at every model that exists.
       --
-      --     ∀ a ∈ the 14 models . render_new(namespaceOf a) ≡ render_old(a)
-      --
-      -- ⚠ 14 points is not ∀. Dhall's normalisation is decidable but function
-      -- extensionality is not available, and `App` has infinitely many inhabitants
-      -- (Text, Natural, List), so this is the theorem checked at every point that
-      -- exists rather than proved for all of them. That is the ceiling here, and it is
-      -- worth stating rather than implying more.
+      -- ⚠ That is checked pointwise, not PROVED: `App` has infinitely many
+      -- inhabitants and Dhall offers no function extensionality.
       λ(a : App) →
         let dataVolumeName = "app-data"
 
