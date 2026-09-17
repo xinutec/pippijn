@@ -243,17 +243,14 @@ in  T.namespaceOf
             { readiness = { initialDelaySeconds = 3, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 15, periodSeconds = 20 }
             }
-        , -- ⚠ A LIVENESS PROBE IS NEW — the live Deployment has readiness only.
-          -- Safe on this app specifically, and worth stating why rather than
-          -- leaving it to be re-derived: a `tcpSocket` check is answered by the
-          -- kernel's accept queue, not by node's event loop, so the velocity
-          -- pipeline's long CPU bursts (~6 CPU-seconds for a busy day, and a
-          -- measured 40 s wall-clock when it was CFS-throttled) cannot fail it.
-          -- What it catches is a process that is alive but no longer listening,
-          -- and it needs three consecutive failures at 20 s to act.
+        , -- ⚠ A LIVENESS PROBE IS NEW — the live Deployment has readiness only, and
+          -- it is safe HERE because a `tcpSocket` check is answered by the kernel's
+          -- accept queue rather than the event loop, so the velocity pipeline's long
+          -- CPU bursts cannot fail it. What it catches is a process alive but no
+          -- longer listening.
           --
-          -- `Tcp`, not `Http`: there is no health endpoint, and probing `/`
-          -- would run the session middleware on every tick.
+          -- `Tcp`, not `Http`: there is no health endpoint, and probing `/` would
+          -- run the session middleware on every tick.
           probe = T.Probe.Tcp { port }
         , resources =  Some
           { requests =
@@ -298,13 +295,11 @@ in  T.namespaceOf
             -- The recurring jobs. `dbEnv` is every task's floor — all of them
             -- read and write the same database — and the extras are per task.
             --
-            -- ⚠ The two one-shot Jobs in the live tree (`health-decode-backfill-v7`,
-            -- `health-decode-redecode-20260731`) are NOT here and should not be. A
-            -- Job's spec is immutable, so re-rendering one with today's flags makes
-            -- `apply` fail rather than update; their names encode a run rather than
-            -- a service; and `backfill-v7`'s env is a record of how that run
-            -- decoded and NOT a policy anything should reproduce. They are spent, and
-            -- retiring them is a decision about the cluster, not about the model.
+            -- ⚠ The live tree's two one-shot Jobs are NOT here and must not be: a
+            -- Job's spec is IMMUTABLE, so re-rendering one with today's flags makes
+            -- `apply` fail rather than update, and its env records how one run
+            -- decoded rather than a policy to reproduce. Retiring them is a decision
+            -- about the cluster, not the model.
             [ { -- Every 15 min so Fitbit data (esp. sleep, which Fitbit only
                 -- finalizes after you wake) appears within ~15 min instead of up to
                 -- an hour. Each run re-queries a 2-day overlap (SYNC_OVERLAP_DAYS);
@@ -403,14 +398,11 @@ in  T.namespaceOf
                 -- stations and the pooled fix cloud. The node arm builds the
                 -- graph itself and asks Lean only for `dijkstraC`.
                 --
-                -- ⚠ It REFUSES to report success when every scanned day failed
-                -- to compute. Its own first run pooled 0 routes and exited 0 —
-                -- #1134's shape — which is how the missing /tmp emptyDir was
-                -- found (#1106 had reached only the Deployment).
+                -- ⚠ It REFUSES to report success when every scanned day failed to
+                -- compute — otherwise it pools 0 routes and exits 0 (#1134).
                 command = [ "bin/backend", "refresh-rail-routes" ]
-              , -- 90 min. This is where the verified rail search runs in BULK — the
-                -- decode's railSnap pass is only an indexed lookup into what this
-                -- job filled.
+              , -- 90 min: the verified rail search runs in BULK here, and the
+                -- decode's railSnap pass is only a lookup into what this fills.
                 deadlineSeconds = 5400
               , suspended = False
               , rootFs = T.RootFs.ReadOnly

@@ -590,20 +590,13 @@ let Database =
       -- expression.
       { dbName : Text
       , storageGi : Natural
-      , -- InnoDB's buffer pool, in GiB. `None` leaves the engine default, which
-        -- is 128 MiB — fine for the five small databases and catastrophic for
-        -- the one that is not.
+      , -- InnoDB's buffer pool, in GiB. `None` leaves the engine's 128 MiB default —
+        -- fine for a small database, catastrophic for a large one, and losing it
+        -- silently cuts the pool by an order of magnitude.
         --
-        -- ⚠ A FIELD RATHER THAN A FREE `args` LIST, because it is the one server
-        -- flag the fleet sets and the one that must not drift from
-        -- `resources.requests.memory`: the pool is resident, so a request that
-        -- does not cover it is a pod the scheduler places on a node that cannot
-        -- hold it. health-db is `Some 2` against a 2304Mi request — 2 GiB of
-        -- pool plus mariadbd overhead.
-        --
-        -- It exists because `--check` caught its absence: rendering health-db
-        -- without it silently cut a 4 GB database's pool by 16x, which is not a
-        -- failure any manifest review would have seen.
+        -- ⚠ A FIELD rather than a free `args` list, because it must not drift from
+        -- `resources.requests.memory`: the pool is RESIDENT, so a request that does
+        -- not cover it places the pod on a node that cannot hold it.
         innodbBufferPoolGi : Optional Natural
       , resources : Resources
       , keys : { user : Text, password : Text, rootPassword : Text }
@@ -689,8 +682,7 @@ let NetpolPeer =
       --| One thing a rule may allow traffic TO.
       --
       --   * `Namespace` — every pod in another namespace, by the automatic
-      --     `kubernetes.io/metadata.name` label, which Kubernetes sets and chart
-      --     labels cannot drift from.
+      --     `kubernetes.io/metadata.name` label.
       --   * `Workload` — one workload in THIS namespace, by its `app` label.
       --   * `NamespacedWorkload` — pods in another namespace matching labels.
       --     ⚠ `namespaceSelector` and `podSelector` in ONE peer mean "both must
