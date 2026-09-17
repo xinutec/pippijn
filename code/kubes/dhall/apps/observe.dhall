@@ -4,16 +4,14 @@ let T =
       -- and any browser on the VPN. The Mac cannot be reached from the phone (one-way
       -- VPN peer), so this mirror is how a scan becomes visible away from the Mac.
       --
-      -- THE FIRST APP IN THE MODEL WITH NO APPLICATION BACKEND AT ALL, and that is
-      -- what it adds to the vocabulary. There is no image of ours, no port an app
-      -- listens on, no database — nginx serving two directories IS the deployment.
-      -- So its configuration cannot live in the environment the way every other app's
-      -- does: it is an nginx vhost, a file, and `T.ConfigMapDoc` exists for it.
+      -- NO application backend: no image of ours, no port an app listens on, no
+      -- database — nginx serving two directories IS the deployment. Its configuration
+      -- is therefore a vhost file rather than environment, which is what
+      -- `T.ConfigMapDoc` is for.
       --
-      -- It is also the first to mount a directory from the NODE. That is a real
-      -- exception and it is rendered as one: `DL-K8S-HOST-PATH` fires on it and the
+      -- ⚠ It mounts a directory from the NODE. `DL-K8S-HOST-PATH` fires and the
       -- generator emits the waiver from `why` below, so the reason travels with the
-      -- manifest instead of being lost between the model and the tree.
+      -- manifest.
       ../lib/types.dhall
 
 let contentPath = "/srv/observe"

@@ -37,17 +37,14 @@ let linkImages
     =
       --| Pictures fetched for links people posted — see `link_image.rs` in the app.
       --
-      -- ⚠ **THE FIRST CLAIM THIS TREE CREATES**, and it may because only this tree's
-      -- own workloads touch it: the scheduled fetcher writes it, the reader mounts it
-      -- read-only. `signal-claims.dhall` exists for the other case, where two TREES
-      -- must agree about one volume.
+      -- This tree may create it because only this tree's workloads touch it: the
+      -- scheduled fetcher writes, the reader mounts read-only. `signal-claims.dhall`
+      -- is for the other case, where two TREES must agree about one volume.
       --
-      -- A cache, deliberately. Losing it costs the pictures whose shares have since
-      -- gone — a link from 2014 cannot be re-fetched — and that is accepted rather
-      -- than overlooked: the conversation still holds the link, which is what was
-      -- actually said, and backing it up would mean keeping copies of other people's
-      -- files against the day their own server forgets them. Nothing lands here
-      -- unasked, so it grows with what somebody chose to look at.
+      -- A cache. Losing it costs the pictures whose shares have since gone, which is
+      -- accepted: the conversation still holds the link, and backing this up would
+      -- mean keeping copies of other people's files against the day their own server
+      -- forgets them.
       T.Claim::{ name = "messages-link-images-pvc"
       , storageGi = 2
       , durability =
@@ -204,10 +201,8 @@ in  { name = "signal"
           -- blip into a crashloop. This is the front door's question instead —
           -- can the archive be READ — and it may be expensive and honest.
           --
-          -- `/` would not do: this app serves its Angular bundle from the same
-          -- process, so `/` answers 200 while the database is unreachable. A
-          -- dead pod is what a root probe does see; an app that is up and blind
-          -- is the one it does not.
+          -- ⚠ `/` would not do: the Angular bundle is served by the same process,
+          -- so `/` answers 200 while the database is unreachable.
           serviceCheck = Some "/healthz/deep"
         , resources =  Some
           { requests = { cpu = "25m", memory = "64Mi" }
@@ -292,11 +287,10 @@ in  { name = "signal"
           --   * `Internal`, so nothing outside the cluster can reach it, and the
           --     only caller is the pod that asks it for one URL at a time.
           --
-          -- What it can still do if compromised is lie about the bytes of a
-          -- picture somebody asked for — which the remote server could have done
-          -- anyway — and reach the namespace's own 3306/8080, which it has no
-          -- credential for. Closing that last one needs a policy that says "every
-          -- pod EXCEPT this", which `NetpolTarget` cannot express today.
+          -- Compromised, it can lie about a picture's bytes — which the remote
+          -- server could anyway — and reach the namespace's 3306/8080 without a
+          -- credential for either. ⚠ Closing that needs "every pod EXCEPT this",
+          -- which `NetpolTarget` cannot express.
           reach = T.Reach.Internal
         , image = T.Image.Fleet "messages"
         , -- Same image, second binary. One build, and the fetcher cannot drift
