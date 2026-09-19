@@ -502,6 +502,47 @@ in  T.namespaceOf
                 env = dbEnv
               , resources = batchResources
               }
+            , { -- Fetch the reverse geocodes the SERVING path could not answer
+                -- (health #1076).
+                --
+                -- The fold declines a lookup it has no data for and records the
+                -- miss in `osm_fetch_queue`; this drains it. Fetching inline would
+                -- put a Nominatim round trip on the serving path, which is where
+                -- the fold's latency already hurts (#1071) — the split is the
+                -- whole design, so a day is blank once and right afterwards.
+                --
+                -- ⚠ THIS CHANGES WHAT SERVED DAYS ARE NAMED, so it is not a silent
+                -- tidy-up. It was Pippijn's decision to schedule it, and the run
+                -- prints what it fetched: a cron whose effect is invisible in its
+                -- own log would be the wrong shape for work like this.
+                name = "health-geocode-fetch"
+              , -- Daily, 07:00 — after `health-decode-recent` and the rail-stops
+                -- refresh at 06:00, before `health-freshness` at 09:00.
+                --
+                -- ⚠ NOT more often. The queue fills when a day is SERVED, which is
+                -- when he opens one, and Nominatim allows ONE REQUEST PER SECOND —
+                -- so the useful cadence is set by how fast the queue fills, not by
+                -- how fast it could be drained.
+                schedule = "0 7 * * *"
+              , -- ⚠ THE LIMIT IS EXPLICIT even though 200 is the default, because
+                -- it is the bound that keeps one run polite: 200 keys per zoom at
+                -- one request per second is a few minutes of traffic. A backlog
+                -- larger than that drains over several nights, which is correct —
+                -- there is nothing urgent about a name on a day already served.
+                command = [ "bin/backend", "fetch-geocodes", "--limit", "200" ]
+              , -- Generous against the rate limit rather than against work: the
+                -- worst case is ~400 s of deliberate sleeping.
+                deadlineSeconds = 1800
+              , suspended = False
+              , rootFs = T.RootFs.ReadOnly
+              , volumes = tmpVolume
+              , mounts = tmpMount
+              , -- ⚠ `dbEnv` ONLY. Nominatim needs no credential — it is identified
+                -- by User-Agent — so this job holds nothing that could write to a
+                -- health stream.
+                env = dbEnv
+              , resources = batchResources
+              }
             ]
         }
       , secrets = toMap keys
