@@ -543,57 +543,6 @@ in  T.namespaceOf
                 env = dbEnv
               , resources = batchResources
               }
-            , { -- Fill the base OSM mirror where the SERVING path found no
-                -- coverage (health #1658).
-                --
-                -- The same queue and the same split as `health-geocode-fetch`
-                -- above, for the other half of what a fold cannot answer. Until
-                -- this existed NOTHING in the tree wrote `osm_lines`,
-                -- `osm_points` or `osm_coverage`: the base mirror was a dead
-                -- snapshot of whatever the TypeScript left (health #975), so
-                -- every place he went that it had never fetched stayed blank
-                -- permanently and degraded further as OSM changed underneath it.
-                --
-                -- ⚠ THIS CHANGES WHAT SERVED DAYS SHOW, more than the geocode
-                -- drain does: it decides whether a walk is drawn at all and
-                -- whether a train leg gets its station pair. Same standard as
-                -- above — the run prints every box it fetched.
-                name = "health-osm-fetch"
-              , -- Daily, 07:30 — after the geocode drain at 07:00 and well clear
-                -- of the bus refresh at 05:30 and the rail refreshes at 05:00 and
-                -- 06:00.
-                --
-                -- ⚠ THE SPACING IS THE POINT, not the half hour. Overpass allows
-                -- this client TWO concurrent slots and every job here competes
-                -- for them; health #1153 measured rail refusing twice as often as
-                -- bus while running thirty minutes behind it, and named that
-                -- ordering as the first thing to test if coverage regresses.
-                schedule = "30 7 * * *"
-              , -- ⚠ FORTY, against the geocode drain's 200, and the difference is
-                -- the request. These are multi-megabyte Overpass queries against
-                -- a two-slot endpoint — one 5 km highway box measured 8.9 MB and
-                -- 15,387 ways — where a geocode is one point in one second.
-                --
-                -- It is not a throughput bound. `fetch-osm` re-asks the coverage
-                -- gate per key and skips whatever a box it has already fetched
-                -- now covers, so one box typically clears many keys: 40 is a
-                -- generous day's worth of genuinely NEW ground.
-                command = [ "bin/backend", "fetch-osm", "--limit", "40" ]
-              , -- Sized against the endpoint, not the work: 40 boxes at up to
-                -- 120 s of slot waiting plus a 90 s fetch budget each is the
-                -- worst case, and it must fit without the job being killed
-                -- mid-insert.
-                deadlineSeconds = 5400
-              , suspended = False
-              , rootFs = T.RootFs.ReadOnly
-              , volumes = tmpVolume
-              , mounts = tmpMount
-              , -- ⚠ `dbEnv` ONLY. Overpass needs no credential — it is identified
-                -- by User-Agent — so this job holds nothing that could write to a
-                -- health stream.
-                env = dbEnv
-              , resources = batchResources
-              }
             ]
         }
       , secrets = toMap keys
