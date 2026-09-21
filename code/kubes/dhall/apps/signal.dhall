@@ -191,9 +191,28 @@ in  { name = "signal"
         , -- A ClusterIP the ingester and the viewer resolve. Not `NoService`:
           -- this one genuinely is dialled, in-cluster, by name.
           reach = T.Reach.Internal
-        , image =
+        , -- ⚠ **A `-pre` TAG DELIBERATELY, and the reason is the bridge inside
+          -- it.** `0.100` bundles signal-cli 0.14.5, whose
+          -- `getContactOrProfileName` resolves a system contact name and then a
+          -- profile name — it has no branch for the first/last name you type in
+          -- Signal's own UI, so a renamed contact arrived here under whatever
+          -- they call themselves instead. 0.14.7 adds that branch, and
+          -- `0.101-pre` is the only published image carrying it: 0.100 is still
+          -- the latest RELEASE (2026-06-11) and 0.101 does not exist yet.
+          --
+          -- The `-pre` is this project's own release-candidate convention —
+          -- every version ships one about ten days ahead (0.99-pre → 0.99,
+          -- 0.100-pre → 0.100) — and signal-cli 0.14.7 inside it is a stable
+          -- upstream release. The pre-release is the WRAPPER, not the bridge.
+          --
+          -- ⚠ **SIGNAL HAS NO HISTORY TO RE-WALK, so a broken bridge loses
+          -- messages permanently** — unlike Telegram, which can be re-read. The
+          -- link data was snapshotted off `signal-cli-pvc` before this landed,
+          -- because signal-cli migrates its own store on upgrade and 0.14.5
+          -- cannot be assumed to read what 0.14.7 has written.
+          image =
             T.Image.Upstream
-              { repo = "bbernhard/signal-cli-rest-api", tag = "0.100" }
+              { repo = "bbernhard/signal-cli-rest-api", tag = "0.101-pre" }
         , port = restApiPort
         , uid = 1000
         , selector = T.Selector.App

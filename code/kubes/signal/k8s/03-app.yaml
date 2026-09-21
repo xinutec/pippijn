@@ -24,7 +24,7 @@ spec:
       - env:
         - name: MODE
           value: "json-rpc"
-        image: "bbernhard/signal-cli-rest-api:0.100"
+        image: "bbernhard/signal-cli-rest-api:0.101-pre"
         livenessProbe:
           initialDelaySeconds: 15
           periodSeconds: 20
