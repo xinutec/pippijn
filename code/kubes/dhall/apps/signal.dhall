@@ -191,28 +191,37 @@ in  { name = "signal"
         , -- A ClusterIP the ingester and the viewer resolve. Not `NoService`:
           -- this one genuinely is dialled, in-cluster, by name.
           reach = T.Reach.Internal
-        , -- ⚠ **A `-pre` TAG DELIBERATELY, and the reason is the bridge inside
-          -- it.** `0.100` bundles signal-cli 0.14.5, whose
-          -- `getContactOrProfileName` resolves a system contact name and then a
-          -- profile name — it has no branch for the first/last name you type in
-          -- Signal's own UI, so a renamed contact arrived here under whatever
-          -- they call themselves instead. 0.14.7 adds that branch, and
-          -- `0.101-pre` is the only published image carrying it: 0.100 is still
-          -- the latest RELEASE (2026-06-11) and 0.101 does not exist yet.
+        , -- ⚠ **PINNED BACK TO 0.100 AFTER AN OUTAGE, and the note is here so the
+          -- next person does not repeat the reasoning.** `0.100` bundles
+          -- signal-cli 0.14.5, whose `getContactOrProfileName` resolves a system
+          -- contact name and then a profile name. It has no branch for the
+          -- first/last name typed in Signal's own UI — `ContactRecord.nickname`
+          -- in the storage service — so a contact renamed on the phone arrives
+          -- here under whatever they call themselves. 0.14.7 adds that branch.
           --
-          -- The `-pre` is this project's own release-candidate convention —
-          -- every version ships one about ten days ahead (0.99-pre → 0.99,
-          -- 0.100-pre → 0.100) — and signal-cli 0.14.7 inside it is a stable
-          -- upstream release. The pre-release is the WRAPPER, not the bridge.
+          -- ⚠ **A GITHUB RELEASE TAG IS NOT A DOCKER TAG.** `0.101-pre` exists as
+          -- a GitHub release (2026-09-05) and NOT on Docker Hub; deploying it
+          -- gave ImagePullBackOff, and the `Recreate` strategy below had already
+          -- torn the running pod down. The bridge was off for about four minutes
+          -- on 2026-09-21 before a rollback. Read the REGISTRY's tag list, not
+          -- the project's releases page.
           --
-          -- ⚠ **SIGNAL HAS NO HISTORY TO RE-WALK, so a broken bridge loses
-          -- messages permanently** — unlike Telegram, which can be re-read. The
-          -- link data was snapshotted off `signal-cli-pvc` before this landed,
-          -- because signal-cli migrates its own store on upgrade and 0.14.5
-          -- cannot be assumed to read what 0.14.7 has written.
+          -- ⚠ **AND `latest` IS NOT NEWER — it is 0.100**, same build date. The
+          -- only published images carrying 0.14.7 are the `-dev` channel
+          -- (`0.203-dev`, `latest-dev`; verified by listing `/opt` inside one).
+          -- They are a RESTRUCTURED image, not a version bump: `User` is
+          -- `signal-api` rather than empty, the entrypoint is s6's `/init`
+          -- rather than `/entrypoint.sh`, and `SIGNAL_CLI_UID`/
+          -- `CHOWN_ON_STARTUP` are gone. The `uid` and `hardening` below are
+          -- written against the OLD entrypoint, so moving is a manifest change
+          -- and not a tag change.
+          --
+          -- ⚠ **SIGNAL HAS NO HISTORY TO RE-WALK**, so a bridge that fails loses
+          -- messages the server has already handed over. `signal-cli-pvc` is
+          -- snapshotted before any move here.
           image =
             T.Image.Upstream
-              { repo = "bbernhard/signal-cli-rest-api", tag = "0.101-pre" }
+              { repo = "bbernhard/signal-cli-rest-api", tag = "0.100" }
         , port = restApiPort
         , uid = 1000
         , selector = T.Selector.App
