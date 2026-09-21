@@ -2,6 +2,7 @@
 	defaultBranch = main
 [user]
 	email = pippijn@xinutec.org
+	# dev-lint: allow-pii — the git identity; it is on every commit anyway
 	name = Pippijn van Steenhoven
 [safe]
 	directory = /etc/nixos
