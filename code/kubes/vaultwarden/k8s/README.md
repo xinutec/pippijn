@@ -8,8 +8,7 @@ standard `sync.sh` deploy convention — isis runs no Flux.
   `03-ingress.yaml` — applied in order by `sync.sh`.
 - `secret.sh` — creates `vaultwarden-admin` (the `/admin` token), generated at
   run time instead of the old SOPS-encrypted `admin-token.enc.yaml`.
-- TLS uses the existing cluster-wide `letsencrypt-dns` ClusterIssuer +
-  `cloudflare-api-token` (shared with messages/fleetwatch; already on isis).
+- TLS terminates at isis's host nginx (`security.acme`, DNS-01).
 
 ## First-time cutover from amun (one-time, watched — this is the vault)
 

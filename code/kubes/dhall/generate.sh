@@ -728,10 +728,7 @@ for src in "$here"/apps/*.dhall; do
 
   if [[ $mode == check ]]; then
     # The model states which files it does NOT own, and only those are excluded
-    # — the same contract the site loop has had since the sites landed. An app
-    # needed it once `messages` arrived: `00-letsencrypt-dns-issuer.yaml` is a
-    # cluster-scoped cert-manager ClusterIssuer, one-time isis setup rather than
-    # part of any app, and the model has no type for it.
+    # — the same contract the site loop has.
     mapfile -t unowned < <(ask_text "$app" unownedFiles | grep -v '^$' || true)
     if [[ -e $ask_failed ]]; then exit 1; fi
     compare "$app" "$kubes/$(app_tree "$app")" "$tmp/$app.model.yaml" "${unowned[@]}"

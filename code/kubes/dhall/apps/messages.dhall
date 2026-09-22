@@ -116,12 +116,7 @@ in  { name = "signal"
             ingressName = "messages"
           }
     , labels = [] : T.Labels
-    , unowned =
-      [ { file = "00-letsencrypt-dns-issuer.yaml"
-        , why =
-            "a cert-manager ClusterIssuer: cluster-scoped one-time isis setup, not part of this or any app. The HTTP-01 issuer the fleet otherwise uses cannot validate a host that resolves to a VPN-only address, so this one proves ownership by a Cloudflare TXT record instead."
-        }
-      ]
+    , unowned = [] : List T.Unowned
     , acme = None T.AcmeDelegation
     , tree = None Text
     , placement = T.on T.Cluster.isis

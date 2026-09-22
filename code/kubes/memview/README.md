@@ -32,11 +32,8 @@ the internet. **This is obscurity, not a firewall** — the isis ingress answers
 public IP too, so anyone who knows the address reaches the same app. The real gate is the
 Nextcloud login plus the `pippijn`-only allow list.
 
-The consequence for TLS is what the model's `exposure` field exists for: Let's Encrypt
-cannot complete an HTTP-01 challenge against a name that resolves inside the tunnel, so
-the certificate comes from the **DNS-01** issuer `letsencrypt-dns`. That ClusterIssuer must
-exist on isis — it is not there by default. Pairing HTTP-01 with a VPN-only host leaves a
-certificate pending forever and surfaces days later as a browser TLS error.
+TLS terminates at isis's host nginx, whose certificates come from `security.acme` over
+DNS-01, so a name that resolves inside the tunnel still gets one.
 
 ## Deploy
 
