@@ -51,17 +51,10 @@ in  T.namespaceOf
         configMap = None T.ConfigMapDoc
       , workload =
         T.Workload::{ name = "fleetwatch-app"
-        , -- The hostname resolves to isis's WireGuard address, not the public one,
-          -- so HTTP-01 cannot validate and the certificate must come from DNS-01 —
-          -- which is what this field decides.
-          --
-          -- ⚠ Obscurity, NOT a firewall — the isis ingress answers on the public IP
-          -- too. The real gate on the WRITE path is the ingest bearer token.
-          --
-          -- ⚠ A `whitelist-source-range` annotation does NOT help: behind k3s
-          -- servicelb the client's WireGuard source IP is SNAT'd before nginx sees
-          -- it, so the rule 403s a legitimate VPN client. Making it survive needs a
-          -- cluster-wide ingress change affecting every service.
+        , -- VpnOnly is a real boundary: isis's host nginx front door (nixos-config
+          -- machines/isis/frontdoor.nix) listens for this name on the WireGuard
+          -- address only, so the public IP has no listener for it. The ingest
+          -- bearer token still gates the WRITE path.
           reach =
             T.Reach.Ingress
               { host = dns.fleetwatch, exposure = T.Exposure.VpnOnly }
