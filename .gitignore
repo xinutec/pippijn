@@ -1,6 +1,8 @@
 # Cache and generated or secret configs.
 /.bash_history
 /.cache
+/.claude
+/.claude.json*
 /node_modules
 /.docker
 /.gnupg
@@ -26,8 +28,10 @@
 /media
 /tmp
 /.kube
+/.local/share/applications
 /.local/state
 /result
+/*-build
 
 # direnv / nix-direnv per-project caches (unanchored: any project subdir)
 .direnv/
