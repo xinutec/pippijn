@@ -3,6 +3,18 @@
 let
   sys = (import <nixpkgs/nixos> { }).config;
   isMaster = sys.networking.hostName == "amun";
+
+  # Pinned nixos-unstable, for claude-code only: the 26.05 branch is stuck at
+  # 2.1.223, and Opus 5.5 needs 2.1.280. allowUnfree is scoped here so the host
+  # keeps rejecting every other unfree package. To bump, pick a new revision and
+  # `nix-prefetch-url --unpack https://github.com/NixOS/nixpkgs/archive/<rev>.tar.gz`.
+  nixpkgs-unstable = import (builtins.fetchTarball {
+    url = "https://github.com/NixOS/nixpkgs/archive/4975466d324710c576dc11ad614684e6bd8cad8e.tar.gz";
+    sha256 = "1if9h4d8rkgd7a41j978swbixif81iqfd7hk302w0fbd23i9g7y4";
+  }) {
+    system = pkgs.stdenv.hostPlatform.system;
+    config.allowUnfree = true;
+  };
 in {
   # Home Manager needs a bit of information about you and the
   # paths it should manage.
@@ -11,6 +23,7 @@ in {
 
   # Packages that should be installed to the user profile.
   home.packages = with pkgs; [
+    nixpkgs-unstable.claude-code  # 2.1.280, for Opus 5.5
     git         # version control
     git-crypt   # encrypted files in public git repos
     jq          # json query tool
