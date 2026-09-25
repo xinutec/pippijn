@@ -20,6 +20,11 @@ let dns = ../dns.dhall
 
 let port = 3000
 
+-- ⚠ ONE VALUE for the serving pod's memory limit and for the smoke Job that
+-- proves the heaviest days fit under it (health #1071). Raising one without
+-- the other would measure a budget production does not have.
+let servingMemoryLimit = "512Mi"
+
 let keys =
       { DB_USER = "DB_USER"
       , DB_PASSWORD = "DB_PASSWORD"
@@ -266,11 +271,12 @@ in  T.namespaceOf
               -- on-pod). 2 cores lets a compute finish in a few seconds; isis
               -- sits ~7%.
               cpu = Some "2"
-            , -- Headroom for the local-OSM-mirror cold start: multiple large
-              -- Overpass responses (5-50 MB each) can be in flight while
-              -- filling osm_points / osm_lines for a new bbox. Steady state
-              -- stays well under this.
-              memory = "512Mi"
+            , -- The fold's budget. One day folds at a time and hands its heap
+              -- back afterwards (health #1071, 2026-09-25); a heavy day peaks
+              -- around 320 MiB with its Lean worker beside it. Raising this was
+              -- declined on 2026-09-16; `health-velocity-smoke` below is what
+              -- says whether the current code still fits.
+              memory = servingMemoryLimit
             }
           }
         , -- ⚠ A WRITABLE /tmp, because `rootFs` above is ReadOnly and the Lean
@@ -542,6 +548,44 @@ in  T.namespaceOf
                 -- health stream.
                 env = dbEnv
               , resources = batchResources
+              }
+            , { -- THE MEMORY SMOKE (health #1071). Never scheduled: health's
+                -- `scripts/deploy.sh` creates a Job from it after every rollout
+                -- (`kubectl create job --from=cronjob/health-velocity-smoke`).
+                -- It folds the heaviest golden days one after another under the
+                -- SERVING pod's memory limit and prints the container's cgroup
+                -- peak and OOM count, which the deploy reads. A fourteen-day
+                -- browse OOM-killed production twice on 2026-09-25, and nothing
+                -- before that rollout could have said so.
+                name = "health-velocity-smoke"
+              , -- 31 February never comes; `suspended` is the real guard and the
+                -- schedule is the field the type demands.
+                schedule = "0 3 31 2 *"
+              , command =
+                  [ "bin/backend"
+                  , "velocity-many"
+                  , "pippijn"
+                  , "2026-09-21"
+                  , "2026-09-12"
+                  , "2026-09-14"
+                  , "2026-09-15"
+                  , "2026-08-06"
+                  , "2026-07-12"
+                  ]
+              , -- Six folds at up to a minute each on a cold pod, plus the Lean start.
+                deadlineSeconds = 1500
+              , suspended = True
+              , rootFs = T.RootFs.ReadOnly
+              , volumes = tmpVolume
+              , mounts = tmpMount
+              , -- `dbEnv` ONLY: it reads days and writes nothing.
+                env = dbEnv
+              , -- ⚠ THE SERVING POD'S LIMIT, not `batchResources`: the question is
+                -- whether these folds fit where they will run.
+                resources =
+                  { requests = { cpu = "100m", memory = "256Mi" }
+                  , limits = Some { cpu = Some "1000m", memory = servingMemoryLimit }
+                  }
               }
             ]
         }

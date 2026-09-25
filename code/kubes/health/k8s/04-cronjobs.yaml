@@ -603,3 +603,78 @@ spec:
             name: tmp
   schedule: "0 7 * * *"
   successfulJobsHistoryLimit: 3
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "health-velocity-smoke"
+  namespace: health
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1500
+      template:
+        metadata:
+          labels:
+            app: "health-velocity-smoke"
+        spec:
+          containers:
+          - command:
+            - bin/backend
+            - "velocity-many"
+            - pippijn
+            - '2026-09-21'
+            - '2026-09-12'
+            - '2026-09-14'
+            - '2026-09-15'
+            - '2026-08-06'
+            - '2026-07-12'
+            env:
+            - name: DB_HOST
+              value: "health-db"
+            - name: DB_NAME
+              value: health
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  key: DB_USER
+                  name: "health-secret"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: DB_PASSWORD
+                  name: "health-secret"
+            image: "xinutec/health-sync:latest"
+            name: "health-velocity-smoke"
+            resources:
+              limits:
+                cpu: 1000m
+                memory: 512Mi
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+              readOnlyRootFilesystem: true
+            volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+          restartPolicy: OnFailure
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          volumes:
+          - emptyDir: {}
+            name: tmp
+  schedule: "0 3 31 2 *"
+  successfulJobsHistoryLimit: 3
+  suspend: true
