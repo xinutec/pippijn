@@ -792,10 +792,11 @@ in  { name = "signal"
               ]
             }
           , { -- ⚠ **THE ONE POD IN THIS NAMESPACE THAT MAY LEAVE IT**, and it is a
-                -- scheduled batch job rather than the web app on purpose: a picture
-                -- somebody linked is fetched here and reaches the reader as bytes on
-                -- a volume, so `messages` itself keeps having no route to the
-                -- internet at all. See `messages-link-fetch` in `apps/messages.dhall`.
+                -- separate service rather than the web app on purpose: a picture
+                -- somebody linked is fetched here and handed to the web app on one
+                -- in-cluster request, so `messages` itself keeps having no route to
+                -- the internet at all. See `messages-link-fetch` in
+                -- `apps/messages.dhall`.
                 --
                 -- ⚠ **`except` IS THE SECURITY CONTROL.** This follows links
                 -- strangers wrote, so the one thing it must never be talked into is
