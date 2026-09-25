@@ -36,7 +36,7 @@ spec:
             secretKeyRef:
               key: ADMIN_TOKEN
               name: "vaultwarden-secret"
-        image: "vaultwarden/server:1.37.0-alpine"
+        image: "vaultwarden/server:1.37.3-alpine"
         name: vaultwarden
         ports:
         - containerPort: 80

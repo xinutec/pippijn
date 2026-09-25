@@ -69,7 +69,7 @@ in  { name = "vaultwarden"
           reach =
             T.Reach.Ingress { host = dns.vault, exposure = T.Exposure.VpnOnly }
         , image =
-            T.Image.Upstream { repo = "vaultwarden/server", tag = "1.37.0-alpine" }
+            T.Image.Upstream { repo = "vaultwarden/server", tag = "1.37.3-alpine" }
         , port
         , -- Unused: `Unhardened` drops the identity fields and `RunsAsRoot` emits
           -- no `fsGroup`, so nothing reads this. 0 is the honest value.
