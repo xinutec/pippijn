@@ -190,14 +190,10 @@ bindkey -m ^[Oc stuff ]  #"}]^f"
 
 startup_message off
 
-screen -t 'irssi' -ln 0 ssh irssi
-screen -t 'top-amun' -ln 1 ssh amun -t top
-screen -t 'top-isis' -ln 2 ssh isis -t top
-screen -t 'dmesg-amun' -ln 3 ssh amun -t dmesg -w
-screen -t 'dmesg-isis' -ln 4 ssh isis -t dmesg -w
-screen -t 'hermes' -ln 5 ssh hermes.vpn -t screen -dr
+screen -t 'top-amun' -ln 0 ssh amun -t top
+screen -t 'top-isis' -ln 1 ssh isis -t top
 
-deflogin off
+#deflogin off
 
 #bindkey -k F1 prev
 #bindkey -k F2 next
