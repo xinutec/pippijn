@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 import pprint
-import vobject  # type: ignore[import-untyped]
+import vobject  # type: ignore[import-untyped]  # vobject ships no stubs
 
 from typing import List
 from typing import Optional

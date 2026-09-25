@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 import subprocess
 import sys
-import vobject  # type: ignore[import-untyped]
+import vobject  # type: ignore[import-untyped]  # vobject ships no stubs
 import vtypes
 
 
