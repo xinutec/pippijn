@@ -33,7 +33,7 @@ jobs:
 
   # home builds in its own repo (github.com/xinutec/home → xinutec/home:latest); only k8s stays here.
 
-  # signal builds in its own repo (github.com/xinutec/signal → xinutec/signal-archiver:latest); only k8s stays here.
+  # signal builds in the messages repo (github.com/xinutec/messages, archiver/ → xinutec/signal-archiver:latest); only k8s stays here.
 
   # life builds in its own repo (github.com/xinutec/life → xinutec/life:latest); only k8s stays here.
 
