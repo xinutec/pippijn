@@ -38,6 +38,30 @@ resource "cloudflare_dns_record" "org_scanner" {
   proxied = false
 }
 
+# observe.xinutec.org — the observe run viewer on isis, VPN-only. Served by the front door on
+# isis's tunnel address alone, beside its old wg0 port on 10.100.0.2, which goes
+# once its clients have moved. See code/kubes/observe.
+resource "cloudflare_dns_record" "org_observe" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "observe"
+  content = local.hosts.vpn_isis
+  ttl     = 3600
+  proxied = false
+}
+
+# recall.xinutec.org — recall's web app, API and ingest on isis, VPN-only. Served by the front door on
+# isis's tunnel address alone, beside its old wg0 port on 10.100.0.2, which goes
+# once its clients have moved. See code/kubes/recall.
+resource "cloudflare_dns_record" "org_recall" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "recall"
+  content = local.hosts.vpn_isis
+  ttl     = 3600
+  proxied = false
+}
+
 # messages.xinutec.org — Signal + Google Chat archive viewer on isis, VPN-only.
 # Resolves to isis's WireGuard IP so it's unlisted publicly; the real gate is the
 # Nextcloud login + pippijn-only allow-list (the isis ingress also answers on the
