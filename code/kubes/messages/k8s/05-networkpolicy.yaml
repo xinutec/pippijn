@@ -1,31 +1,12 @@
-# GENERATED from dhall/apps/home.dhall by dhall/generate.sh — do not edit.
+# GENERATED from dhall/apps/messages.dhall by dhall/generate.sh — do not edit.
 # Change the model and re-render; hand edits are overwritten.
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: "home-db-from-app-only"
-  namespace: home
-spec:
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: home
-    ports:
-    - port: 3306
-      protocol: TCP
-  podSelector:
-    matchLabels:
-      app: "home-db"
-  policyTypes:
-  - Ingress
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: "home-ingress"
-  namespace: home
+  name: "messages-ingress"
+  namespace: signal
 spec:
   ingress:
   - from:
@@ -33,10 +14,29 @@ spec:
         matchLabels:
           kubernetes.io/metadata.name: "ingress-nginx"
     ports:
-    - port: 3000
+    - port: 8080
       protocol: TCP
   podSelector:
     matchLabels:
-      app: home
+      app: messages
+  policyTypes:
+  - Ingress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "messages-link-fetch-ingress"
+  namespace: signal
+spec:
+  ingress:
+  - from:
+    - podSelector: {}
+    ports:
+    - port: 8080
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app: "messages-link-fetch"
   policyTypes:
   - Ingress

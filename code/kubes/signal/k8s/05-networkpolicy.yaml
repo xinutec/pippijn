@@ -205,3 +205,64 @@ spec:
       app: "signal-telegram"
   policyTypes:
   - Egress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "signal-cli-rest-api-ingress"
+  namespace: signal
+spec:
+  ingress:
+  - from:
+    - podSelector: {}
+    ports:
+    - port: 8080
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app: "signal-cli-rest-api"
+  policyTypes:
+  - Ingress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "signal-ingester-ingress"
+  namespace: signal
+spec:
+  ingress: []
+  podSelector:
+    matchLabels:
+      app: "signal-ingester"
+  policyTypes:
+  - Ingress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "signal-irc-tail-ingress"
+  namespace: signal
+spec:
+  ingress: []
+  podSelector:
+    matchLabels:
+      app: "signal-irc-tail"
+  policyTypes:
+  - Ingress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "signal-telegram-ingress"
+  namespace: signal
+spec:
+  ingress: []
+  podSelector:
+    matchLabels:
+      app: "signal-telegram"
+  policyTypes:
+  - Ingress

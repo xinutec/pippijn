@@ -74,6 +74,18 @@ in  T.namespaceOf
           -- conversations in the house. The hostPort pinned to the tunnel address
           -- IS the gate.
           reach = T.Reach.WireGuard { alsoPublish = [ ingestPort ] }
+          , -- Who may connect: its hostPort, from the VPN only (#1763).
+            ingress =
+              Some
+                      [ { to =
+                          [ T.NetpolPeer.Host
+                              { cidr = "10.100.0.0/24"
+                              , why = "the WireGuard VPN: recall's clients (the Mac's runners, the phones) reach its wg0-bound hostPort"
+                              }
+                          ]
+                        , ports = [ { port = 8000, protocol = "TCP" }, { port = 8001, protocol = "TCP" } ]
+                        }
+                      ]
         , name = "recall"
         , image = T.Image.Fleet "recall"
         , -- recalld, the Rust system-of-record daemon, and the only container.

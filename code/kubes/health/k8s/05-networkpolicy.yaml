@@ -18,4 +18,23 @@ spec:
       app: "health-db"
   policyTypes:
   - Ingress
-
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "health-auth-ingress"
+  namespace: health
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: "ingress-nginx"
+    ports:
+    - port: 3000
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app: "health-auth"
+  policyTypes:
+  - Ingress

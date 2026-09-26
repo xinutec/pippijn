@@ -131,6 +131,13 @@ in  { name = "signal"
       claims = [ linkImages ]
     , workloads =
       [ T.Workload::{ name = "messages"
+        , -- Who may connect: the front door only (#1763).
+          ingress =
+            Some
+                    [ { to = [ T.NetpolPeer.Namespace "ingress-nginx" ]
+                      , ports = [ { port = 8080, protocol = "TCP" } ]
+                      }
+                    ]
         , reach =
             T.Reach.Ingress
               { host = "messages.xinutec.org"
@@ -271,6 +278,13 @@ in  { name = "signal"
           ]
         }
       , T.Workload::{ name = "messages-link-fetch"
+        , -- Who may connect: the signal namespace's own pods (#1763).
+          ingress =
+            Some
+                    [ { to = [ T.NetpolPeer.SameNamespace ]
+                      , ports = [ { port = 8080, protocol = "TCP" } ]
+                      }
+                    ]
         , -- ⚠ **THE ONLY THING IN THIS NAMESPACE THAT LEAVES THE CLUSTER, AND THE
           -- ONLY ONE THAT KNOWS NOTHING ELSE.** It follows links strangers wrote
           -- into a chat years ago, so it is the component most likely to meet

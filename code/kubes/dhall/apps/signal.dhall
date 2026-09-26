@@ -188,6 +188,13 @@ in  { name = "signal"
       [ claims.cli, claims.attachments, claims.irclogs, claims.telegramMedia ]
     , workloads =
       [ T.Workload::{ name = restApiName
+        , -- Who may connect: the signal namespace's own pods: the ingester and the bridges (#1763).
+          ingress =
+            Some
+                    [ { to = [ T.NetpolPeer.SameNamespace ]
+                      , ports = [ { port = 8080, protocol = "TCP" } ]
+                      }
+                    ]
         , -- A ClusterIP the ingester and the viewer resolve. Not `NoService`:
           -- this one genuinely is dialled, in-cluster, by name.
           reach = T.Reach.Internal
@@ -261,6 +268,9 @@ in  { name = "signal"
           ]
         }
       , T.Workload::{ name = "signal-ingester"
+        , -- Who may connect: nobody; it takes no connections (#1763).
+          ingress =
+            Some ([] : List T.NetpolRule)
         , -- ⚠ NOTHING DIALS THIS. It is a websocket client: it connects OUT to
           -- the bridge and writes rows, and listens on no port. `Internal`
           -- would give it a Service with no consumers, which reads to a
@@ -434,6 +444,9 @@ in  { name = "signal"
           ]
         }
       , T.Workload::{ name = ircTail
+        , -- Who may connect: nobody; it takes no connections (#1763).
+          ingress =
+            Some ([] : List T.NetpolRule)
         , -- ⚠ NOTHING DIALS THIS EITHER, for the same reason as the ingester: it
           -- connects OUT and holds a long poll open.
           reach = T.Reach.NoService
@@ -557,6 +570,9 @@ in  { name = "signal"
           tasks = [] : List T.ScheduledTask
         }
       , T.Workload::{ name = telegram
+        , -- Who may connect: nobody; it takes no connections (#1763).
+          ingress =
+            Some ([] : List T.NetpolRule)
         , -- ⚠ NOTHING DIALS THIS, like the other two feeds: it speaks MTProto
           -- OUTWARD to Telegram and writes rows.
           reach = T.Reach.NoService

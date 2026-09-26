@@ -466,9 +466,61 @@ let Sidecar =
         }
       }
 
+let NetpolPeer =
+      --| One thing a rule may allow traffic TO.
+      --
+      --   * `Namespace` — every pod in another namespace, by the automatic
+      --     `kubernetes.io/metadata.name` label.
+      --   * `Workload` — one workload in THIS namespace, by its `app` label.
+      --   * `NamespacedWorkload` — pods in another namespace matching labels.
+      --     ⚠ `namespaceSelector` and `podSelector` in ONE peer mean "both must
+      --     hold"; two separate peers mean "either", which silently widens a policy.
+      --   * `Internet` — an ipBlock of everything except the ranges listed.
+      --
+      -- ⚠ Whether an `ipBlock` can name the node's own address DEPENDS ON THE PORT
+      -- (#781): a `hostPort` is DNAT'd by CNI before kube-router's filter rules see
+      -- it and no ipBlock matches, where a HOST process has no such rule and one
+      -- does. `iptables-save -t nat | grep CNI-HOSTPORT` answers it per port.
+      < Namespace : Text
+      | Workload : Text
+      | --| Any pod in THIS namespace — `podSelector: {}`, a selector with no
+        --  terms. signal's default-deny uses it to let everything reach the
+        --  database and the REST bridge without naming them one by one, which
+        --  also means a workload added later is covered rather than silently
+        --  cut off.
+        SameNamespace
+      | NamespacedWorkload :
+          { namespace : Text, labels : List { mapKey : Text, mapValue : Text } }
+      | Internet : { except : List Text }
+      | --| ONE address, as a CIDR.
+        --
+        -- `Internet` is the wrong shape for reaching a known host: it can only
+        -- say "everything except", so a rule that needs one address ends up
+        -- granting the whole internet minus a denylist, and reads to a reviewer
+        -- as though that breadth were intended.
+        --
+        -- ⚠ `why` is required, as it is for `HostPath` and `Unhardened`. An IP
+        -- literal in a policy is the one thing here that cannot be read back to
+        -- what it means — a hostname would be resolved at render time and frozen
+        -- anyway — so the address has to arrive with its reason attached.
+        Host : { cidr : Text, why : Text }
+      >
+
+let NetpolRule =
+      { to : List NetpolPeer
+      , ports : List { port : Natural, protocol : Text }
+      }
+
 let WorkloadType =
       --| A long-running container plus the Service in front of it.
       { name : Text
+      , --| Who may connect to this workload's pods. `None` renders no ingress
+        --  policy for it; `Some rules` admits each rule's `to` (its SOURCES) on
+        --  its ports and nothing else, beside the node itself (kubelet probes, the
+        --  host-nginx front door), which these policies do not govern (measured
+        --  2026-09-26). `Some []` admits no pod at all. Independent of `Netpol`,
+        --  so it adds to a namespace's egress policies rather than replacing them.
+        ingress : Optional (List NetpolRule)
       , containerName :
           --| The container's own name, when it is not the workload's.
           --
@@ -582,6 +634,7 @@ let Workload =
         , pullPolicy = None Text
         , containerName = None Text
         , drainSeconds = None Natural
+        , ingress = None (List NetpolRule)
         }
       }
 
@@ -682,51 +735,6 @@ let EgressTo =
       -- Addressed by NAMESPACE, not by pod labels: a chart's labels change across
       -- versions where `kubernetes.io/metadata.name` is set by Kubernetes itself.
       { namespace : Text, ports : List { port : Natural, protocol : Text } }
-
-let NetpolPeer =
-      --| One thing a rule may allow traffic TO.
-      --
-      --   * `Namespace` — every pod in another namespace, by the automatic
-      --     `kubernetes.io/metadata.name` label.
-      --   * `Workload` — one workload in THIS namespace, by its `app` label.
-      --   * `NamespacedWorkload` — pods in another namespace matching labels.
-      --     ⚠ `namespaceSelector` and `podSelector` in ONE peer mean "both must
-      --     hold"; two separate peers mean "either", which silently widens a policy.
-      --   * `Internet` — an ipBlock of everything except the ranges listed.
-      --
-      -- ⚠ Whether an `ipBlock` can name the node's own address DEPENDS ON THE PORT
-      -- (#781): a `hostPort` is DNAT'd by CNI before kube-router's filter rules see
-      -- it and no ipBlock matches, where a HOST process has no such rule and one
-      -- does. `iptables-save -t nat | grep CNI-HOSTPORT` answers it per port.
-      < Namespace : Text
-      | Workload : Text
-      | --| Any pod in THIS namespace — `podSelector: {}`, a selector with no
-        --  terms. signal's default-deny uses it to let everything reach the
-        --  database and the REST bridge without naming them one by one, which
-        --  also means a workload added later is covered rather than silently
-        --  cut off.
-        SameNamespace
-      | NamespacedWorkload :
-          { namespace : Text, labels : List { mapKey : Text, mapValue : Text } }
-      | Internet : { except : List Text }
-      | --| ONE address, as a CIDR.
-        --
-        -- `Internet` is the wrong shape for reaching a known host: it can only
-        -- say "everything except", so a rule that needs one address ends up
-        -- granting the whole internet minus a denylist, and reads to a reviewer
-        -- as though that breadth were intended.
-        --
-        -- ⚠ `why` is required, as it is for `HostPath` and `Unhardened`. An IP
-        -- literal in a policy is the one thing here that cannot be read back to
-        -- what it means — a hostname would be resolved at render time and frozen
-        -- anyway — so the address has to arrive with its reason attached.
-        Host : { cidr : Text, why : Text }
-      >
-
-let NetpolRule =
-      { to : List NetpolPeer
-      , ports : List { port : Natural, protocol : Text }
-      }
 
 let NetpolTarget =
       --| Which pods a policy governs. `WholeNamespace` renders `podSelector: {}` — a

@@ -177,6 +177,13 @@ in  T.namespaceOf
         T.Workload::{ reach =
             T.Reach.Ingress { host = dns.health, exposure = T.Exposure.Public }
         , name = "health-auth"
+        , -- Who may connect: the front door only; see `ingress` on T.Workload (#1763).
+          ingress =
+            Some
+                    [ { to = [ T.NetpolPeer.Namespace "ingress-nginx" ]
+                      , ports = [ { port = 3000, protocol = "TCP" } ]
+                      }
+                    ]
         , image = T.Image.Fleet "health-sync"
         , -- The Rust+Lean HTTP server (#982).
           --

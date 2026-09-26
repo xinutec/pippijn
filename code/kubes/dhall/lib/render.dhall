@@ -2219,6 +2219,57 @@ let netpolAppHeld
           }
           ns.netpol
 
+let workloadIngress
+    : T.Namespace → T.Workload.Type → List K.NetworkPolicy
+    =
+      --| A workload's own `ingress` rules as one policy selecting its pods, or
+      --  nothing when it declares none. See `ingress` on `T.Workload`.
+      λ(ns : T.Namespace) →
+      λ(w : T.Workload.Type) →
+        merge
+          { None = [] : List K.NetworkPolicy
+          , Some =
+              λ(rules : List T.NetpolRule) →
+                [ { apiVersion = "networking.k8s.io/v1"
+                  , kind = "NetworkPolicy"
+                  , metadata = meta "${w.name}-ingress" ns.name
+                  , spec =
+                    { podSelector.matchLabels = Some (workloadLabels w.selector w.name)
+                    , policyTypes = [ "Ingress" ]
+                    , ingress = Some
+                        ( L.map
+                            T.NetpolRule
+                            { from : List K.NetworkPolicyPeer
+                            , ports : List K.NetworkPolicyPort
+                            }
+                            ( λ(r : T.NetpolRule) →
+                                { from =
+                                    L.map T.NetpolPeer K.NetworkPolicyPeer renderPeer r.to
+                                , ports =
+                                    L.map
+                                      { port : Natural, protocol : Text }
+                                      K.NetworkPolicyPort
+                                      ( λ(x : { port : Natural, protocol : Text }) →
+                                          { port = x.port, protocol = Some x.protocol }
+                                      )
+                                      r.ports
+                                }
+                            )
+                            rules
+                        )
+                    , egress =
+                        None
+                          ( List
+                              { to : List K.NetworkPolicyPeer
+                              , ports : List K.NetworkPolicyPort
+                              }
+                          )
+                    }
+                  }
+                ]
+          }
+          w.ingress
+
 let netpolApp
     : T.Namespace → List K.NetworkPolicy
     =
@@ -2238,6 +2289,7 @@ let netpolApp
                 L.map T.NetpolPolicy K.NetworkPolicy (renderPolicy ns) ps
           }
           ns.netpol
+        # L.concatMap T.Workload.Type K.NetworkPolicy (workloadIngress ns) ns.workloads
 
 let frontDoorOf
     : T.Namespace → T.Workload.Type → List F.Entry

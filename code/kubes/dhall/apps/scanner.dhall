@@ -53,6 +53,18 @@ in  T.namespaceOf
           -- `cluster`, because a bare hostPort DNATs on every address the node
           -- has and the rule bypasses the NixOS firewall entirely.
           reach = T.Reach.WireGuard { alsoPublish = [] : List Natural }
+          , -- Who may connect: its hostPort, from the VPN only (#1763).
+            ingress =
+              Some
+                      [ { to =
+                          [ T.NetpolPeer.Host
+                              { cidr = "10.100.0.0/24"
+                              , why = "the WireGuard VPN: the scanner's users reach its wg0-bound hostPort"
+                              }
+                          ]
+                        , ports = [ { port = 8090, protocol = "TCP" } ]
+                        }
+                      ]
         , name = "scanner"
         , -- NOT on Docker Hub. The scanner repo is local-only — its eval golden
           -- embeds a private letter — so there is no CI and no registry;

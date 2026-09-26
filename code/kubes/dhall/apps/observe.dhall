@@ -111,6 +111,18 @@ in  T.namespaceOf
           -- are reconstructions of rooms in the house.
           reach = T.Reach.WireGuard { alsoPublish = [] : List Natural }
         , name = "observe-viewer"
+        , -- Who may connect: its hostPort, from the VPN only (#1763).
+          ingress =
+            Some
+                    [ { to =
+                        [ T.NetpolPeer.Host
+                            { cidr = "10.100.0.0/24"
+                            , why = "the WireGuard VPN: observe's viewers reach its wg0-bound hostPort"
+                            }
+                        ]
+                      , ports = [ { port = 8091, protocol = "TCP" } ]
+                      }
+                    ]
         , -- Third-party and PINNED to a tag, as `Upstream` requires. The
           -- unprivileged variant specifically: it listens on 8091 as uid 101
           -- without ever being root, which is what lets the pod satisfy
