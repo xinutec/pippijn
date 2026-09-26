@@ -34,9 +34,11 @@ in  { name = "ircd"
     , secrets = [] : List T.SecretKey
     , unowned = [] : List T.Unowned
     , -- The client ports stay open to anyone; the server-link port 7005 admits
-      -- only the two configured peers (inspircd `links.conf`). Measured
-      -- 2026-09-26: in five days no peer connected inbound (ours dials out), and
-      -- 503 inbound 7005 connections came from scanners failing the handshake.
+      -- only the one peer the RUNNING server links to: irc.barfooze.de, from
+      -- `conf/secret/links.conf` inside the pod (which dials it too). ⚠ Not the
+      -- repo's `conf/skeleton/links.conf`, whose two addresses are stale: the
+      -- first version of this rule took them from there and blocked the real
+      -- peer. Otherwise 7005 only ever saw scanners (503 in five days).
       netpol =
         T.Netpol.Ingress
           [ { to = [ T.NetpolPeer.Internet { except = [] : List Text } ]
@@ -45,12 +47,8 @@ in  { name = "ircd"
             }
           , { to =
               [ T.NetpolPeer.Host
-                  { cidr = "46.105.124.126/32"
-                  , why = "ra.xinutec.org, an IRC server linked from links.conf"
-                  }
-              , T.NetpolPeer.Host
-                  { cidr = "195.154.9.123/32"
-                  , why = "irc.barfooze.de, an IRC server linked from links.conf"
+                  { cidr = "5.9.157.210/32"
+                  , why = "irc.barfooze.de, the one server linked in the running links.conf (a friend's host)"
                   }
               ]
             , ports = [ { port = 7005, protocol = "TCP" } ]

@@ -19,9 +19,7 @@ spec:
       protocol: TCP
   - from:
     - ipBlock:
-        cidr: 46.105.124.126/32
-    - ipBlock:
-        cidr: 195.154.9.123/32
+        cidr: 5.9.157.210/32
     ports:
     - port: 7005
       protocol: TCP
