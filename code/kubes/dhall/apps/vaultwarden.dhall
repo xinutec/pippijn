@@ -1,5 +1,5 @@
 {-
-`vaultwarden` — the password vault, and the tree that named `VolumeOwnership.RunsAsRoot`.
+`vaultwarden` — the password vault.
 
 ⚠ **ADOPTED FROM A HAND-WRITTEN TREE, so this file models what IS and not what
 would be tidy.** Three fields exist only to match the live objects, and changing
@@ -10,24 +10,26 @@ any of them moves or orphans data:
     blank with its real data orphaned;
   * `storageClass` is stated because it is IMMUTABLE on a live PVC and recorded
     in last-applied-configuration — a manifest dropping it is REJECTED on apply;
-  * `volumeOwnership` emits no `fsGroup`, because one would trigger a recursive
-    chown of the live sqlite database.
 
-⚠ **THE PORT STAYS 80, and the reasoning that said otherwise was wrong.** I read
-`containerSecurityContext` as unconditional and concluded `capabilities.drop =
-["ALL"]` would take `CAP_NET_BIND_SERVICE` and stop this container binding :80.
-It is emitted only for `Hardening.NonRoot` (`render.dhall:1139`) — and the comment
-there gives the reason: `drop: ALL` takes the capabilities a root entrypoint
-needs, so hardening the pod but not the container "crash-loops it just the same".
-An `Unhardened` container keeps its capabilities. **So there is no port move, no
-`ROCKET_PORT`, and no Service change.**
+**Non-root since 2026-09-26** (task #1762). It ran as root against a 0777 root-owned
+volume until then; the move was a watched deploy of its own, with a verified
+`.backup` of the database taken first.
+
+  * `uid` 65532 and `FsGroup`: the claim is a `local` PV, which Kubernetes does
+    apply `fsGroup` to, so every start gives the data to group 65532 with group
+    write. The first start made that change to the live database (under 2 MB),
+    with the pod stopped, as `Recreate` guarantees.
+  * **The container listens on 8080** (`ROCKET_PORT`): `NonRoot` drops every
+    capability, and a non-root process cannot bind :80 without one. The Service
+    and the front door stay on 80, because `servicePort` is 80 for any app
+    behind an Ingress and forwards to this port.
 -}
 
 let T = ./../lib/types.dhall
 
 let dns = ./../dns.dhall
 
-let port = 80
+let port = 8080
 
 let keys = { ADMIN_TOKEN = "ADMIN_TOKEN" }
 
@@ -71,31 +73,23 @@ in  { name = "vaultwarden"
         , image =
             T.Image.Upstream { repo = "vaultwarden/server", tag = "1.37.3-alpine" }
         , port
-        , -- Unused: `Unhardened` drops the identity fields and `RunsAsRoot` emits
-          -- no `fsGroup`, so nothing reads this. 0 is the honest value.
-          uid = 0
+        , uid = 65532
         , selector = T.Selector.App
-        , hardening =
-            T.Hardening.Unhardened
-              { why =
-                  "the alpine image's process runs as root; non-root additionally needs an fsGroup ownership migration of the live /data sqlite DB (currently 0777 root:root), which is a deliberate watched deploy of its own and must not ride along with this one"
-              }
+        , hardening = T.Hardening.NonRoot
         , rootFs =
             T.RootFs.Writable
               { why =
                   "third-party image, and that filesystem is not ours to constrain: a release that began using /tmp would take the vault down on a routine image bump. ⚠ Not because the filesystem is busy — checked against the live pod, /tmp is empty and the process holds no write handle outside /data, so read-only would hold TODAY. It is refused because that would bind one release"
               }
-        , volumeOwnership =
-            T.VolumeOwnership.RunsAsRoot
-              { why =
-                  "the process is root against a 0777 root-owned volume, so ownership is already correct; an fsGroup would add a field the live pod does not carry AND recursively chown the vault's sqlite database"
-              }
+        , volumeOwnership = T.VolumeOwnership.FsGroup
         , -- Bitwarden clients' sync payloads exceed nginx's 1m default.
           maxBodySize = Some "128m"
         , env =
           [ { name = "DOMAIN"
             , value = T.EnvValue.Literal "https://vault.xinutec.org"
             }
+          , -- Rocket's own listen port; see the header for why it is not 80.
+            { name = "ROCKET_PORT", value = T.EnvValue.Literal (Natural/show port) }
           , -- ⚠ Single-user instance: the one account is registered and signups
             -- are closed behind it. Re-opening these is a security decision.
             { name = "SIGNUPS_ALLOWED", value = T.EnvValue.Literal "false" }
