@@ -20,4 +20,23 @@ spec:
       app: "tasks-db"
   policyTypes:
   - Ingress
-
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "tasks-app-from-ingress-only"
+  namespace: tasks
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: "ingress-nginx"
+    ports:
+    - port: 8092
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app: tasks
+  policyTypes:
+  - Ingress

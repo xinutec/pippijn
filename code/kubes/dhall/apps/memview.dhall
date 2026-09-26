@@ -162,7 +162,7 @@ in  T.namespaceOf
           ]
         }
       , secrets = toMap keys
-      , netpol = T.Netpol.IngressFromNginx
+      , netpol = T.Netpol.IngressOnly
       }
           : T.App
       )

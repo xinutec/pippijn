@@ -20,4 +20,23 @@ spec:
       app: "life-db"
   policyTypes:
   - Ingress
-
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "life-app-from-ingress-only"
+  namespace: life
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: "ingress-nginx"
+    ports:
+    - port: 8080
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app: "life-app"
+  policyTypes:
+  - Ingress
