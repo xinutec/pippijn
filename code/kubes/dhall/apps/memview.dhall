@@ -38,21 +38,17 @@ in  T.namespaceOf
           storageGi = 1
         , mountPath = corpusPath
         , subPath = Some "corpus"
-        , -- `ShareStore` holds the whole share document in memory and rewrites
-          -- it whole on every read of a shared page. A second pod's copy —
-          -- loaded before the first created a share — would erase it on the
-          -- next touch. Atomic writes (#744) stop a reader seeing half a file
-          -- and do nothing whatever about that, so this is `Recreate`.
+        , -- The safe default. The pod only reads this volume, so `Concurrent`
+          -- would also be true; `Recreate` costs a few seconds per deploy.
           writers = T.Writers.Exclusive
         , -- Nothing here is a primary copy. The corpus is pushed wholesale from
-          -- the Mac by every sync, so a restore re-syncs it; the `state`
-          -- subPath holds only the share-token file, and a lost token is
-          -- re-issued rather than recovered. Backing this up would duplicate
-          -- the Mac's own backup of the same bytes.
+          -- the Mac by every sync, so a restore re-syncs it, and the `state`
+          -- subPath holds only mined artefacts the same sync pushes. Backing
+          -- this up would duplicate the Mac's own backup of the same bytes.
           durability =
             T.Durability.LossAccepted
               { why =
-                  "memview holds no primary copy: the corpus is re-pushed wholesale by every sync from the Mac, and the state subPath holds only a re-issuable share token"
+                  "memview holds no primary copy: the corpus and the mined artefacts in the state subPath are re-pushed wholesale by every sync from the Mac"
               }
         , chown = T.FsGroupChange.Always
         }
@@ -77,23 +73,15 @@ in  T.namespaceOf
           uid = 65532
         , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
-        , -- The only thing it writes is the share-token state file, which lives
-          -- on the volume below, so the root filesystem stays read-only.
+        , -- It writes nothing, anywhere.
           rootFs = T.RootFs.ReadOnly
         , env =
           [ { name = "MEMORY_DIR", value = lit corpusPath }
-          , { -- The one public share token, persisted so it survives a restart.
-              -- On the same volume as the corpus but a different subPath: the
-              -- corpus is replaced wholesale by every sync, and a token living
-              -- inside it would be deleted by one.
-              name = "SHARE_STATE"
-            , value = lit "${statePath}/share-state.json"
-            }
           , { -- How much each memory is actually used, mined from the session
               -- transcripts on the Mac and pushed by scripts/sync.sh. Optional:
               -- absent, the graph still draws, sized by links alone. On the
-              -- state volume rather than the corpus for the same reason as the
-              -- share token — every sync replaces the corpus wholesale.
+              -- state subPath rather than in the corpus, which every sync
+              -- replaces wholesale.
               name = "COUSE_FILE"
             , value = lit "${statePath}/couse.json"
             }
@@ -145,7 +133,6 @@ in  T.namespaceOf
               name = "NC_REDIRECT_URI"
             , value = lit "https://${dns.memview}/auth/callback"
             }
-          , { name = "PUBLIC_BASE_URL", value = lit "https://${dns.memview}" }
           , { -- One person. An empty list is rejected by the app rather than
               -- treated as "everybody", but naming him here means the fleet's
               -- other Nextcloud accounts are never a question.

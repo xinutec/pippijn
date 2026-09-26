@@ -23,8 +23,6 @@ spec:
       - env:
         - name: MEMORY_DIR
           value: /corpus
-        - name: SHARE_STATE
-          value: "/state/share-state.json"
         - name: COUSE_FILE
           value: /state/couse.json
         - name: AGENTS_FILE
@@ -54,8 +52,6 @@ spec:
           value: "http://nextcloud-server.nextcloud.svc.cluster.local"
         - name: NC_REDIRECT_URI
           value: "https://memview.xinutec.org/auth/callback"
-        - name: PUBLIC_BASE_URL
-          value: "https://memview.xinutec.org"
         - name: ALLOWED_USERS
           value: pippijn
         - name: RUST_LOG

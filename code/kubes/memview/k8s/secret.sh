@@ -17,7 +17,7 @@
 # Safe to re-run: the session secret is regenerated, which signs you out and
 # costs one sign-in. Nothing else is derived from it — there is no database in
 # this app — so unlike life's script there is nothing to destroy by running it
-# twice. The share token lives in a file on the volume and is untouched.
+# twice.
 set -euo pipefail
 
 read -rp  'Nextcloud client id: '     NC_CLIENT_ID
