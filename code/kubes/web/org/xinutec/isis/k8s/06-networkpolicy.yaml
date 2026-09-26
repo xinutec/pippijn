@@ -1,0 +1,22 @@
+# GENERATED from dhall/sites/isis.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "httpd-isis-from-ingress-only"
+  namespace: web
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: "ingress-nginx"
+    ports:
+    - port: 8080
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      run: "httpd-isis"
+  policyTypes:
+  - Ingress

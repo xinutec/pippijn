@@ -683,6 +683,44 @@ let redirect
                 )
                 site.redirects
 
+let netpol
+    : Site → K.NetworkPolicy
+    =
+      --| Ingress-only, the same policy apps get from `Netpol.IngressOnly`: from the
+      --  `ingress-nginx` namespace on nginx's port, and from no other pod. amun's
+      --  site is reached through ingress-nginx; isis's through the host-nginx front
+      --  door, which is host traffic and not subject to the policy (measured
+      --  2026-09-26). One per site, selected by `run`, because the four share `web`.
+      λ(site : Site) →
+        { apiVersion = "networking.k8s.io/v1"
+        , kind = "NetworkPolicy"
+        , metadata = meta "${site.name}-from-ingress-only"
+        , spec =
+          { podSelector.matchLabels = Some (runLabels site.name)
+          , policyTypes = [ "Ingress" ]
+          , ingress = Some
+            [ { from =
+                [ { ipBlock = None { cidr : Text, except : Optional (List Text) }
+                  , podSelector = None { matchLabels : Optional K.Labels }
+                  , namespaceSelector = Some
+                    { matchLabels = toMap
+                        { `kubernetes.io/metadata.name` = "ingress-nginx" }
+                    }
+                  }
+                ]
+              , ports = [ { port = nginxPort, protocol = Some "TCP" } ]
+              }
+            ]
+          , egress =
+              None
+                ( List
+                    { to : List K.NetworkPolicyPeer
+                    , ports : List K.NetworkPolicyPort
+                    }
+                )
+          }
+        }
+
 let clusterHosts
     : Site → List Text
     =
@@ -791,4 +829,5 @@ in  { Doc
     , service
     , ingress
     , redirect
+    , netpol
     }

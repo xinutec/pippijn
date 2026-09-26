@@ -149,6 +149,7 @@ let sites
       , { file = "03-service.yaml", renderers = [ omit "service" ] }
       , { file = "04-ingress.yaml", renderers = [ omit "ingress" ] }
       , { file = "05-redirect.yaml", renderers = [ omit "redirect" ] }
+      , { file = "06-networkpolicy.yaml", renderers = [ omit "netpol" ] }
       ]
 
 {-| `<file>:<renderer> <renderer> …`, one line per file — the exact shape
