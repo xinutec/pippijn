@@ -66,7 +66,7 @@ spec:
             # SSH terminal server: users ssh directly to this per-user hostPort,
             # so it must bind the node interface and see the real client IP.
             - containerPort: 22
-              hostPort: 2231  # dev-lint: allow-host-port
+              hostPort: 2231  # dev-lint: allow-host-port — users ssh straight to this node port, see above
           readinessProbe:
             tcpSocket:
               port: 22

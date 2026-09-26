@@ -72,7 +72,7 @@ spec:
     spec:
       containers:
       # dev-lint: allow-rootfs-rw — writes downloaded blobs under /attachments (a mount) and uses /tmp scratch
-      # dev-lint: allow-no-probe
+      # dev-lint: allow-no-probe — a websocket consumer with no port to probe; it exits loudly and the Deployment restarts it
       - command:
         - "/usr/local/bin/signal-archiver"
         env:
@@ -253,7 +253,7 @@ spec:
         app: "signal-telegram"
     spec:
       containers:
-      # dev-lint: allow-no-probe
+      # dev-lint: allow-no-probe — a polling client with no port to probe; it exits loudly and the Deployment restarts it
       - command:
         - /usr/local/bin/telegram
         env:

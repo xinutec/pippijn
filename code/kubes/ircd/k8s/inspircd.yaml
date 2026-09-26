@@ -74,11 +74,11 @@ spec:
             # hostPort so inspircd sees the real client IP (spam/ban tracking,
             # WHOIS) rather than the load-balancer's — a Service would NAT it.
             - containerPort: 6697
-              hostPort: 6697  # dev-lint: allow-host-port
+              hostPort: 6697  # dev-lint: allow-host-port — inspircd must see the real client IP, see above
             - containerPort: 7005
-              hostPort: 7005  # dev-lint: allow-host-port
+              hostPort: 7005  # dev-lint: allow-host-port — inspircd must see the real client IP, see above
             - containerPort: 7776
-              hostPort: 7776  # dev-lint: allow-host-port
+              hostPort: 7776  # dev-lint: allow-host-port — inspircd must see the real client IP, see above
           readinessProbe:
             tcpSocket:
               port: 6697
