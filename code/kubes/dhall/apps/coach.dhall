@@ -49,8 +49,10 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        T.Workload::{ reach =
-            T.Reach.Ingress { host = dns.coach, exposure = T.Exposure.Public }
+        T.Workload::{ -- VpnOnly: isis's front door listens for this name on the
+          -- WireGuard address only. Nextcloud login is still the gate for who.
+          reach =
+            T.Reach.Ingress { host = dns.coach, exposure = T.Exposure.VpnOnly }
         , name = "coach-app"
         , image = T.Image.Fleet "coach"
         , port = 8080

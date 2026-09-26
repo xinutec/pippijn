@@ -3,7 +3,7 @@
     "clusters": [
       "isis.xinutec.org"
     ],
-    "exposure": "Public",
+    "exposure": "VpnOnly",
     "host": "coach.xinutec.org",
     "modelled": true,
     "path": "/",
