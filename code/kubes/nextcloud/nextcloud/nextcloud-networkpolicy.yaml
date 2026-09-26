@@ -1,0 +1,26 @@
+# nextcloud-db accepts connections from nextcloud-server alone: it holds all of
+# dash's data, and until 2026-09-26 every pod in the cluster could reach it
+# (task #1763). Measured with conntrack the same day: the server is its only
+# client. The nightly backup dumps from inside the pod and cron runs in the
+# server pod, so neither needs a network path. nextcloud-server itself stays
+# open: tasks, recall, memview and utterance call it directly for SSO.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nextcloud-db-from-server-only
+  namespace: nextcloud
+spec:
+  podSelector:
+    matchLabels:
+      pod-label: nextcloud-db-pod
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          pod-label: nextcloud-server-pod
+    ports:
+    - port: 3306
+      protocol: TCP
