@@ -9,4 +9,5 @@ set -euo pipefail
 # dev-lint: pvc nextcloud/redis-data-redis-master-0 allow-backup-coverage the RDB stream is the snapshot; the volume underneath it is never mirrored
 # Chart-created workload the odin backup execs into (redis RDB dump).
 # dev-lint: workload nextcloud/statefulset/redis-master
-sudo helm upgrade --install redis bitnami/redis -n nextcloud --create-namespace --values helm/redis-values.yaml
+# Pinned: an unpinned upgrade would move redis to whatever the repo index says.
+sudo helm upgrade --install redis bitnami/redis --version 22.0.7 -n nextcloud --create-namespace --values helm/redis-values.yaml

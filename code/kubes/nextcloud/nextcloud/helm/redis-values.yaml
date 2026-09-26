@@ -15,3 +15,16 @@ master:
     limits:
       cpu: 100m
       memory: 512Mi
+
+# Only nextcloud-server (and redis's own pods) may connect. The chart's default,
+# allowExternal: true, admitted 6379 from every pod in the cluster (task #1763).
+networkPolicy:
+  allowExternal: false
+  extraIngress:
+  - from:
+    - podSelector:
+        matchLabels:
+          pod-label: nextcloud-server-pod
+    ports:
+    - port: 6379
+      protocol: TCP
