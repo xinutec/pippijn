@@ -1,0 +1,25 @@
+# Ingress-only: the nocodb server accepts connections from the ingress-nginx
+# namespace on its port and from no other pod. Host-sourced traffic (the
+# kubelet's probes) is not subject to it, measured on this cluster 2026-09-26
+# (task #1763). Hand-written because nocodb is not in the Dhall model; the
+# selector is the live Deployment's own `pod-label`.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nocodb-server-from-ingress-only
+  namespace: nocodb
+spec:
+  podSelector:
+    matchLabels:
+      pod-label: nocodb-server-pod
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    ports:
+    - port: 8080
+      protocol: TCP
