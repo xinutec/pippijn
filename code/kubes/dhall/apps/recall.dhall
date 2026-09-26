@@ -70,11 +70,11 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        T.Workload::{ -- No Ingress and no DNS record. The shared nginx ingress answers on
-          -- isis's PUBLIC address whatever DNS says — obscurity, not a gate —
-          -- and this archive is transcripts of
-          -- conversations in the house. The hostPort pinned to the tunnel address
-          -- IS the gate.
+        T.Workload::{ -- Reached two ways while its clients move (#1799): the hostPorts
+          -- pinned to the tunnel address, and recall.xinutec.org, which isis's host
+          -- front door serves on the tunnel address only (checked at build time; the
+          -- old shared ingress also answered publicly, hence no name until then).
+          -- This archive is transcripts of conversations in the house.
           reach = T.Reach.WireGuard { alsoPublish = [ ingestPort ], frontDoor = Some dns.recall }
           , -- recalld's own request limit (DEFAULT_MAX_BODY, 64 MiB): the front door's
             -- default of 1 MB would cut the recorders' uploads off at the name.

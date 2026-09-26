@@ -47,9 +47,9 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        T.Workload::{ -- No Ingress and no DNS record, deliberately. The shared nginx ingress
-          -- answers on isis's PUBLIC IP whatever DNS says, so an Ingress here
-          -- would be obscurity rather than a gate; scans are private documents.
+        T.Workload::{ -- Reached two ways while its clients move (#1799): scanner.xinutec.org,
+          -- which isis's host front door serves on the tunnel address only (checked
+          -- at build time), and the old hostPort. Scans are private documents.
           -- `WireGuard` is a hostPort DNAT'd to the tunnel address only, which is
           -- a network-layer gate — and `T.wgAddress` derives the hostIP from
           -- `cluster`, because a bare hostPort DNATs on every address the node

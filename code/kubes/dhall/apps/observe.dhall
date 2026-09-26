@@ -107,10 +107,10 @@ in  T.namespaceOf
             }
         }
       , workload =
-        T.Workload::{ -- No Ingress and no DNS record, the same stance as recall and scanner:
-          -- the shared nginx ingress answers on isis's PUBLIC address whatever DNS
-          -- says, so an Ingress here would be obscurity rather than a gate. These
-          -- are reconstructions of rooms in the house.
+        T.Workload::{ -- Reached two ways while its clients move (#1799): the wg0-pinned
+          -- hostPort, and observe.xinutec.org, which isis's host front door serves on
+          -- the tunnel address only (checked at build time; the old shared ingress
+          -- also answered publicly). These are reconstructions of rooms in the house.
           reach = T.Reach.WireGuard { alsoPublish = [] : List Natural, frontDoor = Some dns.observe }
         , name = "observe-viewer"
         , -- Who may connect: its hostPort, from the VPN only (#1763).
