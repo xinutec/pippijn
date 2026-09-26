@@ -1,0 +1,26 @@
+# The controller accepts 80 and 443 from anyone and nothing else from pods: its
+# admission webhook (8443) and metrics (10254) were reachable from every pod in
+# the cluster (task #1763). The API server calls the webhook from the host, and
+# host-sourced traffic is not subject to NetworkPolicy (measured 2026-09-26), so
+# admission keeps working. Public traffic reaches it through k3s's svclb pods.
+# Applied by sync.sh with kubectl, not through the chart, so a chart upgrade
+# cannot drop it.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-nginx-controller-web-only
+  namespace: ingress-nginx
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx
+      app.kubernetes.io/component: controller
+  policyTypes:
+  - Ingress
+  ingress:
+  - ports:
+    - port: 80
+      protocol: TCP
+    - port: 443
+      protocol: TCP

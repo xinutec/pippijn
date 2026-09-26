@@ -45,3 +45,6 @@ args=(
 # errors and CRD/API-version breakage before anything is applied.
 sudo helm upgrade --install "${args[@]}" --dry-run >/dev/null
 sudo helm upgrade --install "${args[@]}"
+
+# Outside the chart on purpose: see networkpolicy.yaml.
+sudo kubectl apply -f "$(dirname "$0")/networkpolicy.yaml"
