@@ -246,11 +246,13 @@ resource "cloudflare_dns_record" "org_life" {
   proxied = false
 }
 
+# coach.xinutec.org — VPN-only: resolves to isis's WireGuard address, and the
+# front door (Exposure.VpnOnly) listens for it on the tunnel only.
 resource "cloudflare_dns_record" "org_coach" {
   zone_id = local.xinutec_org_id
-  type    = "CNAME"
+  type    = "A"
   name    = "coach"
-  content = "isis.xinutec.org"
+  content = local.hosts.vpn_isis
   ttl     = 3600
   proxied = false
 }
