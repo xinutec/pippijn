@@ -590,32 +590,10 @@ header() { # app file netpol_anchor
       ;;
   esac
 
-  # DL-K8S-NP-DEFAULT-DENY anchors on the FIRST Deployment in the namespace, so
-  # the waiver has to sit above that document's leading `---`. Which file that is
-  # follows from the model (R.hasDb → netpol_anchor_file); it was hardcoded to
-  # 02-db.yaml, which meant utterance — the only app with `db = None` — silently
-  # got no waiver at all and failed the rule from the day it was deployed.
-  #
-  # The waiver TEXT stays here rather than in the model: it is a fact about
-  # dev-lint, not about the deployment, and rendering drops comments anyway. Only
-  # the placement decision comes from the model, which is the part that was wrong.
-  #
-  # dev-lint FAILS an ineffective waiver ("a waiver that waives nothing is a
-  # baseline entry nobody can see"), so the first app to gain a real default-deny
-  # policy fails here rather than being silently over-waived.
-  #
-  # ...and only when the app has no APPLIED policy of its own. An app with a
-  # real default-deny needs no waiver, and dev-lint fails one that waives
-  # nothing, so this asks the model rather than keeping a second list here.
-  #
-  # `allow-''<suffix>` — the same split as doc_waiver's and host_port_waiver's,
-  # and for the same reason: a whole marker string HERE registers as a waiver
-  # sited in generate.sh, where it suppresses nothing, and dev-lint condemns a
-  # waiver that waives nothing. `''` closes and reopens the quote and contributes
-  # no character, so the emitted text is unaffected.
-  if [[ ${3:-0} == 1 && $(ask "$1" hasAppliedNetpol) == False ]]; then
-    printf '# dev-lint: allow-''no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
-  fi
+  # No netpol waiver is emitted any more: DL-K8S-NP-DEFAULT-DENY retired on
+  # 2026-09-26 (dev-lint #1751) in favour of one fleet row that counts the
+  # namespaces with a default-deny policy. `hasAppliedNetpol` stays in the model
+  # for that count's sake; nothing here reads it now.
 }
 
 site_header() { # site file
@@ -629,16 +607,6 @@ site_header() { # site file
       # facts about a stock image nobody here builds. A waiver as well would be a
       # second mechanism saying the same thing, sitting inert.
       #
-      # The remaining waiver below is a different kind of statement: it is about
-      # THIS namespace, not about the image, so no carve-out can pre-empt it.
-      if [[ $(site_ask "$1" netpolWaiver) == True ]]; then
-        printf '#\n'
-        # DL-K8S-NP-DEFAULT-DENY anchors on the FIRST Deployment in a namespace,
-        # and all four sites share `web` — so exactly ONE of them may carry this
-        # and the model says which. dev-lint fails a waiver that waives nothing,
-        # so a second one would be caught rather than silently over-waiving.
-        printf '# dev-lint: allow-''no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)\n'
-      fi
       ;;
   esac
 }

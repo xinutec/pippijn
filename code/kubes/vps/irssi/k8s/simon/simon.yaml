@@ -1,5 +1,4 @@
 ---
-# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
 apiVersion: v1
 kind: Namespace
 metadata:

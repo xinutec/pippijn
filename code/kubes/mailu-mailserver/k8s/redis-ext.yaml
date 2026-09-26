@@ -1,5 +1,3 @@
-# dev-lint: allow-no-netpol — the mailu chart resources have none either; a
-# namespace-wide default-deny + allow-graph is a mailu-namespace task, not this pod.
 #
 # Free, maintained Redis for mailu, replacing the bundled Bitnami redis subchart.
 # That subchart is pinned to the FROZEN bitnamilegacy/redis (no security updates
