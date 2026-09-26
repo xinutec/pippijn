@@ -1,5 +1,4 @@
 ---
-# dev-lint: allow-no-netpol — pre-existing: namespace needs a default-deny NetworkPolicy + allow-graph (network-hardening)
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -53,7 +52,6 @@ spec:
           # builtin), so dash crashloops it. Overriding here fixes it without a
           # rebuild; the source shebang is also corrected to #!/bin/bash.
           command: ["/bin/bash", "/init.sh"]
-          # dev-lint: allow-unhardened — the entrypoint must run as root (starts
           # sshd, manages /etc/ssh host keys, chowns the mounted volumes) before
           # dropping to the unprivileged irssi user; see the Dockerfile.
           env:
@@ -63,7 +61,7 @@ spec:
             # SSH terminal server: users ssh directly to this per-user hostPort,
             # so it must bind the node interface and see the real client IP.
             - containerPort: 22
-              hostPort: ${port}  # dev-lint: allow-host-port — users ssh straight to this node port, see above
+              hostPort: ${port}
           readinessProbe:
             tcpSocket:
               port: 22
