@@ -93,7 +93,7 @@ let usesHostPort
                   merge
                     { Ingress =
                         λ(_ : { host : Text, exposure : T.Exposure }) → False
-                    , WireGuard = λ(_ : { alsoPublish : List Natural }) → True
+                    , WireGuard = λ(_ : { alsoPublish : List Natural, frontDoor : Optional Text }) → True
                     , HostPorts = λ(_ : { published : List T.Published, why : Text }) → True
                     , Internal = False
                     , NoService = False
@@ -1038,7 +1038,7 @@ let sidecarContainerFor =
                           Some
                             [ merge
                                 { WireGuard =
-                                    λ(_ : { alsoPublish : List Natural }) →
+                                    λ(_ : { alsoPublish : List Natural, frontDoor : Optional Text }) →
                                       { containerPort = p
                                       , hostPort = Some p
                                       , hostIP = Some
@@ -1139,7 +1139,7 @@ let deploymentFor
               merge
                 { Ingress =
                     λ(_ : { host : Text, exposure : T.Exposure }) → False
-                , WireGuard = λ(_ : { alsoPublish : List Natural }) → True
+                , WireGuard = λ(_ : { alsoPublish : List Natural, frontDoor : Optional Text }) → True
                 , -- Same reason as `WireGuard`, and the live manifests say so in
                   -- their own words: "hostPort binds the node interface, so two
                   -- pods can't coexist during a rollout — recreate (brief blip)
@@ -1242,7 +1242,7 @@ let deploymentFor
                                       }
                                     ]
                               , WireGuard =
-                                  λ(r : { alsoPublish : List Natural }) →
+                                  λ(r : { alsoPublish : List Natural, frontDoor : Optional Text }) →
                                     L.map
                                       Natural
                                       K.ContainerPort
@@ -1454,7 +1454,7 @@ let servicePort
       λ(w : T.Workload.Type) →
         merge
           { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → 80
-          , WireGuard = λ(_ : { alsoPublish : List Natural }) → w.port
+          , WireGuard = λ(_ : { alsoPublish : List Natural, frontDoor : Optional Text }) → w.port
           , Internal = w.port
           , -- Never evaluated, same as `NoService` below.
             HostPorts = λ(_ : { published : List T.Published, why : Text }) → w.port
@@ -1595,7 +1595,7 @@ let serviceFor
 
         in  merge
               { Ingress = λ(_ : { host : Text, exposure : T.Exposure }) → svc
-              , WireGuard = λ(_ : { alsoPublish : List Natural }) → svc
+              , WireGuard = λ(_ : { alsoPublish : List Natural, frontDoor : Optional Text }) → svc
               , Internal = svc
               , HostPorts = λ(_ : { published : List T.Published, why : Text }) → [] : List K.Service
               , NoService = [] : List K.Service
@@ -1666,7 +1666,7 @@ let ingressFor
                         }
                       }
                     ]
-          , WireGuard = λ(_ : { alsoPublish : List Natural }) → [] : List K.Ingress
+          , WireGuard = λ(_ : { alsoPublish : List Natural, frontDoor : Optional Text }) → [] : List K.Ingress
           , Internal = [] : List K.Ingress
           , HostPorts = λ(_ : { published : List T.Published, why : Text }) → [] : List K.Ingress
           , NoService = [] : List K.Ingress
@@ -2319,7 +2319,24 @@ let frontDoorOf
                     , healthPath = w.serviceCheck
                     }
                 ]
-          , WireGuard = λ(_ : { alsoPublish : List Natural }) → [] : List F.Entry
+          , WireGuard =
+              λ(r : { alsoPublish : List Natural, frontDoor : Optional Text }) →
+                merge
+                  { None = [] : List F.Entry
+                  , Some =
+                      λ(host : Text) →
+                        [     F.default
+                          ⫽ { host
+                            , upstream = F.svcFqdn w.name ns.name
+                            , port = servicePort w
+                            , exposure = "VpnOnly"
+                            , clusters = clusterHosts ns
+                            , maxBodySize = w.maxBodySize
+                            , healthPath = w.serviceCheck
+                            }
+                        ]
+                  }
+                  r.frontDoor
           , Internal = [] : List F.Entry
           , HostPorts =
               λ(_ : { published : List T.Published, why : Text }) →

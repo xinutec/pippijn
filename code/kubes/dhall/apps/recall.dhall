@@ -73,7 +73,7 @@ in  T.namespaceOf
           -- and this archive is transcripts of
           -- conversations in the house. The hostPort pinned to the tunnel address
           -- IS the gate.
-          reach = T.Reach.WireGuard { alsoPublish = [ ingestPort ] }
+          reach = T.Reach.WireGuard { alsoPublish = [ ingestPort ], frontDoor = None Text }
           , -- Who may connect: its hostPort, from the VPN only (#1763).
             ingress =
               Some

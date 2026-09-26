@@ -10,6 +10,8 @@ let T =
       -- Ingress: `Image.Local` and `Reach.WireGuard` say both.
       ../lib/types.dhall
 
+let dns = ../dns.dhall
+
 let dataPath = "/srv/data"
 
 in  T.namespaceOf
@@ -52,7 +54,7 @@ in  T.namespaceOf
           -- a network-layer gate — and `T.wgAddress` derives the hostIP from
           -- `cluster`, because a bare hostPort DNATs on every address the node
           -- has and the rule bypasses the NixOS firewall entirely.
-          reach = T.Reach.WireGuard { alsoPublish = [] : List Natural }
+          reach = T.Reach.WireGuard { alsoPublish = [] : List Natural, frontDoor = Some dns.scanner }
           , -- Who may connect: its hostPort, from the VPN only (#1763).
             ingress =
               Some

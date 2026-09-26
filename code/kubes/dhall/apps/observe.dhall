@@ -109,7 +109,7 @@ in  T.namespaceOf
           -- the shared nginx ingress answers on isis's PUBLIC address whatever DNS
           -- says, so an Ingress here would be obscurity rather than a gate. These
           -- are reconstructions of rooms in the house.
-          reach = T.Reach.WireGuard { alsoPublish = [] : List Natural }
+          reach = T.Reach.WireGuard { alsoPublish = [] : List Natural, frontDoor = None Text }
         , name = "observe-viewer"
         , -- Who may connect: its hostPort, from the VPN only (#1763).
           ingress =

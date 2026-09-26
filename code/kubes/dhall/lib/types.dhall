@@ -335,7 +335,13 @@ let Reach =
         -- is always published, so "probing a port you do not publish" is
         -- unrepresentable here. Each is bound at the same number on the tunnel
         -- address.
-        WireGuard : { alsoPublish : List Natural }
+        --
+        -- `frontDoor` names a host the front door ALSO serves for it, VPN-only: on
+        -- the tunnel address alone, which the front door guarantees at build time
+        -- (nixos-config `machines/isis/frontdoor.nix`). It is the way off the bare
+        -- port: clients move to the name one by one, and once none uses the port
+        -- the workload becomes `Ingress` with `VpnOnly`.
+        WireGuard : { alsoPublish : List Natural, frontDoor : Optional Text }
       | -- Published straight onto every node interface, with NO Service — not
         -- Kubernetes' `type: NodePort`, which is a Service.
         --

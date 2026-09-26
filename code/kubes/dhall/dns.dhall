@@ -23,6 +23,7 @@ in  { -- Hosts (the machines themselves)
     , mail = sub "mail"
     , memview = sub "memview"
     , messages = sub "messages"
+    , scanner = sub "scanner"
     , nocodb = sub "nocodb"
     , slides = sub "slides"
     , tasks = sub "tasks"

@@ -109,6 +109,19 @@
       "isis.xinutec.org"
     ],
     "exposure": "VpnOnly",
+    "host": "scanner.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 8090,
+    "scheme": "http",
+    "upstream": "scanner.scanner.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "VpnOnly",
     "host": "tasks.xinutec.org",
     "modelled": true,
     "path": "/",
