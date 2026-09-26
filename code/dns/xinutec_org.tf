@@ -25,6 +25,19 @@ resource "cloudflare_dns_record" "org_vault" {
   proxied = false
 }
 
+# scanner.xinutec.org — the scanner preview server on isis, VPN-only. The front
+# door serves this name on isis's tunnel address alone (and refuses to build
+# otherwise), beside the scanner's old wg0 port 10.100.0.2:8090, which goes once
+# its clients have moved. See code/kubes/scanner.
+resource "cloudflare_dns_record" "org_scanner" {
+  zone_id = local.xinutec_org_id
+  type    = "A"
+  name    = "scanner"
+  content = local.hosts.vpn_isis
+  ttl     = 3600
+  proxied = false
+}
+
 # messages.xinutec.org — Signal + Google Chat archive viewer on isis, VPN-only.
 # Resolves to isis's WireGuard IP so it's unlisted publicly; the real gate is the
 # Nextcloud login + pippijn-only allow-list (the isis ingress also answers on the
