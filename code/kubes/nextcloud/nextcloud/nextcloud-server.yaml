@@ -1,6 +1,5 @@
 ---
 apiVersion: apps/v1
-# dev-lint: allow-unhardened
 kind: Deployment
 metadata:
   namespace: nextcloud
