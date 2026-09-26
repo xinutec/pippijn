@@ -100,6 +100,11 @@ let PodSecurityContext =
       , seccompProfile : { type : Text }
       }
 
+let Lifecycle =
+      --| Only the native `preStop.sleep` action (k8s 1.32+): it needs no binary in
+      --  the image, which a distroless or nonroot image may not have.
+      { preStop : { sleep : { seconds : Natural } } }
+
 let Container =
       { name : Text
       , image : Text
@@ -126,6 +131,7 @@ let Container =
       , startupProbe : Optional Probe
       , livenessProbe : Optional Probe
       , readinessProbe : Optional Probe
+      , lifecycle : Optional Lifecycle
       , -- Optional HERE and required in `T.Workload`, which is the distinction
         -- that matters: every app the fleet BUILDS must state its limits, and
         -- `T.Resources` makes that impossible to omit. The four static sites run
@@ -402,6 +408,7 @@ in  { Meta
     , VolumeMount
     , ContainerSecurityContext
     , PodSecurityContext
+    , Lifecycle
     , Container
     , Volume
     , ConfigMap

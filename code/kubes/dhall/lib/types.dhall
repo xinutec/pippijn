@@ -551,6 +551,10 @@ let WorkloadType =
         tasks : List ScheduledTask
       , -- Further containers in this pod — see `Sidecar`.
         sidecars : List SidecarType
+      , -- Seconds to keep serving after the pod is told to stop, so the endpoint
+        -- is gone from the Service before the process stops accepting. `None`
+        -- stops at once, which can answer a request mid-rollout with a 502.
+        drainSeconds : Optional Natural
       }
 
 let Workload =
@@ -577,6 +581,7 @@ let Workload =
         , serviceCheck = None Text
         , pullPolicy = None Text
         , containerName = None Text
+        , drainSeconds = None Natural
         }
       }
 

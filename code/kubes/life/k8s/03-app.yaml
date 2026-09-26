@@ -57,6 +57,10 @@ spec:
               name: "life-secret"
               optional: true
         image: "xinutec/life:latest"
+        lifecycle:
+          preStop:
+            sleep:
+              seconds: 5
         livenessProbe:
           httpGet:
             path: /healthz

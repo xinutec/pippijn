@@ -363,6 +363,7 @@ let baseContainer =
       , startupProbe = None K.Probe
       , livenessProbe = None K.Probe
       , readinessProbe = None K.Probe
+      , lifecycle = None K.Lifecycle
       }
 
 let k8sMount
@@ -1198,6 +1199,14 @@ let deploymentFor
                               , Some = λ(p : Text) → Some p
                               }
                               w.pullPolicy
+                        , lifecycle =
+                            merge
+                              { None = None K.Lifecycle
+                              , Some =
+                                  λ(s : Natural) →
+                                    Some { preStop.sleep.seconds = s }
+                              }
+                              w.drainSeconds
                         , command = w.command
                         , -- ⚠ `Unhardened` drops this too, and that is the
                           -- point: `drop: ALL` takes CAP_CHOWN/CAP_SETUID/

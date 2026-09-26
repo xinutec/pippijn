@@ -48,6 +48,8 @@ in  T.namespaceOf
             T.Reach.Ingress { host = dns.life, exposure = T.Exposure.Public }
         , name = "life-app"
         , image = T.Image.Fleet "life"
+        , -- Rollouts: the Service drops this pod before it stops accepting.
+          drainSeconds = Some 5
         , port = 8080
         , -- Matches the nonroot user baked into the image (Dockerfile).
           uid = 65532

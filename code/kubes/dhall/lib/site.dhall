@@ -496,6 +496,7 @@ let deployment
                         , volumeMounts = L.nonEmpty K.VolumeMount (mounts site)
                         , imagePullPolicy = None Text
                         , startupProbe = None K.Probe
+                        , lifecycle = None K.Lifecycle
                         , livenessProbe = None K.Probe
                         , readinessProbe = Some
                           (     K.emptyProbe
