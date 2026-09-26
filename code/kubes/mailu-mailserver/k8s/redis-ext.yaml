@@ -112,3 +112,25 @@ spec:
   ports:
     - port: 6379
       targetPort: 6379
+---
+# Only mailu's own pods (admin and rspamd use it) may connect. The chart's
+# policies do not select this Deployment: it carries none of the chart's labels.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mailu-redis-ext-from-mailu-only
+  namespace: mailu-mailserver
+spec:
+  podSelector:
+    matchLabels:
+      app: mailu-redis-ext
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/instance: mailu
+    ports:
+    - port: 6379
+      protocol: TCP

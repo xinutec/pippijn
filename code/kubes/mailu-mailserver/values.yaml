@@ -70,3 +70,10 @@ tika:
   image:
     tag: "3.3.1.0-full"
 #secretKey: ""  # XXX: add here when updating
+
+# The chart's own policies: default-deny for every mailu pod, everything allowed
+# between them, the mail ports open to anyone on front, 80/443 on front from the
+# ingress controller, and no egress at all for tika and oletools (task #1763).
+# mailu-redis-ext is not the chart's; its policy is in k8s/redis-ext.yaml.
+networkPolicy:
+  enabled: true
