@@ -10,6 +10,8 @@ let T =
       -- is transcripts of conversations in this house.
       ../lib/types.dhall
 
+let dns = ../dns.dhall
+
 let dataPath = "/data"
 
 let port = 8000
@@ -73,7 +75,10 @@ in  T.namespaceOf
           -- and this archive is transcripts of
           -- conversations in the house. The hostPort pinned to the tunnel address
           -- IS the gate.
-          reach = T.Reach.WireGuard { alsoPublish = [ ingestPort ], frontDoor = None Text }
+          reach = T.Reach.WireGuard { alsoPublish = [ ingestPort ], frontDoor = Some dns.recall }
+          , -- recalld's own request limit (DEFAULT_MAX_BODY, 64 MiB): the front door's
+            -- default of 1 MB would cut the recorders' uploads off at the name.
+            maxBodySize = Some "64m"
           , -- Who may connect: its hostPort, from the VPN only (#1763).
             ingress =
               Some

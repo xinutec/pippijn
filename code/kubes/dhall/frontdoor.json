@@ -109,6 +109,33 @@
       "isis.xinutec.org"
     ],
     "exposure": "VpnOnly",
+    "host": "observe.xinutec.org",
+    "modelled": true,
+    "path": "/",
+    "port": 8091,
+    "scheme": "http",
+    "upstream": "observe-viewer.observe.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "VpnOnly",
+    "host": "recall.xinutec.org",
+    "maxBodySize": "64m",
+    "modelled": true,
+    "path": "/",
+    "port": 8000,
+    "scheme": "http",
+    "upstream": "recall.recall.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "VpnOnly",
     "host": "scanner.xinutec.org",
     "modelled": true,
     "path": "/",

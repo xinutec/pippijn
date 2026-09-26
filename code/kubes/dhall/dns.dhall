@@ -24,6 +24,8 @@ in  { -- Hosts (the machines themselves)
     , memview = sub "memview"
     , messages = sub "messages"
     , scanner = sub "scanner"
+    , observe = sub "observe"
+    , recall = sub "recall"
     , nocodb = sub "nocodb"
     , slides = sub "slides"
     , tasks = sub "tasks"
