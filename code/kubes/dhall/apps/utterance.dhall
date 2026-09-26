@@ -115,7 +115,7 @@ in  T.namespaceOf
         , mounts = [] : List T.VolumeMount
         }
       , secrets = toMap keys
-      , netpol = T.Netpol.IngressFromNginx
+      , netpol = T.Netpol.IngressOnly
       }
           : T.App
       )

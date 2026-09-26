@@ -58,6 +58,7 @@ let hasAppliedNetpol
               merge
                 { Unpoliced = False
                 , IngressFromNginx = False
+                , IngressOnly = True
                 , Egress = λ(_ : List T.EgressTo) → True
                 , Policies = λ(_ : List T.NetpolPolicy) → True
                 }
@@ -1849,12 +1850,11 @@ let netpolDb
 let ingressFromNginx
     : T.Namespace → T.Workload.Type → K.NetworkPolicy
     =
-      --| ⚠️ HELD, not applied. k3s enforces NetworkPolicy via kube-router, which does
-      --  NOT exempt node-sourced kubelet probe traffic — applying this as written
-      --  drops the liveness/readiness probes, marks the pod NotReady and takes the
-      --  site down. Rendered to its own file so the intent stays reviewed, but it is
-      --  deliberately outside the applied set until a probe-source rule is added and
-      --  verified on a live pod.
+      --| The ingress-only policy of one workload: from the `ingress-nginx`
+      --  namespace on the workload's port, and from nothing else in the cluster.
+      --  Host-sourced traffic (the kubelet's probes, isis's host-nginx front door)
+      --  is not subject to it, measured 2026-09-26. `netpolAppHeld` renders it for
+      --  `Netpol.IngressFromNginx`, `netpolApp` for `Netpol.IngressOnly`.
       λ(ns : T.Namespace) →
       λ(w : T.Workload.Type) →
         { apiVersion = "networking.k8s.io/v1"
@@ -2043,12 +2043,11 @@ let defaultDenyOf
 let ingressFromNginx
     : T.Namespace → T.Workload.Type → K.NetworkPolicy
     =
-      --| ⚠️ HELD, not applied. k3s enforces NetworkPolicy via kube-router, which does
-      --  NOT exempt node-sourced kubelet probe traffic — applying this as written
-      --  drops the liveness/readiness probes, marks the pod NotReady and takes the
-      --  site down. Rendered to its own file so the intent stays reviewed, but it is
-      --  deliberately outside the applied set until a probe-source rule is added and
-      --  verified on a live pod.
+      --| The ingress-only policy of one workload: from the `ingress-nginx`
+      --  namespace on the workload's port, and from nothing else in the cluster.
+      --  Host-sourced traffic (the kubelet's probes, isis's host-nginx front door)
+      --  is not subject to it, measured 2026-09-26. `netpolAppHeld` renders it for
+      --  `Netpol.IngressFromNginx`, `netpolApp` for `Netpol.IngressOnly`.
       λ(ns : T.Namespace) →
       λ(w : T.Workload.Type) →
         { apiVersion = "networking.k8s.io/v1"
@@ -2150,12 +2149,11 @@ let egressDefaultDeny
 let netpolAppHeld
     : T.Namespace → List K.NetworkPolicy
     =
-      --| ⚠️ HELD, not applied. k3s enforces NetworkPolicy via kube-router, which does
-      --  NOT exempt node-sourced kubelet probe traffic — applying this as written
-      --  drops the liveness/readiness probes, marks the pod NotReady and takes the
-      --  site down. Rendered to its own file so the intent stays reviewed, but it is
-      --  deliberately outside the applied set until a probe-source rule is added and
-      --  verified on a live pod.
+      --| ⚠️ HELD, not applied: the ingress-only policy of apps still on
+      --  `Netpol.IngressFromNginx`, rendered to its own file so the intent stays
+      --  reviewed. The hold's reason, dropped kubelet probes, no longer reproduces
+      --  (measured 2026-09-26, see `Netpol`); apps leave it by moving to
+      --  `Netpol.IngressOnly`, one watched deploy each.
       --
       -- Only the `IngressFromNginx` arm lands here. The egress policies ARE applied
       -- and go to `netpolApp` below, which is the whole reason `netpol` stopped being
@@ -2165,6 +2163,7 @@ let netpolAppHeld
           { Unpoliced = [] : List K.NetworkPolicy
           , IngressFromNginx =
               L.map T.Workload.Type K.NetworkPolicy (ingressFromNginx ns) ns.workloads
+          , IngressOnly = [] : List K.NetworkPolicy
           , Egress = λ(_ : List T.EgressTo) → [] : List K.NetworkPolicy
           , Policies = λ(_ : List T.NetpolPolicy) → [] : List K.NetworkPolicy
           }
@@ -2178,6 +2177,8 @@ let netpolApp
         merge
           { Unpoliced = [] : List K.NetworkPolicy
           , IngressFromNginx = [] : List K.NetworkPolicy
+          , IngressOnly =
+              L.map T.Workload.Type K.NetworkPolicy (ingressFromNginx ns) ns.workloads
           , Egress =
               λ(allowed : List T.EgressTo) →
                 [ renderPolicy ns (defaultDenyOf allowed) ]

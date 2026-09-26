@@ -745,15 +745,22 @@ let Netpol =
       --| What NetworkPolicy an app declares, if any.
       --
       -- ⚠ The arms differ in whether they are APPLIED. `IngressFromNginx` renders to
-      -- its own `-held.yaml` and stays out of the applied set: kube-router does not
-      -- exempt node-sourced kubelet probe traffic, so applying it as written drops
-      -- the liveness probes and takes the app down. `Egress` is applied.
+      -- its own `-held.yaml` and stays out of the applied set; `IngressOnly` is the
+      -- same policy, applied. The hold was for kubelet probes, which kube-router
+      -- dropped in 2026-07. Measured again 2026-09-26 on both clusters (isis k3s
+      -- v1.35.7, amun v1.32.7, throwaway namespaces): under this policy a pod in
+      -- another namespace is blocked, while httpGet probes and every host-sourced
+      -- connection get through, isis's host-nginx front door included. So apps
+      -- move from the held arm to the applied one, one watched deploy at a time.
       < --| No policy of its own. `generate.sh` emits the `allow-no-netpol`
         --  waiver for these, which is the honest record of a namespace that has
         --  not been hardened yet.
         Unpoliced
       | --| Reachable only from the ingress controller. HELD — see above.
         IngressFromNginx
+      | --| Reachable only from the ingress controller and the node itself (the
+        --  front door and the kubelet), not from any other pod. APPLIED.
+        IngressOnly
       | --| Default-deny egress, with named exceptions. An EMPTY list is the
         --  whole point rather than a degenerate case: it is deny-everything,
         --  which is what an app that talks to nothing outside its pod wants.

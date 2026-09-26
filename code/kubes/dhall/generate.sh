@@ -577,11 +577,10 @@ header() { # app file netpol_anchor
       # alone. Add a reader to that test when one appears — a marker with one
       # reader is a guard that cannot fail.
       printf '#\n'
-      printf '# NOT YET APPLIED. k3s enforces NetworkPolicy via kube-router, which does NOT\n'
-      printf '# exempt node-sourced kubelet health-probe traffic, so this policy as written\n'
-      printf '# drops the liveness/readiness probes, marks the pod NotReady, and takes the\n'
-      printf '# site down. Before applying: admit the probe source as well (an ipBlock for\n'
-      printf '# the node/pod CIDR), then verify probes stay green on a live pod.\n'
+      printf '# NOT YET APPLIED. Held because kube-router once dropped the kubelet probes\n'
+      printf '# under this policy; measured 2026-09-26 on both clusters, it no longer does\n'
+      printf '# (see Netpol in lib/types.dhall). To apply: move the app to\n'
+      printf '# `Netpol.IngressOnly`, deploy it, and check its URL and readiness.\n'
       printf '#\n'
       printf '# Intent: the app is reachable only through the nginx ingress controller, so\n'
       printf '# no other pod can hit the API directly and bypass its TLS termination. The\n'
