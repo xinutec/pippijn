@@ -33,7 +33,29 @@ in  { name = "ircd"
     , claims = [ storage ]
     , secrets = [] : List T.SecretKey
     , unowned = [] : List T.Unowned
-    , netpol = T.Netpol.Unpoliced
+    , -- The client ports stay open to anyone; the server-link port 7005 admits
+      -- only the two configured peers (inspircd `links.conf`). Measured
+      -- 2026-09-26: in five days no peer connected inbound (ours dials out), and
+      -- 503 inbound 7005 connections came from scanners failing the handshake.
+      netpol =
+        T.Netpol.Ingress
+          [ { to = [ T.NetpolPeer.Internet { except = [] : List Text } ]
+            , ports =
+              [ { port = 6697, protocol = "TCP" }, { port = 7776, protocol = "TCP" } ]
+            }
+          , { to =
+              [ T.NetpolPeer.Host
+                  { cidr = "46.105.124.126/32"
+                  , why = "ra.xinutec.org, an IRC server linked from links.conf"
+                  }
+              , T.NetpolPeer.Host
+                  { cidr = "195.154.9.123/32"
+                  , why = "irc.barfooze.de, an IRC server linked from links.conf"
+                  }
+              ]
+            , ports = [ { port = 7005, protocol = "TCP" } ]
+            }
+          ]
     , acme = Some
       { host = "irc.xinutec.net"
       , -- ⚠ **THIS DOES NOT DEFINE A CERTIFICATE.** `security.acme` on the host

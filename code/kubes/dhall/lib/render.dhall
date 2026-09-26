@@ -59,6 +59,7 @@ let hasAppliedNetpol
                 { Unpoliced = False
                 , IngressFromNginx = False
                 , IngressOnly = True
+                , Ingress = λ(_ : List T.NetpolRule) → True
                 , Egress = λ(_ : List T.EgressTo) → True
                 , Policies = λ(_ : List T.NetpolPolicy) → True
                 }
@@ -1893,6 +1894,66 @@ let ingressFromNginx
           }
         }
 
+let emptyPeer =
+      { ipBlock = None { cidr : Text, except : Optional (List Text) }
+      , podSelector = None { matchLabels : Optional K.Labels }
+      , namespaceSelector = None { matchLabels : K.Labels }
+      }
+
+let renderPeer
+    : T.NetpolPeer → K.NetworkPolicyPeer
+    =
+      --| One peer, for egress `to` and ingress `from` alike.
+      λ(t : T.NetpolPeer) →
+        merge
+          { Namespace =
+              λ(n : Text) →
+                    emptyPeer
+                ⫽ { namespaceSelector = Some
+                    { matchLabels = toMap
+                        { `kubernetes.io/metadata.name` = n }
+                    }
+                  }
+          , Workload =
+              λ(n : Text) →
+                    emptyPeer
+                ⫽ { podSelector = Some
+                      { matchLabels = Some (appLabels n) }
+                  }
+          , SameNamespace =
+                  emptyPeer
+              ⫽ { podSelector = Some { matchLabels = None K.Labels } }
+          , NamespacedWorkload =
+              λ ( x
+                : { namespace : Text
+                  , labels : List { mapKey : Text, mapValue : Text }
+                  }
+                ) →
+                -- BOTH selectors in ONE peer: "in that namespace AND
+                -- matching these labels". Two separate peers would mean
+                -- "either", which silently widens the policy.
+                    emptyPeer
+                ⫽ { namespaceSelector = Some
+                    { matchLabels = toMap
+                        { `kubernetes.io/metadata.name` = x.namespace }
+                    }
+                  , podSelector = Some { matchLabels = Some x.labels }
+                  }
+          , Internet =
+              λ(x : { except : List Text }) →
+                    emptyPeer
+                ⫽ { ipBlock = Some
+                    { cidr = "0.0.0.0/0", except = L.nonEmpty Text x.except }
+                  }
+          , Host =
+              λ(x : { cidr : Text, why : Text }) →
+                    emptyPeer
+                ⫽ { ipBlock = Some
+                    { cidr = x.cidr, except = None (List Text) }
+                  }
+          }
+          t
+
 let renderPolicy
     : T.Namespace → T.NetpolPolicy → K.NetworkPolicy
     =
@@ -1906,64 +1967,7 @@ let renderPolicy
       --  expression deciding what a peer means.
       λ(ns : T.Namespace) →
       λ(pol : T.NetpolPolicy) →
-        let emptyPeer =
-              { ipBlock = None { cidr : Text, except : Optional (List Text) }
-              , podSelector = None { matchLabels : Optional K.Labels }
-              , namespaceSelector = None { matchLabels : K.Labels }
-              }
-
-        let peer =
-              λ(t : T.NetpolPeer) →
-                merge
-                  { Namespace =
-                      λ(n : Text) →
-                            emptyPeer
-                        ⫽ { namespaceSelector = Some
-                            { matchLabels = toMap
-                                { `kubernetes.io/metadata.name` = n }
-                            }
-                          }
-                  , Workload =
-                      λ(n : Text) →
-                            emptyPeer
-                        ⫽ { podSelector = Some
-                              { matchLabels = Some (appLabels n) }
-                          }
-                  , SameNamespace =
-                          emptyPeer
-                      ⫽ { podSelector = Some { matchLabels = None K.Labels } }
-                  , NamespacedWorkload =
-                      λ ( x
-                        : { namespace : Text
-                          , labels : List { mapKey : Text, mapValue : Text }
-                          }
-                        ) →
-                        -- BOTH selectors in ONE peer: "in that namespace AND
-                        -- matching these labels". Two separate peers would mean
-                        -- "either", which silently widens the policy.
-                            emptyPeer
-                        ⫽ { namespaceSelector = Some
-                            { matchLabels = toMap
-                                { `kubernetes.io/metadata.name` = x.namespace }
-                            }
-                          , podSelector = Some { matchLabels = Some x.labels }
-                          }
-                  , Internet =
-                      λ(x : { except : List Text }) →
-                            emptyPeer
-                        ⫽ { ipBlock = Some
-                            { cidr = "0.0.0.0/0", except = L.nonEmpty Text x.except }
-                          }
-                  , Host =
-                      λ(x : { cidr : Text, why : Text }) →
-                            emptyPeer
-                        ⫽ { ipBlock = Some
-                            { cidr = x.cidr, except = None (List Text) }
-                          }
-                  }
-                  t
-
-        in  { apiVersion = "networking.k8s.io/v1"
+        { apiVersion = "networking.k8s.io/v1"
             , kind = "NetworkPolicy"
             , metadata = meta pol.name ns.name
             , spec =
@@ -2005,7 +2009,7 @@ let renderPolicy
                       , ports : List K.NetworkPolicyPort
                       }
                       ( λ(r : T.NetpolRule) →
-                          { to = L.map T.NetpolPeer K.NetworkPolicyPeer peer r.to
+                          { to = L.map T.NetpolPeer K.NetworkPolicyPeer renderPeer r.to
                           , ports =
                               L.map
                                 { port : Natural, protocol : Text }
@@ -2020,6 +2024,51 @@ let renderPolicy
                   )
               }
             }
+
+let ingressPolicy
+    : T.Namespace → List T.NetpolRule → K.NetworkPolicy
+    =
+      --| `Netpol.Ingress`: the namespace's pods accept each rule's peers on its
+      --  ports and nothing else. A rule's `to` is its SOURCES here. Egress is left
+      --  alone. Host-sourced traffic is not subject to it; a hostPort's outside
+      --  clients are, with their own addresses (both measured 2026-09-26).
+      λ(ns : T.Namespace) →
+      λ(rules : List T.NetpolRule) →
+        { apiVersion = "networking.k8s.io/v1"
+        , kind = "NetworkPolicy"
+        , metadata = meta "${slugOf ns}-ingress" ns.name
+        , spec =
+          { podSelector.matchLabels = None K.Labels
+          , policyTypes = [ "Ingress" ]
+          , ingress = Some
+              ( L.map
+                  T.NetpolRule
+                  { from : List K.NetworkPolicyPeer
+                  , ports : List K.NetworkPolicyPort
+                  }
+                  ( λ(r : T.NetpolRule) →
+                      { from = L.map T.NetpolPeer K.NetworkPolicyPeer renderPeer r.to
+                      , ports =
+                          L.map
+                            { port : Natural, protocol : Text }
+                            K.NetworkPolicyPort
+                            ( λ(x : { port : Natural, protocol : Text }) →
+                                { port = x.port, protocol = Some x.protocol }
+                            )
+                            r.ports
+                      }
+                  )
+                  rules
+              )
+          , egress =
+              None
+                ( List
+                    { to : List K.NetworkPolicyPeer
+                    , ports : List K.NetworkPolicyPort
+                    }
+                )
+          }
+        }
 
 let defaultDenyOf
     : List T.EgressTo → T.NetpolPolicy
@@ -2164,6 +2213,7 @@ let netpolAppHeld
           , IngressFromNginx =
               L.map T.Workload.Type K.NetworkPolicy (ingressFromNginx ns) ns.workloads
           , IngressOnly = [] : List K.NetworkPolicy
+          , Ingress = λ(_ : List T.NetpolRule) → [] : List K.NetworkPolicy
           , Egress = λ(_ : List T.EgressTo) → [] : List K.NetworkPolicy
           , Policies = λ(_ : List T.NetpolPolicy) → [] : List K.NetworkPolicy
           }
@@ -2179,6 +2229,7 @@ let netpolApp
           , IngressFromNginx = [] : List K.NetworkPolicy
           , IngressOnly =
               L.map T.Workload.Type K.NetworkPolicy (ingressFromNginx ns) ns.workloads
+          , Ingress = λ(rules : List T.NetpolRule) → [ ingressPolicy ns rules ]
           , Egress =
               λ(allowed : List T.EgressTo) →
                 [ renderPolicy ns (defaultDenyOf allowed) ]

@@ -1,0 +1,30 @@
+# GENERATED from dhall/apps/ircd.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "ircd-ingress"
+  namespace: ircd
+spec:
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - port: 6697
+      protocol: TCP
+    - port: 7776
+      protocol: TCP
+  - from:
+    - ipBlock:
+        cidr: 46.105.124.126/32
+    - ipBlock:
+        cidr: 195.154.9.123/32
+    ports:
+    - port: 7005
+      protocol: TCP
+  podSelector: {}
+  policyTypes:
+  - Ingress

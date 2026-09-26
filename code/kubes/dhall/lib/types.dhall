@@ -734,11 +734,10 @@ let NetpolTarget =
       < WholeNamespace | OneWorkload : Text >
 
 let NetpolPolicy =
-      --| A named egress policy. Egress-only by construction, which is not a
-      --  simplification: k3s enforces through kube-router, which does not exempt
-      --  node-sourced kubelet probe traffic, so a default-deny INGRESS drops the
-      --  probes and takes the pod NotReady. Every applied policy in this fleet is
-      --  egress, and this type cannot express otherwise.
+      --| A named egress policy. Ingress has its own shapes, `Netpol.IngressOnly`
+      --  and `Netpol.Ingress`: the reason this type was egress-only, kubelet
+      --  probes dropped under an ingress default-deny, no longer reproduces
+      --  (measured 2026-09-26).
       { name : Text, target : NetpolTarget, egress : List NetpolRule }
 
 let Netpol =
@@ -761,6 +760,12 @@ let Netpol =
       | --| Reachable only from the ingress controller and the node itself (the
         --  front door and the kubelet), not from any other pod. APPLIED.
         IngressOnly
+      | --| Ingress rules for the whole namespace, APPLIED: each rule's `to` is
+        --  its SOURCES, admitted on its ports, and nothing else reaches the pods
+        --  except the node itself. For hostPort apps, whose outside clients arrive
+        --  with their own addresses: an `Internet` peer keeps a public port open,
+        --  and `Host` narrows one to known addresses.
+        Ingress : List NetpolRule
       | --| Default-deny egress, with named exceptions. An EMPTY list is the
         --  whole point rather than a degenerate case: it is deny-everything,
         --  which is what an app that talks to nothing outside its pod wants.
