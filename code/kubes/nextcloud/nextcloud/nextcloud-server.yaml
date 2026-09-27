@@ -14,6 +14,9 @@ spec:
     metadata:
       labels:
         pod-label: nextcloud-server-pod
+        # The redis chart's own policy admits pods with this label, and only
+        # them (helm/redis-values.yaml, allowExternal: false, #1763).
+        redis-client: "true"
     spec:
       volumes:
       # Create the shared files volume to be used in both pods

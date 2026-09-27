@@ -8,14 +8,7 @@ metadata:
   name: "utterance-app-from-ingress-only"
   namespace: utterance
 spec:
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: "ingress-nginx"
-    ports:
-    - port: 8080
-      protocol: TCP
+  ingress: []
   podSelector:
     matchLabels:
       app: utterance

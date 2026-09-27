@@ -7,14 +7,6 @@ metadata:
   name: "httpd-isis-from-ingress-only"
   namespace: web
 spec:
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: "ingress-nginx"
-    ports:
-    - port: 8080
-      protocol: TCP
   podSelector:
     matchLabels:
       run: "httpd-isis"

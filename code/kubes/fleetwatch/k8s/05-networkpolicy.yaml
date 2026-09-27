@@ -27,14 +27,7 @@ metadata:
   name: "fleetwatch-app-from-ingress-only"
   namespace: fleetwatch
 spec:
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: "ingress-nginx"
-    ports:
-    - port: 8080
-      protocol: TCP
+  ingress: []
   podSelector:
     matchLabels:
       app: "fleetwatch-app"

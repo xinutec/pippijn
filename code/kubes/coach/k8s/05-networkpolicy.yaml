@@ -27,14 +27,7 @@ metadata:
   name: "coach-app-from-ingress-only"
   namespace: coach
 spec:
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: "ingress-nginx"
-    ports:
-    - port: 8080
-      protocol: TCP
+  ingress: []
   podSelector:
     matchLabels:
       app: "coach-app"

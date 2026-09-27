@@ -112,7 +112,7 @@
     "host": "observe.xinutec.org",
     "modelled": true,
     "path": "/",
-    "port": 8091,
+    "port": 80,
     "scheme": "http",
     "upstream": "observe-viewer.observe.svc.cluster.local",
     "why": ""
@@ -126,7 +126,7 @@
     "maxBodySize": "64m",
     "modelled": true,
     "path": "/",
-    "port": 8000,
+    "port": 80,
     "scheme": "http",
     "upstream": "recall.recall.svc.cluster.local",
     "why": ""
@@ -139,7 +139,7 @@
     "host": "scanner.xinutec.org",
     "modelled": true,
     "path": "/",
-    "port": 8090,
+    "port": 80,
     "scheme": "http",
     "upstream": "scanner.scanner.svc.cluster.local",
     "why": ""

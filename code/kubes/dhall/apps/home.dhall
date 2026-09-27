@@ -44,13 +44,9 @@ in  T.namespaceOf
         T.Workload::{ reach =
             T.Reach.Ingress { host = dns.home, exposure = T.Exposure.Public }
         , name = "home"
-        , -- Who may connect: the front door only; see `ingress` on T.Workload (#1763).
-          ingress =
-            Some
-                    [ { to = [ T.NetpolPeer.Namespace "ingress-nginx" ]
-                      , ports = [ { port = 3000, protocol = "TCP" } ]
-                      }
-                    ]
+        , -- No pod may connect: isis's front door is host traffic, which this does
+          -- not govern, and isis runs no ingress-nginx pods (#1763).
+          ingress = Some ([] : List T.NetpolRule)
         , image = T.Image.Fleet "home"
         , command = Some [ "node", "dist/server.js" ]
         , port = 3000

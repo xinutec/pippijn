@@ -690,16 +690,15 @@ let netpol
       --  `ingress-nginx` namespace on nginx's port, and from no other pod. amun's
       --  site is reached through ingress-nginx; isis's through the host-nginx front
       --  door, which is host traffic and not subject to the policy (measured
-      --  2026-09-26). One per site, selected by `run`, because the four share `web`.
+      --  2026-09-26), so there it admits no pod at all. One per site, selected by
+      --  `run`, because the four share `web`.
       λ(site : Site) →
-        { apiVersion = "networking.k8s.io/v1"
-        , kind = "NetworkPolicy"
-        , metadata = meta "${site.name}-from-ingress-only"
-        , spec =
-          { podSelector.matchLabels = Some (runLabels site.name)
-          , policyTypes = [ "Ingress" ]
-          , ingress = Some
-            [ { from =
+        let Rule =
+              { from : List K.NetworkPolicyPeer, ports : List K.NetworkPolicyPort }
+
+        let fromNginx
+            : Rule
+            = { from =
                 [ { ipBlock = None { cidr : Text, except : Optional (List Text) }
                   , podSelector = None { matchLabels : Optional K.Labels }
                   , namespaceSelector = Some
@@ -710,7 +709,19 @@ let netpol
                 ]
               , ports = [ { port = nginxPort, protocol = Some "TCP" } ]
               }
-            ]
+
+        in
+        { apiVersion = "networking.k8s.io/v1"
+        , kind = "NetworkPolicy"
+        , metadata = meta "${site.name}-from-ingress-only"
+        , spec =
+          { podSelector.matchLabels = Some (runLabels site.name)
+          , policyTypes = [ "Ingress" ]
+          , ingress = Some
+              ( if    T.edgeIsIngressNginx site.cluster
+                then  [ fromNginx ]
+                else  [] : List Rule
+              )
           , egress =
               None
                 ( List

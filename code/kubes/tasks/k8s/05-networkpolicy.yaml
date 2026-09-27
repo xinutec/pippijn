@@ -27,14 +27,7 @@ metadata:
   name: "tasks-app-from-ingress-only"
   namespace: tasks
 spec:
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: "ingress-nginx"
-    ports:
-    - port: 8092
-      protocol: TCP
+  ingress: []
   podSelector:
     matchLabels:
       app: tasks

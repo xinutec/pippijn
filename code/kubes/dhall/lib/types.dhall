@@ -37,6 +37,16 @@ let Cluster =
       --| Which k3s cluster an app is scheduled on.
       < isis | amun >
 
+let edgeIsIngressNginx
+    : Cluster → Bool
+    =
+      --| Whether the cluster's edge is ingress-nginx PODS (amun). isis's is the
+      --  host-nginx front door (#1294), which is host traffic and passes no
+      --  NetworkPolicy, so a rule admitting the `ingress-nginx` namespace there
+      --  selects no pod (fleet_health's peer check, 2026-09-27).
+      λ(c : Cluster) →
+        merge { isis = False, amun = True } c
+
 let Image =
       --| A container image.
       --
@@ -1060,6 +1070,7 @@ in  { Cluster
     , on
     , onBoth
     , placedOn
+    , edgeIsIngressNginx
     , soleCluster
     , Durability
     , Image

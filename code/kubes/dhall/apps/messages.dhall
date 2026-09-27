@@ -131,13 +131,9 @@ in  { name = "signal"
       claims = [ linkImages ]
     , workloads =
       [ T.Workload::{ name = "messages"
-        , -- Who may connect: the front door only (#1763).
-          ingress =
-            Some
-                    [ { to = [ T.NetpolPeer.Namespace "ingress-nginx" ]
-                      , ports = [ { port = 8080, protocol = "TCP" } ]
-                      }
-                    ]
+        , -- No pod may connect: isis's front door is host traffic, which this does
+          -- not govern, and isis runs no ingress-nginx pods (#1763).
+          ingress = Some ([] : List T.NetpolRule)
         , reach =
             T.Reach.Ingress
               { host = "messages.xinutec.org"

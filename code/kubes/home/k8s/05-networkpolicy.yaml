@@ -27,14 +27,7 @@ metadata:
   name: "home-ingress"
   namespace: home
 spec:
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: "ingress-nginx"
-    ports:
-    - port: 3000
-      protocol: TCP
+  ingress: []
   podSelector:
     matchLabels:
       app: home

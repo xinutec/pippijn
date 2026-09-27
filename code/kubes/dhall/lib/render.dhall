@@ -2096,17 +2096,24 @@ let ingressFromNginx
       --  namespace on the workload's port, and from nothing else in the cluster.
       --  Host-sourced traffic (the kubelet's probes, isis's host-nginx front door)
       --  is not subject to it, measured 2026-09-26. `netpolAppHeld` renders it for
-      --  `Netpol.IngressFromNginx`, `netpolApp` for `Netpol.IngressOnly`.
+      --  `Netpol.IngressFromNginx`, `netpolApp` for `Netpol.IngressOnly`. On a
+      --  cluster without ingress-nginx pods it admits no pod at all.
       λ(ns : T.Namespace) →
       λ(w : T.Workload.Type) →
-        { apiVersion = "networking.k8s.io/v1"
-        , kind = "NetworkPolicy"
-        , metadata = meta "${slugOf ns}-app-from-ingress-only" ns.name
-        , spec =
-          { podSelector.matchLabels = Some (appLabels w.name)
-          , policyTypes = [ "Ingress" ]
-          , ingress = Some
-            [ { from =
+        let Rule =
+              { from : List K.NetworkPolicyPeer, ports : List K.NetworkPolicyPort }
+
+        let viaNginx =
+              List/fold
+                T.Cluster
+                (T.placedOn ns.placement)
+                Bool
+                (λ(c : T.Cluster) → λ(acc : Bool) → T.edgeIsIngressNginx c || acc)
+                False
+
+        let fromNginx
+            : Rule
+            = { from =
                 [ { ipBlock = None { cidr : Text, except : Optional (List Text) }
                   , podSelector = None { matchLabels : Optional K.Labels }
                   , -- Selected by the namespace's automatic
@@ -2124,16 +2131,23 @@ let ingressFromNginx
                 -- which now checks the rendered YAML for exactly this.
                 ports = [ { port = w.port, protocol = Some "TCP" } ]
               }
-            ]
-          , egress =
-              None
-                ( List
-                    { to : List K.NetworkPolicyPeer
-                    , ports : List K.NetworkPolicyPort
-                    }
-                )
-          }
-        }
+
+        in  { apiVersion = "networking.k8s.io/v1"
+            , kind = "NetworkPolicy"
+            , metadata = meta "${slugOf ns}-app-from-ingress-only" ns.name
+            , spec =
+              { podSelector.matchLabels = Some (appLabels w.name)
+              , policyTypes = [ "Ingress" ]
+              , ingress = Some (if viaNginx then [ fromNginx ] else [] : List Rule)
+              , egress =
+                  None
+                    ( List
+                        { to : List K.NetworkPolicyPeer
+                        , ports : List K.NetworkPolicyPort
+                        }
+                    )
+              }
+            }
 
 let egressDefaultDeny
     : T.Namespace → List T.EgressTo → K.NetworkPolicy
