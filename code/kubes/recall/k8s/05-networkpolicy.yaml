@@ -36,15 +36,7 @@ metadata:
   name: "recall-ingress"
   namespace: recall
 spec:
-  ingress:
-  - from:
-    - ipBlock:
-        cidr: 10.100.0.0/24
-    ports:
-    - port: 8000
-      protocol: TCP
-    - port: 8001
-      protocol: TCP
+  ingress: []
   podSelector:
     matchLabels:
       app: recall

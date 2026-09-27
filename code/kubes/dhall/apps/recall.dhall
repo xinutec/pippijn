@@ -16,8 +16,6 @@ let dataPath = "/data"
 
 let port = 8000
 
-let ingestPort = 8001
-
 let keys =
       -- The keys as a RECORD, so a typo is a type error rather than a pod that boots
       -- with an empty credential. `secrets = toMap keys` publishes the same
@@ -57,8 +55,7 @@ in  T.namespaceOf
           -- that it would happily populate as a second, invisible archive.
           subPath = None Text
         , -- One RWO PVC holding a SQLite database. Two pods writing it is
-          -- corruption, not a race — and the hostPort would forbid a rolling
-          -- update anyway, since the second pod could not bind 8000.
+          -- corruption, not a race.
           writers = T.Writers.Exclusive
         , -- The one modelled volume in the fleet that is a PRIMARY copy. odin's
           -- restic backs it up (a consistent `sqlite .backup` plus the audio);
@@ -70,31 +67,21 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        T.Workload::{ -- Reached two ways while its clients move (#1799): the hostPorts
-          -- pinned to the tunnel address, and recall.xinutec.org, which isis's host
-          -- front door serves on the tunnel address only (checked at build time; the
-          -- old shared ingress also answered publicly, hence no name until then).
-          -- This archive is transcripts of conversations in the house.
-          reach = T.Reach.WireGuard { alsoPublish = [ ingestPort ], frontDoor = Some dns.recall }
+        T.Workload::{ -- VpnOnly: isis's front door listens for this name on the
+          -- WireGuard address only (checked at build time). This archive is
+          -- transcripts of conversations in the house. Its wg0 hostPorts, 8000
+          -- and 8001, went once no client used them (#1799).
+          reach =
+            T.Reach.Ingress { host = dns.recall, exposure = T.Exposure.VpnOnly }
           , -- recalld's own request limit (DEFAULT_MAX_BODY, 64 MiB): the front door's
             -- default of 1 MB would cut the recorders' uploads off at the name.
             maxBodySize = Some "64m"
-          , -- Who may connect: its hostPort, from the VPN only (#1763).
-            ingress =
-              Some
-                      [ { to =
-                          [ T.NetpolPeer.Host
-                              { cidr = "10.100.0.0/24"
-                              , why = "the WireGuard VPN: recall's clients (the Mac's runners, the phones) reach its wg0-bound hostPort"
-                              }
-                          ]
-                        , ports = [ { port = 8000, protocol = "TCP" }, { port = 8001, protocol = "TCP" } ]
-                        }
-                      ]
+          , -- No pod may connect; the front door is host traffic, which this
+            -- does not govern (#1763).
+            ingress = Some ([] : List T.NetpolRule)
         , name = "recall"
         , image = T.Image.Fleet "recall"
         , -- recalld, the Rust system-of-record daemon, and the only container.
-          -- It binds both doors itself.
           --
           -- ⚠ **NO `--upstream`, and that needed a CODE change first.** Without
           -- one, recalld's fallback is the SPA, so `/sync/anything-unmatched`
@@ -106,25 +93,16 @@ in  T.namespaceOf
           [ "recalld"
           , "--root"
           , dataPath
-          , -- BOTH: the port the browser and the registered OAuth redirect
-            -- already use, and the ingest port recorders already push to.
+          , -- One door: the browser, the recorders' ingest and the Mac's sync
+            -- all arrive through the front door on this port.
             "--bind"
           , "0.0.0.0:${Natural/show port}"
-          , "--bind"
-          , "0.0.0.0:${Natural/show ingestPort}"
           , -- ⚠ Safe only BECAUSE the fallback knows `/sync/*` is not a UI
             -- route. See the command note above.
             "--frontend"
           , "/app/frontend/dist/recall-web/browser"
           ]
-        , -- The browser's door and the registered OAuth redirect. `alsoPublish`
-          -- above carries `ingestPort` beside it, from this same container.
-          --
-          -- ⚠ The container that DECLARES a port need not be the one that binds
-          -- it: the declaration installs the CNI portmap DNAT into the POD's
-          -- namespace, and any container in it may answer. Here they are the
-          -- same container, and that is worth keeping true.
-          port
+        , port
         , uid = 1000
         , selector = T.Selector.App
         , hardening = T.Hardening.NonRoot
@@ -209,22 +187,17 @@ in  T.namespaceOf
             }
           ]
         , probeTiming =
-            -- Its own, like the other two tunnel-only apps: reached by a
-            -- hostPort it cannot roll, so readiness delay is downtime per
-            -- deploy.
+            -- Its own: `Recreate` (one writer), so readiness delay is downtime
+            -- per deploy.
             { readiness = { initialDelaySeconds = 3, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 10, periodSeconds = 30 }
             }
-        , -- ⚠ **`ingestPort`, and that is not arbitrary.** recalld binds every
-          -- port before serving any, so 8001 answering proves 8000 is bound too
-          -- — one probe covers both doors.
-          --
-          -- `/ingest/v1/health` because it needs no session: probing a browsing
+        , -- `/ingest/v1/health` because it needs no session: probing a browsing
           -- route would exercise the SSO middleware, and an expired secret would
           -- then read as a dead pod. The old two-container arrangement probed
           -- `/api/capture` on the Python's own port for the same reason, and that
           -- reasoning moves here with the container.
-          probe = T.Probe.Http { path = "/ingest/v1/health", port = ingestPort }
+          probe = T.Probe.Http { path = "/ingest/v1/health", port }
         , resources =  Some
           { requests = { cpu = "100m", memory = "256Mi" }
           , limits = Some { cpu = Some "1", memory = "1Gi" }
