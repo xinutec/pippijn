@@ -1,7 +1,5 @@
 # GENERATED from dhall/apps/signal.dhall by dhall/generate.sh — do not edit.
 # Change the model and re-render; hand edits are overwritten.
-#
-# dev-lint: allow-unhardened — entrypoint runs usermod/groupmod as root before dropping to uid 1000; runAsNonRoot fails them with 'cannot lock /etc/group' and crash-loops the container
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -21,10 +19,13 @@ spec:
         app: "signal-cli-rest-api"
     spec:
       containers:
-      - env:
+      - command:
+        - "signal-cli-rest-api"
+        - "-signal-cli-config=/home/.local/share/signal-cli"
+        env:
         - name: MODE
           value: "json-rpc"
-        image: "bbernhard/signal-cli-rest-api:0.100"
+        image: "bbernhard/signal-cli-rest-api:0.101"
         livenessProbe:
           initialDelaySeconds: 15
           periodSeconds: 20
@@ -42,11 +43,34 @@ spec:
           requests:
             cpu: 100m
             memory: 384Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: "/home/.local/share/signal-cli"
+          name: data
+      - command:
+        - "jsonrpc2-helper"
+        env:
+        - name: MODE
+          value: "json-rpc"
+        image: "bbernhard/signal-cli-rest-api:0.101"
+        name: "signal-cli"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         volumeMounts:
         - mountPath: "/home/.local/share/signal-cli"
           name: data
       securityContext:
         fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
       volumes:

@@ -198,53 +198,56 @@ in  { name = "signal"
         , -- A ClusterIP the ingester and the viewer resolve. Not `NoService`:
           -- this one genuinely is dialled, in-cluster, by name.
           reach = T.Reach.Internal
-        , -- ⚠ **PINNED BACK TO 0.100 AFTER AN OUTAGE, and the note is here so the
-          -- next person does not repeat the reasoning.** `0.100` bundles
-          -- signal-cli 0.14.5, whose `getContactOrProfileName` resolves a system
-          -- contact name and then a profile name. It has no branch for the
-          -- first/last name typed in Signal's own UI — `ContactRecord.nickname`
-          -- in the storage service — so a contact renamed on the phone arrives
-          -- here under whatever they call themselves. 0.14.7 adds that branch.
-          --
-          -- ⚠ **A GITHUB RELEASE TAG IS NOT A DOCKER TAG.** `0.101-pre` exists as
-          -- a GitHub release (2026-09-05) and NOT on Docker Hub; deploying it
-          -- gave ImagePullBackOff, and the `Recreate` strategy below had already
-          -- torn the running pod down. The bridge was off for about four minutes
-          -- on 2026-09-21 before a rollback. Read the REGISTRY's tag list, not
-          -- the project's releases page.
-          --
-          -- ⚠ **AND `latest` IS NOT NEWER — it is 0.100**, same build date. The
-          -- only published images carrying 0.14.7 are the `-dev` channel
-          -- (`0.203-dev`, `latest-dev`; verified by listing `/opt` inside one).
-          -- They are a RESTRUCTURED image, not a version bump: `User` is
-          -- `signal-api` rather than empty, the entrypoint is s6's `/init`
-          -- rather than `/entrypoint.sh`, and `SIGNAL_CLI_UID`/
-          -- `CHOWN_ON_STARTUP` are gone. The `uid` and `hardening` below are
-          -- written against the OLD entrypoint, so moving is a manifest change
-          -- and not a tag change.
+        , -- ⚠ **A GITHUB RELEASE TAG IS NOT A DOCKER TAG.** `0.101-pre` existed as
+          -- a GitHub release and not on Docker Hub; deploying it gave
+          -- ImagePullBackOff after the `Recreate` strategy had already torn the
+          -- running pod down, and the bridge was off for four minutes on
+          -- 2026-09-21. Read the REGISTRY's tag list before moving this.
           --
           -- ⚠ **SIGNAL HAS NO HISTORY TO RE-WALK**, so a bridge that fails loses
           -- messages the server has already handed over. `signal-cli-pvc` is
-          -- snapshotted before any move here.
+          -- snapshotted before any move here: signal-cli migrates its own store,
+          -- and an older one cannot be assumed to read what a newer one wrote.
           image =
             T.Image.Upstream
-              { repo = "bbernhard/signal-cli-rest-api", tag = "0.100" }
+              { repo = "bbernhard/signal-cli-rest-api", tag = "0.101" }
+        , -- ⚠ **NOT THE IMAGE'S ENTRYPOINT.** From 0.101 that is s6's `/init`,
+          -- which as a non-root user demands a `/run` OWNED by that user: upstream
+          -- mounts a tmpfs with `uid=1000`, and an emptyDir cannot be given an
+          -- owner. s6 only supervises two processes, so the pod runs them as two
+          -- containers instead and kubelet supervises them: this one is the REST
+          -- API (s6's `signal-api` service), the sidecar the daemon it dials.
+          command =
+            Some
+              [ "signal-cli-rest-api"
+              , "-signal-cli-config=/home/.local/share/signal-cli"
+              ]
         , port = restApiPort
         , uid = 1000
         , selector = T.Selector.App
-        , -- ⚠ CANNOT BE FORCED NON-ROOT, and this was measured rather than
-          -- assumed. See `T.Hardening`.
-          hardening =
-            T.Hardening.Unhardened
-              { why =
-                  "entrypoint runs usermod/groupmod as root before dropping to uid 1000; runAsNonRoot fails them with 'cannot lock /etc/group' and crash-loops the container"
-              }
+        , -- The image's own user, `signal-api`, is uid 1000, which owns the claim.
+          hardening = T.Hardening.NonRoot
         , rootFs =
             T.RootFs.Writable
               { why =
                   "third-party JVM image: it writes its own data dir and whatever the runtime wants, and that filesystem is not ours to constrain"
               }
         , env = [ { name = "MODE", value = lit "json-rpc" } ]
+        , sidecars =
+          [ T.Sidecar::{ name = "signal-cli"
+            , -- s6's `signal-json-rpc` service: writes `jsonrpc2.yml` into the
+              -- claim and execs `signal-cli daemon --tcp 127.0.0.1:6001`. The API
+              -- reads that file at start, so on an EMPTY claim it exits once and
+              -- is restarted; this store already holds it.
+              command = [ "jsonrpc2-helper" ]
+            , env = [ { name = "MODE", value = lit "json-rpc" } ]
+            , -- Unprobed: the daemon listens on 127.0.0.1, which kubelet cannot
+              -- reach. The helper execs the JVM, so a daemon that exits takes the
+              -- container with it and is restarted.
+              probe = T.Probe.Unprobed
+            , shareMounts = True
+            }
+          ]
         , probeTiming =
             { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 15, periodSeconds = 20 }
