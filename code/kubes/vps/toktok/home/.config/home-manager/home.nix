@@ -38,4 +38,11 @@ in
     # it comes from the shared home.nix this file imports, and .screenrc with it.
     pkgs.tmux
   ];
+
+  # Delete this line when the home-manager/nixpkgs pair agrees on neovim plugins' `runtime`.
+  programs.neovim.plugins = lib.mkForce [ ];
+
+  # jellybeans without plugin list: E185 on line 1 aborts all of extraConfig.
+  xdg.configFile."nvim/colors/jellybeans.vim".source =
+    "${pkgs.vimPlugins.jellybeans-vim}/colors/jellybeans.vim";
 }
