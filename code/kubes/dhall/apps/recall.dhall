@@ -190,7 +190,7 @@ in  T.namespaceOf
               -- client and must match character for character. A coincidence is
               -- not a place to keep a registered value.
               name = "NC_REDIRECT_URI"
-            , value = lit "http://10.100.0.2:${Natural/show port}/auth/callback"
+            , value = lit "https://${dns.recall}/auth/callback"
             }
           , { -- The front door reaches the pod from the node, SNATed to cni0's
               -- address (conntrack, 2026-09-27), so without this every pause in
