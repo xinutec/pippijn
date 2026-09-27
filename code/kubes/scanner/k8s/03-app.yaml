@@ -30,8 +30,6 @@ spec:
         name: scanner
         ports:
         - containerPort: 8090
-          hostIP: '10.100.0.2'
-          hostPort: 8090 # dev-lint: allow-host-port — bound to wg0 only, see hostIP
         readinessProbe:
           httpGet:
             path: /healthz
@@ -73,7 +71,7 @@ metadata:
   namespace: scanner
 spec:
   ports:
-  - port: 8090
+  - port: 80
     targetPort: 8090
   selector:
     app: scanner

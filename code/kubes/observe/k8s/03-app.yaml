@@ -11,8 +11,6 @@ spec:
   selector:
     matchLabels:
       app: "observe-viewer"
-  strategy:
-    type: Recreate
   template:
     metadata:
       labels:
@@ -29,8 +27,6 @@ spec:
         name: "observe-viewer"
         ports:
         - containerPort: 8091
-          hostIP: '10.100.0.2'
-          hostPort: 8091 # dev-lint: allow-host-port — bound to wg0 only, see hostIP
         readinessProbe:
           httpGet:
             path: /healthz
@@ -83,7 +79,7 @@ metadata:
   namespace: observe
 spec:
   ports:
-  - port: 8091
+  - port: 80
     targetPort: 8091
   selector:
     app: "observe-viewer"

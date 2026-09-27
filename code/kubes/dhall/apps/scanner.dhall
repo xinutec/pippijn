@@ -6,8 +6,8 @@ let T =
       -- the phone talks to by default — reachable from anywhere over the VPN, which
       -- the Mac's LAN server never was.
       --
-      -- Its image is neither built by CI nor pulled from a registry, and it has no
-      -- Ingress: `Image.Local` and `Reach.WireGuard` say both.
+      -- Its image is neither built by CI nor pulled from a registry: `Image.Local`
+      -- says so.
       ../lib/types.dhall
 
 let dns = ../dns.dhall
@@ -32,10 +32,7 @@ in  T.namespaceOf
           subPath = None Text
         , writers =
             -- The live manifest says it in these words: "single RWO PVC — never
-            -- two pods writing sessions at once". Renders `strategy: Recreate`,
-            -- which the hostPort would force anyway — a second pod cannot bind
-            -- 8090 while the first holds it, so a rolling update would hang
-            -- rather than merely overlap.
+            -- two pods writing sessions at once". Renders `strategy: Recreate`.
             T.Writers.Exclusive
         , durability =
             T.Durability.LossAccepted
@@ -47,26 +44,14 @@ in  T.namespaceOf
       , -- Configured entirely from the environment; no files to mount.
         configMap = None T.ConfigMapDoc
       , workload =
-        T.Workload::{ -- Reached two ways while its clients move (#1799): scanner.xinutec.org,
-          -- which isis's host front door serves on the tunnel address only (checked
-          -- at build time), and the old hostPort. Scans are private documents.
-          -- `WireGuard` is a hostPort DNAT'd to the tunnel address only, which is
-          -- a network-layer gate — and `T.wgAddress` derives the hostIP from
-          -- `cluster`, because a bare hostPort DNATs on every address the node
-          -- has and the rule bypasses the NixOS firewall entirely.
-          reach = T.Reach.WireGuard { alsoPublish = [] : List Natural, frontDoor = Some dns.scanner }
-          , -- Who may connect: its hostPort, from the VPN only (#1763).
-            ingress =
-              Some
-                      [ { to =
-                          [ T.NetpolPeer.Host
-                              { cidr = "10.100.0.0/24"
-                              , why = "the WireGuard VPN: the scanner's users reach its wg0-bound hostPort"
-                              }
-                          ]
-                        , ports = [ { port = 8090, protocol = "TCP" } ]
-                        }
-                      ]
+        T.Workload::{ -- VpnOnly: isis's front door listens for this name on the
+          -- WireGuard address only (checked at build time). Scans are private
+          -- documents. Its wg0 hostPort went once no client used it (#1799).
+          reach =
+            T.Reach.Ingress { host = dns.scanner, exposure = T.Exposure.VpnOnly }
+          , -- No pod may connect; the front door is host traffic, which this
+            -- does not govern (#1763).
+            ingress = Some ([] : List T.NetpolRule)
         , name = "scanner"
         , -- NOT on Docker Hub. The scanner repo is local-only — its eval golden
           -- embeds a private letter — so there is no CI and no registry;
@@ -84,8 +69,8 @@ in  T.namespaceOf
         , env = [] : List T.EnvVar
         , probeTiming =
             -- Its own, not `standardTiming`: it answers /healthz in about three
-            -- seconds, and being reached by a hostPort it cannot roll, so every
-            -- second of readiness delay is a second of downtime on each deploy.
+            -- seconds, and `Recreate` means every second of readiness delay is a
+            -- second of downtime on each deploy.
             { readiness = { initialDelaySeconds = 3, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 10, periodSeconds = 30 }
             }

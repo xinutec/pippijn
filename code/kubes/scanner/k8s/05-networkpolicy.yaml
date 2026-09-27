@@ -19,13 +19,7 @@ metadata:
   name: "scanner-ingress"
   namespace: scanner
 spec:
-  ingress:
-  - from:
-    - ipBlock:
-        cidr: 10.100.0.0/24
-    ports:
-    - port: 8090
-      protocol: TCP
+  ingress: []
   podSelector:
     matchLabels:
       app: scanner

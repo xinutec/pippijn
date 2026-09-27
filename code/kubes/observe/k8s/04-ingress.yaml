@@ -1,0 +1,22 @@
+# GENERATED from dhall/apps/observe.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: "observe-ingress"
+  namespace: observe
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: observe.xinutec.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: "observe-viewer"
+            port:
+              number: 80
+        path: /
+        pathType: Prefix

@@ -1,0 +1,22 @@
+# GENERATED from dhall/apps/scanner.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: "scanner-ingress"
+  namespace: scanner
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: scanner.xinutec.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: scanner
+            port:
+              number: 80
+        path: /
+        pathType: Prefix

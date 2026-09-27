@@ -19,13 +19,7 @@ metadata:
   name: "observe-viewer-ingress"
   namespace: observe
 spec:
-  ingress:
-  - from:
-    - ipBlock:
-        cidr: 10.100.0.0/24
-    ports:
-    - port: 8091
-      protocol: TCP
+  ingress: []
   podSelector:
     matchLabels:
       app: "observe-viewer"

@@ -107,24 +107,16 @@ in  T.namespaceOf
             }
         }
       , workload =
-        T.Workload::{ -- Reached two ways while its clients move (#1799): the wg0-pinned
-          -- hostPort, and observe.xinutec.org, which isis's host front door serves on
-          -- the tunnel address only (checked at build time; the old shared ingress
-          -- also answered publicly). These are reconstructions of rooms in the house.
-          reach = T.Reach.WireGuard { alsoPublish = [] : List Natural, frontDoor = Some dns.observe }
+        T.Workload::{ -- VpnOnly: isis's front door listens for this name on the
+          -- WireGuard address only (checked at build time). These are
+          -- reconstructions of rooms in the house. Its wg0 hostPort went once no
+          -- client used it (#1799).
+          reach =
+            T.Reach.Ingress { host = dns.observe, exposure = T.Exposure.VpnOnly }
         , name = "observe-viewer"
-        , -- Who may connect: its hostPort, from the VPN only (#1763).
-          ingress =
-            Some
-                    [ { to =
-                        [ T.NetpolPeer.Host
-                            { cidr = "10.100.0.0/24"
-                            , why = "the WireGuard VPN: observe's viewers reach its wg0-bound hostPort"
-                            }
-                        ]
-                      , ports = [ { port = 8091, protocol = "TCP" } ]
-                      }
-                    ]
+        , -- No pod may connect; the front door is host traffic, which this does
+          -- not govern (#1763).
+          ingress = Some ([] : List T.NetpolRule)
         , -- Third-party and PINNED to a tag, as `Upstream` requires. The
           -- unprivileged variant specifically: it listens on 8091 as uid 101
           -- without ever being root, which is what lets the pod satisfy
@@ -139,9 +131,8 @@ in  T.namespaceOf
         , rootFs = T.RootFs.ReadOnly
         , env = [] : List T.EnvVar
         , probeTiming =
-            -- Its own, for the reason scanner's is: nginx is ready in about a
-            -- second, and an app reached by a hostPort cannot roll, so every
-            -- second of readiness delay is a second of downtime per deploy.
+            -- Its own: nginx is ready in about a second, so the standard delays
+            -- would only postpone it.
             { readiness = { initialDelaySeconds = 2, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 5, periodSeconds = 30 }
             }
