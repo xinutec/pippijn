@@ -192,6 +192,13 @@ in  T.namespaceOf
               name = "NC_REDIRECT_URI"
             , value = lit "http://10.100.0.2:${Natural/show port}/auth/callback"
             }
+          , { -- The front door reaches the pod from the node, SNATed to cni0's
+              -- address (conntrack, 2026-09-27), so without this every pause in
+              -- the capture audit reads as 10.42.0.1. recalld believes X-Real-IP
+              -- from this peer only.
+              name = "RECALLD_TRUSTED_PROXIES"
+            , value = lit "10.42.0.1"
+            }
           , { -- The token exchange goes pod → Nextcloud directly, staying inside
               -- the cluster rather than back out over the tunnel. This is what
               -- the netpol's nextcloud egress rule below permits, and the two
