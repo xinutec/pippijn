@@ -232,7 +232,6 @@ metadata:
   name: "signal-ingester-ingress"
   namespace: signal
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: "signal-ingester"
@@ -246,7 +245,6 @@ metadata:
   name: "signal-irc-tail-ingress"
   namespace: signal
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: "signal-irc-tail"
@@ -260,7 +258,6 @@ metadata:
   name: "signal-telegram-ingress"
   namespace: signal
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: "signal-telegram"

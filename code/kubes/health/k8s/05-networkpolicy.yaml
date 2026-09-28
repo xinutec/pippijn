@@ -25,7 +25,6 @@ metadata:
   name: "health-auth-ingress"
   namespace: health
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: "health-auth"

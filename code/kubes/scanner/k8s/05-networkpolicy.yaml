@@ -19,7 +19,6 @@ metadata:
   name: "scanner-ingress"
   namespace: scanner
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: scanner

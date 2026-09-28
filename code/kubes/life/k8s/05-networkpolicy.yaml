@@ -27,7 +27,6 @@ metadata:
   name: "life-app-from-ingress-only"
   namespace: life
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: "life-app"

@@ -27,7 +27,6 @@ metadata:
   name: "fleetwatch-app-from-ingress-only"
   namespace: fleetwatch
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: "fleetwatch-app"

@@ -8,7 +8,6 @@ metadata:
   name: "vaultwarden-app-from-ingress-only"
   namespace: vaultwarden
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: vaultwarden

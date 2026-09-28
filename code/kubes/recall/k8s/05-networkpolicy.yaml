@@ -36,7 +36,6 @@ metadata:
   name: "recall-ingress"
   namespace: recall
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: recall

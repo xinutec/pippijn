@@ -19,7 +19,6 @@ metadata:
   name: "observe-viewer-ingress"
   namespace: observe
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: "observe-viewer"

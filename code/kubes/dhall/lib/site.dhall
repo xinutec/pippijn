@@ -717,11 +717,14 @@ let netpol
         , spec =
           { podSelector.matchLabels = Some (runLabels site.name)
           , policyTypes = [ "Ingress" ]
-          , ingress = Some
-              ( if    T.edgeIsIngressNginx site.cluster
-                then  [ fromNginx ]
-                else  [] : List Rule
-              )
+          , -- Omitted, never `[]`, when nothing is admitted (DL-K8S-NP-EMPTY-LIST).
+            ingress =
+              L.nonEmpty
+                Rule
+                ( if    T.edgeIsIngressNginx site.cluster
+                  then  [ fromNginx ]
+                  else  [] : List Rule
+                )
           , egress =
               None
                 ( List

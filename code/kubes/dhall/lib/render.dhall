@@ -2138,7 +2138,8 @@ let ingressFromNginx
             , spec =
               { podSelector.matchLabels = Some (appLabels w.name)
               , policyTypes = [ "Ingress" ]
-              , ingress = Some (if viaNginx then [ fromNginx ] else [] : List Rule)
+              , -- Omitted, never `[]`, when nothing is admitted: see workloadIngress.
+                ingress = L.nonEmpty Rule (if viaNginx then [ fromNginx ] else [] : List Rule)
               , egress =
                   None
                     ( List
@@ -2250,7 +2251,14 @@ let workloadIngress
                   , spec =
                     { podSelector.matchLabels = Some (workloadLabels w.selector w.name)
                     , policyTypes = [ "Ingress" ]
-                    , ingress = Some
+                    , -- No rules is OMITTED, not `[]`: the API strips an empty list,
+                      -- so `[]` never matches live and applies as `configured` for
+                      -- ever (DL-K8S-NP-EMPTY-LIST). Omitted still denies all.
+                      ingress =
+                        L.nonEmpty
+                          { from : List K.NetworkPolicyPeer
+                          , ports : List K.NetworkPolicyPort
+                          }
                         ( L.map
                             T.NetpolRule
                             { from : List K.NetworkPolicyPeer

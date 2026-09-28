@@ -27,7 +27,6 @@ metadata:
   name: "home-ingress"
   namespace: home
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: home

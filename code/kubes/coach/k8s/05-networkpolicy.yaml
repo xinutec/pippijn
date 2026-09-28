@@ -27,7 +27,6 @@ metadata:
   name: "coach-app-from-ingress-only"
   namespace: coach
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: "coach-app"

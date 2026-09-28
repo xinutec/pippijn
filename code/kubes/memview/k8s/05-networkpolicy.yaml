@@ -8,7 +8,6 @@ metadata:
   name: "memview-app-from-ingress-only"
   namespace: memview
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: memview

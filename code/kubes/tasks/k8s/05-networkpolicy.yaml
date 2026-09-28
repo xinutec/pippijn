@@ -27,7 +27,6 @@ metadata:
   name: "tasks-app-from-ingress-only"
   namespace: tasks
 spec:
-  ingress: []
   podSelector:
     matchLabels:
       app: tasks
