@@ -23,11 +23,8 @@ in    { name = "httpd-isis"
       , webroot = S.Webroot.Volume
         { storageGi = 5
         , -- Published copies of documents whose originals live in
-          -- `~/Code/dicom-scan`; a lost claim is re-pushed, not restored.
-          durability = T.Durability.LossAccepted
-            { why =
-                "published copies — the originals live in ~/Code/dicom-scan and are re-pushed, so a lost PVC costs a re-deploy, not a restore."
-            }
+          -- `~/Code/dicom-scan`: restorable from backup, or re-pushed.
+          durability = T.Durability.BackedUp
         , at = "/share"
         }
       , overlays = [] : List S.Overlay

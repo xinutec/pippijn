@@ -21,11 +21,11 @@ let cli
     =
       --| signal-cli's linked-device keys and account state.
       --
-      -- ⚠ SECRET-CLASS: whoever holds it can impersonate the linked device, so its
-      -- odin backup is sensitive. `LossAccepted` anyway, and the reason is not
-      -- indifference — the device can be re-linked from the phone, where a restore of
-      -- these keys onto a second running instance would be a second device claiming to
-      -- be the same one.
+      -- Secret-class: whoever holds it can impersonate the linked device, so its
+      -- backup is sensitive. Never restore it beside a running instance: that is a
+      -- second device claiming to be the same one. Restore it only after the old
+      -- instance is gone for good; re-linking from the phone is the other way
+      -- back.
       --
       -- Not shared: only `signal-cli-rest-api` mounts it. It lives here because the
       -- two claims of one namespace belong in one place, not because anything else
@@ -33,8 +33,7 @@ let cli
       T.Claim::{ name = "signal-cli-pvc"
       , storageGi = 2
       , durability =
-          T.Durability.LossAccepted
-            { why = "linked-device keys; re-link from the phone instead" }
+          T.Durability.BackedUp
       , writers = T.Writers.Exclusive
       , chown = T.FsGroupChange.Always
       }
@@ -51,8 +50,7 @@ let attachments
       T.Claim::{ name = "signal-attachments-pvc"
       , storageGi = 20
       , durability =
-          T.Durability.LossAccepted
-            { why = "re-downloadable from Signal while the messages remain" }
+          T.Durability.BackedUp
       , writers =
           T.Writers.Concurrent
             { why = "one writer (ingester) and one reader (messages, readOnly)" }

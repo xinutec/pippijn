@@ -13,7 +13,6 @@ spec:
     requests:
       storage: 10Gi
 ---
-# dev-lint: allow-backup-coverage linked-device keys; re-link from the phone instead
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -27,7 +26,6 @@ spec:
       storage: 2Gi
 
 ---
-# dev-lint: allow-backup-coverage re-downloadable from Signal while the messages remain
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
