@@ -1,0 +1,14 @@
+# GENERATED from dhall/sites/leanux.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "leanux-from-ingress-only"
+  namespace: web
+spec:
+  podSelector:
+    matchLabels:
+      run: leanux
+  policyTypes:
+  - Ingress

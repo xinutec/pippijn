@@ -1,0 +1,15 @@
+# GENERATED from dhall/sites/leanux.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+# dev-lint: allow-backup-coverage derived content — rebuilt from site/ in the OS repo and re-pushed by scripts/site.py deploy, so a lost PVC costs a re-deploy, not a restore.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: "leanux-storage"
+  namespace: web
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

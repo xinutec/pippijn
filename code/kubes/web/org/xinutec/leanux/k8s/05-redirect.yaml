@@ -1,0 +1,23 @@
+# GENERATED from dhall/sites/leanux.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    "nginx.ingress.kubernetes.io/permanent-redirect": "https://leanux.org"
+  name: "leanux-www-redirect"
+  namespace: web
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: www.leanux.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: leanux
+            port:
+              number: 80
+        path: /
+        pathType: Prefix

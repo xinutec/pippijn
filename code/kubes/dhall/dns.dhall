@@ -28,6 +28,9 @@ in  { -- Hosts (the machines themselves)
     , recall = sub "recall"
     , nocodb = sub "nocodb"
     , slides = sub "slides"
+    , -- Not under `domain`: the OS project has its own. Its `www` only redirects.
+      leanux = "leanux.org"
+    , leanuxWww = "www.leanux.org"
     , tasks = sub "tasks"
     , utterance = sub "utterance"
     , vault = sub "vault"

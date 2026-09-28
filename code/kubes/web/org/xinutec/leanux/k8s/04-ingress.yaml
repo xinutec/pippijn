@@ -1,0 +1,21 @@
+# GENERATED from dhall/sites/leanux.dhall by dhall/generate.sh — do not edit.
+# Change the model and re-render; hand edits are overwritten.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: "leanux-ingress"
+  namespace: web
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: leanux.org
+    http:
+      paths:
+      - backend:
+          service:
+            name: leanux
+            port:
+              number: 80
+        path: /
+        pathType: Prefix

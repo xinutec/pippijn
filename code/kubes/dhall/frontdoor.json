@@ -225,6 +225,33 @@
     "why": ""
   },
   {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "leanux.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "scheme": "http",
+    "upstream": "leanux.web.svc.cluster.local",
+    "why": ""
+  },
+  {
+    "clusters": [
+      "isis.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "www.leanux.org",
+    "modelled": true,
+    "path": "/",
+    "port": 80,
+    "redirectTo": "leanux.org",
+    "scheme": "http",
+    "upstream": "",
+    "why": ""
+  },
+  {
     "basicAuth": "web/slides-auth",
     "clusters": [
       "isis.xinutec.org"
