@@ -2,6 +2,7 @@
 # Render the typed fleet model into Kubernetes manifests.
 #
 #   ./generate.sh              write manifests to dhall/generated/<app>/
+#   ./generate.sh --sync       render, copy into the live trees, then --check
 #   ./generate.sh --check      diff the model against the live <app>/k8s/ tree,
 #                              exit 1 if they describe different clusters
 #
@@ -29,10 +30,12 @@ if ! command -v dhall-to-yaml-ng >/dev/null 2>&1; then
 fi
 
 mode=write
+sync=0
 case ${1:-} in
   --check) mode=check ;;
+  --sync) sync=1 ;;
   "") ;;
-  *) echo "usage: $0 [--check]" >&2; exit 2 ;;
+  *) echo "usage: $0 [--check|--sync]" >&2; exit 2 ;;
 esac
 
 # Output file -> the renderers whose documents it concatenates, and which of
@@ -919,4 +922,52 @@ else
 fi
 
 [[ $mode == write ]] && echo "rendered to $here/generated/ and $here/clusters.json"
+
+# ── --sync: the copy into the live trees, done by the tool rather than by hand ──
+#
+# Copying generated/ over a tree by hand was the step that went wrong (2026-09-28:
+# signal's policy copied over messages', which the check then caught). Sync owns
+# exactly the live files that name THIS model in their first line, so a hand-written
+# file, or one another model renders into the same tree, is never overwritten. A file
+# the model no longer renders is REPORTED, not deleted: dropping a resource from the
+# tree is a decision, and `--check` below shows what it would change.
+if [[ $sync == 1 && $status == 0 ]]; then
+  # ⚠ A tree is OWNED only when every YAML file in it names this model. ircd's and
+  # the irssi trees predate the model and keep their own file names for the same
+  # objects, so the first version of this, which added any file whose NAME was
+  # missing, put a second copy of ircd's objects beside the first and three files
+  # into a bouncer's tree that a deploy would have applied. In a tree that is not
+  # owned, sync only refreshes files that already name the model; it adds nothing.
+  sync_tree() { # label rendered-dir live-dir model-path
+    local label=$1 out=$2 live=$3 want="GENERATED from $4 by" f dst owned=1
+    for dst in "$live"/*.yaml; do
+      [[ -e $dst ]] || continue
+      head -n 1 "$dst" | grep -qF "$want" || owned=0
+    done
+    for f in "$out"/*.yaml; do
+      dst=$live/${f##*/}
+      if [[ -e $dst ]]; then
+        head -n 1 "$dst" | grep -qF "$want" || continue
+      elif [[ $owned == 0 ]]; then
+        continue
+      fi
+      cmp -s "$f" "$dst" || { cp "$f" "$dst"; printf 'synced %s\n' "${dst#"$kubes"/}"; }
+    done
+    [[ $owned == 1 ]] || return 0
+    for dst in "$live"/*.yaml; do
+      [[ -e $dst && ! -e $out/${dst##*/} ]] || continue
+      printf '%s: %s names %s but is no longer rendered — delete it if the model dropped it\n' \
+        "$label" "${dst#"$kubes"/}" "$4" >&2
+    done
+  }
+  for src in "$here"/apps/*.dhall; do
+    app=$(basename "$src" .dhall)
+    sync_tree "$app" "$here/generated/$app" "$kubes/$(app_tree "$app")" "dhall/apps/$app.dhall"
+  done
+  for src in "$here"/sites/*.dhall; do
+    site=$(basename "$src" .dhall)
+    sync_tree "$site" "$here/generated/site-$site" "$kubes/$(site_tree "$site")" "dhall/sites/$site.dhall"
+  done
+  [[ $status == 0 ]] && exec "${BASH_SOURCE[0]}" --check
+fi
 exit $status

@@ -1,6 +1,5 @@
 # GENERATED from dhall/sites/amun.dhall by dhall/generate.sh — do not edit.
 # Change the model and re-render; hand edits are overwritten.
-#
 ---
 apiVersion: apps/v1
 kind: Deployment
