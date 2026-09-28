@@ -51,6 +51,7 @@ spec:
         volumeMounts:
         - mountPath: "/home/.local/share/signal-cli"
           name: data
+      # dev-lint: allow-no-probe — listens on 127.0.0.1 only, which kubelet cannot reach; the helper execs the daemon, so its exit restarts the container
       - command:
         - "jsonrpc2-helper"
         env:

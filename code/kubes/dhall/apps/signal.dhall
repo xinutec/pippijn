@@ -244,7 +244,11 @@ in  { name = "signal"
             , -- Unprobed: the daemon listens on 127.0.0.1, which kubelet cannot
               -- reach. The helper execs the JVM, so a daemon that exits takes the
               -- container with it and is restarted.
-              probe = T.Probe.Unprobed
+              probe =
+                T.Probe.Unprobed
+                  { why =
+                      "listens on 127.0.0.1 only, which kubelet cannot reach; the helper execs the daemon, so its exit restarts the container"
+                  }
             , shareMounts = True
             }
           ]
@@ -317,7 +321,11 @@ in  { name = "signal"
           ]
         , probeTiming = T.standardTiming
         , -- ⚠ INERT under `Unprobed` — see the note at `T.Probe`.
-          probe = T.Probe.Unprobed
+          probe =
+            T.Probe.Unprobed
+              { why =
+                  "a websocket consumer with no port to probe; it exits loudly and the Deployment restarts it"
+              }
         , resources =  Some
           { requests = { cpu = "50m", memory = "64Mi" }
           , -- ⚠ THIS LIMIT DEPENDS ON THE DOWNLOAD STREAMING. `attach::write_stream`
@@ -625,7 +633,11 @@ in  { name = "signal"
           -- which has stopped asking looks identical to a quiet channel. This one
           -- does not have that failure mode: if the update stream ends, the task
           -- ends, and the process ends with it.
-          probe = T.Probe.Unprobed
+          probe =
+            T.Probe.Unprobed
+              { why =
+                  "a polling client with no port to probe; it exits loudly and the Deployment restarts it"
+              }
         , resources = Some
           { requests = { cpu = "50m", memory = "64Mi" }
           , -- Bounded by construction: no media is downloaded (a Telegram photo is

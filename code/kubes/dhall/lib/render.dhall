@@ -344,7 +344,7 @@ let renderProbe
               λ(t : K.TCPSocketAction) →
                 Some (K.emptyProbe ⫽ { tcpSocket = Some t })
           , -- Nothing to probe: renders neither key rather than an empty probe.
-            Unprobed = None K.Probe
+            Unprobed = λ(_ : { why : Text }) → None K.Probe
           }
           p
 
@@ -649,8 +649,7 @@ let containerWaivers
       -- workload it is declared under, and states its own reason
       -- (`T.ScheduledTask.rootFs`) rather than inheriting one.
       --
-      -- `no-probe` carries no `why` — `T.Probe.Unprobed` already says there is
-      -- nothing to probe.
+      -- `no-probe` carries `T.Probe.Unprobed`'s own `why`.
       λ(ns : T.Namespace) →
         {-  ⚠ ONLY FOR AN IMAGE THE FLEET BUILDS, and this is a judgement call
             worth reading before changing. dev-lint's `image_profile` switches
@@ -699,15 +698,28 @@ let containerWaivers
                     (λ(t : T.ScheduledTask) → lineFor w.image t.name t.rootFs)
                     w.tasks
 
-        let probeLines =
-              λ(w : T.Workload.Type) →
+        let probeLine =
+              λ(name : Text) →
+              λ(probe : T.Probe) →
                 merge
                   { Http = λ(_ : { path : Text, port : Natural }) → [] : List Text
                   , Exec = λ(_ : { command : List Text }) → [] : List Text
                   , Tcp = λ(_ : { port : Natural }) → [] : List Text
-                  , Unprobed = [ "${w.name}\tno-probe\t" ]
+                  , Unprobed =
+                      λ(u : { why : Text }) → [ "${name}\tno-probe\t${u.why}" ]
                   }
-                  w.probe
+                  probe
+
+        let probeLines =
+              -- A sidecar too: signal's `signal-cli` daemon listens on 127.0.0.1,
+              -- which kubelet cannot probe, and its reason is in the model beside it.
+              λ(w : T.Workload.Type) →
+                  probeLine w.name w.probe
+                # L.concatMap
+                    T.Sidecar.Type
+                    Text
+                    (λ(sc : T.Sidecar.Type) → probeLine sc.name sc.probe)
+                    w.sidecars
 
         in  L.joinWith
               "\n"

@@ -116,7 +116,10 @@ let Probe =
         --
         -- ⚠ `probeTiming` is then INERT. Fold the two into one `Probing` union if a
         -- SECOND probeless workload appears.
-        Unprobed
+        --
+        -- `why` is required, as for `HostPath` and `Unhardened`: it becomes the
+        -- dev-lint waiver's reason, which every waiver must state (dev-lint #1747).
+        Unprobed : { why : Text }
       >
 
 let ProbeTiming =
@@ -477,7 +480,6 @@ let Sidecar =
       , default =
         { port = None Natural
         , env = [] : List EnvVar
-        , probe = Probe.Unprobed
         , shareMounts = False
         }
       }
