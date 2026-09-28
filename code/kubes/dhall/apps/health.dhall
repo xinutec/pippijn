@@ -128,7 +128,7 @@ let decodeFlags
     : List T.EnvVar
     =
       -- C4 continuity flags (#224). ⚠ The auth pod does not READ them — the decode
-      -- does — but `scripts/prod-db.sh` mirrors the pod env via printenv, so a Mac
+      -- does — but `health/scripts/prod-db.sh` mirrors the pod env via printenv, so a Mac
       -- replay decodes the same day the cron wrote. Rationale and the open defect
       -- (#366) are at the cron: kubes/health/k8s/08-decode-recent.yaml.
       [ { name = "USE_CADENCE_IMPUTATION", value = lit "1" }
@@ -553,7 +553,7 @@ in  T.namespaceOf
               , resources = batchResources
               }
             , { -- THE MEMORY SMOKE (health #1071). Never scheduled: health's
-                -- `scripts/deploy.sh` creates a Job from it after every rollout
+                -- `health/scripts/deploy.sh` creates a Job from it after every rollout
                 -- (`kubectl create job --from=cronjob/health-velocity-smoke`).
                 -- It folds the heaviest golden days one after another under the
                 -- SERVING pod's memory limit and prints the container's cgroup

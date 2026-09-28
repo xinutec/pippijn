@@ -84,7 +84,7 @@ restic on odin + restic on Mac), so the risk is low, but do it deliberately.
 
 Carried out as predicted above. **No cluster in the fleet runs Flux any more**;
 every manifest everywhere is applied from this tree by `kubes/deploy.sh`, which
-runs `plan-run deploy`. (It said `sync.sh` / `scripts/apply.sh` when this was
+runs `plan-run deploy`. (It said sync.sh / apply.sh when this was
 written; the ten `sync.sh` scripts went on 2026-07-31 and `apply.sh` on
 2026-08-16.) This makes the Flux steps in the cutover section above un-runnable —
 they are kept as the record of how the move was done.

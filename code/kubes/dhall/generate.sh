@@ -748,7 +748,7 @@ done
 # name it — so it cannot ask a probe, and `deploy::desired` is pure. The two
 # alternatives were both worse: evaluating Dhall at deploy time puts a
 # `nix develop` on the path of every deploy and makes this flake a deploy
-# dependency (which is what the deleted `scripts/apply.sh` did, once per run);
+# dependency (which is what the deleted apply script did, once per run);
 # and a second copy of the mapping in the plan's own tables would be two sources
 # of truth for a question that already has one — the failure #692 was.
 #

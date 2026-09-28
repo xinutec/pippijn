@@ -40,8 +40,7 @@ The toolchain is pinned in `flake.lock`; `generate.sh` re-execs itself inside
 `nix develop` if Dhall isn't on `$PATH`.
 
 `--check` compares each app's whole manifest *set* rather than file by file,
-because the live tree numbers the same resources differently per app
-(`home/05-ingress.yaml` vs `life/04-ingress.yaml`). The question worth answering
+because the live trees may number the same resource differently per app. The question worth answering
 is whether the model describes the same cluster state.
 
 ## What the types buy

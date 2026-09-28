@@ -17,7 +17,7 @@ a file or an argument.
 ## The corpus is not in the image
 
 The image carries the viewer. The memories are a volume, pushed up from the Mac by
-`scripts/sync.sh` in the app repo. Nothing about the corpus is baked in, published to
+`memview/scripts/sync.sh` in the app repo. Nothing about the corpus is baked in, published to
 Docker Hub, or committed to a repo — which is why the app repo can be public.
 
 Sync direction is deliberate and one-way. The Mac is the root of truth and the only
