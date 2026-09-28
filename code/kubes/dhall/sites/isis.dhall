@@ -36,6 +36,10 @@ in    { name = "httpd-isis"
               root /usr/share/nginx/html;
               index index.html;
 
+              # Directory 301 (/x -> /x/) stays relative, so it never leaks
+              # the internal listen port into the Location header.
+              absolute_redirect off;
+
               location ~ \.(md|py|sh)$ {
                   default_type text/plain;
               }
