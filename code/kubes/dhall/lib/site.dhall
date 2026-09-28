@@ -455,7 +455,21 @@ let deployment
                 , strategy = None { type : Text }
                 , selector.matchLabels = runLabels site.name
                 , template =
-                  { metadata.labels = runLabels site.name
+                  { metadata =
+                    { labels = runLabels site.name
+                    , -- What nginx reads at start: its server block and every
+                      -- `subPath` overlay. Served files mounted as a whole
+                      -- directory are left out; nginx reads those per request.
+                      annotations =
+                        K.configStamp
+                          (   merge
+                                { None = [] : List Doc
+                                , Some = λ(body : Text) → toMap { `default.conf` = body }
+                                }
+                                site.nginxConf
+                            # L.map Overlay Doc (λ(o : Overlay) → o.file) site.overlays
+                          )
+                    }
                   , spec =
                     { securityContext =
                       { runAsNonRoot = Some True

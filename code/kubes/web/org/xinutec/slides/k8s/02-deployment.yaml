@@ -13,6 +13,27 @@ spec:
       run: slides
   template:
     metadata:
+      annotations:
+        xinutec.org/config: |
+          ==> default.conf <==
+          server {
+              listen 8080;
+              server_name _;
+              root /usr/share/nginx/html;
+              index index.html;
+
+              # Directory 301 (/<deck> -> /<deck>/) stays relative, so it never leaks
+              # the internal listen port or path into the Location header.
+              absolute_redirect off;
+
+              # Kubelet readiness — bypasses the ingress auth layer, so it must not
+              # require a password.
+              location = /healthz {
+                  access_log off;
+                  add_header Content-Type text/plain;
+                  return 200 "ok\n";
+              }
+          }
       labels:
         run: slides
     spec:

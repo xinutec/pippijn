@@ -249,9 +249,45 @@ let Deployment =
           { replicas : Natural
           , strategy : Optional { type : Text }
           , selector : { matchLabels : Labels }
-          , template : { metadata : { labels : Labels }, spec : PodSpec }
+          , template :
+              { metadata :
+                  { labels : Labels
+                  , annotations : Optional (List { mapKey : Text, mapValue : Text })
+                  }
+              , spec : PodSpec
+              }
           }
       }
+
+let configStamp
+    : List { mapKey : Text, mapValue : Text } →
+        Optional (List { mapKey : Text, mapValue : Text })
+    =
+      --| A pod-template annotation carrying the config files a pod reads at start.
+      --
+      -- nginx reads its config once, and a `subPath` mount never updates in a
+      -- running pod, so a ConfigMap change applies cleanly and changes nothing
+      -- live (#1843). Putting the config into the pod template makes a config
+      -- change a template change, and a template change rolls the pods.
+      --
+      -- The TEXT itself, not a hash: Dhall cannot hash, and the text changes
+      -- exactly when a hash would. `None` for no files, so a pod with no config
+      -- renders no annotation.
+      λ(files : List { mapKey : Text, mapValue : Text }) →
+        let text =
+              List/fold
+                { mapKey : Text, mapValue : Text }
+                files
+                Text
+                ( λ(f : { mapKey : Text, mapValue : Text }) →
+                  λ(acc : Text) →
+                    "==> ${f.mapKey} <==\n${f.mapValue}${acc}"
+                )
+                ""
+
+        in  if    Natural/isZero (List/length { mapKey : Text, mapValue : Text } files)
+            then  None (List { mapKey : Text, mapValue : Text })
+            else  Some [ { mapKey = "xinutec.org/config", mapValue = text } ]
 
 let ServicePort =
       { port : Natural
@@ -417,6 +453,7 @@ in  { Meta
     , CronJob
     , Labels
     , Deployment
+    , configStamp
     , ServicePort
     , Service
     , ExternalNameService

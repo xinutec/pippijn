@@ -826,7 +826,10 @@ let dbDeployment
                       { type = "Recreate" }
                     , selector.matchLabels = appLabels (dbNameFor (slugOf ns))
                     , template =
-                      { metadata.labels = appLabels (dbNameFor (slugOf ns))
+                      { metadata =
+                        { labels = appLabels (dbNameFor (slugOf ns))
+                        , annotations = None (List { mapKey : Text, mapValue : Text })
+                        }
                       , spec =
                         { -- The official image runs as uid 999 (mysql) when
                           -- started unprivileged; fsGroup keeps the data dir
@@ -1195,7 +1198,18 @@ let deploymentFor
               , strategy
               , selector.matchLabels = workloadLabels w.selector w.name
               , template =
-                { metadata.labels = workloadLabels w.selector w.name
+                { metadata =
+                  { labels = workloadLabels w.selector w.name
+                  , -- Every workload in a namespace with a ConfigMap carries it:
+                    -- Dhall cannot compare the mounted name, and a restart of a
+                    -- workload that does not mount it costs one rollout.
+                    annotations =
+                      merge
+                        { None = None (List { mapKey : Text, mapValue : Text })
+                        , Some = λ(cm : T.ConfigMapDoc) → K.configStamp cm.files
+                        }
+                        ns.configMap
+                  }
                 , spec =
                   { securityContext = podSecurityContext w.uid fsGroup w.hardening
                         ⫽ { fsGroupChangePolicy }
