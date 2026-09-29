@@ -78,11 +78,3 @@ umask 077 && mkdir -p ~/.config/tasks && cat > ~/.config/tasks/token
 
 The OAuth2 client is registered in Nextcloud admin → Settings → Security →
 OAuth 2.0, redirect `https://tasks.xinutec.org/auth/callback`.
-
-## Held back
-
-`k8s/06-networkpolicy-app-held.yaml` is **not applied**, for the same reason as
-every other app's: k3s enforces NetworkPolicy through kube-router, which does not
-exempt node-sourced kubelet probes, so the policy as written drops the liveness
-and readiness checks and takes the site down. Applying it needs an ipBlock
-admitting the probe source first, then a check that probes stay green.
