@@ -33,7 +33,6 @@ in {
       requests
       types-requests
     ]))
-    rclone      # sync with nextcloud
     screen      # terminal window manager
     unison      # sync with other machines
     rxvt-unicode
