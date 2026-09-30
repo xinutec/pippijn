@@ -37,6 +37,15 @@ let Cluster =
       --| Which k3s cluster an app is scheduled on.
       < isis | amun >
 
+let clusterEdges
+    : { isis : (../clusters.dhall).Edge, amun : (../clusters.dhall).Edge }
+    =
+      --| Each cluster's edge, as nixos-config declares it (network.nix, rendered
+      --  to clusters.dhall; this is a copy, and fleet_health checks the two
+      --  agree). Annotated with exactly the clusters above, so a k3s node added
+      --  there fails this file instead of being skipped by a `merge`.
+      (../clusters.dhall).clusters
+
 let edgeIsIngressNginx
     : Cluster → Bool
     =
@@ -45,7 +54,9 @@ let edgeIsIngressNginx
       --  NetworkPolicy, so a rule admitting the `ingress-nginx` namespace there
       --  selects no pod (fleet_health's peer check, 2026-09-27).
       λ(c : Cluster) →
-        merge { isis = False, amun = True } c
+        merge
+          { Frontdoor = False, IngressNginx = True }
+          (merge { isis = clusterEdges.isis, amun = clusterEdges.amun } c)
 
 let Image =
       --| A container image.
