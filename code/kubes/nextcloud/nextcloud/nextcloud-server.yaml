@@ -35,9 +35,11 @@ spec:
           type: RuntimeDefault
       containers:
       - name: nextcloud
+        # 256Mi sat at 175Mi idle and was OOM-killed about hourly: PHP-FPM's
+        # workers under a sync or preview burst.
         resources:
           limits:
-            memory: 256Mi
+            memory: 512Mi
         image: nextcloud:33.0.2-fpm-alpine
         imagePullPolicy: Always
         env:
