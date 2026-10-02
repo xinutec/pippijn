@@ -3,13 +3,16 @@
 #
 # amun only: isis's host nginx gets its certificates from NixOS `security.acme`.
 #
-# amun's pin is frozen: it stays on NixOS 25.05 (k8s 1.32) until it is reinstalled
-# from scratch, and its cert-manager renews everything without error. Upgrading a
-# cluster we intend to wipe is risk without payoff.
+# amun stays on NixOS 25.05 (k8s 1.32) until it is reinstalled, which is months away,
+# so its cert-manager is kept current within what k8s 1.32 supports: v1.20 is the last
+# minor that does. Upgraded 2026-10-02 one minor at a time (1.17, 1.18, 1.19, 1.20),
+# each checked with every Certificate Ready and a webhook dry run, then a staging
+# issuance end to end. Since 1.18 a renewal makes a new private key; nothing pins
+# ours (no TLSA records).
 set -euo pipefail
 
 case "$(hostname -s)" in
-  amun) version=v1.16.2 ;;
+  amun) version=v1.20.4 ;;
   *) echo "no cert-manager version pinned for host '$(hostname -s)'" >&2; exit 1 ;;
 esac
 
