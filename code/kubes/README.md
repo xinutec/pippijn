@@ -88,7 +88,5 @@ Secret) is a plain `<app>/k8s` tree since 2026-10-03, deployed like any other:
 its `sync.sh` is the door onto `deploy.sh`, with `--host amun.xinutec.org`
 because no model places these trees.
 
-## Not covered
-
-`nextcloud` keeps its own `sync.sh`: bitnami's chart wants its password passed
-back in, so it cannot run as written; the helm table says why.
+`nextcloud` is a plain tree too since 2026-10-03, with its Redis (`redis.yaml`)
+in place of bitnami's chart and the same `--host` door, for isis.

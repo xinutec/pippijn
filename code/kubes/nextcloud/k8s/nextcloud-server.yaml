@@ -14,8 +14,7 @@ spec:
     metadata:
       labels:
         pod-label: nextcloud-server-pod
-        # The redis chart's own policy admits pods with this label, and only
-        # them (helm/redis-values.yaml, allowExternal: false, #1763).
+        # redis.yaml's policy admits pods with this label, and only them (#1763).
         redis-client: "true"
     spec:
       volumes:
@@ -58,7 +57,7 @@ spec:
         - name: OVERWRITEPROTOCOL
           value: https
         - name: REDIS_HOST
-          value: redis-master
+          value: nextcloud-redis
         - name: REDIS_HOST_PASSWORD
           valueFrom:
             secretKeyRef:

@@ -1,0 +1,143 @@
+# Nextcloud's Redis: file locking, the distributed cache and PHP sessions (the
+# nextcloud image wires all three to REDIS_HOST). Replaces bitnami's redis chart,
+# whose image is the frozen bitnamilegacy/redis, as mailu's redis-ext did.
+#
+# Image: official redis, pinned to the 8.2 line production ran under bitnami
+# (8.2.1). The restore drill loads the nightly RDB into redis:7.4.1, and a newer
+# line may write an RDB format it cannot read; move the two together.
+#
+# The password is the `redis` Secret the chart created, kept when the chart was
+# uninstalled (2026-10-03). It reaches redis as REDIS_PASSWORD, which the nightly
+# backup's dump (`plan-run`'s `redis` script) reads inside the container.
+#
+# Persistence is RDB (appendonly no + save points), which is what the backup
+# streams. Losing it costs a web login and a cold cache, nothing else.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud-redis
+  namespace: nextcloud
+  labels:
+    app: nextcloud-redis
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nextcloud-redis
+  template:
+    metadata:
+      labels:
+        app: nextcloud-redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: redis:8.2-alpine
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+          args:
+            - "--dir"
+            - "/data"
+            - "--appendonly"
+            - "no"
+            - "--save"
+            - "900 1 300 10 60 10000"
+            - "--maxmemory"
+            - "500mb"
+            - "--requirepass"
+            - "$(REDIS_PASSWORD)"
+          ports:
+            - containerPort: 6379
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli --no-auth-warning -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli --no-auth-warning -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nextcloud-redis-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # dev-lint: allow-backup-coverage the nightly `nextcloud-redis` artifact streams an
+  # RDB dump out of the pod, which IS this volume's contents; the volume itself
+  # is deliberately never mirrored, because a live RDB file copies torn
+  # mid-write.
+  name: nextcloud-redis-data
+  namespace: nextcloud
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nextcloud-redis
+  namespace: nextcloud
+  labels:
+    app: nextcloud-redis
+spec:
+  selector:
+    app: nextcloud-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+# Only pods labelled `redis-client: "true"` may connect: nextcloud-server sets it
+# (#1763). The rule the chart's policy carried, kept.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nextcloud-redis-from-clients-only
+  namespace: nextcloud
+spec:
+  podSelector:
+    matchLabels:
+      app: nextcloud-redis
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          redis-client: "true"
+    ports:
+    - port: 6379
+      protocol: TCP
