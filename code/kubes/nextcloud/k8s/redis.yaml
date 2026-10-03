@@ -3,8 +3,8 @@
 # whose image is the frozen bitnamilegacy/redis, as mailu's redis-ext did.
 #
 # Image: official redis, pinned to the 8.2 line production ran under bitnami
-# (8.2.1). The restore drill loads the nightly RDB into redis:7.4.1, and a newer
-# line may write an RDB format it cannot read; move the two together.
+# (8.2.1). The restore drill on odin runs this same image at this digest
+# (`drill-images` refuses otherwise), so a tag move here is a pull there.
 #
 # The password is the `redis` Secret the chart created, kept when the chart was
 # uninstalled (2026-10-03). It reaches redis as REDIS_PASSWORD, which the nightly
