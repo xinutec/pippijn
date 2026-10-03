@@ -484,6 +484,11 @@ let SidecarType =
       , -- Mount everything the main container mounts, at the same paths. A sidecar
         -- needing its OWN mounts is a future field, not a reinterpretation of this.
         shareMounts : Bool
+      , -- Its OWN budget, when one has been measured. `None` renders no resources,
+        -- as for every container that has not measured a number; a worker whose
+        -- memory must not be the main container's states one here, and the
+        -- kernel then kills the worker, not the server (health #1889).
+        resources : Optional Resources
       }
 
 let Sidecar =
@@ -492,6 +497,7 @@ let Sidecar =
         { port = None Natural
         , env = [] : List EnvVar
         , shareMounts = False
+        , resources = None Resources
         }
       }
 

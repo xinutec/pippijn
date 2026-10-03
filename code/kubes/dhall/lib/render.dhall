@@ -1091,10 +1091,14 @@ let sidecarContainerFor =
                     )
               , readinessProbe = renderProbe s.probe
               , livenessProbe = renderProbe s.probe
-              , -- Absent, like every container that has not measured a number
-                -- (`Resources`' own rule: no inventing requests for a running
-                -- pod).
-                resources = None K.Resources
+              , -- Absent unless the sidecar measured one (`Resources`' own rule:
+                -- no inventing requests for a running pod).
+                resources =
+                  merge
+                    { None = None K.Resources
+                    , Some = λ(r : T.Resources) → Some (k8sResources r)
+                    }
+                    s.resources
               , volumeMounts =
                   if    s.shareMounts
                   then  L.nonEmpty

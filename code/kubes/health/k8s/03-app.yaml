@@ -111,6 +111,43 @@ spec:
         volumeMounts:
         - mountPath: /tmp
           name: tmp
+      # dev-lint: allow-no-probe — a pure worker: it polls a database table and serves no port; a crash exits the process and kubelet restarts it
+      - command:
+        - bin/backend
+        - "watch-fetch-queue"
+        env:
+        - name: DB_HOST
+          value: "health-db"
+        - name: DB_NAME
+          value: health
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              key: DB_USER
+              name: "health-secret"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: DB_PASSWORD
+              name: "health-secret"
+        image: "xinutec/health-sync:latest"
+        name: "health-fetch"
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
       securityContext:
         runAsGroup: 1000
         runAsNonRoot: true

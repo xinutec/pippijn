@@ -244,6 +244,43 @@ in  T.namespaceOf
             -- would discover that during the emergency it was meant for. The
             -- corrector is ON unconditionally; a switch nothing reads is not an
             -- off-switch.
+        , sidecars =
+          [ T.Sidecar::{ name = "health-fetch"
+            , -- The fetch queue's drain, continuously (health #1889). The fold
+              -- DECLINES a map or name lookup it has no data for and records it
+              -- in `osm_fetch_queue`; this fetches it within seconds, so the
+              -- next view of the day is complete, and it fetches the ground
+              -- around fixes as they arrive, so a travel day is right the first
+              -- time. It replaced the 07:00 `health-geocode-fetch` CronJob and
+              -- the hand-run `fetch-osm` (2026-10-03).
+              --
+              -- ⚠ A SIDECAR, NOT A TASK IN THE SERVER: an Overpass body is ~5 MB
+              -- of JSON beside a fold that peaks around 320 MiB under the
+              -- 512 MiB serving limit (health #1071). Its own container is its
+              -- own cgroup; a fetch that outgrows its limit kills the drain and
+              -- not the server.
+              command = [ "bin/backend", "watch-fetch-queue" ]
+            , -- `dbEnv` ONLY: Nominatim and Overpass identify us by User-Agent,
+              -- and a drain holding a sync credential could write a stream.
+              env = dbEnv
+            , probe =
+                T.Probe.Unprobed
+                  { why =
+                      "a pure worker: it polls a database table and serves no port; a crash exits the process and kubelet restarts it"
+                  }
+            , -- The Lean worker it asks the coverage gate through opens a
+              -- tempfile under /tmp, as the server's does (#1106).
+              shareMounts = True
+            , resources = Some
+              { requests = { cpu = "50m", memory = "64Mi" }
+              , -- NOT YET MEASURED. The batch CronJobs run this code at 2Gi
+                -- without a figure either; an OOMKilled restart of this
+                -- container (`lastState.terminated`) is the measurement that
+                -- would move it, and it kills the drain, not the server.
+                limits = Some { cpu = Some "1000m", memory = "1Gi" }
+              }
+            }
+          ]
         , probeTiming =
             -- Readiness is the live tree's own 3/10 rather than
             -- `T.standardTiming`'s 5/10: it is behind an Ingress with no
@@ -508,47 +545,6 @@ in  T.namespaceOf
               , -- ⚠ `dbEnv` ONLY. It reads `MAX(date)` and nothing else; giving it
                 -- the Fitbit or Google credentials would let a check that exists to
                 -- observe the syncs become able to perform one.
-                env = dbEnv
-              , resources = batchResources
-              }
-            , { -- Fetch the reverse geocodes the SERVING path could not answer
-                -- (health #1076).
-                --
-                -- The fold declines a lookup it has no data for and records the
-                -- miss in `osm_fetch_queue`; this drains it. Fetching inline would
-                -- put a Nominatim round trip on the serving path, which is where
-                -- the fold's latency already hurts (#1071) — the split is the
-                -- whole design, so a day is blank once and right afterwards.
-                --
-                -- ⚠ THIS CHANGES WHAT SERVED DAYS ARE NAMED, so it is not a silent
-                -- tidy-up. It was Pippijn's decision to schedule it, and the run
-                -- prints what it fetched: a cron whose effect is invisible in its
-                -- own log would be the wrong shape for work like this.
-                name = "health-geocode-fetch"
-              , -- Daily, 07:00 — after `health-decode-recent` and the rail-stops
-                -- refresh at 06:00, before `health-freshness` at 09:00.
-                --
-                -- ⚠ NOT more often. The queue fills when a day is SERVED, which is
-                -- when he opens one, and Nominatim allows ONE REQUEST PER SECOND —
-                -- so the useful cadence is set by how fast the queue fills, not by
-                -- how fast it could be drained.
-                schedule = "0 7 * * *"
-              , -- ⚠ THE LIMIT IS EXPLICIT even though 200 is the default, because
-                -- it is the bound that keeps one run polite: 200 keys per zoom at
-                -- one request per second is a few minutes of traffic. A backlog
-                -- larger than that drains over several nights, which is correct —
-                -- there is nothing urgent about a name on a day already served.
-                command = [ "bin/backend", "fetch-geocodes", "--limit", "200" ]
-              , -- Generous against the rate limit rather than against work: the
-                -- worst case is ~400 s of deliberate sleeping.
-                deadlineSeconds = 1800
-              , suspended = False
-              , rootFs = T.RootFs.ReadOnly
-              , volumes = tmpVolume
-              , mounts = tmpMount
-              , -- ⚠ `dbEnv` ONLY. Nominatim needs no credential — it is identified
-                -- by User-Agent — so this job holds nothing that could write to a
-                -- health stream.
                 env = dbEnv
               , resources = batchResources
               }
