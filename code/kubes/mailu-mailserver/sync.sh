@@ -1,5 +1,17 @@
 #!/usr/bin/env bash
-
+# Mailu on amun: notes only, nothing left to run.
+#
+# The chart is not installed here any more. Its version, values files and
+# arguments are a row in xinutec-infra's plan/tables/helm.dhall, applied from the
+# Mac with `plan-run helm --settings plan/settings.json --apply`, which first
+# checks that the release Helm has on record is what that row renders.
+#
+# It runs as the chart ships. The chart's clamav probes hand a shell pipe to
+# `echo` and always pass; this script used to patch in `clamdscan --ping` after
+# every install. Since 2026-10-03 the helm plan asks clamd itself (`ClamdAnswers`)
+# and reports when it does not answer.
+#
+# k8s/redis-ext.yaml and roundcube-secret.yaml are applied by hand.
 set -euo pipefail
 
 # Chart-created storage (invisible to any manifest scan — declared here so the
@@ -10,13 +22,13 @@ set -euo pipefail
 # dev-lint: workload mailu-mailserver/deploy/mailu-admin
 # (redis is not a chart PVC: ours is mailu-redis-ext-data in k8s/redis-ext.yaml,
 # backed up by odin.)
-# Chart-version BUMP gotchas. None of these apply to a same-version re-run; they
-# bite only when --version changes:
+# Chart-version BUMP gotchas, for `plan-run helm --apply` after a version change
+# in helm.dhall. None of these apply to a same-version re-run:
 #   1. StatefulSet immutable fields: the chart changed a forbidden field on
 #      mailu-clamav, so `helm upgrade` errors "updates to statefulset spec ... are
 #      forbidden". Delete the SS first (pod stays; clamav is regenerable):
 #        kubectl -n mailu-mailserver delete statefulset mailu-clamav --cascade=orphan
-#      then re-run this script. (The release ends 'failed' until the re-run succeeds.)
+#      then apply the plan again. (The release ends 'failed' until that succeeds.)
 #   3. mailu-roundcube secret: see the FOOTGUN note in values.yaml — recreate it
 #      standalone if a prior upgrade pruned it.
 #
@@ -35,14 +47,3 @@ set -euo pipefail
 # NB: this deployment exposes only implicit-TLS client ports (465/993/995) + 25/443;
 # the plaintext-STARTTLS ports 587/143/110 are intentionally NOT served (by design,
 # not a regression) — clients use 465/993.
-sudo helm upgrade --install mailu mailu/mailu --version 2.7.3 -n mailu-mailserver --create-namespace --values values.yaml --values secrets.yaml
-
-# Workaround: chart 2.1.1's clamav probes check /tmp/clamd.pid which
-# the official clamav-debian image doesn't create, and uses pgrep which
-# isn't installed. Use clamdscan --ping (ClamAV's built-in health check).
-# 300s initial delay gives time for signature download + load on first start.
-sudo kubectl -n mailu-mailserver patch statefulset mailu-clamav --type=json -p='[
-  {"op": "replace", "path": "/spec/template/spec/containers/0/readinessProbe/exec/command", "value": ["clamdscan", "--ping", "30"]},
-  {"op": "replace", "path": "/spec/template/spec/containers/0/livenessProbe/exec/command", "value": ["clamdscan", "--ping", "30"]},
-  {"op": "replace", "path": "/spec/template/spec/containers/0/livenessProbe/initialDelaySeconds", "value": 300}
-]'

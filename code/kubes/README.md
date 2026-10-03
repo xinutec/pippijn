@@ -84,7 +84,8 @@ procedure, so folding them in would mean inventing a second thing for
 
 Their CHARTS are a separate matter since 2026-10-03: every Helm release is a
 row in xinutec-infra's `plan/tables/helm.dhall`, judged by the `helm` plan
-(the release on record against what the row renders) and, for cert-manager and
-ingress-nginx, applied by it with `plan-run helm --apply` from the Mac. Their
-`sync.sh` now applies only the plain manifests beside the chart. mailu's and
-nextcloud's still install theirs; the table says why.
+(the release on record against what the row renders) and, for cert-manager,
+ingress-nginx and mailu, applied by it with `plan-run helm --apply` from the Mac.
+Their `sync.sh` now applies only the plain manifests beside the chart, or nothing
+(mailu's keeps its notes). nextcloud's still installs its redis; the table says
+why.
