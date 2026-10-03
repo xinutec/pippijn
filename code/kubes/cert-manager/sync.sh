@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# Deploy cert-manager + the letsencrypt ClusterIssuers on amun. Run there as root.
+# The letsencrypt ClusterIssuers on amun. Run there as root.
+#
+# The chart is not installed here any more. Its version and arguments are a row in
+# xinutec-infra's plan/tables/helm.dhall, applied from the Mac with
+# `plan-run helm --settings plan/settings.json --apply`, which first checks that
+# the release Helm has on record is what that row renders. The version used to be
+# written here as well, and the two had nothing comparing them.
 #
 # amun only: isis's host nginx gets its certificates from NixOS `security.acme`.
 #
@@ -11,29 +17,7 @@
 # ours (no TLSA records).
 set -euo pipefail
 
-case "$(hostname -s)" in
-  amun) version=v1.20.4 ;;
-  *) echo "no cert-manager version pinned for host '$(hostname -s)'" >&2; exit 1 ;;
-esac
-
-args=(
-  cert-manager jetstack/cert-manager
-  --namespace cert-manager
-  --create-namespace
-  --version "$version"
-  --set crds.enabled=true
-  --set prometheus.enabled=false
-)
-
 # dev-lint: pvc none
-sudo helm repo update jetstack
-
-# Schema gate. This chart ships a values.schema.json with additionalProperties:false,
-# so if a future chart renames or drops one of the --set keys above, this dry-run fails
-# loudly BEFORE anything is applied, instead of the flag being silently ignored.
-sudo helm upgrade --install "${args[@]}" --dry-run >/dev/null
-sudo helm upgrade --install "${args[@]}"
-
 # The ClusterIssuers use the deprecated `solvers.http01.ingress.class` field. It is
 # still present in the 1.20 CRD, so it keeps working; `ingressClassName` is the
 # replacement for when it is finally removed.
