@@ -3,8 +3,8 @@
 # the cluster (task #1763). The API server calls the webhook from the host, and
 # host-sourced traffic is not subject to NetworkPolicy (measured 2026-09-26), so
 # admission keeps working. Public traffic reaches it through k3s's svclb pods.
-# Applied by sync.sh with kubectl, not through the chart, so a chart upgrade
-# cannot drop it.
+# Applied by the deploy plan (`sync.sh` here), not through the chart, so a chart
+# upgrade cannot drop it.
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

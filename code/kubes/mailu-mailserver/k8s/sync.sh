@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Mailu on amun: notes only, nothing left to run.
+# Mailu's own manifests on amun, through the deploy plan (../../deploy.sh): the
+# external redis and the roundcube Secret, both kept out of the chart on purpose.
 #
-# The chart is not installed here any more. Its version, values files and
-# arguments are a row in xinutec-infra's plan/tables/helm.dhall, applied from the
-# Mac with `plan-run helm --settings plan/settings.json --apply`, which first
-# checks that the release Helm has on record is what that row renders.
+# The chart is not installed here. Its version, values files and arguments are a
+# row in xinutec-infra's plan/tables/helm.dhall, applied from the Mac with
+# `plan-run helm --settings plan/settings.json --apply`, which first checks that
+# the release Helm has on record is what that row renders.
 #
 # It runs as the chart ships. The chart's clamav probes hand a shell pipe to
-# `echo` and always pass; this script used to patch in `clamdscan --ping` after
+# `echo` and always pass; a sync.sh used to patch in `clamdscan --ping` after
 # every install. Since 2026-10-03 the helm plan asks clamd itself (`ClamdAnswers`)
 # and reports when it does not answer.
 #
-# k8s/redis-ext.yaml and roundcube-secret.yaml are applied by hand.
+# `--host` because no Dhall model places this tree.
 set -euo pipefail
 
 # Chart-created storage (invisible to any manifest scan — declared here so the
@@ -20,7 +21,7 @@ set -euo pipefail
 # dev-lint: pvc mailu-mailserver/data-mailu-clamav-0 allow-backup-coverage clamav signature DB, re-downloaded on start
 # Chart-created workload the odin backup execs into (mailu-admin dumps roundcube).
 # dev-lint: workload mailu-mailserver/deploy/mailu-admin
-# (redis is not a chart PVC: ours is mailu-redis-ext-data in k8s/redis-ext.yaml,
+# (redis is not a chart PVC: ours is mailu-redis-ext-data in redis-ext.yaml,
 # backed up by odin.)
 # Chart-version BUMP gotchas, for `plan-run helm --apply` after a version change
 # in helm.dhall. None of these apply to a same-version re-run:
@@ -29,11 +30,11 @@ set -euo pipefail
 #      forbidden". Delete the SS first (pod stays; clamav is regenerable):
 #        kubectl -n mailu-mailserver delete statefulset mailu-clamav --cascade=orphan
 #      then apply the plan again. (The release ends 'failed' until that succeeds.)
-#   3. mailu-roundcube secret: see the FOOTGUN note in values.yaml — recreate it
-#      standalone if a prior upgrade pruned it.
+#   3. mailu-roundcube secret: see the FOOTGUN note in ../values.yaml. If an upgrade
+#      prunes it, the deploy plan sees roundcube-secret.yaml missing and re-applies it.
 #
 # ANY-image-roll gotchas — these bite whenever front/postfix are rolled to a new
-# image, including a `mailuVersion` bump (values.yaml), NOT just --version changes.
+# image, including a `mailuVersion` bump (../values.yaml), NOT just --version changes.
 # Both are shared-single-resource RollingUpdate deadlocks; fix each with scale 0->1:
 #   2. front hostPort: front binds the mail ports via hostPort on the single node, so
 #      the new pod stays Pending "no free ports" and the old never leaves. Recover:
@@ -47,3 +48,5 @@ set -euo pipefail
 # NB: this deployment exposes only implicit-TLS client ports (465/993/995) + 25/443;
 # the plaintext-STARTTLS ports 587/143/110 are intentionally NOT served (by design,
 # not a regression) — clients use 465/993.
+
+exec "$(dirname "$0")/../../deploy.sh" mailu-mailserver --host amun.xinutec.org "$@"

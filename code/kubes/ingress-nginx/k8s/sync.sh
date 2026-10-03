@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# The ingress controller's NetworkPolicy, on amun. Run there as root.
+# The ingress controller's NetworkPolicy on amun, through the deploy plan
+# (../../deploy.sh).
 #
-# The chart is not installed here any more. Its version, values.yaml and arguments
-# are a row in xinutec-infra's plan/tables/helm.dhall, applied from the Mac with
-# `plan-run helm --settings plan/settings.json --apply`, which first checks that
-# the release Helm has on record is what that row renders.
+# The chart is not installed here. Its version, ../values.yaml and arguments are a
+# row in xinutec-infra's plan/tables/helm.dhall, applied from the Mac with
+# `plan-run helm --settings plan/settings.json --apply`.
 #
 # amun only. isis runs no ingress-nginx: its edge is the host's own nginx
-# (nixos-config, `node.edge = "frontdoor"`). This script still pinned 4.15.1 for
-# isis until 2026-10-03, a version for a release that did not exist.
+# (nixos-config, `node.edge = "frontdoor"`). `--host` because no Dhall model
+# places this tree.
 #
 # ingress-nginx is ARCHIVED upstream: best-effort maintenance ended March 2026 and the
 # repo is read-only. amun holds 4.8.3; replacing it means adopting a Gateway API
@@ -19,7 +19,4 @@
 # ignoring the requested 10.51.0.100. It is left alone because it has been harmless for
 # years and editing the Service spec is a needless way to disturb a working external IP.
 set -euo pipefail
-
-# dev-lint: pvc none
-# Outside the chart on purpose: see networkpolicy.yaml.
-sudo kubectl apply -f "$(dirname "$0")/networkpolicy.yaml"
+exec "$(dirname "$0")/../../deploy.sh" ingress-nginx --host amun.xinutec.org "$@"

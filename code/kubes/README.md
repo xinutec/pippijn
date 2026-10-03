@@ -75,17 +75,20 @@ a false "credentials have been public for 19 months" report on 2026-08-07.
 **Adding an app whose secret.sh needs a literal? Add its git-crypt rule first,
 then the literal** — in that order, or the plaintext is in history for good.
 
+## Helm releases
+
+Every Helm release is a row in xinutec-infra's `plan/tables/helm.dhall`, judged
+by the `helm` plan (the release on record against what the row renders, and
+against what the cluster holds) and, for cert-manager, ingress-nginx and mailu,
+applied by it with `plan-run helm --apply` from the Mac.
+
+What those three keep outside their chart on purpose (cert-manager's
+ClusterIssuers, ingress-nginx's NetworkPolicy, mailu's redis and roundcube
+Secret) is a plain `<app>/k8s` tree since 2026-10-03, deployed like any other:
+its `sync.sh` is the door onto `deploy.sh`, with `--host amun.xinutec.org`
+because no model places these trees.
+
 ## Not covered
 
-`cert-manager`, `ingress-nginx`, `mailu-mailserver` and `nextcloud` keep their
-own `sync.sh`. They are helm installs or a different shape, not the six-line
-procedure, so folding them in would mean inventing a second thing for
-`deploy.sh` to be.
-
-Their CHARTS are a separate matter since 2026-10-03: every Helm release is a
-row in xinutec-infra's `plan/tables/helm.dhall`, judged by the `helm` plan
-(the release on record against what the row renders) and, for cert-manager,
-ingress-nginx and mailu, applied by it with `plan-run helm --apply` from the Mac.
-Their `sync.sh` now applies only the plain manifests beside the chart, or nothing
-(mailu's keeps its notes). nextcloud's still installs its redis; the table says
-why.
+`nextcloud` keeps its own `sync.sh`: bitnami's chart wants its password passed
+back in, so it cannot run as written; the helm table says why.
