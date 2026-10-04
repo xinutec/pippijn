@@ -80,3 +80,13 @@ tika:
 # mailu-redis-ext is not the chart's; its policy is in k8s/redis-ext.yaml.
 networkPolicy:
   enabled: true
+  # There is no ingress controller since 2026-10-04: amun's front door is the
+  # host's nginx, whose traffic NetworkPolicy does not govern. The chart renders
+  # this peer regardless, so it names mailu's own pods, which mailu-allow-internal
+  # already admits on every port: it grants nothing new and selects something,
+  # where the ingress-nginx default selected nothing.
+  ingressController:
+    namespace: mailu-mailserver
+    podSelector: |
+      matchLabels:
+        app.kubernetes.io/instance: mailu
