@@ -56,10 +56,9 @@ externalRedis:
   adminQuotaDbId: 1
   adminRateLimitDbId: 2
   rspamdDbId: 0
-# ClamAV: chart 2.1.1 references tag 1.2.0-6 (doesn't exist on Docker
-# Hub) and has probes that check /tmp/clamd.pid (official image doesn't
-# create PID files). Fix: override tag to a real clamav-debian tag + patch probes
-# after helm upgrade (see sync.sh).
+# ClamAV: the tag is overridden to a current clamav-debian release. The chart's
+# probes always pass; xinutec-infra's helm plan asks clamd itself (ClamdAnswers)
+# instead of patching them (2026-10-03).
 clamav:
   image:
     tag: "1.5.4"
@@ -68,9 +67,11 @@ clamav:
 # hub "digest" field is the arm64 child, and pinning that would break amd64 amun;
 # apache/tika release tags are immutable so tag-only is safe. Keep the "-full" variant
 # (all parsers). Stateless service — a restart just briefly pauses attachment indexing.
+# 4.1.0 (2026-10-04): checked first against 3.3.1 with dovecot's own request
+# (PUT /tika/, Accept: text/plain) on a .docx and a .pdf — identical text, both 200.
 tika:
   image:
-    tag: "3.3.1.0-full"
+    tag: "4.1.0-1-full"
 #secretKey: ""  # XXX: add here when updating
 
 # The chart's own policies: default-deny for every mailu pod, everything allowed
