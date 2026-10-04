@@ -79,14 +79,16 @@ then the literal** — in that order, or the plaintext is in history for good.
 
 Every Helm release is a row in xinutec-infra's `plan/tables/helm.dhall`, judged
 by the `helm` plan (the release on record against what the row renders, and
-against what the cluster holds) and, for cert-manager, ingress-nginx and mailu,
-applied by it with `plan-run helm --apply` from the Mac.
+against what the cluster holds) and, for cert-manager and mailu, applied by it
+with `plan-run helm --apply` from the Mac. ingress-nginx is gone since
+2026-10-04: amun's edge is the host's nginx, as isis's is (nixos-config
+`frontdoor.nix`), and so are its certificates.
 
-What those three keep outside their chart on purpose (cert-manager's
-ClusterIssuers, ingress-nginx's NetworkPolicy, mailu's redis and roundcube
-Secret) is a plain `<app>/k8s` tree since 2026-10-03, deployed like any other:
-its `sync.sh` is the door onto `deploy.sh`, and the cluster comes from
-`dhall/placed.dhall`, since no model places these trees.
+What they keep outside their chart on purpose (cert-manager's ClusterIssuers,
+mailu's redis and roundcube Secret) is a plain `<app>/k8s` tree since
+2026-10-03, deployed like any other: its `sync.sh` is the door onto `deploy.sh`,
+and the cluster comes from `dhall/placed.dhall`, since no model places these
+trees.
 
 `nextcloud` is a plain tree too since 2026-10-03, with its Redis (`redis.yaml`)
 in place of bitnami's chart and the same door, on isis.

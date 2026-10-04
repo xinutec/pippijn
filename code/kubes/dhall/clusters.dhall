@@ -2,4 +2,4 @@
 -- Do not edit; the kubes model keeps a copy (see that script).
 let Edge = < Frontdoor | IngressNginx >
 
-in  { Edge, clusters = { amun = Edge.IngressNginx, isis = Edge.Frontdoor } }
+in  { Edge, clusters = { amun = Edge.Frontdoor, isis = Edge.Frontdoor } }
