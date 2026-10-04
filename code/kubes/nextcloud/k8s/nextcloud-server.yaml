@@ -26,6 +26,10 @@ spec:
       - name: nginx-config-volume
         configMap:
           name: nginx-config
+      # Settings beside config.php (nextcloud-config.yaml).
+      - name: nextcloud-config
+        configMap:
+          name: nextcloud-config
       # dev-lint: allow-unhardened — both containers need root: the nextcloud
       # fpm image's entrypoint chowns /var/www/html to www-data on boot, and the
       # nginx sidecar binds :80. Forcing runAsNonRoot breaks them.
@@ -72,6 +76,9 @@ spec:
         - name: server-storage
           mountPath: /var/www/html
           subPath: server-data
+        - name: nextcloud-config
+          mountPath: /var/www/html/config/xinutec.config.php
+          subPath: xinutec.config.php
         # php-fpm listens on :9000; readiness gates the rollout on it being up.
         readinessProbe:
           tcpSocket:
@@ -139,6 +146,9 @@ spec:
         - name: server-storage
           mountPath: /var/www/html
           subPath: server-data
+        - name: nextcloud-config
+          mountPath: /var/www/html/config/xinutec.config.php
+          subPath: xinutec.config.php
 ---
 apiVersion: v1
 kind: Service

@@ -1,0 +1,21 @@
+# Nextcloud settings stated here rather than set with `occ config:system:set`,
+# which writes them into config.php on the PVC where nothing reviews them.
+# Nextcloud merges every *.config.php beside config.php; a key set in one of these
+# is read-only to occ, so it cannot drift by hand. Mounted by subPath into the
+# `nextcloud` and `cron` containers (nextcloud-server.yaml): a change here takes
+# effect when the pod restarts, not before.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: nextcloud
+  name: nextcloud-config
+data:
+  # Heavy daily background jobs run only in the four hours from this hour (UTC):
+  # 01:00–05:00, overnight in Europe. Nextcloud's setup check asked for one
+  # (2026-10-04). The nightly backup's maintenance mode falls inside it, and
+  # cron does nothing in maintenance mode.
+  xinutec.config.php: |
+    <?php
+    $CONFIG = array(
+      'maintenance_window_start' => 1,
+    );
