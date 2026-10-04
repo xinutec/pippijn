@@ -766,7 +766,7 @@ done
 # site cannot share a name, and this relies on that.
 clusters_expr() {
   local first=1 leaf
-  printf 'let R = %s/lib/render.dhall\nlet S = %s/lib/site.dhall\nin  toMap\n{ ' "$here" "$here"
+  printf 'let R = %s/lib/render.dhall\nlet S = %s/lib/site.dhall\nin  toMap\n({ ' "$here" "$here"
   for src in "$here"/apps/*.dhall; do
     leaf=$(basename "$src" .dhall)
     (( first )) || printf '\n, '
@@ -779,7 +779,9 @@ clusters_expr() {
     first=0
     printf '%s = S.clusterHosts %s/sites/%s.dhall' "$leaf" "$here" "$leaf"
   done
-  printf '\n}\n'
+  # The trees with no model, hand-placed. `∧` refuses a key on both sides, so a
+  # tree cannot be modelled and hand-placed at once.
+  printf '\n} ∧ %s/placed.dhall)\n' "$here"
 }
 
 # ── frontdoor.json: every hostname the fleet answers, as DATA ──────────────────

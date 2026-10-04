@@ -6,8 +6,7 @@
 # `plan-run helm --settings plan/settings.json --apply`.
 #
 # amun only: isis's host nginx gets its certificates from NixOS `security.acme`.
-# `--host` because no Dhall model places this tree; deploy.sh explains why there
-# is no default.
+# The cluster comes from ../../dhall/placed.dhall, since no model places this tree.
 #
 # amun stays on NixOS 25.05 (k8s 1.32) until it is reinstalled, which is months away,
 # so its cert-manager is kept current within what k8s 1.32 supports: v1.20 is the last
@@ -20,4 +19,4 @@
 # still present in the 1.20 CRD, so it keeps working; `ingressClassName` is the
 # replacement for when it is finally removed.
 set -euo pipefail
-exec "$(dirname "$0")/../../deploy.sh" cert-manager --host amun.xinutec.org "$@"
+exec "$(dirname "$0")/../../deploy.sh" cert-manager "$@"

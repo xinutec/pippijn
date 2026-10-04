@@ -12,7 +12,7 @@
 # every install. Since 2026-10-03 the helm plan asks clamd itself (`ClamdAnswers`)
 # and reports when it does not answer.
 #
-# `--host` because no Dhall model places this tree.
+# The cluster comes from ../../dhall/placed.dhall, since no model places this tree.
 set -euo pipefail
 
 # Chart-created storage (invisible to any manifest scan — declared here so the
@@ -49,4 +49,4 @@ set -euo pipefail
 # the plaintext-STARTTLS ports 587/143/110 are intentionally NOT served (by design,
 # not a regression) — clients use 465/993.
 
-exec "$(dirname "$0")/../../deploy.sh" mailu-mailserver --host amun.xinutec.org "$@"
+exec "$(dirname "$0")/../../deploy.sh" mailu-mailserver "$@"

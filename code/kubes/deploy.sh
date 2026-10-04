@@ -49,10 +49,10 @@ exe="$(nix build --no-link --print-out-paths "${INFRA}#plan-run")/bin/plan-run"
 # `dhall/clusters.json` now and refuses a `--host` that contradicts a model, so
 # `deploy.sh amun` reaches amun for the first time.
 #
-# A tree with NO model has to be told: `deploy.sh ircd --host isis.xinutec.org`.
-# That is deliberate rather than a regression — there is no default, because a
-# wrong cluster applies cleanly against an empty namespace and reads like a first
-# deploy (#692). The seven unmodelled trees joining the model retires the flag.
+# A tree with NO model is placed by hand in `dhall/placed.dhall`, which
+# generate.sh merges into the same file. There is still no default: a tree in
+# neither is refused, because a wrong cluster applies cleanly against an empty
+# namespace and reads like a first deploy (#692).
 exec "$exe" deploy \
   --settings "${INFRA}/plan/settings.json" \
   --app "$app" \

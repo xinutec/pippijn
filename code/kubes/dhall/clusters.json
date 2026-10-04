@@ -2,6 +2,9 @@
   "amun": [
     "amun.xinutec.org"
   ],
+  "cert-manager": [
+    "amun.xinutec.org"
+  ],
   "coach": [
     "isis.xinutec.org"
   ],
@@ -13,6 +16,9 @@
   ],
   "home": [
     "isis.xinutec.org"
+  ],
+  "ingress-nginx": [
+    "amun.xinutec.org"
   ],
   "ircd": [
     "isis.xinutec.org"
@@ -26,11 +32,20 @@
   "life": [
     "isis.xinutec.org"
   ],
+  "mailu-mailserver": [
+    "amun.xinutec.org"
+  ],
   "memview": [
     "isis.xinutec.org"
   ],
   "messages": [
     "isis.xinutec.org"
+  ],
+  "nextcloud": [
+    "isis.xinutec.org"
+  ],
+  "nocodb": [
+    "amun.xinutec.org"
   ],
   "observe": [
     "isis.xinutec.org"

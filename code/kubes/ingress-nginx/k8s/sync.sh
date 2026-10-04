@@ -7,8 +7,8 @@
 # `plan-run helm --settings plan/settings.json --apply`.
 #
 # amun only. isis runs no ingress-nginx: its edge is the host's own nginx
-# (nixos-config, `node.edge = "frontdoor"`). `--host` because no Dhall model
-# places this tree.
+# (nixos-config, `node.edge = "frontdoor"`). The cluster comes from
+# ../../dhall/placed.dhall, since no model places this tree.
 #
 # ingress-nginx is ARCHIVED upstream: best-effort maintenance ended March 2026 and the
 # repo is read-only. amun holds 4.8.3; replacing it means adopting a Gateway API
@@ -19,4 +19,4 @@
 # ignoring the requested 10.51.0.100. It is left alone because it has been harmless for
 # years and editing the Service spec is a needless way to disturb a working external IP.
 set -euo pipefail
-exec "$(dirname "$0")/../../deploy.sh" ingress-nginx --host amun.xinutec.org "$@"
+exec "$(dirname "$0")/../../deploy.sh" ingress-nginx "$@"
