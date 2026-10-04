@@ -105,6 +105,7 @@ spec:
       # the environment of the `nextcloud` container above, because the image's
       # config files read REDIS_* and the OVERWRITE* names from it, and those
       # decide the links cron sends in notification mail.
+      # dev-lint: allow-no-probe — serves no port; /cron.sh execs crond, so its exit restarts the container, and a readiness probe here would take the web pod out of its Service over a cron hiccup
       - name: cron
         image: nextcloud:33.0.2-fpm-alpine
         imagePullPolicy: Always
