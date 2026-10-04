@@ -823,8 +823,8 @@ frontdoor_expr() {
 # be two sources of truth for a question that already has one, which is the
 # failure #692 was.
 #
-# Apps only: sites have no exception today, and inventing a field they do not
-# use would be a claim nobody checks.
+# Apps from their models, and sites from `site_tree`, which is where every site
+# lives; neither invents a field the other does not use.
 trees_expr() {
   local first=1 leaf
   printf 'let R = %s/lib/render.dhall\nin  toMap\n{ ' "$here"
@@ -833,6 +833,13 @@ trees_expr() {
     (( first )) || printf '\n, '
     first=0
     printf '%s = R.treeOf "%s" %s/apps/%s.dhall' "$leaf" "$leaf" "$here" "$leaf"
+  done
+  # Sites too (#1910): their tree is `web/org/xinutec/<site>/k8s`, which
+  # `plan-run deploy` cannot compose from the name, so without a row here no site
+  # could be deployed or drift-checked at all.
+  for src in "$here"/sites/*.dhall; do
+    leaf=$(basename "$src" .dhall)
+    printf '\n, %s = "%s"' "$leaf" "$(site_tree "$leaf")"
   done
   printf '\n}\n'
 }
