@@ -19,8 +19,7 @@ let R = ./lib/render.dhall
 
 let on = λ(c : T.Cluster) → [ R.hostOf c ]
 
-in  { `cert-manager` = on T.Cluster.amun
-    , `mailu-mailserver` = on T.Cluster.amun
+in  { `mailu-mailserver` = on T.Cluster.amun
     , nocodb = on T.Cluster.amun
     , nextcloud = on T.Cluster.isis
     }
