@@ -97,6 +97,47 @@ spec:
             port: 80
           initialDelaySeconds: 5
           periodSeconds: 10
+      # Background jobs. Nextcloud is in `cron` mode, which expects cron.php every
+      # five minutes; nothing ran it but a hand-run cron.sh, and by 2026-10-04 it
+      # had not run for 33 days (trash and version expiry, notifications). The
+      # image's /cron.sh is busybox crond running cron.php as www-data every five
+      # minutes, the official chart's `cronjob` sidecar. It shares the volume and
+      # the environment of the `nextcloud` container above, because the image's
+      # config files read REDIS_* and the OVERWRITE* names from it, and those
+      # decide the links cron sends in notification mail.
+      - name: cron
+        image: nextcloud:33.0.2-fpm-alpine
+        imagePullPolicy: Always
+        command: ["/cron.sh"]
+        resources:
+          limits:
+            memory: 1280Mi
+        env:
+        - name: PHP_MEMORY_LIMIT
+          value: 1024M
+        - name: MYSQL_HOST
+          value: nextcloud-db
+        - name: MYSQL_DATABASE
+          value: nextcloud
+        - name: NEXTCLOUD_TRUSTED_DOMAINS
+          value: dash.xinutec.org
+        - name: TRUSTED_PROXIES
+          value: 127.0.0.1 ::1
+        - name: OVERWRITEHOST
+          value: dash.xinutec.org
+        - name: OVERWRITEPROTOCOL
+          value: https
+        - name: REDIS_HOST
+          value: nextcloud-redis
+        - name: REDIS_HOST_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis
+              key: redis-password
+        volumeMounts:
+        - name: server-storage
+          mountPath: /var/www/html
+          subPath: server-data
 ---
 apiVersion: v1
 kind: Service
