@@ -66,14 +66,4 @@ in  [     F.default
         , why =
             "mailu is deployed from its own chart and has never been in this model. Its Ingress names the backend port by NAME (https), which resolves to 443, and carries backend-protocol: HTTPS — the only upstream in the fleet that is not plain http."
         }
-    ,     F.default
-      ⫽ { host = dns.nocodb
-        , upstream = F.svcFqdn "nocodb-server" "nocodb"
-        , port = 8080
-        , exposure = "Public"
-        , clusters = [ amun ]
-        , modelled = False
-        , why =
-            "nocodb is hand-written YAML on amun with no apps/ entry. odin's nightly staging already ssh's in to snapshot its database, so the deployment is known to the fleet everywhere except here."
-        }
     ] : List F.Entry

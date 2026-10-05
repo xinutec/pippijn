@@ -5,7 +5,7 @@ placed.dhall — the cluster each tree WITHOUT a model runs on, stated here so
 WHY. A modelled app's placement comes from its model (`apps/*.dhall`). These
 trees have none: third-party charts' companions, and Nextcloud's hand-written
 YAML. Their cluster used to live in three places: each `sync.sh` door's `--host`,
-the deploy-drift collector's own list, and nowhere at all for nocodb. A tree
+the deploy-drift collector's own list, and for one tree nowhere at all. A tree
 missing from all of them was drift-checked against the wrong cluster, where an
 empty namespace reads like a first deploy (#692).
 
@@ -20,6 +20,5 @@ let R = ./lib/render.dhall
 let on = λ(c : T.Cluster) → [ R.hostOf c ]
 
 in  { `mailu-mailserver` = on T.Cluster.amun
-    , nocodb = on T.Cluster.amun
     , nextcloud = on T.Cluster.isis
     }

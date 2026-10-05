@@ -1,7 +1,0 @@
----
-kind: Namespace
-apiVersion: v1
-metadata:
-  name: nocodb
-  annotations:
-    linkerd.io/inject: enabled

@@ -306,18 +306,5 @@
     "scheme": "https",
     "upstream": "mailu-front.mailu-mailserver.svc.cluster.local",
     "why": "mailu is deployed from its own chart and has never been in this model. Its Ingress names the backend port by NAME (https), which resolves to 443, and carries backend-protocol: HTTPS — the only upstream in the fleet that is not plain http."
-  },
-  {
-    "clusters": [
-      "amun.xinutec.org"
-    ],
-    "exposure": "Public",
-    "host": "nocodb.xinutec.org",
-    "modelled": false,
-    "path": "/",
-    "port": 8080,
-    "scheme": "http",
-    "upstream": "nocodb-server.nocodb.svc.cluster.local",
-    "why": "nocodb is hand-written YAML on amun with no apps/ entry. odin's nightly staging already ssh's in to snapshot its database, so the deployment is known to the fleet everywhere except here."
   }
 ]

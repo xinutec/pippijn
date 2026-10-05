@@ -26,7 +26,6 @@ in  { -- Hosts (the machines themselves)
     , scanner = sub "scanner"
     , observe = sub "observe"
     , recall = sub "recall"
-    , nocodb = sub "nocodb"
     , slides = sub "slides"
     , -- Not under `domain`: the OS project has its own. Its `www` only redirects.
       leanux = "leanux.org"
