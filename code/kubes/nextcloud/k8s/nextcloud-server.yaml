@@ -60,6 +60,8 @@ spec:
           value: dash.xinutec.org
         - name: OVERWRITEPROTOCOL
           value: https
+        - name: OVERWRITECLIURL
+          value: https://dash.xinutec.org
         - name: REDIS_HOST
           value: nextcloud-redis
         - name: REDIS_HOST_PASSWORD
@@ -135,6 +137,8 @@ spec:
           value: dash.xinutec.org
         - name: OVERWRITEPROTOCOL
           value: https
+        - name: OVERWRITECLIURL
+          value: https://dash.xinutec.org
         - name: REDIS_HOST
           value: nextcloud-redis
         - name: REDIS_HOST_PASSWORD
