@@ -191,6 +191,7 @@ in  T.namespaceOf
             -- per deploy.
             { readiness = { initialDelaySeconds = 3, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 10, periodSeconds = 30 }
+            , startup = None T.StartupTiming
             }
         , -- `/ingest/v1/health` because it needs no session: probing a browsing
           -- route would exercise the SSO middleware, and an expired secret would

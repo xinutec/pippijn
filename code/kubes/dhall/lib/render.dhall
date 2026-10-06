@@ -1383,6 +1383,29 @@ let deploymentFor
                                       (renderProbe r.probe)
                               }
                               w.readiness
+                        , -- Holds liveness off until the first success, for a
+                          -- start of unbounded length. See `T.ProbeTiming.startup`.
+                          startupProbe =
+                            merge
+                              { None = None K.Probe
+                              , Some =
+                                  λ(st : T.StartupTiming) →
+                                    merge
+                                      { None = None K.Probe
+                                      , Some =
+                                          λ(pr : K.Probe) →
+                                            Some
+                                              (   pr
+                                                ⫽ { periodSeconds = Some
+                                                      st.periodSeconds
+                                                  , failureThreshold = Some
+                                                      st.failureThreshold
+                                                  }
+                                              )
+                                      }
+                                      (renderProbe w.probe)
+                              }
+                              w.probeTiming.startup
                         , -- ⚠ TWO merges, and the outer one is the workload
                           -- saying it has NO liveness probe — distinct from the
                           -- inner one, which is a probe kind that renders to

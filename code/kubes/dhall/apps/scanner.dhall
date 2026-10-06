@@ -73,6 +73,7 @@ in  T.namespaceOf
             -- second of downtime on each deploy.
             { readiness = { initialDelaySeconds = 3, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 10, periodSeconds = 30 }
+            , startup = None T.StartupTiming
             }
         , probe = T.Probe.Http { path = "/healthz", port = 8090 }
         , resources =  Some

@@ -127,6 +127,7 @@ in  λ ( who
             probeTiming =
             { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
             , liveness = who.liveness
+            , startup = None T.StartupTiming
             }
           , resources =  Some
             { requests = { cpu = "10m", memory = "64Mi" }

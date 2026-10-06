@@ -255,6 +255,7 @@ in  { name = "signal"
         , probeTiming =
             { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 15, periodSeconds = 20 }
+            , startup = None T.StartupTiming
             }
         , -- `Tcp`: the bridge has no health endpoint, and this is honest about
           -- what is actually checked.

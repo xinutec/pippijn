@@ -133,6 +133,12 @@ let Probe =
         Unprobed : { why : Text }
       >
 
+let StartupTiming =
+      --| How long a container may take to come up before liveness starts
+      --  judging it: kubelet asks `probe` every `periodSeconds` and tolerates
+      --  `failureThreshold` misses, so the window is their product.
+      { periodSeconds : Natural, failureThreshold : Natural }
+
 let ProbeTiming =
       --| How often kubelet asks, and how long it waits first.
       --
@@ -158,6 +164,15 @@ let ProbeTiming =
           -- ⚠ Absent is NOT `standardTiming`'s: this says no liveness probe at all,
           -- that says the fleet's.
           Optional { initialDelaySeconds : Natural, periodSeconds : Natural }
+      , startup :
+          --| ⚠ OPTIONAL, and absent for every workload whose start is bounded by
+          --  its own code. Set it for one whose start runs work of UNBOUNDED
+          --  length — a schema migration on a large table — because the liveness
+          --  probe above cannot tell "slow to start" from "dead": health-auth
+          --  was SIGKILLed twice at ~95 s mid-`ALTER TABLE` (health #1921,
+          --  2026-10-06) and came up only on the third try. The question asked
+          --  is `probe`'s own; this only says how long the answer may take.
+          Optional StartupTiming
       }
 
 let standardTiming
@@ -166,6 +181,7 @@ let standardTiming
       --| The reviewed set: the fleet default, written down once.
       { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
       , liveness = Some { initialDelaySeconds = 15, periodSeconds = 20 }
+      , startup = None StartupTiming
       }
 
 let Readiness =
@@ -1099,6 +1115,7 @@ in  { Cluster
     , EnvVar
     , Probe
     , ProbeTiming
+    , StartupTiming
     , Readiness
     , standardTiming
     , Quantity

@@ -135,6 +135,7 @@ in  T.namespaceOf
             -- would only postpone it.
             { readiness = { initialDelaySeconds = 2, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 5, periodSeconds = 30 }
+            , startup = None T.StartupTiming
             }
         , probe = T.Probe.Http { path = "/healthz", port = 8091 }
         , resources =  Some

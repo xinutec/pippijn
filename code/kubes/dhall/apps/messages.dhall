@@ -191,6 +191,7 @@ in  { name = "signal"
         , probeTiming =
             { readiness = { initialDelaySeconds = 2, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 5, periodSeconds = 20 }
+            , startup = None T.StartupTiming
             }
         , probe = T.Probe.Http { path = "/healthz", port }
         , -- ⚠ **NOT `/healthz`, AND THAT IS THE WHOLE POINT.** The line above is
@@ -309,6 +310,7 @@ in  { name = "signal"
         , probeTiming =
             { readiness = { initialDelaySeconds = 2, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 5, periodSeconds = 20 }
+            , startup = None T.StartupTiming
             }
         , probe = T.Probe.Http { path = "/healthz", port = 8080 }
         , -- ⚠ EMPTY, AND THAT IS THE POINT — stated rather than defaulted. No

@@ -105,6 +105,7 @@ in  { name = "vaultwarden"
             , -- None, matching the live pod. A liveness probe that restarts a
               -- vault mid-write buys nothing a readiness probe does not.
               liveness = None { initialDelaySeconds : Natural, periodSeconds : Natural }
+            , startup = None T.StartupTiming
             }
         , -- `/alive` returns 200 with the server time, so a crashing build is
           -- caught instead of marked Ready.

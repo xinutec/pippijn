@@ -287,6 +287,11 @@ in  T.namespaceOf
             -- hostPort, so it CAN roll, and a shorter delay is free.
             { readiness = { initialDelaySeconds = 3, periodSeconds = 10 }
             , liveness = Some { initialDelaySeconds = 15, periodSeconds = 20 }
+            , -- Migrations run before the port opens, and one on a big table
+              -- (the `osm_lines` index, health #1921) outran the liveness probe:
+              -- the container was killed twice at ~95 s. Ten minutes, asked
+              -- every ten seconds; liveness takes over at the first answer.
+              startup = Some { periodSeconds = 10, failureThreshold = 60 }
             }
         , -- ⚠ A LIVENESS PROBE IS NEW — the live Deployment has readiness only, and
           -- it is safe HERE because a `tcpSocket` check is answered by the kernel's

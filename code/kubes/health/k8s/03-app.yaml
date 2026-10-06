@@ -108,6 +108,11 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
+        startupProbe:
+          failureThreshold: 60
+          periodSeconds: 10
+          tcpSocket:
+            port: 3000
         volumeMounts:
         - mountPath: /tmp
           name: tmp

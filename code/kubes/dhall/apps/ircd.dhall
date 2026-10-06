@@ -124,6 +124,7 @@ in  { name = "ircd"
           { readiness = { initialDelaySeconds = 5, periodSeconds = 10 }
           , liveness =
               None { initialDelaySeconds : Natural, periodSeconds : Natural }
+          , startup = None T.StartupTiming
           }
         , -- ⚠ The live container states NO resources at all. Inventing a request
           -- to satisfy the type would restart a running IRC server for the
