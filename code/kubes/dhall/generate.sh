@@ -17,6 +17,10 @@ set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 kubes=$(cd "$here/.." && pwd)
+# nixos-config holds a COPY of frontdoor.json: it is public and this repository is
+# not, so it pins the table rather than importing it. Where its checkout sits beside
+# this one (the Mac), --sync writes the copy; anywhere else there is none to write.
+nixos_copy=${NIXOS_CONFIG:-$HOME/Code/nixos-config}/frontdoor.json
 
 # Toolchain pinned via dhall/flake.lock. The guard stops a re-exec loop if the
 # dev shell somehow still lacks the tool.
@@ -928,6 +932,11 @@ else
     sed 's/^/   /' "$tmp/frontdoor.diff" >&2
     status=1
   fi
+  # nixos-config's copy is reported, not failed: it lands by that repository's
+  # own branch-and-deploy flow, so a model change here is legitimately ahead of it.
+  if [[ -f $nixos_copy ]] && ! printf '%s\n' "$frontdoor_rendered" | cmp -s - "$nixos_copy"; then
+    printf 'generate.sh: %s differs from the model; --sync writes it, then commit it there.\n' "$nixos_copy" >&2
+  fi
 fi
 
 [[ $mode == write ]] && echo "rendered to $here/generated/ and $here/clusters.json"
@@ -977,6 +986,10 @@ if [[ $sync == 1 && $status == 0 ]]; then
     site=$(basename "$src" .dhall)
     sync_tree "$site" "$here/generated/site-$site" "$kubes/$(site_tree "$site")" "dhall/sites/$site.dhall"
   done
+  if [[ -f $nixos_copy ]] && ! cmp -s "$here/frontdoor.json" "$nixos_copy"; then
+    cp "$here/frontdoor.json" "$nixos_copy"
+    printf 'synced %s — commit it there on a wip branch and deploy\n' "$nixos_copy"
+  fi
   [[ $status == 0 ]] && exec "${BASH_SOURCE[0]}" --check
 fi
 exit $status
