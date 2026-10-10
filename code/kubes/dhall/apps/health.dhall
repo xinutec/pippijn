@@ -575,8 +575,11 @@ in  T.namespaceOf
                   , "2026-09-15"
                   , "2026-08-06"
                   , "2026-07-12"
+                  , -- A travel day: 10-08's cross-France train OOM-killed the
+                    -- serving pod (health #1949) while every day above passed.
+                    "2026-10-08"
                   ]
-              , -- Six folds at up to a minute each on a cold pod, plus the Lean start.
+              , -- Seven folds at up to a minute each on a cold pod, plus the Lean start.
                 deadlineSeconds = 1500
               , suspended = True
               , rootFs = T.RootFs.ReadOnly
