@@ -68,3 +68,14 @@ revokes and opening a query grants, with nothing to edit and nothing to reload.
 app addresses conversations by their id in the ARCHIVE, so one that no import
 has seen yet cannot be named at all.
 EOF
+
+# recall's transcriber's token: its own secret, as the send key is, so rotating
+# either touches nothing else. The same token goes into the Mac agent that runs
+# recall's `runner` against messages (RECALL_SYNC_TOKEN there). Optional for the
+# pod: without it, the transcriber's routes are simply not mounted.
+cat <<'EOF'
+The transcriber's token, made once and given to the Mac's runner as well:
+
+  kubectl -n signal create secret generic messages-transcriber \
+    --from-literal=TOKEN="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+EOF

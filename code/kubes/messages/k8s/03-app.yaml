@@ -67,6 +67,12 @@ spec:
           value: "/ssh-irc"
         - name: IRC_SEND_WORK_DIR
           value: /run/irc
+        - name: TRANSCRIBER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: TOKEN
+              name: "messages-transcriber"
+              optional: true
         image: "xinutec/messages:latest"
         livenessProbe:
           httpGet:
