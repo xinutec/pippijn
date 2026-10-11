@@ -1189,8 +1189,17 @@ let deploymentFor
                 )
                 False
 
+        let accountForbidsRolling =
+            -- And a fact about something outside the cluster, which the
+            -- workload states. See `T.Instances`.
+              merge
+                { Overlapping = False
+                , OneAtATime = λ(_ : { why : Text }) → True
+                }
+                w.instances
+
         let strategy =
-              if    reachForbidsRolling || volumeForbidsRolling
+              if    reachForbidsRolling || volumeForbidsRolling || accountForbidsRolling
               then  Some { type = "Recreate" }
               else  None { type : Text }
 

@@ -562,6 +562,22 @@ let NetpolRule =
       , ports : List { port : Natural, protocol : Text }
       }
 
+let Instances =
+      --| May two pods of one workload run at once, for a fact OUTSIDE the cluster?
+      --
+      -- `Writers` answers this for a volume and the reach answers it for a
+      -- hostPort; neither sees an account that admits one client at a time. A
+      -- rolling update starts the new pod before stopping the old, so both hold
+      -- the account for a few seconds.
+      --
+      -- `OneAtATime` renders `strategy: Recreate`. It carries `why`, since it
+      -- costs every rollout a gap; `Overlapping` is what each workload did before
+      -- this field existed, which is why it is the default.
+      < Overlapping
+      | --| Stop the old pod before starting the new, and `why`.
+        OneAtATime : { why : Text }
+      >
+
 let WorkloadType =
       --| A long-running container plus the Service in front of it.
       { name : Text
@@ -658,6 +674,8 @@ let WorkloadType =
         -- is gone from the Service before the process stops accepting. `None`
         -- stops at once, which can answer a request mid-rollout with a 502.
         drainSeconds : Optional Natural
+      , -- May an old and a new pod run at once during a rollout? See `Instances`.
+        instances : Instances
       }
 
 let Workload =
@@ -686,6 +704,7 @@ let Workload =
         , containerName = None Text
         , drainSeconds = None Natural
         , ingress = None (List NetpolRule)
+        , instances = Instances.Overlapping
         }
       }
 
@@ -1129,6 +1148,7 @@ in  { Cluster
     , FsGroupChange
     , Claim
     , Writers
+    , Instances
     , Storage
     , Hardening
     , RootFs

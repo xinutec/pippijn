@@ -594,13 +594,19 @@ in  { name = "signal"
           -- session: two pods are two sessions, each acknowledging update state the
           -- other needs, which is how an archive develops a gap nothing reports.
           -- The binary runs them as concurrent tasks so a message arriving now does
-          -- not wait on a decade of backfill.
+          -- not wait on a decade of backfill. A rollout is two pods too, for its
+          -- few seconds of overlap, hence `instances` below.
           --
           -- ⚠ THE FIRST RUN NEEDS A HUMAN, once per account lifetime: `telegram
           -- login` is interactive. The pod REFUSES to start until a session exists
           -- rather than retrying, because a feed quietly not logged in looks exactly
           -- like a quiet week.
           command = Some [ "/usr/local/bin/telegram" ]
+        , instances =
+            T.Instances.OneAtATime
+              { why =
+                  "one Telegram session: two pods each acknowledge update state the other needs; the feed catches up on start, so the gap costs nothing"
+              }
         , -- Not reachable; required by `T.Workload`. 443 is the port MTProto
           -- actually leaves on, so it is the honest value to carry.
           port = 443

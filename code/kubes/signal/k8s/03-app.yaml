@@ -272,6 +272,8 @@ spec:
   selector:
     matchLabels:
       app: "signal-telegram"
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
