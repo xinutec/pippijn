@@ -71,7 +71,7 @@ in  { name = "vaultwarden"
           reach =
             T.Reach.Ingress { host = dns.vault, exposure = T.Exposure.VpnOnly }
         , image =
-            T.Image.Upstream { repo = "vaultwarden/server", tag = "1.37.3-alpine" }
+            T.Image.Upstream { repo = "vaultwarden/server", tag = "1.37.4-alpine" }
         , port
         , uid = 65532
         , selector = T.Selector.App
