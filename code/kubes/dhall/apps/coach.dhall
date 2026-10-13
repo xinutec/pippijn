@@ -91,9 +91,9 @@ in  T.namespaceOf
             }
           , { -- What coach presents to health. Optional, and deliberately so:
               -- unset, location auto-detect for a session is off and picking the
-              -- venue by hand still works. `secret.sh` does not write this key —
-              -- the feature is opt-in per deployment, and a required reference
-              -- would leave the pod unable to start until someone did.
+              -- venue by hand still works. Its origin is `Shared`: a person gives
+              -- it, so the feature is opt-in per deployment, and a required
+              -- reference would leave the pod unable to start until someone did.
               name = "HEALTH_SERVICE_TOKEN"
             , value = optionalSecret keys.HEALTH_SERVICE_TOKEN
             }

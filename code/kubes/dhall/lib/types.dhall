@@ -714,8 +714,8 @@ let Database =
       --  a fleet-wide major bump is one edit instead of six identical ones.
       --
       -- `keys` comes from the app's declared secret record rather than being
-      -- hardcoded, so what MariaDB reads and what `secret.sh` writes are one
-      -- expression.
+      -- hardcoded, so what MariaDB reads and what the provisioner writes are
+      -- one expression.
       { dbName : Text
       , storageGi : Natural
       , -- InnoDB's buffer pool, in GiB. `None` leaves the engine's 128 MiB default —
@@ -799,8 +799,8 @@ let SecretKey =
       { mapKey : Text, mapValue : Text }
 
 let Origin =
-      --| Where a declared key's VALUE comes from — what `secret.sh` knew and the
-      --  model did not. Rendered into `secrets.json` for `plan-run secrets`,
+      --| Where a declared key's VALUE comes from — what each app's `secret.sh`
+      --  knew and the model did not. Rendered into `secrets.json` for `plan-run secrets`,
       --  which makes the keys it can and names the ones a person must give.
       --
       -- ⚠ NO VALUE LIVES HERE. `Literal` is the one arm with a value, and it is

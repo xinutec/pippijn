@@ -19,7 +19,7 @@ let port = 8000
 let keys =
       -- The keys as a RECORD, so a typo is a type error rather than a pod that boots
       -- with an empty credential. `secrets = toMap keys` publishes the same
-      -- expressions `secret.sh` writes.
+      -- expressions the provisioner writes.
       { SYNC_TOKEN = "SYNC_TOKEN"
       , SESSION_SECRET = "SESSION_SECRET"
       , NC_CLIENT_ID = "NC_CLIENT_ID"

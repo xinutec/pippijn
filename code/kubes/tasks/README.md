@@ -13,9 +13,10 @@ the model and re-render (`dhall/generate.sh`); hand edits are overwritten.
 `dhall/generate.sh --check` reports whether the model and this tree still
 describe the same cluster.
 
-`k8s/secret.sh` is not generated — it is the one thing that must be run on isis
-with a person present, because it reads the OAuth client secret from the keyboard
-and prints the agent token to the screen rather than putting either in a file.
+The Secret is provisioned from the model by `plan-run secrets` (see
+`code/kubes/README.md`, "Secrets"): the database credentials, the session
+secret and the agent token are generated; the OAuth client is the one thing a
+person gives, with `--values`.
 
 ## The database is the record, and that is why it is backed up
 
@@ -69,12 +70,19 @@ cat k8s/03-app.yaml | ssh root@isis.xinutec.org 'kubectl apply -f -'
 ## First-time setup
 
 ```sh
-# On isis, as root — prompts for the OAuth client, prints the agent token.
-./k8s/secret.sh
+# From the Mac: make the keys, giving the OAuth client in a 600 file.
+plan-run secrets --local-repo ~/Code/pippijn/code/kubes --settings … --values FILE --apply
 
-# On the Mac, with the token it printed.
-umask 077 && mkdir -p ~/.config/tasks && cat > ~/.config/tasks/token
+# The agent token, read from the live Secret into the Mac's file.
+umask 077 && mkdir -p ~/.config/tasks
+ssh root@isis kubectl -n tasks get secret tasks-secret -o jsonpath='{.data.AGENT_TOKEN}' \
+  | base64 -d > ~/.config/tasks/token
 ```
+
+⚠ The plan never rewrites a key it finds, so re-running it is safe once the app
+holds work. Rotating `DB_PASSWORD` for real means changing it in MariaDB and
+removing the key from the Secret together; rotating the agent token costs every
+Mac session its list until the new one is copied across.
 
 The OAuth2 client is registered in Nextcloud admin → Settings → Security →
 OAuth 2.0, redirect `https://tasks.xinutec.org/auth/callback`.

@@ -43,37 +43,71 @@ uncommitted edit no longer works, which is the guards doing their job.
   Deployment explicitly got this right, and an early version of the replacement
   did not.
 
-## Secrets, and why most `secret.sh` are readable
+## Secrets
 
-Each app has a `k8s/secret.sh`, run once on the host to create its k8s secret.
-**23 of the 25 are plaintext in git, and that is correct**: they generate every
-credential at run time (`/dev/urandom`), so the only literals in them are
-usernames like `DB_USER=coach`.
+Each app's Secret is provisioned from the model, not by a script. `apps/<app>.dhall`
+declares every key and, in `origins`, where its value comes from; `generate.sh`
+renders that to `dhall/secrets.json` with no value in it, and `plan-run secrets`
+(xinutec-infra) reads the table and the cluster:
 
-⚠ Generate into a **variable on its own line**, never inline in an argument:
-`openssl` is not on isis's root PATH, and a command substitution expanded into an
-argument has its status discarded, so `set -e` cannot see it fail. That produced
-an all-empty secret, created successfully. Enforced since 2026-08-08 by
-`DL-SHELL-FROM-LITERAL-SUBSTITUTION`.
+```sh
+cd ~/Code/xinutec-infra/plan
+./target/release/plan-run secrets --local-repo ~/Code/pippijn/code/kubes \
+  --settings settings.json            # which declared keys are missing, by name
+./target/release/plan-run secrets --local-repo ~/Code/pippijn/code/kubes \
+  --settings settings.json --apply    # make the ones a tool can
+```
 
-The two that DO hold literal credentials — `nextcloud/nextcloud/secret.sh` and
-`health/k8s/secret.sh` — are the two encrypted with git-crypt. The rule for the
-first lives in a **nested** `.gitattributes` beside it, not in the repo root's,
-so the root list is not the whole picture.
+- A **generated** key is random bytes, made at that moment and never shown; a
+  **derived** one is composed from its siblings (`DATABASE_URL`); a **literal**
+  one is a value that is not secret (`DB_USER`). All three are made where
+  missing and never over a key the Secret holds.
+- A **typed** key is a person's: the table's `note` says where it comes from
+  (the Nextcloud OAuth2 client, the Fitbit application, …). Give it for one run
+  in a file of `<app>.<KEY>=<value>` lines, mode 600, with `--values FILE`; the
+  value is read at the moment of acting and is in no argument, log or plan.
+  Without it the run stops naming the key.
+- A **shared** key is a list of per-holder entries (`FLEETWATCH_TOKENS`,
+  `INGEST_TOKENS`), given whole the same way; xinutec-infra's credentials table
+  names each holder's copy and checks it hourly.
 
-This repository is **public**, and it is **unlocked in a working checkout**. Those
-two files therefore read as plaintext locally while being ciphertext on GitHub.
-Do not judge exposure by opening the file; ask git what it stores:
+A generated token that a holder needs (the Mac's tasks token, recall's sync
+token) is read from the live Secret, not printed anywhere:
+
+```sh
+ssh root@isis kubectl -n tasks get secret tasks-secret -o jsonpath='{.data.AGENT_TOKEN}' | base64 -d
+```
+
+**Rotating** a key is removing it and running again — and for a database
+password, changing it in MariaDB too, which the plan does not do:
+
+```sh
+ssh root@isis kubectl -n coach patch secret coach-secret --type json \
+  -p '[{"op":"remove","path":"/data/SESSION_SECRET"}]'
+```
+
+The apps with more to do than keys — a linked device, an ssh key to another
+cluster, a token handed to a phone — say so in their own `k8s/README.md`.
+
+The one script left, `nextcloud/nextcloud/secret.sh`, holds literal credentials
+and is encrypted with git-crypt; its rule lives in a **nested** `.gitattributes`
+beside it, not in the repo root's. This repository is **public**, and it is
+**unlocked in a working checkout**, so that file reads as plaintext locally
+while being ciphertext on GitHub. Do not judge exposure by opening a file; ask
+git what it stores:
 
 ```
 git cat-file blob HEAD:code/kubes/nextcloud/nextcloud/secret.sh | head -c 16
 ```
 
 A `\x00GITCRYPT` prefix means encrypted. Reading the working tree instead produced
-a false "credentials have been public for 19 months" report on 2026-08-07.
+a false "credentials have been public for 19 months" report on 2026-08-07, and a
+second one on 2026-10-13 about health's former `secret.sh`.
 
-**Adding an app whose secret.sh needs a literal? Add its git-crypt rule first,
+**Adding a file that needs a literal credential? Add its git-crypt rule first,
 then the literal** — in that order, or the plaintext is in history for good.
+A key's VALUE never belongs in the model: `Literal` is for a value that is not
+secret.
 
 ## Helm releases
 

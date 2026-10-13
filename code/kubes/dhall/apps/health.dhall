@@ -403,8 +403,8 @@ in  T.namespaceOf
                     , { -- ⚠ A SECRET THIS MODEL DOES NOT OWN. The refresh token is
                         -- long-lived and the credentials are managed by hand in
                         -- `health-google`, so
-                        -- they are not in `secrets` above and `secret.sh` does not
-                        -- write them. `FromUnmanagedSecret` is how that is said out
+                        -- they are not in `secrets` above and no provisioner writes
+                        -- them. `FromUnmanagedSecret` is how that is said out
                         -- loud instead of being a name that happens to differ.
                         name = "GH_CLIENT_ID"
                       , value = google "GH_CLIENT_ID"

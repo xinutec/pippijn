@@ -10,9 +10,9 @@ The manifests in `k8s/` are **generated** from `dhall/apps/memview.dhall`. Chang
 model and re-render (`dhall/generate.sh`); hand edits are overwritten. `dhall/generate.sh
 --check` reports whether the model and this tree still describe the same cluster.
 
-`k8s/secret.sh` is not generated — it is the one thing that must be run on isis with a
-human present, because it reads the OAuth client secret from the keyboard rather than from
-a file or an argument.
+The Secret is provisioned from the model by `plan-run secrets` (see
+`code/kubes/README.md`, "Secrets"): the session secret is generated; the OAuth
+client is the one thing a person gives, with `--values`.
 
 ## The corpus is not in the image
 
@@ -49,8 +49,8 @@ cat k8s/03-app.yaml | ssh root@isis.xinutec.org 'kubectl apply -f -'
 ## First-time setup
 
 ```sh
-# On isis, as root — prompts for the OAuth client id and secret.
-./k8s/secret.sh
+# From the Mac: make the keys, giving the OAuth client in a 600 file.
+plan-run secrets --local-repo ~/Code/pippijn/code/kubes --settings … --values FILE --apply
 
 # From the Mac, once the pod is Running.
 ~/Code/memview/scripts/sync.sh

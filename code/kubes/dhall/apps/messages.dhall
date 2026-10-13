@@ -188,7 +188,7 @@ in  { name = "signal"
           , { name = "IRC_SEND_KEY_DIR", value = lit sendKeyMount }
           , { name = "IRC_SEND_WORK_DIR", value = lit sendWorkMount }
           , { -- recall's transcriber's bearer token, its own secret with its own
-              -- lifetime (`secret.sh`). Optional: absent, the app mounts none of
+              -- lifetime (k8s/README.md). Optional: absent, the app mounts none of
               -- the transcriber's routes.
               name = "TRANSCRIBER_TOKEN"
             , value =
