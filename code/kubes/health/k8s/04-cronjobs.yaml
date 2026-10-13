@@ -370,6 +370,11 @@ spec:
               value: '1'
             - name: USE_REACQUIRE_ROBUST_SPEED
               value: '1'
+            - name: DECODER_PARAMS_JSON
+              valueFrom:
+                secretKeyRef:
+                  key: params
+                  name: "health-decoder"
             image: "xinutec/health-sync:latest"
             name: "health-decode-recent"
             resources:

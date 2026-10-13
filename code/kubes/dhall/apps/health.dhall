@@ -135,6 +135,16 @@ let decodeFlags
       , { name = "USE_SEGMENT_EVIDENCE", value = lit "1" }
       , { name = "USE_CHAIN_CONTEXT", value = lit "1" }
       , { name = "USE_REACQUIRE_ROBUST_SPEED", value = lit "1" }
+      , { -- The fitted decoder (health `backend::decoder_params`): every fitted
+          -- number and the form they go with, one JSON record. It holds his
+          -- physiology, so it lives in a Secret provisioned from the private
+          -- fits (`tests/golden/fits/decoder-params.json` in health), not in
+          -- this model; refit and replace the Secret together.
+          name = "DECODER_PARAMS_JSON"
+        , value =
+            T.EnvValue.FromUnmanagedSecret
+              { secret = "health-decoder", key = "params", optional = False }
+        }
       ]
 
 in  T.namespaceOf
