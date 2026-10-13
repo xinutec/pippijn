@@ -180,6 +180,7 @@ in  T.namespaceOf
           ]
         }
       , secrets = [] : List T.SecretKey
+      , origins = [] : List T.SecretOrigin
       , -- Default-deny egress with no exceptions: it serves static files and
         -- makes no outbound call at all, not even DNS. Egress-only because k3s
         -- enforces policy through kube-router, which does not exempt

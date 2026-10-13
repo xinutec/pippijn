@@ -83,6 +83,16 @@ in  T.namespaceOf
         , mounts = [] : List T.VolumeMount
         }
       , secrets = toMap keys
+      , origins =
+          toMap
+            { DB_USER = T.Origin.Literal "home"
+            , DB_PASSWORD = T.Origin.Generated { bytes = 16 }
+            , DB_ROOT_PASSWORD = T.Origin.Generated { bytes = 16 }
+            , INGEST_TOKEN = T.Origin.Generated { bytes = 24 }
+            , SESSION_SECRET = T.Origin.Generated { bytes = 32 }
+            , NC_CLIENT_ID = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+            , NC_CLIENT_SECRET = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+            }
       , netpol = T.Netpol.Unpoliced
       }
           : T.App

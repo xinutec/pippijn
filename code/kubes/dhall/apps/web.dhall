@@ -46,6 +46,7 @@ in  { name = "web"
       -- `Owner.Elsewhere` and render their own workloads into this namespace.
       workloads = [] : List T.Workload.Type
     , secrets = [] : List T.SecretKey
+    , origins = [] : List T.SecretOrigin
     , -- ⚠ NOT a policy decision deferred — a namespace with no pods of its own
       -- has nothing to select. The sites' own trees carry their waivers; a
       -- policy here would target an empty pod set and read as protection.

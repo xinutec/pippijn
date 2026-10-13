@@ -32,6 +32,7 @@ in  { name = "ircd"
     , configMap = None T.ConfigMapDoc
     , claims = [ storage ]
     , secrets = [] : List T.SecretKey
+    , origins = [] : List T.SecretOrigin
     , unowned = [] : List T.Unowned
     , -- The client ports stay open to anyone; the server-link port 7005 admits
       -- only the one peer the RUNNING server links to: irc.barfooze.de, from

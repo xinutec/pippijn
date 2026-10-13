@@ -865,6 +865,16 @@ trees_expr() {
 # `messages.dhall` says so in as many words. This renders it rather than leaving
 # the runner to guess — the same argument as trees.json above, and the same
 # failure (#692) that a second source of truth would be.
+secrets_expr() {
+  local leaf
+  printf 'let R = %s/lib/render.dhall\nin  ' "$here"
+  for src in "$here"/apps/*.dhall; do
+    leaf=$(basename "$src" .dhall)
+    printf 'R.secretsOf %s/apps/%s.dhall\n  # ' "$here" "$leaf"
+  done
+  printf '([] : List (%s/lib/secrets.dhall).Entry)\n' "$here"
+}
+
 namespaces_expr() {
   local first=1 leaf
   printf 'toMap\n{ '
@@ -895,6 +905,32 @@ namespaces_rendered=$(namespaces_expr | dhall-to-json 2>"$render_err") || {
   exit 1
 }
 
+secrets_rendered=$(secrets_expr | dhall-to-json 2>"$render_err") || {
+  printf 'generate.sh: the secrets table did not evaluate:\n' >&2
+  cat "$render_err" >&2
+  exit 1
+}
+
+# A declared key with no origin cannot be provisioned, and an origin for a key
+# nobody declares is a typo. Both refused here, in both modes, naming the key.
+# Dhall cannot compare Text, so the join is made here.
+mismatched=$(printf '%s\n' "$secrets_rendered" | python3 -c '
+import json, sys
+for e in json.load(sys.stdin):
+    declared = set(e["declared"]); origins = [k["key"] for k in e["keys"]]
+    for k in sorted(declared - set(origins)):
+        print(e["app"] + ": " + k + " is declared but has no origin")
+    for k in sorted(set(origins) - declared):
+        print(e["app"] + ": " + k + " has an origin but is not declared")
+    for k in sorted({k for k in origins if origins.count(k) > 1}):
+        print(e["app"] + ": " + k + " has two origins")
+')
+if [[ -n $mismatched ]]; then
+  printf 'generate.sh: an app'"'"'s `secrets` and `origins` disagree:\n' >&2
+  printf '%s\n' "$mismatched" | sed 's/^/   /' >&2
+  exit 1
+fi
+
 frontdoor_rendered=$(frontdoor_expr | dhall-to-json 2>"$render_err") || {
   printf 'generate.sh: the front-door table did not evaluate:\n' >&2
   cat "$render_err" >&2
@@ -906,6 +942,7 @@ if [[ $mode == write ]]; then
   printf '%s\n' "$trees_rendered" > "$here/trees.json"
   printf '%s\n' "$namespaces_rendered" > "$here/namespaces.json"
   printf '%s\n' "$frontdoor_rendered" > "$here/frontdoor.json"
+  printf '%s\n' "$secrets_rendered" > "$here/secrets.json"
 else
   if ! printf '%s\n' "$trees_rendered" | diff -u "$here/trees.json" - > "$tmp/trees.diff" 2>/dev/null; then
     printf 'generate.sh: trees.json is stale — the model says otherwise.\n' >&2
@@ -932,6 +969,12 @@ else
     printf 'generate.sh: frontdoor.json is stale — the model says otherwise.\n' >&2
     printf 'Run ./generate.sh to update it; the front-door check reads this file.\n' >&2
     sed 's/^/   /' "$tmp/frontdoor.diff" >&2
+    status=1
+  fi
+  if ! printf '%s\n' "$secrets_rendered" | diff -u "$here/secrets.json" - > "$tmp/secrets.diff" 2>/dev/null; then
+    printf 'generate.sh: secrets.json is stale — the model says otherwise.\n' >&2
+    printf 'Run ./generate.sh to update it; plan-run secrets reads this file.\n' >&2
+    sed 's/^/   /' "$tmp/secrets.diff" >&2
     status=1
   fi
   # nixos-config's copy is reported, not failed: it lands by that repository's

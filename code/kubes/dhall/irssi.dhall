@@ -66,6 +66,7 @@ in  λ ( who
       , configMap = None T.ConfigMapDoc
       , claims = [ storage ]
       , secrets = [] : List T.SecretKey
+      , origins = [] : List T.SecretOrigin
       , unowned = [] : List T.Unowned
       , acme = None T.AcmeDelegation
       , netpol = T.Netpol.Unpoliced

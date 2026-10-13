@@ -798,6 +798,29 @@ let SecretKey =
       --  its fields, which is how a mistyped key becomes a compile error.
       { mapKey : Text, mapValue : Text }
 
+let Origin =
+      --| Where a declared key's VALUE comes from — what `secret.sh` knew and the
+      --  model did not. Rendered into `secrets.json` for `plan-run secrets`,
+      --  which makes the keys it can and names the ones a person must give.
+      --
+      -- ⚠ NO VALUE LIVES HERE. `Literal` is the one arm with a value, and it is
+      -- for a value that is not a secret (a database USER name): the repository
+      -- is public.
+      < --| Random bytes, made by the tool at provisioning and never shown.
+        Generated : { bytes : Natural }
+      | --| Composed from OTHER keys of the same Secret; `{KEY}` names one.
+        Derived : { template : Text }
+      | --| A value the model states, which is not secret.
+        Literal : Text
+      | --| A person provides it; the text says where it comes from.
+        Typed : Text
+      | --| A list of per-holder entries, each holder named in xinutec-infra's
+        --  credentials table; the text says who the holders are.
+        Shared : Text
+      >
+
+let SecretOrigin = { mapKey : Text, mapValue : Origin }
+
 
 let EgressTo =
       --| One thing an app is allowed to reach, and on which ports.
@@ -999,6 +1022,9 @@ let Namespace =
       , claims : List Claim.Type
       , workloads : List Workload.Type
       , secrets : List SecretKey
+      , --| One per declared key, or the key cannot be provisioned: `generate.sh
+        --  --check` refuses a key without an origin.
+        origins : List SecretOrigin
       , netpol : Netpol
       , labels : Labels
       , unowned : List Unowned
@@ -1028,6 +1054,7 @@ let App =
       , configMap : Optional ConfigMapDoc
       , workload : Workload.Type
       , secrets : List SecretKey
+      , origins : List SecretOrigin
       , netpol : Netpol
       }
 
@@ -1094,7 +1121,7 @@ let namespaceOf
                 }
                 a.storage
 
-        in    a.{ name, placement, db, configMap, secrets, netpol }
+        in    a.{ name, placement, db, configMap, secrets, origins, netpol }
             ⫽ { -- An app IS its namespace: it creates the object and every name
                 -- derives from it. So the embedding fills both new fields and no
                 -- model file changes, which is what keeps `--check` a proof
@@ -1162,6 +1189,8 @@ in  { Cluster
     , namespaceOf
     , Database
     , SecretKey
+    , Origin
+    , SecretOrigin
     , Exposure
     , wgAddress
     , Reach

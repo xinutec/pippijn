@@ -134,6 +134,17 @@ in  T.namespaceOf
         , mounts = [] : List T.VolumeMount
         }
       , secrets = toMap keys
+      , origins =
+          toMap
+            { DATABASE_URL = T.Origin.Derived { template = "mysql://{DB_USER}:{DB_PASSWORD}@tasks-db/tasks" }
+            , DB_USER = T.Origin.Literal "tasks"
+            , DB_PASSWORD = T.Origin.Generated { bytes = 24 }
+            , DB_ROOT_PASSWORD = T.Origin.Generated { bytes = 24 }
+            , SESSION_SECRET = T.Origin.Generated { bytes = 36 }
+            , NC_CLIENT_ID = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+            , NC_CLIENT_SECRET = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+            , AGENT_TOKEN = T.Origin.Generated { bytes = 24 }
+            }
       , netpol = T.Netpol.IngressOnly
       }
           : T.App

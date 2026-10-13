@@ -115,6 +115,12 @@ in  T.namespaceOf
         , mounts = [] : List T.VolumeMount
         }
       , secrets = toMap keys
+      , origins =
+          toMap
+            { UTTERANCE_SESSION_SECRET = T.Origin.Generated { bytes = 36 }
+            , NC_CLIENT_ID = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+            , NC_CLIENT_SECRET = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+            }
       , netpol = T.Netpol.IngressOnly
       }
           : T.App

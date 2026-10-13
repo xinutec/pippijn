@@ -339,6 +339,12 @@ in  { name = "signal"
         }
       ]
     , secrets = toMap keys
+    , origins =
+        toMap
+          { SESSION_SECRET = T.Origin.Generated { bytes = 32 }
+          , NC_CLIENT_ID = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+          , NC_CLIENT_SECRET = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+          }
     , -- No policy of its own, and NOT because the namespace is undefended: the
       -- rule that lets this pod reach the ingress controller for its SSO
       -- callback is `messages-egress-sso` in `apps/signal.dhall`. A namespace's

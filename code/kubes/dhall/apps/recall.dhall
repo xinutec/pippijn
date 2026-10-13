@@ -224,6 +224,15 @@ in  T.namespaceOf
           ]
         }
       , secrets = toMap keys
+      , origins =
+          toMap
+            { SYNC_TOKEN = T.Origin.Generated { bytes = 32 }
+            , SESSION_SECRET = T.Origin.Generated { bytes = 36 }
+            , NC_CLIENT_ID = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+            , NC_CLIENT_SECRET = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+            , DEVICE_TOKEN = T.Origin.Generated { bytes = 32 }
+            , INGEST_TOKENS = T.Origin.Shared "one host token per recorder; xinutec-infra's credentials table names geb's"
+            }
       , -- Default-deny egress with exactly one exception besides DNS: the SSO
         -- token exchange with Nextcloud, in-cluster on port 80. Egress-only
         -- because k3s enforces through kube-router, which does not exempt

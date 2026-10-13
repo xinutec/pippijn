@@ -607,6 +607,19 @@ in  T.namespaceOf
             ]
         }
       , secrets = toMap keys
+      , origins =
+          toMap
+            { DB_USER = T.Origin.Literal "health"
+            , DB_PASSWORD = T.Origin.Generated { bytes = 24 }
+            , DB_ROOT_PASSWORD = T.Origin.Generated { bytes = 24 }
+            , FITBIT_CLIENT_ID = T.Origin.Typed "the Fitbit application at dev.fitbit.com"
+            , FITBIT_CLIENT_SECRET = T.Origin.Typed "the Fitbit application at dev.fitbit.com"
+            , NC_CLIENT_ID = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+            , NC_CLIENT_SECRET = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
+            , SESSION_SECRET = T.Origin.Generated { bytes = 32 }
+            , OWNTRACKS_ALLOWED_TOKENS = T.Origin.Shared "one token per OwnTracks device, each set on the phone"
+            , SERVICE_TOKEN = T.Origin.Generated { bytes = 32 }
+            }
       , -- The namespace has no policy of its own, which `generate.sh` records as
         -- the `allow-no-netpol` waiver. Hardening it is network-hardening work
         -- and wants the batch workloads modelled first — a default-deny egress

@@ -18,6 +18,8 @@ let L = ./list.dhall
 
 let F = ./frontdoor.dhall
 
+let S = ./secrets.dhall
+
 let mariadbVersion =
       --| The fleet's MariaDB. Bumping this line bumps every database at once, which
       --  is the entire reason it is a line and not a copy-pasted image string.
@@ -2469,6 +2471,82 @@ let frontDoor
           L.concatMap T.Workload.Type F.Entry (frontDoorOf ns) ns.workloads
         # frontDoorAcme ns
 
+let secretsOf
+    : T.Namespace → List S.Entry
+    =
+      --| This namespace's Secret, every declared key and its origin — the
+      --  table `plan-run secrets` provisions from. A namespace declaring no
+      --  key has no row.
+      --
+      -- Dhall cannot compare two `Text`s, so the keys read optionally are
+      -- rendered as a list for the reader to join: a key every reader marks
+      -- optional is a feature switched off by its absence, which a
+      -- provisioner must not treat as a missing credential.
+      λ(ns : T.Namespace) →
+        let keyNames = L.map T.SecretKey Text (λ(k : T.SecretKey) → k.mapKey) ns.secrets
+
+        let optionalKeys =
+              L.concatMap
+                T.Workload.Type
+                Text
+                ( λ(w : T.Workload.Type) →
+                    L.concatMap
+                      T.EnvVar
+                      Text
+                      ( λ(e : T.EnvVar) →
+                          merge
+                            { Literal = λ(_ : Text) → [] : List Text
+                            , FromSecret =
+                                λ(r : { key : Text, optional : Bool }) →
+                                  if r.optional then [ r.key ] else [] : List Text
+                            , FromUnmanagedSecret =
+                                λ ( _
+                                  : { secret : Text, key : Text, optional : Bool }
+                                  ) →
+                                  [] : List Text
+                            }
+                            e.value
+                      )
+                      w.env
+                )
+                ns.workloads
+
+        let flat =
+              λ(o : T.SecretOrigin) →
+                let base =
+                      { key = o.mapKey
+                      , bytes = None Natural
+                      , template = None Text
+                      , literal = None Text
+                      , note = None Text
+                      }
+
+                in  merge
+                      { Generated =
+                          λ(g : { bytes : Natural }) →
+                            base ⫽ { kind = "generated", bytes = Some g.bytes }
+                      , Derived =
+                          λ(d : { template : Text }) →
+                            base ⫽ { kind = "derived", template = Some d.template }
+                      , Literal =
+                          λ(v : Text) → base ⫽ { kind = "literal", literal = Some v }
+                      , Typed = λ(n : Text) → base ⫽ { kind = "typed", note = Some n }
+                      , Shared = λ(n : Text) → base ⫽ { kind = "shared", note = Some n }
+                      }
+                      o.mapValue
+
+        in  if    Natural/isZero (List/length Text keyNames)
+            then  [] : List S.Entry
+            else  [ { app = slugOf ns
+                    , namespace = ns.name
+                    , secret = secretName ns
+                    , clusters = clusterHosts ns
+                    , declared = keyNames
+                    , optionalKeys
+                    , keys = L.map T.SecretOrigin S.Key flat ns.origins
+                    }
+                  ]
+
 in  { storageWaiverRows
     , hostPathWaiver
     , containerWaivers
@@ -2497,4 +2575,5 @@ in  { storageWaiverRows
     , usesHostPort
     , unownedFiles
     , frontDoor
+    , secretsOf
     }

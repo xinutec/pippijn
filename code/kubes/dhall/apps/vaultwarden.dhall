@@ -57,6 +57,10 @@ in  { name = "vaultwarden"
     , configMap = None T.ConfigMapDoc
     , claims = [ data ]
     , secrets = toMap keys
+    , origins =
+        toMap
+          { ADMIN_TOKEN = T.Origin.Generated { bytes = 32 }
+          }
     , unowned = [] : List T.Unowned
     , netpol = T.Netpol.IngressOnly
     , acme = None T.AcmeDelegation

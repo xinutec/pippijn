@@ -87,6 +87,7 @@ in  T.namespaceOf
         , mounts = [] : List T.VolumeMount
         }
       , secrets = [] : List T.SecretKey
+      , origins = [] : List T.SecretOrigin
       , -- Default-deny egress with NO exceptions: it talks to nothing outside
         -- its own pod. The empty list is the whole statement rather than a
         -- degenerate case.

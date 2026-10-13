@@ -20,6 +20,7 @@ or the cluster while producing it.
 | `lib/render.dhall` | `Namespace` → Kubernetes resources |
 | `lib/site.dhall` | the second type: a static site, which is not an `App` |
 | `lib/list.dhall` | `map`/`concatMap` (hand-written so no remote import is needed) |
+| `lib/secrets.dhall` | the secrets table's type: each app's keys and where each value comes from |
 | `dns.dhall` | every hostname the fleet serves |
 | `apps/*.dhall` | one value per app — the part a human edits |
 | `sites/*.dhall` | one value per static site |
@@ -57,7 +58,13 @@ fact and start being things that don't typecheck:
 - **No undeclared secret key.** Each app declares a `keys` record and refers to
   its fields; `keys.INGST_TOKEN` is a type error rather than a pod that boots
   with an unset variable. `toMap keys` hands the same set to the App, so what
-  MariaDB reads and what `secret.sh` provisions cannot drift.
+  MariaDB reads and what is provisioned cannot drift.
+- **No key without an origin.** Each app says where every key's value comes
+  from (`origins`: generated, derived from other keys, a literal, typed by a
+  person, or shared with holders the credentials table names), rendered to
+  `secrets.json` with no value in it. `generate.sh` refuses a declared key with
+  no origin and an origin for no key; the provisioner reads the table, not the
+  scripts.
 - **No undeclared hostname.** Ingress hosts come from `dns.dhall` as record
   fields. `life`'s OAuth redirect URI is built from the same value the Ingress
   serves, so the callback can't drift from where the app lives.

@@ -682,6 +682,17 @@ in  { name = "signal"
         }
       ]
     , secrets = toMap keys
+    , origins =
+        toMap
+          { DB_USER = T.Origin.Literal "signal"
+          , DB_PASSWORD = T.Origin.Generated { bytes = 32 }
+          , DB_ROOT_PASSWORD = T.Origin.Generated { bytes = 32 }
+          , SIGNAL_NUMBER = T.Origin.Typed "the linked Signal account's number"
+          , IRC_SELF_NICK = T.Origin.Typed "the nick whose IRC lines are Pippijn's own"
+          , IRC_SELF_NICK_ALT = T.Origin.Typed "the nick irssi falls back to on a second connection"
+          , TELEGRAM_API_ID = T.Origin.Typed "the Telegram application at my.telegram.org"
+          , TELEGRAM_API_HASH = T.Origin.Typed "the Telegram application at my.telegram.org"
+          }
     , netpol =
         T.Netpol.Policies
           [ { name = "default-deny-egress"
