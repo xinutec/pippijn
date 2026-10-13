@@ -45,69 +45,44 @@ uncommitted edit no longer works, which is the guards doing their job.
 
 ## Secrets
 
-Each app's Secret is provisioned from the model, not by a script. `apps/<app>.dhall`
-declares every key and, in `origins`, where its value comes from; `generate.sh`
-renders that to `dhall/secrets.json` with no value in it, and `plan-run secrets`
-(xinutec-infra) reads the table and the cluster:
+Each app's Secret is provisioned from the model. `apps/<app>.dhall` declares
+every key and, in `origins`, where its value comes from; `generate.sh` renders
+that to `dhall/secrets.json` (no values); `plan-run secrets` (xinutec-infra)
+reads the table and the cluster:
 
 ```sh
 cd ~/Code/xinutec-infra/plan
-./target/release/plan-run secrets --local-repo ~/Code/pippijn/code/kubes \
-  --settings settings.json            # which declared keys are missing, by name
-./target/release/plan-run secrets --local-repo ~/Code/pippijn/code/kubes \
-  --settings settings.json --apply    # make the ones a tool can
+./target/release/plan-run secrets --local-repo ~/Code/pippijn/code/kubes --settings settings.json           # what is missing
+./target/release/plan-run secrets --local-repo ~/Code/pippijn/code/kubes --settings settings.json --apply   # make it
 ```
 
-- A **generated** key is random bytes, made at that moment and never shown; a
-  **derived** one is composed from its siblings (`DATABASE_URL`); a **literal**
-  one is a value that is not secret (`DB_USER`). All three are made where
-  missing and never over a key the Secret holds.
-- A **typed** key is a person's: the table's `note` says where it comes from
-  (the Nextcloud OAuth2 client, the Fitbit application, …). Give it for one run
-  in a file of `<app>.<KEY>=<value>` lines, mode 600, with `--values FILE`; the
-  value is read at the moment of acting and is in no argument, log or plan.
-  Without it the run stops naming the key.
-- A **shared** key is a list of per-holder entries (`FLEETWATCH_TOKENS`,
-  `INGEST_TOKENS`), given whole the same way; xinutec-infra's credentials table
-  names each holder's copy and checks it hourly.
+- **generated** (random), **derived** (from siblings, `DATABASE_URL`) and
+  **literal** (not secret, `DB_USER`) keys are made where missing, never over
+  a key the Secret holds.
+- **typed** and **shared** keys are a person's: give them for one run in a
+  mode-600 file of `<app>.<KEY>=<value>` lines with `--values FILE`; the
+  table's `note` says where each comes from. Ungiven, the run stops naming the
+  key.
+- A token a holder needs is read from the live Secret, not printed:
+  `ssh root@isis kubectl -n tasks get secret tasks-secret -o jsonpath='{.data.AGENT_TOKEN}' | base64 -d`.
+- Rotation is removing the key and running again; a database password also
+  changes in MariaDB, which the plan does not do.
+- Apps with more than keys (a linked device, an ssh key to another cluster, a
+  token for a phone) say so in their `k8s/README.md`.
 
-A generated token that a holder needs (the Mac's tasks token, recall's sync
-token) is read from the live Secret, not printed anywhere:
-
-```sh
-ssh root@isis kubectl -n tasks get secret tasks-secret -o jsonpath='{.data.AGENT_TOKEN}' | base64 -d
-```
-
-**Rotating** a key is removing it and running again — and for a database
-password, changing it in MariaDB too, which the plan does not do:
-
-```sh
-ssh root@isis kubectl -n coach patch secret coach-secret --type json \
-  -p '[{"op":"remove","path":"/data/SESSION_SECRET"}]'
-```
-
-The apps with more to do than keys — a linked device, an ssh key to another
-cluster, a token handed to a phone — say so in their own `k8s/README.md`.
-
-The one script left, `nextcloud/nextcloud/secret.sh`, holds literal credentials
-and is encrypted with git-crypt; its rule lives in a **nested** `.gitattributes`
-beside it, not in the repo root's. This repository is **public**, and it is
-**unlocked in a working checkout**, so that file reads as plaintext locally
-while being ciphertext on GitHub. Do not judge exposure by opening a file; ask
-git what it stores:
+The one script left, `nextcloud/nextcloud/secret.sh`, holds literals and is
+git-crypt'd (its rule is in a nested `.gitattributes`). This repository is
+public and unlocked in a working checkout, so judge exposure by what git
+stores, not by opening the file:
 
 ```
 git cat-file blob HEAD:code/kubes/nextcloud/nextcloud/secret.sh | head -c 16
 ```
 
-A `\x00GITCRYPT` prefix means encrypted. Reading the working tree instead produced
-a false "credentials have been public for 19 months" report on 2026-08-07, and a
-second one on 2026-10-13 about health's former `secret.sh`.
-
-**Adding a file that needs a literal credential? Add its git-crypt rule first,
-then the literal** — in that order, or the plaintext is in history for good.
-A key's VALUE never belongs in the model: `Literal` is for a value that is not
-secret.
+`\x00GITCRYPT` means encrypted. Reading the working tree instead has produced
+two false "credentials are public" reports. Adding a file with a literal: the
+git-crypt rule first, then the literal. A key's value never belongs in the
+model.
 
 ## Helm releases
 
