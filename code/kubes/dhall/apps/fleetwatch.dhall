@@ -146,8 +146,8 @@ in  T.namespaceOf
             , DB_USER = T.Origin.Literal "fleetwatch"
             , DB_PASSWORD = T.Origin.Generated { bytes = 24 }
             , DB_ROOT_PASSWORD = T.Origin.Generated { bytes = 24 }
-            , FLEETWATCH_TOKENS = T.Origin.Shared "one host:token per producer; xinutec-infra's credentials table names each host's copy"
-            , FLEETWATCH_READ_TOKENS = T.Origin.Shared "the phone's and the Mac's read tokens (Keychain fleetwatch-read-token)"
+            , FLEETWATCH_TOKENS = T.Origin.Shared "one host:token per producer; xinutec-infra's credentials table: fleetwatch-token-<host>"
+            , FLEETWATCH_READ_TOKENS = T.Origin.Shared "the phone's and the Mac's read tokens; xinutec-infra's credentials table: fleetwatch-read-token"
             , SESSION_SECRET = T.Origin.Generated { bytes = 32 }
             , NC_CLIENT_ID = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
             , NC_CLIENT_SECRET = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"

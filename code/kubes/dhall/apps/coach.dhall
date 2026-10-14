@@ -117,7 +117,7 @@ in  T.namespaceOf
             , SESSION_SECRET = T.Origin.Generated { bytes = 36 }
             , NC_CLIENT_ID = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
             , NC_CLIENT_SECRET = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
-            , HEALTH_SERVICE_TOKEN = T.Origin.Shared "health's SERVICE_TOKEN, handed to coach for health-sync's internal API"
+            , HEALTH_SERVICE_TOKEN = T.Origin.Shared "health's SERVICE_TOKEN; xinutec-infra's credentials table: coach-health-service-token"
             }
       , netpol = T.Netpol.IngressOnly
       }

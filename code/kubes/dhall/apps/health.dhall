@@ -617,7 +617,7 @@ in  T.namespaceOf
             , NC_CLIENT_ID = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
             , NC_CLIENT_SECRET = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
             , SESSION_SECRET = T.Origin.Generated { bytes = 32 }
-            , OWNTRACKS_ALLOWED_TOKENS = T.Origin.Shared "one token per OwnTracks device, each set on the phone"
+            , OWNTRACKS_ALLOWED_TOKENS = T.Origin.Shared "one token per OwnTracks device, set on the phone; xinutec-infra's credentials table: owntracks-token"
             , SERVICE_TOKEN = T.Origin.Generated { bytes = 32 }
             }
       , -- The namespace has no policy of its own, which `generate.sh` records as

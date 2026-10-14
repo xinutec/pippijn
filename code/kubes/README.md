@@ -62,7 +62,9 @@ cd ~/Code/xinutec-infra/plan
 - **typed** and **shared** keys are a person's: give them for one run in a
   mode-600 file of `<app>.<KEY>=<value>` lines with `--values FILE`; the
   table's `note` says where each comes from. Ungiven, the run stops naming the
-  key.
+  key. A shared key's holders are rows of xinutec-infra's
+  `plan/tables/credentials_rows.dhall`, which fleet_health compares with the
+  key; the run refuses a shared key no row names.
 - A token a holder needs is read from the live Secret, not printed:
   `ssh root@isis kubectl -n tasks get secret tasks-secret -o jsonpath='{.data.AGENT_TOKEN}' | base64 -d`.
 - Rotation is removing the key and running again; a database password also
