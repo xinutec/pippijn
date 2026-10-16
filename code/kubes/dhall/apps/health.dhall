@@ -132,7 +132,6 @@ let decodeFlags
       -- replay decodes the same day the cron wrote. Rationale and the open defect
       -- (#366) are at the cron: kubes/health/k8s/08-decode-recent.yaml.
       [ { name = "USE_CADENCE_IMPUTATION", value = lit "1" }
-      , { name = "USE_SEGMENT_EVIDENCE", value = lit "1" }
       , { name = "USE_CHAIN_CONTEXT", value = lit "1" }
       , { name = "USE_REACQUIRE_ROBUST_SPEED", value = lit "1" }
       , { -- The fitted decoder (health `backend::decoder_params`): every fitted

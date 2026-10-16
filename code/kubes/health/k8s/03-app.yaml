@@ -75,8 +75,6 @@ spec:
               optional: true
         - name: USE_CADENCE_IMPUTATION
           value: '1'
-        - name: USE_SEGMENT_EVIDENCE
-          value: '1'
         - name: USE_CHAIN_CONTEXT
           value: '1'
         - name: USE_REACQUIRE_ROBUST_SPEED
