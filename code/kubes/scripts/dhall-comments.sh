@@ -35,6 +35,8 @@ while IFS= read -r file; do
   [ -n "$file" ] || continue
   # A file being added has no previous version to lose anything against.
   git cat-file -e "HEAD:$file" 2>/dev/null || continue
+  # A file being deleted takes its comments with it, deliberately.
+  [ -e "$file" ] || continue
 
   before=$(git show "HEAD:$file" | comments)
   after=$(comments < "$file")

@@ -1,7 +1,0 @@
-# GENERATED from dhall/apps/overpass.dhall by dhall/generate.sh — do not edit.
-# Change the model and re-render; hand edits are overwritten.
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: overpass
