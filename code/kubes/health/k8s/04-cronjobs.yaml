@@ -416,6 +416,7 @@ spec:
   jobTemplate:
     spec:
       activeDeadlineSeconds: 5400
+      backoffLimit: 0
       template:
         metadata:
           labels:
@@ -458,7 +459,7 @@ spec:
             volumeMounts:
             - mountPath: /tmp
               name: tmp
-          restartPolicy: OnFailure
+          restartPolicy: Never
           securityContext:
             runAsGroup: 1000
             runAsNonRoot: true

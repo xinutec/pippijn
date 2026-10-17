@@ -1556,7 +1556,12 @@ let cronJobsFor
                 , jobTemplate.spec
                   =
                   { activeDeadlineSeconds = t.deadlineSeconds
-                  , backoffLimit = None Natural
+                  , backoffLimit =
+                      merge
+                        { UntilBackoff = None Natural
+                        , Once = λ(_ : { why : Text }) → Some 0
+                        }
+                        t.attempts
                   , -- Named after the task, so a policy can select this job's
                     -- pods and only this job's. See `K.JobSpec`.
                     template.metadata.labels
@@ -1564,7 +1569,12 @@ let cronJobsFor
                   , template.spec
                     =
                     { securityContext = podSecurityContext w.uid (None Natural) w.hardening
-                    , restartPolicy = Some "OnFailure"
+                    , restartPolicy =
+                        merge
+                          { UntilBackoff = Some "OnFailure"
+                          , Once = λ(_ : { why : Text }) → Some "Never"
+                          }
+                          t.attempts
                     , -- The TASK's volumes, not the workload's. A batch job that
                       -- inherited the long-running pod's mounts would get write
                       -- access to that pod's data as a side effect of wanting a

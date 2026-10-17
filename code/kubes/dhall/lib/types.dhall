@@ -407,6 +407,13 @@ let RootFs =
       -- decision nobody disagreed with.
       < ReadOnly | Writable : { why : Text } >
 
+let Attempts =
+      --| What a failed run does: restart in place until the job's backoff gives up,
+      --  or end there and wait for the next schedule.
+      --
+      -- `Once`'s `why` is the reason a retry would do harm.
+      < UntilBackoff | Once : { why : Text } >
+
 let ScheduledTask =
       --| Work that runs on a schedule and exits, as against a `Workload`, which runs
       --  until something stops it.
@@ -419,6 +426,7 @@ let ScheduledTask =
         schedule : Text
       , command : List Text
       , deadlineSeconds : Natural
+      , attempts : Attempts
       , -- ⚠ Modelled because `kubectl patch --suspend` leaves no trace in any repo,
         -- so omitting the field declares a daily job that does not run — worse than
         -- the drift, because it reads as reviewed.
@@ -1179,6 +1187,7 @@ in  { Cluster
     , Storage
     , Hardening
     , RootFs
+    , Attempts
     , Workload
     , Sidecar
     , ScheduledTask

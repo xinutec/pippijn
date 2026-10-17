@@ -382,6 +382,7 @@ in  T.namespaceOf
                 -- own successors is wedged, and `Forbid` means those four never
                 -- started.
                 deadlineSeconds = 3300
+              , attempts = T.Attempts.UntilBackoff
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
               , volumes = tmpVolume
@@ -439,6 +440,7 @@ in  T.namespaceOf
                 -- drops real places (#1140).
                 command = [ "bin/backend", "refresh-focus-places" ]
               , deadlineSeconds = 3300
+              , attempts = T.Attempts.UntilBackoff
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
               , volumes = tmpVolume
@@ -464,6 +466,7 @@ in  T.namespaceOf
               , -- 90 min: the verified rail search runs in BULK here, and the
                 -- decode's railSnap pass is only a lookup into what this fills.
                 deadlineSeconds = 5400
+              , attempts = T.Attempts.UntilBackoff
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
               , volumes = tmpVolume
@@ -476,6 +479,7 @@ in  T.namespaceOf
               , -- Tier 2 of #982: the extraction is Lean.
                 command = [ "bin/backend", "refresh-bus-routes" ]
               , deadlineSeconds = 5400
+              , attempts = T.Attempts.UntilBackoff
               , -- ⚠ OVERPASS 504s ARE ROUTINE, NOT A FAULT — a normal night loses
                 -- several of the 18 tiles. Unattended running is safe because a
                 -- partial run replaces only the tiles that ANSWERED and leaves
@@ -509,6 +513,7 @@ in  T.namespaceOf
                 -- be caught here rather than absorbed. The run uses about a fifth
                 -- of it.
                 deadlineSeconds = 1800
+              , attempts = T.Attempts.UntilBackoff
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
               , volumes = tmpVolume
@@ -526,6 +531,11 @@ in  T.namespaceOf
                 -- a count going UP hides it. #1134, #1153.
                 command = [ "bin/backend", "refresh-rail-stops" ]
               , deadlineSeconds = 5400
+              , attempts =
+                  T.Attempts.Once
+                    { why =
+                        "a run refused below its coverage floor fetches all 36 tiles again from an Overpass that is already refusing it; the next day's run is the retry"
+                    }
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
               , volumes = tmpVolume
@@ -552,6 +562,7 @@ in  T.namespaceOf
               , -- Eleven `MAX(date)` reads over one connection. The 300 s is for a
                 -- database that is slow, not for work.
                 deadlineSeconds = 300
+              , attempts = T.Attempts.UntilBackoff
               , suspended = False
               , rootFs = T.RootFs.ReadOnly
               , volumes = tmpVolume
@@ -590,6 +601,7 @@ in  T.namespaceOf
                   ]
               , -- Seven folds at up to a minute each on a cold pod, plus the Lean start.
                 deadlineSeconds = 1500
+              , attempts = T.Attempts.UntilBackoff
               , suspended = True
               , rootFs = T.RootFs.ReadOnly
               , volumes = tmpVolume

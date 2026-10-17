@@ -394,6 +394,7 @@ in  { name = "signal"
               -- the first run fails exactly once, on the run that matters, and
               -- leaves a half-imported archive to explain.
               deadlineSeconds = 2700
+            , attempts = T.Attempts.UntilBackoff
             , suspended = False
             , -- ⚠ ITS OWN reason, not the ingester's. This runs under that
               -- workload but does something else entirely: `install -m 400
