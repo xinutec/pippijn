@@ -90,11 +90,12 @@ in  { name = "overpass"
                 lit
                   "https://download.geofabrik.de/europe/united-kingdom/england-updates/"
             }
-          , -- The init reads .osm.bz2; this is the README's Geofabrik recipe.
+          , -- The entrypoint saves any download as /db/planet.osm.bz2 and the
+            -- init reads that name as bz2 XML, so the PBF is renamed and converted.
             { name = "OVERPASS_PLANET_PREPROCESS"
             , value =
                 lit
-                  "osmium cat -o /db/planet.osm.bz2 /db/planet.osm.pbf && rm /db/planet.osm.pbf"
+                  "mv /db/planet.osm.bz2 /db/planet.osm.pbf && osmium cat -o /db/planet.osm.bz2 /db/planet.osm.pbf && rm /db/planet.osm.pbf"
             }
           , -- Geofabrik publishes one diff a day.
             { name = "OVERPASS_UPDATE_SLEEP", value = lit "3600" }

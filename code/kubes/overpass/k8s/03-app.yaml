@@ -29,7 +29,7 @@ spec:
         - name: OVERPASS_DIFF_URL
           value: "https://download.geofabrik.de/europe/united-kingdom/england-updates/"
         - name: OVERPASS_PLANET_PREPROCESS
-          value: "osmium cat -o /db/planet.osm.bz2 /db/planet.osm.pbf && rm /db/planet.osm.pbf"
+          value: "mv /db/planet.osm.bz2 /db/planet.osm.pbf && osmium cat -o /db/planet.osm.bz2 /db/planet.osm.pbf && rm /db/planet.osm.pbf"
         - name: OVERPASS_UPDATE_SLEEP
           value: '3600'
         - name: OVERPASS_META
