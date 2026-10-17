@@ -11,6 +11,7 @@
   "memview": "memview/k8s",
   "messages": "messages/k8s",
   "observe": "observe/k8s",
+  "overpass": "overpass/k8s",
   "recall": "recall/k8s",
   "scanner": "scanner/k8s",
   "signal": "signal/k8s",
