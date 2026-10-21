@@ -306,5 +306,19 @@
     "scheme": "https",
     "upstream": "mailu-front.mailu-mailserver.svc.cluster.local",
     "why": "mailu is deployed from its own chart and has never been in this model. Its Ingress names the backend port by NAME (https), which resolves to 443, and carries backend-protocol: HTTPS — the only upstream in the fleet that is not plain http."
+  },
+  {
+    "basicAuth": "mailu-mailserver/webmail-auth",
+    "clusters": [
+      "amun.xinutec.org"
+    ],
+    "exposure": "Public",
+    "host": "mail.xinutec.org",
+    "modelled": false,
+    "path": "/webmail",
+    "port": 443,
+    "scheme": "https",
+    "upstream": "mailu-front.mailu-mailserver.svc.cluster.local",
+    "why": "the same mailu-front as the row above, under a password while its webmail's PHP is unpatched; the Secret is git-crypt'd at kubes/mailu-mailserver/k8s/webmail-auth.yaml."
   }
 ]

@@ -68,4 +68,20 @@ in  [     F.default
         , why =
             "mailu is deployed from its own chart and has never been in this model. Its Ingress names the backend port by NAME (https), which resolves to 443, and carries backend-protocol: HTTPS — the only upstream in the fleet that is not plain http."
         }
+    , -- The webmail behind a password until Mailu ships a PHP past 8.3.36:
+      -- CVE-2026-109618 and -109619 run code unauthenticated on its 8.3.15.
+      -- The mail ports are Mailu's own hostPorts and are not behind this.
+          F.default
+      ⫽ { host = dns.mail
+        , path = "/webmail"
+        , upstream = F.svcFqdn "mailu-front" "mailu-mailserver"
+        , port = 443
+        , scheme = "https"
+        , exposure = "Public"
+        , clusters = [ amun ]
+        , basicAuth = Some "mailu-mailserver/webmail-auth"
+        , modelled = False
+        , why =
+            "the same mailu-front as the row above, under a password while its webmail's PHP is unpatched; the Secret is git-crypt'd at kubes/mailu-mailserver/k8s/webmail-auth.yaml."
+        }
     ] : List F.Entry
