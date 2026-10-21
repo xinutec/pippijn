@@ -269,7 +269,7 @@
     "clusters": [
       "isis.xinutec.org"
     ],
-    "exposure": "Public",
+    "exposure": "VpnOnly",
     "host": "dash.xinutec.org",
     "maxBodySize": "4096m",
     "modelled": false,
