@@ -178,14 +178,11 @@ resource "cloudflare_dns_record" "org_mail" {
   proxied = false
 }
 
-# dash.xinutec.org — Nextcloud on isis, VPN-only until its image carries PHP
-# 8.5.12 (CVE-2026-109618/-109619): the front door serves it on the tunnel
-# address alone. Back to the CNAME `isis.xinutec.org` when it is public again.
 resource "cloudflare_dns_record" "org_dash" {
   zone_id = local.xinutec_org_id
-  type    = "A"
+  type    = "CNAME"
   name    = "dash"
-  content = local.hosts.vpn_isis
+  content = "isis.xinutec.org"
   ttl     = 3600
   proxied = false
 }

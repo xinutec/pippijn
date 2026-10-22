@@ -36,9 +36,7 @@ let amun = "amun.xinutec.org"
 in  [     F.default
       ⫽ { host = dns.dash
         , upstream = F.svcFqdn "nextcloud-server" "nextcloud"
-        , -- VPN-only until the image carries PHP 8.5.12: CVE-2026-109618 and
-          -- -109619 run code unauthenticated on 8.5.11, under attack.
-          exposure = "VpnOnly"
+        , exposure = "Public"
         , clusters = [ isis ]
         , maxBodySize = Some "4096m"
         , readTimeout = Some 300
