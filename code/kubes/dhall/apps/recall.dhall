@@ -30,6 +30,9 @@ let keys =
         -- `<source> <token>` per line. Held as ONE secret value because it is
         -- one table; the per-device split lives in its lines.
         INGEST_TOKENS = "INGEST_TOKENS"
+      , -- Who may sign in: Nextcloud user ids, comma-separated. A Secret rather
+        -- than a literal so the people's names stay out of this public repository.
+        ALLOWED_USERS = "ALLOWED_USERS"
       }
 
 let required = λ(k : Text) → T.EnvValue.FromSecret { key = k, optional = False }
@@ -150,7 +153,10 @@ in  T.namespaceOf
           , { name = "NC_CLIENT_SECRET"
             , value = optional keys.NC_CLIENT_SECRET
             }
-          , { name = "RECALL_ALLOWED_USERS", value = lit "pippijn" }
+          , { -- Absent: recalld lets in its owner alone, never everyone.
+              name = "RECALL_ALLOWED_USERS"
+            , value = optional keys.ALLOWED_USERS
+            }
           , { -- The Android meeting recorder's upload credential. A phone cannot
               -- do the OAuth login — the WebView that can is a SEPARATE app with
               -- its own cookie jar — so without this every `POST /api/sessions`
@@ -232,6 +238,7 @@ in  T.namespaceOf
             , NC_CLIENT_SECRET = T.Origin.Typed "the app's Nextcloud OAuth2 client, Settings > Security on dash"
             , DEVICE_TOKEN = T.Origin.Generated { bytes = 32 }
             , INGEST_TOKENS = T.Origin.Shared "one `<source> <token>` line per recorder; xinutec-infra's credentials table: recall-ingest-token-<source>"
+            , ALLOWED_USERS = T.Origin.Typed "the Nextcloud user ids that may sign in, comma-separated (`occ user:list` on dash)"
             }
       , -- Default-deny egress with exactly one exception besides DNS: the SSO
         -- token exchange with Nextcloud, in-cluster on port 80. Egress-only

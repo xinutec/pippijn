@@ -63,7 +63,11 @@ spec:
               name: "recall-secret"
               optional: true
         - name: RECALL_ALLOWED_USERS
-          value: pippijn
+          valueFrom:
+            secretKeyRef:
+              key: ALLOWED_USERS
+              name: "recall-secret"
+              optional: true
         - name: RECALL_DEVICE_TOKEN
           valueFrom:
             secretKeyRef:
