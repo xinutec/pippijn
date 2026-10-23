@@ -6,11 +6,12 @@ hostnames:
 # fix (CVE-2026-54432/54433, webmail), then to .57 and .61 to close the fleet-check
 # version lag rather than for any specific CVE (.58-.61: Roundcube 1.6.18, three boolean
 # settings that could not be turned off, none of which we set, and a webmail SSO
-# cookie fix). Mailu requires all
+# cookie fix), then to .67 for its webmail's PHP 8.3.36 (CVE-2026-109618/109619,
+# unauthenticated RCE; .61 to .66 carry 8.3.15). Mailu requires all
 # components on one version, so this bumps them together rather than webmail-only. Rolling
 # `front` (which binds the mail ports via hostPort) deadlocks — delete the OLD front pod
 # after sync.sh to hand the ports over (a few seconds' front downtime); see sync.sh.
-mailuVersion: "2024.06.61"
+mailuVersion: "2024.06.67"
 # Roundcube DB password: chart 2.7.x guards it on upgrade (bitnami-common) and demands
 # the existing value. We point at the in-cluster `mailu-roundcube` secret.
 # ⚠ FOOTGUN: if `mailu-roundcube` was created BY the chart, then the moment you set
